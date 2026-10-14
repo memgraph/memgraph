@@ -100,9 +100,10 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
 
     # Prepare all users
     def setup_user():
+        # Own connection: an anonymous session is denied once any user exists.
+        execute_admin_queries(["CREATE USER IF NOT EXISTS admin IDENTIFIED BY 'admin'"])
         execute_admin_queries(
             [
-                "CREATE USER IF NOT EXISTS admin IDENTIFIED BY 'admin'",
                 "GRANT ALL PRIVILEGES TO USER admin",
                 "CREATE USER IF NOT EXISTS user IDENTIFIED BY 'user'",
                 "GRANT ALL PRIVILEGES TO USER user",

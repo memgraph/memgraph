@@ -491,8 +491,8 @@ void Streams::RegisterPulsarProcedures() {
 template <typename TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
                      std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc, InterpreterContext *ic) {
-  // The session principal can outlive its user, so check it live as a trigger's creator is.
-  if (!owner->IsAuthorized({AuthQuery::Privilege::STREAM}, db_acc->name(), &up_to_date_policy)) {
+  // The session principal can outlive its user (dropped between prepare and execution).
+  if (!owner->IsAuthorized({AuthQuery::Privilege::STREAM}, db_acc->name())) {
     throw StreamsException{"The owner of stream '{}' is not authorized to create it!", stream_name};
   }
 
@@ -592,7 +592,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
               query,
               [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
               {});
-          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db, &up_to_date_policy)) {
+          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",

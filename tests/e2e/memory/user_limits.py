@@ -14,8 +14,8 @@ import sys
 from functools import partial
 
 import interactive_mg_runner
-import mgclient
 import pytest
+from auth_helpers import first_user_cursor
 from common import *
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -47,6 +47,36 @@ def add_user(cursor, username, password=None):
     if password is not None:
         return execute_and_fetch_all(cursor, f"CREATE USER {username} IDENTIFIED BY '{password}';")
     return execute_and_fetch_all(cursor, f"CREATE USER {username};")
+
+
+def assert_no_users(connection):
+    # With no user left an anonymous session is valid again, which is what the fixture cleanup connects as.
+    assert execute_and_fetch_all(connection(BOLT_PORT, "main").cursor(), "SHOW USERS") == []
+
+
+def start_main_with_tracking_users(request, connection):
+    """Returns the cursor of user1, the instance's first user, with tracking_user1 and tracking_user2 created.
+
+    The finalizers drop the tracking users, then user1 (dropping it ends its session), then check that no user is left.
+    """
+    request.addfinalizer(lambda: assert_no_users(connection))
+    cursor_main = first_user_cursor(
+        request, lambda username="", password="": connection(BOLT_PORT, "main", username, password), "user1"
+    )
+
+    def drop_tracking_users():
+        execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
+        execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
+
+    request.addfinalizer(drop_tracking_users)
+
+    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
+    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
+    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
+    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    return cursor_main
 
 
 def show_users_func(cursor):
@@ -205,6 +235,8 @@ def test_user_profile_setup(connection, test_name):
 
     # CREATE USER
     execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    # Auth is on from here on: continue as the first user, which holds every privilege.
+    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
     execute_and_fetch_all(cursor_main, "CREATE USER user2")
     execute_and_fetch_all(cursor_main, "GRANT PROFILE_RESTRICTION TO user2")
     execute_and_fetch_all(cursor_main, "GRANT AUTH TO user2")
@@ -214,7 +246,6 @@ def test_user_profile_setup(connection, test_name):
         ("user1",),
     } == show_users_func(cursor_main)()
 
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
     resource_check("user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
     resource_check("user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
 
@@ -449,7 +480,6 @@ def test_user_profile_setup(connection, test_name):
     # assert {("role_profile",), ("user_profile",)} == show_profiles_func(cursor_main)()  # Profile was dropped
 
     # Clean up test objects
-    execute_and_fetch_all(cursor_main, "DROP USER user1")
     execute_and_fetch_all(cursor_main, "DROP USER test_user")
     execute_and_fetch_all(cursor_main, "DROP USER test_user2")
     # execute_and_fetch_all(cursor_main, "DROP USER test_user3")
@@ -458,8 +488,12 @@ def test_user_profile_setup(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP PROFILE user_profile")
     execute_and_fetch_all(cursor_main, "DROP PROFILE role_profile")
 
+    # The first user goes last: it is the only one holding the privileges the cleanup needs. The DROP ends its session.
+    execute_and_fetch_all(cursor_main, "DROP USER user1")
+    assert_no_users(connection)
 
-def test_user_profile_session_tracking(connection, test_name):
+
+def test_user_profile_session_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -477,13 +511,7 @@ def test_user_profile_session_tracking(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -520,15 +548,8 @@ def test_user_profile_session_tracking(connection, test_name):
     resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
     resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
 
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
 
-    # NOTE: Leave this at the end; user1 needs to be the last connection (quick in the conftest)
-    connection(BOLT_PORT, "main", "user1").cursor()
-
-
-def test_user_profile_explicit_tx_memory_tracking(connection, test_name):
+def test_user_profile_explicit_tx_memory_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -546,13 +567,7 @@ def test_user_profile_explicit_tx_memory_tracking(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -647,17 +662,10 @@ def test_user_profile_explicit_tx_memory_tracking(connection, test_name):
 
     # Remove test profile
     execute_and_fetch_all(cursor_main, "DROP PROFILE memory_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Explicit transaction memory tracking tests completed successfully")
 
-    # NOTE: Leave this at the end; user1 needs to be the last connection (quick in the conftest)
-    connection(BOLT_PORT, "main", "user1").cursor()
 
-
-def test_user_profile_implicit_tx_memory_tracking(connection, test_name):
+def test_user_profile_implicit_tx_memory_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -675,13 +683,7 @@ def test_user_profile_implicit_tx_memory_tracking(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -714,14 +716,10 @@ def test_user_profile_implicit_tx_memory_tracking(connection, test_name):
     # Clean up
     connection_user1_implicit.close()
     execute_and_fetch_all(cursor_main, "DROP PROFILE implicit_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Implicit transaction memory tracking tests completed successfully")
 
 
-def test_user_profile_proc_memory_tracking(connection, test_name):
+def test_user_profile_proc_memory_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -741,13 +739,7 @@ def test_user_profile_proc_memory_tracking(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -823,14 +815,10 @@ def test_user_profile_proc_memory_tracking(connection, test_name):
 
     # Clean up
     execute_and_fetch_all(cursor_main, "DROP PROFILE proc_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Procedure memory tracking tests completed successfully")
 
 
-def test_user_profile_local_proc_memory_tracking(connection, test_name):
+def test_user_profile_local_proc_memory_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -850,13 +838,7 @@ def test_user_profile_local_proc_memory_tracking(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -934,17 +916,10 @@ def test_user_profile_local_proc_memory_tracking(connection, test_name):
 
     # Clean up
     execute_and_fetch_all(cursor_main, "DROP PROFILE proc_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Procedure memory tracking tests completed successfully")
 
-    # NOTE: Leave this at the end; user1 needs to be the last connection (quick in the conftest)
-    connection(BOLT_PORT, "main", "user1").cursor()
 
-
-def test_user_profile_proc_w_limit_memory_tracking(connection, test_name):
+def test_user_profile_proc_w_limit_memory_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -964,13 +939,7 @@ def test_user_profile_proc_w_limit_memory_tracking(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -1017,17 +986,10 @@ def test_user_profile_proc_w_limit_memory_tracking(connection, test_name):
 
     # Clean up
     execute_and_fetch_all(cursor_main, "DROP PROFILE proc_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Procedure memory tracking with query memory limit tests completed successfully")
 
-    # NOTE: Leave this at the end; user1 needs to be the last connection (quick in the conftest)
-    connection(BOLT_PORT, "main", "user1").cursor()
 
-
-def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name):
+def test_user_profile_explicit_implicit_tx_memory_tracking(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -1047,13 +1009,7 @@ def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -1092,17 +1048,10 @@ def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name
 
     # Clean up
     execute_and_fetch_all(cursor_main, "DROP PROFILE proc_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Procedure memory tracking with query memory limit tests completed successfully")
 
-    # NOTE: Leave this at the end; user1 needs to be the last connection (quick in the conftest)
-    connection(BOLT_PORT, "main", "user1").cursor()
 
-
-def test_user_profile_memory_tracking_with_gc(connection, test_name):
+def test_user_profile_memory_tracking_with_gc(request, connection, test_name):
     # TEST SESSION AND TRANSACTION MEMORY TRACKING
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "main": {
@@ -1122,13 +1071,7 @@ def test_user_profile_memory_tracking_with_gc(connection, test_name):
 
     # Start single instance
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-    cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-
-    # Create users to test resource tracking
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
-    execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
-    execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
+    cursor_main = start_main_with_tracking_users(request, connection)
 
     def resource_check(username, expected_usage):
         usage = show_resource_usage_func(cursor_main, username)()
@@ -1160,10 +1103,6 @@ def test_user_profile_memory_tracking_with_gc(connection, test_name):
 
     # Clean up
     execute_and_fetch_all(cursor_main, "DROP PROFILE proc_test_profile")
-    # Clean up test users
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
-    execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
-
     print("Procedure memory tracking with query memory limit tests completed successfully")
 
 

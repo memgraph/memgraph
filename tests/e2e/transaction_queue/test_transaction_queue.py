@@ -18,6 +18,7 @@ from typing import List
 
 import mgclient
 import pytest
+from auth_helpers import first_user_cursor
 from common import connect, execute_and_fetch_all
 from neo4j import GraphDatabase
 
@@ -137,15 +138,9 @@ def test_multitenant_transactions():
 def test_admin_has_one_transaction(request):
     """Creates admin and tests that he sees only one transaction."""
     # a_cursor is used for creating admin user, simulates main thread
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
-
-    def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
-
-    request.addfinalizer(on_exit)
 
     admin_cursor = connect(username="admin", password="").cursor()
     process = multiprocessing.Process(target=show_transactions_test, args=(admin_cursor, 1))
@@ -155,15 +150,13 @@ def test_admin_has_one_transaction(request):
 
 def test_user_can_see_its_transaction(request):
     """Tests that user without privileges can see its own transaction"""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER user")
 
     request.addfinalizer(on_exit)
@@ -176,15 +169,9 @@ def test_user_can_see_its_transaction(request):
 
 
 def test_explicit_transaction_output(request):
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
-
-    def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
-
-    request.addfinalizer(on_exit)
 
     admin_connection = connect(username="admin", password="")
     admin_cursor = admin_connection.cursor()
@@ -207,21 +194,27 @@ def test_explicit_transaction_output(request):
 
 def test_superadmin_cannot_see_admin_can_see_admin(request):
     """Tests that superadmin cannot see the transaction created by admin but two admins can see and kill each other's transactions."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
+    # The first user created gets all privileges, so it is a separate root; the superadmin that must
+    # not see other users' transactions is an unprivileged user, as the anonymous session used to be.
+    root_cursor = first_user_cursor(request, connect, "root")
+    execute_and_fetch_all(root_cursor, "CREATE USER superadmin")
+    execute_and_fetch_all(root_cursor, "REVOKE ALL PRIVILEGES FROM superadmin")
+    execute_and_fetch_all(root_cursor, "CREATE USER admin1")
+    execute_and_fetch_all(root_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
+    execute_and_fetch_all(root_cursor, "GRANT DATABASE * TO admin1")
+    execute_and_fetch_all(root_cursor, "CREATE USER admin2")
+    execute_and_fetch_all(root_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
+    execute_and_fetch_all(root_cursor, "GRANT DATABASE * TO admin2")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
+        execute_and_fetch_all(root_cursor, "DROP USER admin1")
+        execute_and_fetch_all(root_cursor, "DROP USER admin2")
+        execute_and_fetch_all(root_cursor, "DROP USER superadmin")
 
     request.addfinalizer(on_exit)
 
     # Admin starts running infinite query
+    superadmin_cursor = connect(username="superadmin", password="").cursor()
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
     admin_connection_2 = connect(username="admin2", password="")
@@ -253,13 +246,18 @@ def test_superadmin_cannot_see_admin_can_see_admin(request):
 def test_admin_sees_superadmin(request):
     """Tests that admin created by superadmin can see the superadmin's transaction."""
     superadmin_connection = connect()
+    execute_and_fetch_all(superadmin_connection.cursor(), "CREATE USER superadmin")
+    # Auth is on now, so an anonymous session is denied: the superadmin is the first user.
+    superadmin_connection = connect(username="superadmin", password="")
     superadmin_cursor = superadmin_connection.cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
-        execute_and_fetch_all(admin_cursor, "DROP USER admin")
+        cleanup_cursor = connect(username="superadmin", password="").cursor()
+        execute_and_fetch_all(cleanup_cursor, "DROP USER admin")
+        execute_and_fetch_all(cleanup_cursor, "DROP USER superadmin")
 
     request.addfinalizer(on_exit)
 
@@ -279,7 +277,7 @@ def test_admin_sees_superadmin(request):
         executing_index = 1
     assert show_results[executing_index][0] == "admin"
     assert show_results[executing_index][2] == ["SHOW TRANSACTIONS"]
-    assert show_results[1 - executing_index][0] == ""
+    assert show_results[1 - executing_index][0] == "superadmin"
     assert show_results[1 - executing_index][2] == ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"]
     # Kill transaction
     long_transaction_id = show_results[1 - executing_index][1]
@@ -289,14 +287,12 @@ def test_admin_sees_superadmin(request):
 
 def test_admin_can_see_user_transaction(request):
     """Tests that admin can see user's transaction and kill it."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER user")
 
     request.addfinalizer(on_exit)
@@ -332,8 +328,7 @@ def test_admin_can_see_user_transaction(request):
 def test_user_cannot_see_admin_transaction(request):
     """User cannot see admin's transaction but other admin can and he can kill it."""
     # Superadmin creates two admins and one user
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
+    superadmin_cursor = first_user_cursor(request, connect, "admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
@@ -342,9 +337,8 @@ def test_user_cannot_see_admin_transaction(request):
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
         execute_and_fetch_all(superadmin_cursor, "DROP USER user")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
 
     request.addfinalizer(on_exit)
 
@@ -386,7 +380,7 @@ def _create_impersonation_users(request, login: str, target: str):
 
     The observer holds TRANSACTION_MANAGEMENT because the superadmin does not see other users' transactions.
     """
-    superadmin_cursor = connect().cursor()
+    superadmin_cursor = first_user_cursor(request, connect, f"{login}_root")
     observer = f"{login}_observer"
     execute_and_fetch_all(superadmin_cursor, f"CREATE USER {observer}")
     execute_and_fetch_all(superadmin_cursor, f"GRANT TRANSACTION_MANAGEMENT TO {observer}")
@@ -486,8 +480,8 @@ def test_impersonating_caller_cannot_terminate_impersonated_users_transaction(re
 
 def test_privilege_fallback_uses_the_impersonated_user(request):
     """TRANSACTION_MANAGEMENT is checked for the impersonated (executing) user, not the login user."""
-    superadmin_cursor = connect().cursor()  # opened before the first user exists
     observer_cursor = _create_impersonation_users(request, "tx_login_p", "tx_target_p")
+    superadmin_cursor = connect(username="tx_login_p_root", password="").cursor()
     for user in ("tx_target_q", "tx_other"):
         execute_and_fetch_all(superadmin_cursor, f"CREATE USER {user}")
         execute_and_fetch_all(superadmin_cursor, f"REVOKE ALL PRIVILEGES FROM {user}")
@@ -529,15 +523,9 @@ def test_privilege_fallback_uses_the_impersonated_user(request):
 
 def test_wildcard_admin_kills_all(request):
     """An admin's TERMINATE TRANSACTIONS "*" kills every other transaction it can see."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
-
-    def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
-
-    request.addfinalizer(on_exit)
 
     victim_connections = [connect(username="admin", password="") for _ in range(2)]
     processes = [
@@ -582,15 +570,13 @@ def test_wildcard_no_transactions_returns_empty():
 
 def test_wildcard_unprivileged_kills_only_own(request):
     """An unprivileged user's wildcard reaches only its own transactions, never anyone else's."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER user")
 
     request.addfinalizer(on_exit)
@@ -646,15 +632,14 @@ def test_wildcard_unprivileged_kills_only_own(request):
 def test_wildcard_across_databases(request):
     """The wildcard is not scoped to the caller's database: one sweep kills transactions on
     every database the caller has TRANSACTION_MANAGEMENT for."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE DATABASE wildcard_db_a")
-    execute_and_fetch_all(superadmin_cursor, "CREATE DATABASE wildcard_db_b")
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    anonymous_cursor = connect().cursor()
+    execute_and_fetch_all(anonymous_cursor, "CREATE DATABASE wildcard_db_a")
+    execute_and_fetch_all(anonymous_cursor, "CREATE DATABASE wildcard_db_b")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
         execute_and_fetch_all(superadmin_cursor, "DROP DATABASE wildcard_db_a")
         execute_and_fetch_all(superadmin_cursor, "DROP DATABASE wildcard_db_b")
 
@@ -725,15 +710,13 @@ def test_wildcard_and_id_share_the_cached_query():
 def test_unauthorized_terminate_reports_not_killed(request):
     """An unprivileged user naming someone else's transaction id gets killed=false, and the
     transaction survives. Reporting killed=true would both lie and confirm the id exists."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER user")
 
     request.addfinalizer(on_exit)
@@ -796,15 +779,9 @@ def test_killing_multiple_non_existing_transactions():
 
 def test_admin_killing_multiple_non_existing_transactions(request):
     # Starting, superadmin admin
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
-
-    def on_exit():
-        execute_and_fetch_all(admin_cursor, "DROP USER admin")
-
-    request.addfinalizer(on_exit)
 
     # Connect with admin
     admin_cursor = connect(username="admin", password="").cursor()
@@ -816,19 +793,25 @@ def test_admin_killing_multiple_non_existing_transactions(request):
         assert results[i][1] == False  # not killed
 
 
-def test_user_killing_some_transactions():
+def test_user_killing_some_transactions(request):
     """Tests what happens when user can kill only some of the transactions given."""
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    superadmin_cursor = first_user_cursor(request, connect, "admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user1")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user1")
 
     # Connect with user in two different sessions
-    admin_cursor = connect(username="admin", password="").cursor()
+    admin_cursor = superadmin_cursor
     execute_and_fetch_all(admin_cursor, "CREATE USER user2")
     execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO user2")
+
+    def on_exit():
+        execute_and_fetch_all(admin_cursor, "DROP USER user1")
+        execute_and_fetch_all(admin_cursor, "DROP USER user2")
+
+    request.addfinalizer(on_exit)
+
     user_connection_1 = connect(username="user1", password="")
     user_cursor_1 = user_connection_1.cursor()
     user_connection_2 = connect(username="user2", password="")

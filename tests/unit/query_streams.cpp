@@ -54,13 +54,13 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
   FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, {}} {}
 
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const override {
+                    std::optional<std::string_view> db_name) const override {
     return true;
   }
 
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override { return {}; }
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
+  bool CanImpersonate(const std::string &target,
                       std::optional<std::string_view> db_name = std::nullopt) const override {
     return true;
   }
@@ -82,11 +82,11 @@ struct UuidUser final : FakeUser {
   std::optional<memgraph::utils::UUID> uuid_;
 };
 
-// Passes a stale cached check but is refused by a live one, as a session principal whose user was dropped.
+// A session principal whose user was dropped: every check is live, so it is refused.
 struct DroppedUser final : FakeUser {
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
-                    std::optional<std::string_view> /*db_name*/, memgraph::query::UserPolicy *policy) const override {
-    return policy != &memgraph::query::up_to_date_policy;
+                    std::optional<std::string_view> /*db_name*/) const override {
+    return false;
   }
 
   std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {

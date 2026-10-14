@@ -66,6 +66,9 @@ def get_instances_description(test_name: str):
             ],
             "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
             "data_directory": f"{get_data_path(FILE, test_name)}/main",
+            # The first created user turns auth on; setup continues as alice, who is granted everything on creation.
+            "username": "alice",
+            "password": "alice",
             # GRANT DATABASE is enterprise-only, so it is issued inside @requires_enterprise tests.
             "setup_queries": [
                 "CREATE USER alice IDENTIFIED BY 'alice'",

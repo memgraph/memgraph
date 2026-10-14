@@ -36,7 +36,7 @@ bool SafeAuth::HasWebsocketPermission() const {
 #else
   const std::string db_name{dbms::kDefaultDB};
 #endif
-  return user_or_role_->IsAuthorized({query::AuthQuery::Privilege::WEBSOCKET}, db_name, &query::up_to_date_policy);
+  return user_or_role_->IsAuthorized({query::AuthQuery::Privilege::WEBSOCKET}, db_name);
 }
 
 bool SafeAuth::AccessControlled() const { return auth_->ReadLock()->AccessControlled(); }

@@ -9,6 +9,7 @@ copy_show_metrics_e2e_python_files(show_metrics_snapshot.py)
 copy_show_metrics_e2e_python_files(show_metrics_recovery.py)
 copy_show_metrics_e2e_python_files(show_metrics_openmetrics_values.py)
 copy_e2e_python_files_from_parent_folder(show_metrics ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(show_metrics ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(show_metrics ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(show_metrics ".." mg_utils.py)
 

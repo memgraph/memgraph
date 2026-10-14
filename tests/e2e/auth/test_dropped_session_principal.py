@@ -51,12 +51,13 @@ def opened():
 
 @pytest.fixture
 def admin(opened):
-    # The first user created turns authentication on, so the bootstrap connection is the only unauthenticated one.
+    # The first user created turns authentication on and ends the bootstrap session, so everything after the
+    # creation runs as that user.
     with GraphDatabase.driver(URI, auth=("", "")) as bootstrap:
         run(bootstrap, "CREATE USER sa IDENTIFIED BY 'sa'")
-        run(bootstrap, "GRANT ALL PRIVILEGES TO sa")
     driver = GraphDatabase.driver(URI, auth=ADMIN)
     opened.append(driver)
+    run(driver, "GRANT ALL PRIVILEGES TO sa")
     yield driver
     try:
         for (name,) in run(driver, "SHOW USERS"):

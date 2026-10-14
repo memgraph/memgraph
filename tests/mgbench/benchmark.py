@@ -785,8 +785,10 @@ def run_isolated_workload_with_authorization(
 
     log.info("Running preprocess AUTH queries")
     vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
-    client.execute(queries=SETUP_AUTH_QUERIES)
+    # The first user is created on an anonymous connection; the rest must run authenticated as that user.
+    client.execute(queries=SETUP_AUTH_QUERIES[:1])
     client.set_credentials(username=USERNAME, password=PASSWORD)
+    client.execute(queries=SETUP_AUTH_QUERIES[1:])
     vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
 
     for query, funcname in queries[group]:

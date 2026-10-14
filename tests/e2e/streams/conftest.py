@@ -29,7 +29,9 @@ import requests
 def connection():
     connection = connect()
     yield connection
-    cursor = connection.cursor()
+    # The anonymous session is denied once a test created a user, so clean up on a new one; the tests drop their users.
+    connection.close()
+    cursor = connect().cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
     for stream_info in stream_infos:

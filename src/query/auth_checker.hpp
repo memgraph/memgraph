@@ -214,7 +214,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
     User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
 
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
-                      std::optional<std::string_view> /*db_name*/, UserPolicy * /*policy*/) const override {
+                      std::optional<std::string_view> /*db_name*/) const override {
       return true;
     }
 
@@ -222,7 +222,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
     std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
-    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
+    bool CanImpersonate(const std::string & /*target*/,
                         std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
       return true;
     }

@@ -65,7 +65,8 @@ int main(int argc, char **argv) {
   mg::Client::Init();
   auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), false);
 
-  RunTestCases<WebsocketClient>(mg_client, std::to_string(FLAGS_monitoring_port));
+  RunTestCases<WebsocketClient>(
+      mg_client, std::to_string(FLAGS_monitoring_port), static_cast<uint16_t>(FLAGS_bolt_port), false);
 
   return 0;
 }

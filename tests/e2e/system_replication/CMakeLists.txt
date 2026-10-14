@@ -8,6 +8,7 @@ copy_e2e_python_files(replication_experiment replicate_parameters.py)
 copy_e2e_python_files(replication_experiment replicate_tenant_profiles.py)
 copy_e2e_python_files(replication_experiment hot_cold_convergence.py)
 copy_e2e_python_files_from_parent_folder(replication_experiment ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(replication_experiment ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(replication_experiment ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(replication_experiment ".." mg_utils.py)
 

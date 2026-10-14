@@ -177,8 +177,13 @@ class Session : public std::enable_shared_from_this<Session<ssl>> {
   std::optional<Credentials> creds_{std::nullopt};
 };
 
-inline std::unique_ptr<mg::Client> GetBoltClient(const uint16_t bolt_port, const bool use_ssl) {
-  auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
+inline std::unique_ptr<mg::Client> GetBoltClient(const uint16_t bolt_port, const bool use_ssl,
+                                                 const Credentials &creds = {}) {
+  auto client = mg::Client::Connect({.host = "127.0.0.1",
+                                     .port = bolt_port,
+                                     .username = std::string{creds.username},
+                                     .password = std::string{creds.passsword},
+                                     .use_ssl = use_ssl});
   MG_ASSERT(client, "Failed to connect!");
 
   return client;
@@ -198,6 +203,7 @@ inline void AddVertex(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("CREATE ();"));
   client->DiscardAll();
 }
+
 inline void AddConnectedVertices(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("CREATE ()-[:TO]->();"));
   client->DiscardAll();
@@ -236,9 +242,12 @@ void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client, const 
 }
 
 template <typename TWebsocketClient>
-void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port) {
+void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port,
+                                     const uint16_t bolt_port, const bool use_ssl) {
   spdlog::info("Starting websocket connection with users.");
   AddUser(mg_client);
+  // Once a user exists, anonymous Bolt sessions are refused; continue as the new user.
+  mg_client = GetBoltClient(bolt_port, use_ssl, {"test", "testing"});
   std::this_thread::sleep_for(std::chrono::seconds(1));
   auto websocket_client = TWebsocketClient({"test", "testing"});
   websocket_client.Connect("127.0.0.1", monitoring_port);
@@ -281,8 +290,9 @@ void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client,
 }
 
 template <typename TWebsocketClient>
-void RunTestCases(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port) {
+void RunTestCases(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port,
+                  const uint16_t bolt_port, const bool use_ssl) {
   TestWebsocketWithoutAnyUsers<TWebsocketClient>(mg_client, monitoring_port);
-  TestWebsocketWithAuthentication<TWebsocketClient>(mg_client, monitoring_port);
+  TestWebsocketWithAuthentication<TWebsocketClient>(mg_client, monitoring_port, bolt_port, use_ssl);
   TestWebsocketWithoutBeingAuthorized<TWebsocketClient>(mg_client, monitoring_port);
 }

@@ -26,6 +26,7 @@ copy_e2e_python_files(durability snapshot_no_space.py)
 
 
 copy_e2e_python_files_from_parent_folder(durability ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(durability ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(durability ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(durability ".." mg_utils.py)
 

@@ -24,6 +24,7 @@ copy_e2e_files(parallel workloads.yaml)
 
 # Copy helper scripts from parent folder
 copy_e2e_python_files_from_parent_folder(parallel ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(parallel ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(parallel ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(parallel ".." mg_utils.py)
 

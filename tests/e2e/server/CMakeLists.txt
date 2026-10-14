@@ -31,3 +31,4 @@ add_dependencies(memgraph__e2e memgraph__e2e__server__tls_certs_dir)
 
 copy_e2e_python_files_from_parent_folder(server ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(server ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(server ".." auth_helpers.py)
