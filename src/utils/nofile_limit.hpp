@@ -34,7 +34,7 @@ struct NoFileRaiseResult {
 inline std::optional<NoFileRaiseResult> RaiseNoFileSoftLimit() {
   rlimit limit{};
   if (getrlimit(RLIMIT_NOFILE, &limit) != 0) return std::nullopt;
-  OriginalNoFileLimit() = limit;
+  if (!OriginalNoFileLimit()) OriginalNoFileLimit() = limit;
   NoFileRaiseResult result{.limit = limit};
   if (limit.rlim_cur < limit.rlim_max) {
     rlimit raised = limit;
