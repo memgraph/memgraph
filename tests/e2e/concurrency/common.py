@@ -31,6 +31,15 @@ def execute_and_fetch_all_with_commit(
     return results
 
 
+def _rollback_and_close(connection: mgclient.Connection) -> None:
+    # Rollback is synchronous, so the server has ended the txn before the next test starts.
+    for step in (connection.rollback, connection.close):
+        try:
+            step()
+        except mgclient.Error:
+            pass
+
+
 @pytest.fixture
 def first_connection(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
@@ -44,6 +53,7 @@ def first_connection(**kwargs) -> mgclient.Connection:
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     connection.autocommit = False
     yield connection
+    _rollback_and_close(connection)
 
 
 @pytest.fixture
@@ -59,6 +69,7 @@ def second_connection(**kwargs) -> mgclient.Connection:
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     connection.autocommit = False
     yield connection
+    _rollback_and_close(connection)
 
 
 @pytest.fixture
