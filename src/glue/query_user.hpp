@@ -32,6 +32,8 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   std::optional<utils::UUID> UserUuid() const override { return user_uuid_; }
 
+  uint64_t PrincipalVersion() const override;
+
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
                       std::optional<std::string_view> db_name = std::nullopt) const override;

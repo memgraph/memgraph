@@ -255,42 +255,49 @@ struct CachedFineGrainedAuth {
   };
 
   std::unique_ptr<FineGrainedAuthChecker> checker;
+  // Replaced checkers stay alive: earlier executions of an open transaction still hold raw pointers to them.
+  std::vector<std::unique_ptr<FineGrainedAuthChecker>> retired;
   std::string db_name;
+  uint64_t principal_version{0};
   State state{State::EMPTY};
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string current_db) {
-    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+    // Must precede the rebuild so it sees current grants.
+    auto const version = user.PrincipalVersion();
+    bool const must_rebuild =
+        state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db || version != principal_version;
 
     if (!must_rebuild) {
       if (checker) checker->UpdateDbAccessor(dba);
       return;
     }
 
-    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    auto fresh = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    if (checker) retired.push_back(std::move(checker));
+    checker = std::move(fresh);
 
+    auto next = State::ACTIVE;
     if (!checker) {
-      db_name = std::move(current_db);
-      state = State::NO_LICENSE;
-      return;
+      next = State::NO_LICENSE;
+    } else if (!checker->NeedsFineGrainedAuthChecker()) {
+      checker.reset();  // not retired: never handed out before Refresh returns
+      next = State::NO_RESTRICTIONS;
     }
-
-    if (!checker->NeedsFineGrainedAuthChecker()) {
-      checker.reset();
-      db_name = std::move(current_db);
-      state = State::NO_RESTRICTIONS;
-      return;
-    }
-
     db_name = std::move(current_db);
-    state = State::ACTIVE;
+    state = next;
+    // Last, after everything that can throw: a failed rebuild must be retried, not recorded as done.
+    principal_version = version;
   }
 
+  void ReleaseRetired() { retired.clear(); }
+
   void Reset() {
-    checker.reset();
+    if (checker) retired.push_back(std::move(checker));
     db_name.clear();
+    principal_version = 0;
     state = State::EMPTY;
   }
 };

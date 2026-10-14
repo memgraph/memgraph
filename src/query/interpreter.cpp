@@ -10420,6 +10420,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 
 void Interpreter::ResetInterpreter() {
   query_executions_.clear();
+  cached_fga_->ReleaseRetired();
   system_transaction_.reset();
   auth_transaction_.reset();
   transaction_queries_->clear();

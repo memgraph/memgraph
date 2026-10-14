@@ -135,10 +135,12 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   }
 
   // Convert from query user to auth user or role
-  // NOTE: Make a copy of the user/role. At preparation time, the interpreter check if the user/role is authorized, and
-  // update (if needed), so no need to update after that.
+  // NOTE: Copy the user/role after refreshing it; a failed refresh throws auth::AuthException. A dropped principal
+  // keeps its last-known grants (RefreshPrincipal only latches dropped_), so its checker is not revoked.
   try {
-    auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
+    auto const &glue_ref = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
+    glue_ref.EnsureFresh();
+    auto glue_user = glue_ref;
     DMG_ASSERT(dba, "DbAccessor must be non-null for fine-grained auth checking");
     if (glue_user.user_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
