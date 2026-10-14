@@ -389,7 +389,6 @@ class Interpreter final {
   ~Interpreter();
 
   void ResetCachedFga();
-  void ReleaseRetiredFga();
   FineGrainedAuthChecker const *GetCachedFga() const;
 
   struct PrepareResult {

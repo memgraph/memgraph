@@ -3877,8 +3877,6 @@ Interpreter::~Interpreter() { Abort(); }
 // NOLINTNEXTLINE(readability-make-member-function-const)
 void Interpreter::ResetCachedFga() { cached_fga_->Reset(); }
 
-void Interpreter::ReleaseRetiredFga() { cached_fga_->ReleaseRetired(); }
-
 FineGrainedAuthChecker const *Interpreter::GetCachedFga() const { return cached_fga_->get(); }
 
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
@@ -10387,7 +10385,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 
 void Interpreter::ResetInterpreter() {
   query_executions_.clear();
-  ReleaseRetiredFga();
+  cached_fga_->ReleaseRetired();
   system_transaction_.reset();
   auth_transaction_.reset();
   transaction_queries_->clear();
