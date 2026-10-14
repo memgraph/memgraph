@@ -3737,7 +3737,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       case 1:
         if (weight_lambda_comes_first) {
           visit_weight_lambda();
-          // A cached query sees literals as parameters, so a constant `true` is left to the runtime check.
+          // The stripper turns literals into parameters, so a constant `true` reaches the runtime check instead.
           if (edge->type_ == EdgeAtom::Type::KSHORTEST && IsBooleanShaped(edge->weight_lambda_.expression)) {
             throw SemanticException("{}", EdgeAtom::kKShortestWeightFirstHint);
           }
