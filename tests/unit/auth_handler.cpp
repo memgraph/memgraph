@@ -3248,6 +3248,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
                              {},
                              {},
                              {},
+                             memgraph::auth::DenyStrength::STRONG,
                              memgraph::auth::UserOrRoleType::ROLE,
                              nullptr,
                              nullptr);
@@ -3337,6 +3338,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
                                       memgraph::auth::MatchingMode::ANY,
                                       memgraph::auth::UserOrRoleType::USER,
                                       memgraph::auth::PropertyPermissionType::READ,
+                                      memgraph::auth::DenyStrength::STRONG,
                                       nullptr,
                                       nullptr);
 
@@ -3345,6 +3347,56 @@ TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
   auto const &props = user->property_access_handler().label_properties();
   std::vector<std::string> emp = {"Employee"};
   EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ), memgraph::auth::PermissionLevel::DENY);
+}
+
+TEST_F(AuthQueryHandlerFixture, WeakDenyPrivilegeOnRole) {
+  auth.value()->SaveRole(memgraph::auth::Role{"weak_role"});
+
+  auth_handler.DenyPrivilege("weak_role",
+                             {memgraph::query::AuthQuery::Privilege::MATCH},
+                             {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {"Person"}}}},
+                             {memgraph::query::AuthQuery::LabelMatchingMode::ANY},
+                             {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {"*"}}}},
+                             memgraph::auth::DenyStrength::WEAK,
+                             memgraph::auth::UserOrRoleType::ROLE,
+                             nullptr,
+                             nullptr);
+
+  auto const role = auth->ReadLock()->GetRole("weak_role");
+  ASSERT_TRUE(role.has_value());
+  EXPECT_NE(role->permissions().denies(), 0);
+  EXPECT_EQ(role->permissions().weak_denies(), role->permissions().denies());
+  auto const &label_rules = role->fine_grained_access_handler().label_permissions().GetRules();
+  ASSERT_EQ(label_rules.size(), 1);
+  EXPECT_NE(label_rules[0].denies, memgraph::auth::FineGrainedPermission::NONE);
+  EXPECT_EQ(label_rules[0].weak_denies, label_rules[0].denies);
+  auto const &edge_permissions = role->fine_grained_access_handler().edge_type_permissions();
+  ASSERT_TRUE(edge_permissions.GetGlobalDenies().has_value());
+  EXPECT_EQ(edge_permissions.GetGlobalWeakDenies(), *edge_permissions.GetGlobalDenies());
+}
+
+TEST_F(AuthQueryHandlerFixture, WeakDenyPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  for (auto const &entity : {"Employee", "*"}) {
+    auth_handler.DenyPropertyPermission(user_name,
+                                        {"salary"},
+                                        {entity},
+                                        memgraph::auth::PropertyEntityKind::NODE,
+                                        memgraph::auth::MatchingMode::ANY,
+                                        memgraph::auth::UserOrRoleType::USER,
+                                        memgraph::auth::PropertyPermissionType::READ,
+                                        memgraph::auth::DenyStrength::WEAK,
+                                        nullptr,
+                                        nullptr);
+  }
+
+  auto const user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  ASSERT_EQ(props.GetRules().size(), 1);
+  EXPECT_EQ(props.GetRules()[0].properties.at("salary").weak_denies, memgraph::auth::PropertyPermissionType::READ);
+  EXPECT_EQ(props.GetGlobalRules().at("salary").weak_denies, memgraph::auth::PropertyPermissionType::READ);
 }
 
 TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
@@ -3432,6 +3484,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser
                                       memgraph::auth::MatchingMode::ANY,
                                       memgraph::auth::UserOrRoleType::USER,
                                       memgraph::auth::PropertyPermissionType::READ,
+                                      memgraph::auth::DenyStrength::STRONG,
                                       nullptr,
                                       nullptr);
 
