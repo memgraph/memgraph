@@ -9,9 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <queue>
+#include <cstdint>
+#include <limits>
+#include <numeric>
 #include <unordered_map>
+#include <vector>
 
+#include <_mgp.hpp>
 #include <mg_exceptions.hpp>
 #include <mg_utils.hpp>
 
@@ -36,48 +40,56 @@ void InsertWeaklyComponentResult(mgp_graph *graph, mgp_result *result, mgp_memor
 
 /// Finds weakly connected components of a graph.
 ///
-/// Time complexity: O(|V|+|E|)
+/// Components are numbered in the order their first vertex is iterated.
+///
+/// Time complexity: O((|V|+|E|) log |V|)
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Weak(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
-    auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kUndirectedGraph);
-
-    std::unordered_map<std::uint64_t, std::uint64_t> vertex_component;
-    std::uint64_t curr_component = 0;
-    for (auto vertex : graph->Nodes()) {
-      if (vertex_component.contains(vertex.id)) continue;
-
-      // Run BFS from current vertex.
-      std::queue<std::uint64_t> q;
-
-      q.push(vertex.id);
-      vertex_component[vertex.id] = curr_component;
-      while (!q.empty()) {
-        auto v_id = q.front();
-        q.pop();
-
-        // Iterate over inbound edges.
-        for (auto neighbor : graph->Neighbours(v_id)) {
-          auto next_id = neighbor.node_id;
-
-          if (vertex_component.contains(next_id)) {
-            continue;
-          }
-          vertex_component[next_id] = curr_component;
-          q.push(next_id);
-        }
+    auto const for_each_vertex = [&](auto &&callback) {
+      auto *vertices_it = mgp::graph_iter_vertices(memgraph_graph, memory);
+      mg_utility::OnScopeExit const delete_vertices_it([&vertices_it] { mgp::vertices_iterator_destroy(vertices_it); });
+      for (auto *vertex = mgp::vertices_iterator_get(vertices_it); vertex;
+           vertex = mgp::vertices_iterator_next(vertices_it)) {
+        callback(vertex);
       }
+    };
 
-      ++curr_component;
-    }
+    std::vector<std::int64_t> memgraph_ids;
+    std::unordered_map<std::int64_t, std::uint64_t> inner_ids;
+    for_each_vertex([&](mgp_vertex *vertex) {
+      auto const memgraph_id = mgp::vertex_get_id(vertex).as_int;
+      inner_ids.emplace(memgraph_id, memgraph_ids.size());
+      memgraph_ids.push_back(memgraph_id);
+    });
 
-    for (const auto [vertex_id, component_id] : vertex_component) {
-      // Insert each weakly component record
-      InsertWeaklyComponentResult(memgraph_graph,
-                                  result,
-                                  memory,
-                                  static_cast<int>(component_id),
-                                  static_cast<int>(graph->GetMemgraphNodeId(vertex_id)));
+    std::vector<std::uint64_t> parent(memgraph_ids.size());
+    std::iota(parent.begin(), parent.end(), 0);
+    auto const find = [&parent](std::uint64_t node) {
+      while (parent[node] != node) node = parent[node] = parent[parent[node]];
+      return node;
+    };
+
+    // An edge to or from a vertex created after the first pass is ignored.
+    for_each_vertex([&](mgp_vertex *source) {
+      auto const from = inner_ids.find(mgp::vertex_get_id(source).as_int);
+      if (from == inner_ids.end()) return;
+      auto *edges_it = mgp::vertex_iter_out_edges(source, memory);
+      mg_utility::OnScopeExit const delete_edges_it([&edges_it] { mgp::edges_iterator_destroy(edges_it); });
+      for (auto *edge = mgp::edges_iterator_get(edges_it); edge; edge = mgp::edges_iterator_next(edges_it)) {
+        auto const to = inner_ids.find(mgp::vertex_get_id(mgp::edge_get_to(edge)).as_int);
+        if (to != inner_ids.end()) parent[find(from->second)] = find(to->second);
+      }
+    });
+
+    constexpr auto kUnnumbered = std::numeric_limits<std::uint64_t>::max();
+    std::vector<std::uint64_t> root_component(memgraph_ids.size(), kUnnumbered);
+    std::uint64_t component_count = 0;
+    for (std::uint64_t node = 0; node < memgraph_ids.size(); ++node) {
+      auto &component_id = root_component[find(node)];
+      if (component_id == kUnnumbered) component_id = component_count++;
+      InsertWeaklyComponentResult(
+          memgraph_graph, result, memory, static_cast<int>(component_id), static_cast<int>(memgraph_ids[node]));
     }
   } catch (const std::exception &e) {
     // We must not let any exceptions out of our module.
