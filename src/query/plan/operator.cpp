@@ -4182,6 +4182,7 @@ class KShortestPathsCursor : public Cursor {
         bfs_in_edge_(mem),
         bfs_out_edge_(mem),
         reverse_dist_(mem),
+        weighted_entries_(mem),
         weighted_pq_(mem),
         search_tree_(mem),
         settled_(mem) {}
@@ -4461,18 +4462,27 @@ class KShortestPathsCursor : public Cursor {
   /// A vertex missing from it cannot reach the target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
-  // A heap by hand, as `candidate_paths_`: `priority_queue::top()` is const, so a pop would copy.
-  utils::pmr::vector<WeightedQueueEntry> weighted_pq_;
+  // The frontier: entries stay put, and the heap orders their indices, so a sift moves 4 bytes, not
+  // two `TypedValue`s. Popped entries stay until the search ends; `uint32_t` covers any search that fits in memory.
+  utils::pmr::vector<WeightedQueueEntry> weighted_entries_;
+  utils::pmr::vector<uint32_t> weighted_pq_;
+
+  struct WeightedIndexComparator {
+    const utils::pmr::vector<WeightedQueueEntry> *entries;
+
+    bool operator()(uint32_t l, uint32_t r) const { return WeightedQueueComparator{}((*entries)[l], (*entries)[r]); }
+  };
 
   void PushWeighted(WeightedQueueEntry &&entry) {
-    weighted_pq_.push_back(std::move(entry));
-    std::push_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedQueueComparator{});
+    weighted_entries_.push_back(std::move(entry));
+    weighted_pq_.push_back(static_cast<uint32_t>(weighted_entries_.size() - 1));
+    std::push_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
   }
 
   WeightedQueueEntry PopWeighted() {
-    std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedQueueComparator{});
+    std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
     // NOLINTNEXTLINE(misc-const-correctness)
-    WeightedQueueEntry entry = std::move(weighted_pq_.back());
+    WeightedQueueEntry entry = std::move(weighted_entries_[weighted_pq_.back()]);
     weighted_pq_.pop_back();
     return entry;
   }
@@ -4871,6 +4881,7 @@ class KShortestPathsCursor : public Cursor {
 
   void ClearWeightedSearchState() {
     weighted_pq_.clear();
+    weighted_entries_.clear();
     search_tree_.clear();
     settled_.clear();
   }
@@ -5113,6 +5124,7 @@ class KShortestPathsCursor : public Cursor {
     }
     ClearWeightedSearchState();
     weighted_pq_.shrink_to_fit();
+    weighted_entries_.shrink_to_fit();
     search_tree_.shrink_to_fit();
     settled_.rehash(0);
   }
