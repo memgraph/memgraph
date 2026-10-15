@@ -33,6 +33,9 @@ target_link_libraries(${test_prefix}eval mg-query)
 add_benchmark(query/reduce_string.cpp)
 target_link_libraries(${test_prefix}reduce_string mg-query)
 
+add_benchmark(writeback_pacing.cpp)
+target_link_libraries(${test_prefix}writeback_pacing mg-utils)
+
 add_benchmark(query/label_wildcard.cpp)
 target_link_libraries(${test_prefix}label_wildcard mg-query)
 
