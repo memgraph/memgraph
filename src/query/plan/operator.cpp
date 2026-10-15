@@ -17,6 +17,7 @@
 #include "query/relations/orderability.hpp"
 
 #include <algorithm>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <charconv>
 #include <cmath>
 #include <compare>
@@ -4370,8 +4371,10 @@ class KShortestPathsCursor : public Cursor {
 
   // The inner search skips these. Blocked edges are rebuilt for every deviation; blocked vertices
   // are the root walked so far, so they only accumulate down the base path.
-  utils::pmr::unordered_set<storage::Gid> blocked_edges_;
-  utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
+  using GidSet = boost::unordered_flat_set<storage::Gid, std::hash<storage::Gid>, std::equal_to<>,
+                                           std::pmr::polymorphic_allocator<storage::Gid>>;
+  GidSet blocked_edges_;
+  GidSet blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
   // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
   // post-filter results wrong. Copied into an arena vector because `EdgeVertexAccessorResult` is not
