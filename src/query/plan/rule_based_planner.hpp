@@ -712,7 +712,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     // A CALL's branches may write, and a later row's predicate must see that, so it reads View::NEW. A fold body
     // cannot write: its predicate reads View::NEW only after a write in the caller's query part, else what a WHERE
-    // there would.
+    // there would. A top-level conditional's predicate runs once, before any branch writes, so either view serves it.
     bool const sees_writes = !context_->in_subquery_body || subquery_branch_after_write_;
     // A CALL's predicate subqueries scan under View::NEW only when a branch writes and an Accumulate follows, so NEW
     // cannot show what a later clause writes for earlier rows.
@@ -721,17 +721,16 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         std::ranges::any_of(conditional.branches, [](const auto &b) { return b.body.writes; });
     bool const scans_see_writes = subquery_branch_after_write_ || accumulated_branch_write;
 
-    std::vector<Symbol> output_symbols;
+    // A UNION's columns are in no settled order, so a UNION first body keeps the symbol generator's name order.
+    bool const first_is_union = conditional.branches.front().body.query_parts.size() > 1;
+    std::vector<Symbol> output_symbols = first_is_union ? conditional.output_symbols : std::vector<Symbol>{};
     std::vector<Conditional::Branch> branches;
     branches.reserve(conditional.branches.size());
     for (const auto &parts : conditional.branches) {
       auto &branch = branches.emplace_back();
       context_->bound_symbols = bound_symbols;
       branch.plan = Plan(parts.body);
-      // A UNION's columns are in no settled order, so a UNION first body keeps the symbol generator's name order.
-      bool const is_first = &parts == &conditional.branches.front();
-      bool const takes_order = is_first && parts.body.query_parts.size() == 1;
-      if (is_first && !takes_order) output_symbols = conditional.output_symbols;
+      bool const takes_order = !first_is_union && &parts == &conditional.branches.front();
       for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
@@ -757,6 +756,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
     }
 
+    DMG_ASSERT(output_symbols.size() == conditional.output_symbols.size(), "The first branch lost a column.");
     bound_symbols.insert(output_symbols.begin(), output_symbols.end());
     auto root = std::make_unique<Conditional>(std::move(input),
                                               std::move(branches),

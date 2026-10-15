@@ -3115,11 +3115,9 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemConte
     named_expr->name_ = std::string(std::any_cast<std::string>(ctx->variable()->accept(this)));
     users_identifiers.insert(named_expr->name_);
   } else {
-    if (in_with_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
-      throw SemanticException("Only variables can be non-aliased in WITH.");
-    }
-    if (in_when_body_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
-      throw SemanticException("Expression in WHEN ... THEN ... must be aliased (use AS)!");
+    if (!utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
+      if (in_with_) throw SemanticException("Only variables can be non-aliased in WITH.");
+      if (in_when_body_) throw SemanticException("Expression in WHEN ... THEN ... must be aliased (use AS)!");
     }
     named_expr->name_ = std::string(ctx->getText());
     named_expr->token_position_ = ctx->expression()->getStart()->getTokenIndex();
