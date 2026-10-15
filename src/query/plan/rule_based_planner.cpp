@@ -1056,6 +1056,13 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // These branches are spliced directly below the OrderBy because they read what Produce writes.
     auto const order_by_branches = body.branches_at(BodyPosition::kOrderBy);
     if (!order_by_branches.comprehensions.empty() || !order_by_branches.subqueries.empty()) return false;
+    // A branch in the projection is already planned below this point and writes its answer once
+    // per row reaching it, so a sort placed in between would leave the projection reading whatever
+    // the last row left behind. The symbol a branch writes hangs off a PatternComprehension or
+    // SubqueryExpression rather than an Identifier, so the sweep below cannot see it and the
+    // branches have to be asked about separately.
+    auto const projection_branches = body.branches_at(BodyPosition::kProjection);
+    if (!projection_branches.comprehensions.empty() || !projection_branches.subqueries.empty()) return false;
     // Everything read below the Limit has to be readable from a row the OrderBy replays, and it
     // can only replay what was already bound when this clause began. That rules out a sort key
     // naming a projected alias, and a projection reading a symbol this clause writes itself, such

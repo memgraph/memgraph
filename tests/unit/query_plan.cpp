@@ -849,6 +849,29 @@ TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
 }
 
+TYPED_TEST(TestPlanner, OrderByLimitWithAnyProjectedBranchStaysAboveProduce) {
+  // Test MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS e ORDER BY n.prop LIMIT 10
+  // A branch in the projection is planned as its own operator below the projection, and it writes
+  // its answer once per row that reaches it. Sinking the sort between the two would leave the
+  // projection reading whichever row ran last. The symbol it writes is not an Identifier the sort
+  // keys or the named expressions name, so the collector that decides the sink cannot see it and
+  // the presence of the branch has to be checked on its own.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(
+          EXISTS_SUBQUERY(exists_subquery), AS("e"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop)), LIMIT(LITERAL(10)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  EXPECT_EQ(dynamic_cast<Produce *>(&plan), nullptr)
+      << "the projection sank above the Limit, leaving the branch that feeds it below the sort";
+}
+
 TYPED_TEST(TestPlanner, OrderByLimitWithProjectedPatternComprehensionStaysAboveProduce) {
   // Test MATCH (n) RETURN [(n)-[]-(m) | 1] AS c ORDER BY n.prop LIMIT 10
   // The sort key reads only `n`, but the projection reads a list the RollUpApply beneath it
