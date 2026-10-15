@@ -148,6 +148,23 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
   });
 }
 
+/// As above, for a fixed set of properties with one value slot each, rather than a map that grows and
+/// shrinks. `ordered_properties` holds the properties in the order their ids sort, and `values` holds
+/// their current values in the same order.
+///
+/// A property the deltas remove leaves Null in its slot, which is what a property the record never
+/// carried reads as, so the set of slots is the same whatever the deltas say.
+inline auto PropertyValues_ActionMethod(std::span<PropertyPath const> ordered_properties,
+                                        std::span<PropertyValue> values) {
+  using enum DeltaAction;
+  return ActionMethod<SET_PROPERTY>([ordered_properties, values](Delta const &delta) {
+    auto const it = std::ranges::lower_bound(
+        ordered_properties, delta.property.key, std::less<>{}, [](PropertyPath const &path) { return path.back(); });
+    if (it == ordered_properties.end() || it->back() != delta.property.key) return;
+    values[static_cast<std::size_t>(std::distance(ordered_properties.begin(), it))] = *delta.property.value;
+  });
+}
+
 template <EdgeDirection dir, typename TSmallVector>
 auto Edges_ActionMethod(TSmallVector &edges, std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
