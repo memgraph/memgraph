@@ -978,6 +978,50 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
   }
 
+  // `ORDER BY ... LIMIT` can choose its rows before the projection runs, which is what makes a
+  // costly named expression affordable: Produce emits exactly one row for every row it reads and
+  // preserves their order, so sorting and limiting underneath it yields the same rows in the same
+  // order, and only the survivors are projected. Everything this needs is checked below; when any
+  // of it does not hold the projection stays underneath, as it must.
+  auto const can_sink_order_by_below_produce = [&] {
+    // Without a Limit every row is projected either way, so there is nothing to save.
+    if (body.order_by().empty() || body.limit() == nullptr) return false;
+    // Distinct and Filter change how many rows reach the Limit, so moving it past them would
+    // change which rows come back.
+    if (body.distinct() || body.where() != nullptr) return false;
+    // These branches are spliced directly below the OrderBy because they read what Produce writes.
+    auto const order_by_branches = body.branches_at(BodyPosition::kOrderBy);
+    if (!order_by_branches.comprehensions.empty() || !order_by_branches.subqueries.empty()) return false;
+    // Everything read below the Limit has to be readable from a row the OrderBy replays, and it
+    // can only replay what was already bound when this clause began. That rules out a sort key
+    // naming a projected alias, and a projection reading a symbol this clause writes itself, such
+    // as an aggregation's result.
+    UsedSymbolsCollector collector(body.symbol_table());
+    for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(collector);
+    for (auto *named_expression : body.named_expressions()) named_expression->Accept(collector);
+    return std::ranges::all_of(collector.symbols_,
+                               [&](Symbol const &symbol) { return body.bound_symbols().contains(symbol); });
+  }();
+
+  if (can_sink_order_by_below_produce) {
+    // OrderBy replays each row from what it was told to remember, so that has to cover everything
+    // the projection above it will read. The check above established that all of it is bound.
+    UsedSymbolsCollector collector(body.symbol_table());
+    for (auto *named_expression : body.named_expressions()) named_expression->Accept(collector);
+    std::vector<Symbol> remember(collector.symbols_.begin(), collector.symbols_.end());
+    // The frame slots are rebuilt in this order on every replayed row, so a run-to-run difference
+    // in it would make plans for the same query compare unequal.
+    std::ranges::sort(remember, std::less<>{}, &Symbol::position);
+
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), remember);
+    if (body.skip()) {
+      last_op = std::make_unique<Skip>(std::move(last_op), body.skip());
+    }
+    last_op = std::make_unique<Limit>(std::move(last_op), body.limit());
+    last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+    return last_op;
+  }
+
   last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
   if (body.distinct()) {
