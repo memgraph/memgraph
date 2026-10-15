@@ -4225,8 +4225,8 @@ class KShortestPathsCursor : public Cursor {
     // Need to pull new input
     while (input_cursor_->Pull(frame, context)) {
       AbortCheck(context);
-      // The limit is query-wide, so the query ends here and path storage goes with the cursor.
-      if (context.hops_limit.IsLimitReached()) return false;
+      // The limit is query-wide, so no later row can search. Operators above may still run, so release below.
+      if (context.hops_limit.IsLimitReached()) break;
 
       auto &source_tv = frame[self_.input_symbol_];
       auto &target_tv = frame[self_.common_.node_symbol];
