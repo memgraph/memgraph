@@ -943,106 +943,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   SubqueryContext *subquery_ctx_ = nullptr;
 };
 
-std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
-                                               const ReturnBodyContext &body, bool accumulate,
-                                               Expression *commit_frequency) {
-  std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
-  auto last_op = std::move(input_op);
-  if (accumulate) {
-    // We only advance the command in Accumulate. This is done for WITH clause,
-    // when the first part updated the database. RETURN clause may only need an
-    // accumulation after updates, without advancing the command.
-    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
-  }
-  // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
-  // the whole difference between the two RollUpApply constructors.
-  auto fold_onto = [&last_op](ReturnBodyContext::SubqueryBranch &branch) {
-    if (branch.fold == Fold::kList) {
-      last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(branch.op), std::vector{*branch.collected_column}, branch.result_symbol);
-      return;
-    }
-    last_op =
-        std::make_unique<RollUpApply>(std::move(last_op), std::move(branch.op), branch.result_symbol, branch.fold);
-  };
-
-  // When there are aggregations, ALL pattern comprehensions are planned BEFORE the
-  // Aggregate operator. This ensures correct evaluation per input row rather than per group.
-  const bool has_aggregations = !body.aggregations().empty();
+/// Puts the projection and the ordering that goes with it on top of @p input_op: Produce,
+/// Distinct, OrderBy, Skip, Limit and the trailing Filter, each in the one position it can
+/// occupy. Two orders are possible and the rule in `deferred_projection.hpp` picks between
+/// them, so the orders sit next to each other rather than being spread through the caller.
+std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<LogicalOperator> input_op,
+                                                           const ReturnBodyContext &body, auto &&splice_branches) {
   using BodyPosition = ReturnBodyContext::BodyPosition;
-  auto projection = body.branches_at(BodyPosition::kProjection);
-
-  if (has_aggregations) {
-    // Build remember set: symbols used in GROUP BY that should be preserved through aggregation.
-    // IMPORTANT: Exclude symbols that are internal to pattern comprehensions (declared in PC patterns),
-    // as these are not available after RollUpApply - only the PC result symbol is.
-    std::unordered_set<Symbol> pc_internal_symbols;
-    for (const auto &pc_dat : projection.comprehensions) {
-      // expansion_symbols contains all symbols from the PC pattern.
-      // Internal symbols are those that are NOT in pre_return_symbols (not bound before RETURN).
-      for (const auto &exp_sym : pc_dat.expansion_symbols) {
-        if (!body.bound_symbols().contains(exp_sym)) {
-          pc_internal_symbols.insert(exp_sym);
-        }
-      }
-    }
-
-    std::vector<Symbol> remember;
-    for (const auto &sym : body.group_by_used_symbols()) {
-      if (!pc_internal_symbols.contains(sym)) {
-        remember.push_back(sym);
-      }
-    }
-
-    // Every correlated branch is per input row, so it must run before the Aggregate collapses rows into groups.
-    // A result the aggregate itself consumes is read below the Aggregate, so only the others have to survive it.
-    const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
-    for (auto &data : projection.comprehensions) {
-      if (!data.op) continue;
-      auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
-      last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
-      if (!pcs_in_aggregations.contains(data.result_symbol)) {
-        remember.push_back(data.result_symbol);
-      }
-    }
-
-    const auto &subqueries_in_aggregations = body.subqueries_in_aggregations();
-    for (auto &branch : projection.subqueries) {
-      if (!branch.op) continue;
-      auto const result_symbol = branch.result_symbol;
-      fold_onto(branch);
-      if (!std::ranges::contains(subqueries_in_aggregations, result_symbol)) {
-        remember.push_back(result_symbol);
-      }
-    }
-
-    last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
-  }
-
-  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
-  // its own fold. Anything already spliced above has had its operator moved out and is skipped.
-  auto splice_branches = [&](auto &&branches) {
-    for (auto &data : branches.comprehensions) {
-      if (!data.op) continue;
-      auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
-      last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
-    }
-    for (auto &branch : branches.subqueries) {
-      if (!branch.op) continue;
-      fold_onto(branch);
-    }
-  };
-
-  // Plan remaining branches AFTER Aggregate (or when no aggregations)
-  splice_branches(projection);
-
-  bool const has_periodic_commit = commit_frequency != nullptr;
-  if (has_periodic_commit) {
-    last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
-  }
-
+  auto last_op = std::move(input_op);
   // What this body looks like to `WhyProjectionCannotDefer`, which holds the rule and names the
   // one thing that refuses. A branch and an aggregate are read off the body rather than found by
   // walking the expressions: both are planned below the projection and write per row, and neither
@@ -1094,7 +1002,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
   // They read the named expression symbols, and OrderBy reads them in its collection sweep - so directly below it.
-  splice_branches(body.branches_at(BodyPosition::kOrderBy));
+  last_op = splice_branches(std::move(last_op), body.branches_at(BodyPosition::kOrderBy));
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
@@ -1119,7 +1027,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
     // Below the Filter, not the OrderBy: spliced lower, it would hand the Filter one frozen value per replayed row.
-    splice_branches(body.branches_at(BodyPosition::kWhere));
+    last_op = splice_branches(std::move(last_op), body.branches_at(BodyPosition::kWhere));
     // Split as filter collection splits, so an index scan below finds the label test it consumes.
     last_op = std::make_unique<Filter>(std::move(last_op),
                                        std::vector<std::shared_ptr<LogicalOperator>>{},
@@ -1127,6 +1035,111 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   }
 
   return last_op;
+}
+
+std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
+                                               const ReturnBodyContext &body, bool accumulate,
+                                               Expression *commit_frequency) {
+  std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
+  using BodyPosition = ReturnBodyContext::BodyPosition;
+  auto last_op = std::move(input_op);
+  if (accumulate) {
+    // We only advance the command in Accumulate. This is done for WITH clause,
+    // when the first part updated the database. RETURN clause may only need an
+    // accumulation after updates, without advancing the command.
+    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
+  }
+  // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
+  // the whole difference between the two RollUpApply constructors.
+  auto fold_onto = [](std::unique_ptr<LogicalOperator> op,
+                      ReturnBodyContext::SubqueryBranch &branch) -> std::unique_ptr<LogicalOperator> {
+    if (branch.fold == Fold::kList) {
+      return std::make_unique<RollUpApply>(
+          std::move(op), std::move(branch.op), std::vector{*branch.collected_column}, branch.result_symbol);
+    }
+    return std::make_unique<RollUpApply>(std::move(op), std::move(branch.op), branch.result_symbol, branch.fold);
+  };
+
+  // When there are aggregations, ALL pattern comprehensions are planned BEFORE the
+  // Aggregate operator. This ensures correct evaluation per input row rather than per group.
+  const bool has_aggregations = !body.aggregations().empty();
+  using BodyPosition = ReturnBodyContext::BodyPosition;
+  auto projection = body.branches_at(BodyPosition::kProjection);
+
+  if (has_aggregations) {
+    // Build remember set: symbols used in GROUP BY that should be preserved through aggregation.
+    // IMPORTANT: Exclude symbols that are internal to pattern comprehensions (declared in PC patterns),
+    // as these are not available after RollUpApply - only the PC result symbol is.
+    std::unordered_set<Symbol> pc_internal_symbols;
+    for (const auto &pc_dat : projection.comprehensions) {
+      // expansion_symbols contains all symbols from the PC pattern.
+      // Internal symbols are those that are NOT in pre_return_symbols (not bound before RETURN).
+      for (const auto &exp_sym : pc_dat.expansion_symbols) {
+        if (!body.bound_symbols().contains(exp_sym)) {
+          pc_internal_symbols.insert(exp_sym);
+        }
+      }
+    }
+
+    std::vector<Symbol> remember;
+    for (const auto &sym : body.group_by_used_symbols()) {
+      if (!pc_internal_symbols.contains(sym)) {
+        remember.push_back(sym);
+      }
+    }
+
+    // Every correlated branch is per input row, so it must run before the Aggregate collapses rows into groups.
+    // A result the aggregate itself consumes is read below the Aggregate, so only the others have to survive it.
+    const auto &pcs_in_aggregations = body.pattern_comprehensions_in_aggregations();
+    for (auto &data : projection.comprehensions) {
+      if (!data.op) continue;
+      auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
+      last_op = std::make_unique<RollUpApply>(
+          std::move(last_op), std::move(data.op), list_collection_symbols, data.result_symbol);
+      if (!pcs_in_aggregations.contains(data.result_symbol)) {
+        remember.push_back(data.result_symbol);
+      }
+    }
+
+    const auto &subqueries_in_aggregations = body.subqueries_in_aggregations();
+    for (auto &branch : projection.subqueries) {
+      if (!branch.op) continue;
+      auto const result_symbol = branch.result_symbol;
+      last_op = fold_onto(std::move(last_op), branch);
+      if (!std::ranges::contains(subqueries_in_aggregations, result_symbol)) {
+        remember.push_back(result_symbol);
+      }
+    }
+
+    last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+  }
+
+  // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
+  // its own fold. Anything already spliced above has had its operator moved out and is skipped.
+  auto splice_branches = [&body, &fold_onto](std::unique_ptr<LogicalOperator> op,
+                                             auto &&branches) -> std::unique_ptr<LogicalOperator> {
+    for (auto &data : branches.comprehensions) {
+      if (!data.op) continue;
+      auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
+      op =
+          std::make_unique<RollUpApply>(std::move(op), std::move(data.op), list_collection_symbols, data.result_symbol);
+    }
+    for (auto &branch : branches.subqueries) {
+      if (!branch.op) continue;
+      op = fold_onto(std::move(op), branch);
+    }
+    return op;
+  };
+
+  // Plan remaining branches AFTER Aggregate (or when no aggregations)
+  last_op = splice_branches(std::move(last_op), projection);
+
+  bool const has_periodic_commit = commit_frequency != nullptr;
+  if (has_periodic_commit) {
+    last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
+  }
+
+  return PlanProjectionAndOrdering(std::move(last_op), body, splice_branches);
 }
 
 /// The ON CREATE / ON MATCH clauses of every MERGE in @p clause, descending into FOREACH bodies.
