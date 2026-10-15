@@ -39,8 +39,6 @@
 #include <vector>
 
 #include <absl/base/no_destructor.h>
-#include <cppitertools/chain.hpp>
-#include <cppitertools/imap.hpp>
 #include "ctre.hpp"
 #include "flags/bolt.hpp"
 #include "memory/query_memory_control.hpp"
@@ -2162,48 +2160,88 @@ std::vector<Symbol> ExpandVariable::ModifiedSymbols(const SymbolTable &table) co
 
 namespace {
 
-/**
- * Helper function that returns an iterable over
- * <EdgeAtom::Direction, EdgeAccessor> pairs
- * for the given params.
- *
- * @param vertex - The vertex to expand from.
- * @param direction - Expansion direction. All directions (IN, OUT, BOTH)
- *    are supported.
- * @param memory - Used to allocate the result.
- * @return See above.
- */
-auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
-                      ExecutionContext *context) {
-  // wraps an EdgeAccessor into a pair <accessor, direction>
-  auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
-    return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
-                      std::forward<decltype(edges)>(edges));
+/// The edges one vertex was expanded to, read as one range of `<edge, the direction it was found
+/// in>`: the edges coming in, then the edges going out. Either may be empty. Each is held as the
+/// expansion itself, so an edge is built when the range reaches it rather than when the vertex was
+/// expanded.
+///
+/// An iterator of this refers to the range it came from, so the range has to outlive it and stay
+/// where it is. A depth-first expansion holds one of these per depth and an iterator into each, so
+/// it keeps them somewhere that does not move what it already holds.
+class VertexExpansion {
+ public:
+  VertexExpansion() = default;
+
+  VertexExpansion(ExpandedEdges in, ExpandedEdges out) : in_(std::move(in)), out_(std::move(out)) {}
+
+  class Iterator {
+   public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = std::pair<EdgeAccessor, EdgeAtom::Direction>;
+    using difference_type = std::ptrdiff_t;
+
+    Iterator() = default;
+
+    Iterator(VertexExpansion const *owner, std::size_t index) : owner_(owner), index_(index) {}
+
+    auto operator*() const -> value_type { return owner_->At(index_); }
+
+    Iterator &operator++() {
+      ++index_;
+      return *this;
+    }
+
+    Iterator operator++(int) {
+      auto copy = *this;
+      ++index_;
+      return copy;
+    }
+
+    friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.index_ == rhs.index_; }
+
+   private:
+    VertexExpansion const *owner_{nullptr};
+    std::size_t index_{0};
   };
 
+  auto begin() const -> Iterator { return Iterator{this, 0}; }
+
+  auto end() const -> Iterator { return Iterator{this, size()}; }
+
+  auto size() const -> std::size_t { return in_.size() + out_.size(); }
+
+ private:
+  /// The direction given back here is what tells a walk which end of the relationship it has
+  /// arrived at, so which of the two an offset lands in decides where the walk goes next.
+  auto At(std::size_t index) const -> std::pair<EdgeAccessor, EdgeAtom::Direction> {
+    if (index < in_.size()) return {in_[index], EdgeAtom::Direction::IN};
+    return {out_[index - in_.size()], EdgeAtom::Direction::OUT};
+  }
+
+  ExpandedEdges in_;
+  ExpandedEdges out_;
+};
+
+/// Expands `vertex` in `direction`, giving the edges found and which direction each was found in.
+auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
+                      const std::vector<storage::EdgeTypeId> &edge_types, ExecutionContext *context) {
   storage::View view = storage::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, vertex.InEdges(view, edge_types).value().edges.Materialise()))>
-      chain_elements(memory);
+  auto in = ExpandedEdges{};
+  auto out = ExpandedEdges{};
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges_result = UnwrapEdgesResult(vertex.InEdges(view, edge_types, &context->hops_limit));
     context->number_of_hops += edges_result.expanded_count;
-    if (!edges_result.edges.empty()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, edges_result.edges.Materialise()));
-    }
+    in = std::move(edges_result.edges);
   }
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges_result = UnwrapEdgesResult(vertex.OutEdges(view, edge_types, &context->hops_limit));
     context->number_of_hops += edges_result.expanded_count;
-    if (!edges_result.edges.empty()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, edges_result.edges.Materialise()));
-    }
+    out = std::move(edges_result.edges);
   }
 
-  // TODO: Investigate whether itertools perform heap allocation?
-  return iter::chain.from_iterable(std::move(chain_elements));
+  return VertexExpansion{std::move(in), std::move(out)};
 }
 
 }  // namespace
@@ -2268,15 +2306,12 @@ class ExpandVariableCursor : public Cursor {
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
 
-  // a stack of edge iterables corresponding to the level/depth of
-  // the expansion currently being Pulled
-  using ExpandEdges =
-      decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
-                                utils::NewDeleteResource(), std::declval<ExecutionContext *>()));
-
-  utils::pmr::vector<ExpandEdges> edges_;
+  // a stack of expansions corresponding to the level/depth of
+  // the expansion currently being Pulled. A deque rather than a vector, because the iterators
+  // below refer to what it holds, and pushing the next depth on must not move that.
+  utils::pmr::deque<VertexExpansion> edges_;
   // an iterator indicating the position in the corresponding edges_ element
-  utils::pmr::vector<decltype(edges_.begin()->begin())> edges_it_;
+  utils::pmr::vector<VertexExpansion::Iterator> edges_it_;
 
   /**
    * Helper function that Pulls from the input vertex and
@@ -2316,9 +2351,7 @@ class ExpandVariableCursor : public Cursor {
       upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
 
       if (upper_bound_ > 0) {
-        auto *memory = edges_.get_allocator().resource();
-        edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, &context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -2440,9 +2473,8 @@ class ExpandVariableCursor : public Cursor {
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size()) && !context.hops_limit.IsLimitReached()) {
-        auto *memory = edges_.get_allocator().resource();
         edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, &context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
