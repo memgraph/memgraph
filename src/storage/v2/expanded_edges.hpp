@@ -120,6 +120,25 @@ class ExpandedEdges {
 
   auto back() const -> EdgeAccessor { return At(size() - 1); }
 
+  /// The edges `keep` accepts, held the same way this holds them: a caller that has to look at
+  /// every edge to decide which ones belong still hands on something that builds an accessor when
+  /// it is looked at, rather than an array it had to fill.
+  template <typename Predicate>
+  auto Filtered(Predicate keep) const -> ExpandedEdges {
+    if (!from_triples_) {
+      auto kept = std::vector<EdgeAccessor>{};
+      for (auto const &edge : materialised_) {
+        if (keep(edge)) kept.push_back(edge);
+      }
+      return ExpandedEdges{std::move(kept)};
+    }
+    auto kept = Edges{triples_.get_allocator()};
+    for (std::size_t index = 0; index != triples_.size(); ++index) {
+      if (keep(At(index))) kept.push_back(triples_[index]);
+    }
+    return ExpandedEdges{std::move(kept), from_, storage_, transaction_, direction_};
+  }
+
   /// For a caller that needs the array after all. Nothing on a hot path should want this.
   auto Materialise() const -> std::vector<EdgeAccessor> {
     if (!from_triples_) return materialised_;
