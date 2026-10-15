@@ -1875,13 +1875,26 @@ class Database {
     size_t current_after_last_row = 0;
   };
 
-  // One KSHORTEST expansion, walked both ways over a `rungs`-rung ladder, one input row per
-  // `(source, sink, |k)`. The cursor and its evaluation both allocate through one counter. Rows are
-  // counted and dropped, so beyond the cursor the counter sees only the current row's values.
-  // Weighted runs read `e.weight`, set to 1 on every edge so both cursors return the same paths
-  // and one bound fits both. A literal weight would take the hop-count search.
+  // `KShortestMemory` over a `rungs`-rung ladder: rails `0..rungs-1` and `rungs..2*rungs-1`, joined at every step.
   MemoryRun KShortestLadderMemory(Database *db, bool weighted, int rungs,
                                   const std::vector<std::tuple<int, int, int64_t>> &input_rows) {
+    std::vector<std::tuple<int, int, std::string>> ladder;
+    for (int i = 0; i + 1 < rungs; ++i) {
+      ladder.emplace_back(i, i + 1, "a");
+      ladder.emplace_back(rungs + i, rungs + i + 1, "a");
+    }
+    for (int i = 0; i < rungs; ++i) ladder.emplace_back(i, rungs + i, "b");
+    return KShortestMemory(db, weighted, 2 * rungs, ladder, input_rows);
+  }
+
+  // One KSHORTEST expansion, walked both ways over `arcs`, one input row per `(source, sink, |k)`.
+  // The cursor and its evaluation both allocate through one counter. Rows are counted and dropped,
+  // so beyond the cursor the counter sees only the current row's values. Weighted runs read
+  // `e.weight`, set to 1 on every edge so both cursors return the same paths and one bound fits
+  // both. A literal weight would take the hop-count search.
+  MemoryRun KShortestMemory(Database *db, bool weighted, int vertex_count,
+                            const std::vector<std::tuple<int, int, std::string>> &arcs,
+                            const std::vector<std::tuple<int, int, int64_t>> &input_rows) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
@@ -1891,17 +1904,10 @@ class Database {
     auto edges_sym = context.symbol_table.CreateSymbol("edges", true);
     auto total_sym = context.symbol_table.CreateSymbol("total", true);
 
-    // Rails `0..rungs-1` and `rungs..2*rungs-1`, joined at every step.
-    std::vector<std::tuple<int, int, std::string>> ladder;
-    for (int i = 0; i + 1 < rungs; ++i) {
-      ladder.emplace_back(i, i + 1, "a");
-      ladder.emplace_back(rungs + i, rungs + i + 1, "a");
-    }
-    for (int i = 0; i < rungs; ++i) ladder.emplace_back(i, rungs + i, "b");
-    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(static_cast<size_t>(2 * rungs), 0), ladder);
+    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(static_cast<size_t>(vertex_count), 0), arcs);
     std::map<std::pair<int, int>, memgraph::storage::PropertyValue> weights;
-    for (const auto &[from, to, type] : ladder) weights.emplace(std::pair{from, to}, int64_t{1});
-    SetEdgeWeights(dba, edges, ladder, weights);
+    for (const auto &[from, to, type] : arcs) weights.emplace(std::pair{from, to}, int64_t{1});
+    SetEdgeWeights(dba, edges, arcs, weights);
     dba.AdvanceCommand();
 
     std::vector<std::vector<memgraph::query::TypedValue>> frames;
