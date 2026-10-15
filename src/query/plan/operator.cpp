@@ -5134,6 +5134,10 @@ class KShortestPathsCursor : public Cursor {
     current_path_index_ = 0;
   }
 
+  // A flat table's first allocation is above the query pool's block size, so a small one is kept:
+  // reallocating it every row cost more than the search on many cheap rows.
+  static constexpr size_t kKeptBfsCapacity = 1024;
+
   // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
   // table's bucket array and a vector's capacity, so without this one expensive row would leave
   // every later search sweeping buckets sized for a search it never runs, and hold that memory for
@@ -5145,7 +5149,7 @@ class KShortestPathsCursor : public Cursor {
     }
     for (auto *reached : {&bfs_in_edge_, &bfs_out_edge_}) {
       reached->clear();
-      reached->rehash(0);
+      if (reached->bucket_count() > kKeptBfsCapacity) reached->rehash(0);
     }
     ClearWeightedSearchState();
     weighted_pq_.shrink_to_fit();
