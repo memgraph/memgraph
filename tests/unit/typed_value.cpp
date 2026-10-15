@@ -1039,3 +1039,24 @@ TYPED_TEST(AllTypesFixture, PathMoveAssignmentUsesTheValueAllocator) {
       << "move-assigning a Path released a block the resource never issued: " << memory.allocations()
       << " allocations against " << memory.deallocations() << " deallocations";
 }
+
+// Every operator that returns a TypedValue hands on the allocator its left operand carried, so a
+// value produced inside a query keeps allocating from the query's resource. Addition already does
+// this for the temporal types; subtraction is the same shape and owes the same.
+TYPED_TEST(AllTypesFixture, TemporalArithmeticKeepsTheOperandAllocator) {
+  BlockCountingResource memory;
+  TypedValue const date{memgraph::utils::Date(memgraph::utils::DateParameters{2026, 10, 15}), &memory};
+  TypedValue const day{memgraph::utils::Duration(memgraph::utils::DurationParameters{1}), &memory};
+
+  auto const sum = date + day;
+  ASSERT_EQ(sum.type(), TypedValue::Type::Date);
+  EXPECT_EQ(sum.get_allocator().resource(), &memory) << "addition dropped the operand's allocator";
+
+  auto const difference = date - day;
+  ASSERT_EQ(difference.type(), TypedValue::Type::Date);
+  EXPECT_EQ(difference.get_allocator().resource(), &memory) << "subtraction dropped the operand's allocator";
+
+  auto const between = date - date;
+  ASSERT_EQ(between.type(), TypedValue::Type::Duration);
+  EXPECT_EQ(between.get_allocator().resource(), &memory) << "date difference dropped the operand's allocator";
+}

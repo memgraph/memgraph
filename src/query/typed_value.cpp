@@ -1705,35 +1705,35 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
 std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return TypedValue(a.ValueDuration() - b.ValueDuration());
+    return TypedValue(a.ValueDuration() - b.ValueDuration(), a.get_allocator());
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() - b.ValueDuration());
+    return TypedValue(a.ValueDate() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDate() && b.IsDate()) {
-    return TypedValue(a.ValueDate() - b.ValueDate());
+    return TypedValue(a.ValueDate() - b.ValueDate(), a.get_allocator());
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueDuration());
+    return TypedValue(a.ValueLocalTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsLocalTime() && b.IsLocalTime()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime());
+    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime(), a.get_allocator());
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration());
+    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsLocalDateTime() && b.IsLocalDateTime()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime());
+    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime(), a.get_allocator());
   }
   // ZonedDateTime
   if (a.IsZonedDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration());
+    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsZonedDateTime() && b.IsZonedDateTime()) {
-    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime());
+    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime(), a.get_allocator());
   }
   return std::nullopt;
 }
@@ -1762,8 +1762,10 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.alloc_);
   }
 
-  if (const auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
-    return *maybe_add;
+  // Moved out, not copied: copying a TypedValue selects the default resource for the copy, so
+  // returning the optional's value by copy would discard the allocator the helper just gave it.
+  if (auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
+    return *std::move(maybe_add);
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
@@ -1792,8 +1794,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
-  if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
-    return *maybe_sub;
+  if (auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
+    return *std::move(maybe_sub);
   }
   EnsureArithmeticallyOk(a, b, true, "subraction");
   // at this point we only have int and double
