@@ -24,6 +24,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/deferred_projection.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"
@@ -1042,42 +1043,37 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
   }
 
-  // `ORDER BY ... LIMIT` can choose its rows before the projection runs, which is what makes a
-  // costly named expression affordable: Produce emits exactly one row for every row it reads and
-  // preserves their order, so sorting and limiting underneath it yields the same rows in the same
-  // order, and only the survivors are projected. Everything this needs is checked below; when any
-  // of it does not hold the projection stays underneath, as it must.
-  auto const can_sink_order_by_below_produce = [&] {
-    // Without a Limit every row is projected either way, so there is nothing to save.
-    if (body.order_by().empty() || body.limit() == nullptr) return false;
-    // Distinct and Filter change how many rows reach the Limit, so moving it past them would
-    // change which rows come back.
-    if (body.distinct() || body.where() != nullptr) return false;
-    // These branches are spliced directly below the OrderBy because they read what Produce writes.
-    auto const order_by_branches = body.branches_at(BodyPosition::kOrderBy);
-    if (!order_by_branches.comprehensions.empty() || !order_by_branches.subqueries.empty()) return false;
-    // A branch in the projection is already planned below this point and writes its answer once
-    // per row reaching it, so a sort placed in between would leave the projection reading whatever
-    // the last row left behind. The symbol a branch writes hangs off a PatternComprehension or
-    // SubqueryExpression rather than an Identifier, so the sweep below cannot see it and the
-    // branches have to be asked about separately.
-    auto const projection_branches = body.branches_at(BodyPosition::kProjection);
-    if (!projection_branches.comprehensions.empty() || !projection_branches.subqueries.empty()) return false;
-    // An aggregate is the same shape of problem: it is planned below the projection and writes one
-    // row per group, and the projection reads its result without naming it through an Identifier.
-    if (!body.aggregations().empty()) return false;
-    // Everything read below the Limit has to be readable from a row the OrderBy replays, and it
-    // can only replay what was already bound when this clause began. That rules out a sort key
-    // naming a projected alias, and a projection reading a symbol this clause writes itself, such
-    // as an aggregation's result.
-    UsedSymbolsCollector collector(body.symbol_table());
-    for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(collector);
-    for (auto *named_expression : body.named_expressions()) named_expression->Accept(collector);
+  // What this body looks like to `WhyProjectionCannotDefer`, which holds the rule and names the
+  // one thing that refuses. A branch and an aggregate are read off the body rather than found by
+  // walking the expressions: both are planned below the projection and write per row, and neither
+  // names its result through an Identifier a symbol sweep would report.
+  auto const all_bound = [&](UsedSymbolsCollector const &collector) {
     return std::ranges::all_of(collector.symbols_,
                                [&](Symbol const &symbol) { return body.bound_symbols().contains(symbol); });
-  }();
+  };
+  auto const order_by_branches = body.branches_at(BodyPosition::kOrderBy);
+  auto const projection_branches = body.branches_at(BodyPosition::kProjection);
+  auto facts = ProjectionFacts{
+      .has_order_by = !body.order_by().empty(),
+      .has_limit = body.limit() != nullptr,
+      .changes_cardinality = body.distinct() || body.where() != nullptr,
+      .has_order_by_branch = !order_by_branches.comprehensions.empty() || !order_by_branches.subqueries.empty(),
+      .has_projection_branch = !projection_branches.comprehensions.empty() || !projection_branches.subqueries.empty(),
+      .has_aggregation = !body.aggregations().empty(),
+  };
+  // The two sweeps are the expensive facts, and they default to not refusing, so asking once with
+  // the cheap facts alone says whether they are worth gathering.
+  if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
+    UsedSymbolsCollector sort_keys(body.symbol_table());
+    for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(sort_keys);
+    facts.sort_keys_all_bound = all_bound(sort_keys);
 
-  if (can_sink_order_by_below_produce) {
+    UsedSymbolsCollector projection(body.symbol_table());
+    for (auto *named_expression : body.named_expressions()) named_expression->Accept(projection);
+    facts.projection_reads_all_bound = all_bound(projection);
+  }
+
+  if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
     // Only the projection reads the rows this OrderBy replays: Skip and Limit count them without
     // looking, and nothing else sits between.
     RestoreList restore{body.symbol_table(), body.bound_symbols()};
