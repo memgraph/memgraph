@@ -848,6 +848,27 @@ TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
 }
 
+TYPED_TEST(TestPlanner, OrderByLimitWithAggregationStaysAboveProduce) {
+  // Test MATCH (n) RETURN n.prop1 AS a, sum(n.prop2) AS s ORDER BY 1 LIMIT 10
+  // A projection reading an aggregate stays above it. A constant sort key names no symbol, so
+  // nothing about the keys refuses the sink, and the aggregate's result reaches the projection
+  // without being named by an Identifier either.
+  FakeDbAccessor dba;
+  auto prop1 = dba.Property("prop1");
+  auto prop2 = dba.Property("prop2");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop2), false);
+  auto *group = PROPERTY_LOOKUP(dba, "n", prop1);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(group, AS("a"), sum, AS("s"), ORDER_BY(LITERAL(1)), LIMIT(LITERAL(10)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  EXPECT_EQ(dynamic_cast<Produce *>(&plan), nullptr)
+      << "the projection sank above the Limit, leaving the aggregate that feeds it below the sort";
+}
+
 TYPED_TEST(TestPlanner, OrderByLimitWithAnyProjectedBranchStaysAboveProduce) {
   // Test MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS e ORDER BY n.prop LIMIT 10
   // A projection reading a planned branch stays above it, whatever the sort keys allow.

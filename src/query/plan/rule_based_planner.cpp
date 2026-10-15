@@ -1063,6 +1063,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // branches have to be asked about separately.
     auto const projection_branches = body.branches_at(BodyPosition::kProjection);
     if (!projection_branches.comprehensions.empty() || !projection_branches.subqueries.empty()) return false;
+    // An aggregate is the same shape of problem: it is planned below the projection and writes one
+    // row per group, and the projection reads its result without naming it through an Identifier.
+    if (!body.aggregations().empty()) return false;
     // Everything read below the Limit has to be readable from a row the OrderBy replays, and it
     // can only replay what was already bound when this clause began. That rules out a sort key
     // naming a projected alias, and a projection reading a symbol this clause writes itself, such
