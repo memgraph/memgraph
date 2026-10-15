@@ -41,6 +41,7 @@
 #include <vector>
 
 #include <absl/base/no_destructor.h>
+#include <boost/unordered/unordered_flat_map.hpp>
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
@@ -4425,7 +4426,9 @@ class KShortestPathsCursor : public Cursor {
   std::optional<TypedValue> constant_weight_;
 
   // Bidirectional search state
-  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+  using VertexEdgeMapT = boost::unordered_flat_map<
+      VertexAccessor, std::optional<EdgeAccessor>, std::hash<VertexAccessor>, std::equal_to<>,
+      std::pmr::polymorphic_allocator<std::pair<const VertexAccessor, std::optional<EdgeAccessor>>>>;
   VertexEdgeMapT bfs_in_edge_;
   VertexEdgeMapT bfs_out_edge_;
 
