@@ -896,6 +896,52 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   return std::move(properties_map);
 }
 
+Result<void> VertexAccessor::ReadPropertyValues(std::span<PropertyPath const> ordered_properties,
+                                                std::span<PropertyValue> out, View view) const {
+  DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
+  {
+    auto const guard = read_lock.AcquireLock();
+    deleted = vertex_->deleted();
+    vertex_->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
+    delta = vertex_->delta();
+  }
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    auto const useCache = transaction_->UseCache();
+    if (useCache) {
+      auto const &cache = transaction_->manyDeltasCache;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
+    }
+
+    auto const n_processed =
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, ordered_properties, out](const Delta &delta) {
+          // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Deleted_ActionMethod(deleted),
+            Exists_ActionMethod(exists),
+            PropertyValues_ActionMethod(ordered_properties, out)
+          });
+          // clang-format on
+        });
+
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
+      auto &cache = transaction_->manyDeltasCache;
+      cache.StoreExists(view, vertex_, exists);
+      cache.StoreDeleted(view, vertex_, deleted);
+    }
+  }
+
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return {};
+}
+
 auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {
   auto ret = std::vector<EdgeAccessor>{};
   ret.reserve(out_edges.size());
