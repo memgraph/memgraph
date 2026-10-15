@@ -1233,7 +1233,7 @@ TypedValue &TypedValue::operator=(Path &&other) {
     if (path) {
       utils::Allocator<Path>(alloc_).delete_object(path);
     }
-    path_v = std::make_unique<Path>(std::move(other), alloc_);
+    path_v = std::unique_ptr<Path>(utils::Allocator<Path>(alloc_).new_object<Path>(std::move(other)));
   } else {
     *this = TypedValue(std::move(other), alloc_);
   }

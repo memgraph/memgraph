@@ -991,3 +991,51 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
     }
   }
 }
+
+// A pmr resource that records how many blocks it handed out and how many it was asked to take
+// back. A balanced pair of counts is the invariant every allocator-aware type owes its resource.
+class BlockCountingResource final : public memgraph::utils::MemoryResource {
+ public:
+  int64_t outstanding() const { return allocations_ - deallocations_; }
+
+  int64_t allocations() const { return allocations_; }
+
+  int64_t deallocations() const { return deallocations_; }
+
+ private:
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    ++allocations_;
+    return upstream_->allocate(bytes, alignment);
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    ++deallocations_;
+    upstream_->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(memgraph::utils::MemoryResource const &other) const noexcept override { return this == &other; }
+
+  memgraph::utils::MemoryResource *upstream_{memgraph::utils::NewDeleteResource()};
+  int64_t allocations_{0};
+  int64_t deallocations_{0};
+};
+
+// Move-assigning a Path onto a TypedValue that already holds one must take its replacement from
+// the same resource it will later hand that replacement back to. Freeing a block the resource
+// never issued makes the resource's accounting drift down by one block per assignment, and the
+// resource behind a running query is the one its memory limit is read from.
+TYPED_TEST(AllTypesFixture, PathMoveAssignmentUsesTheValueAllocator) {
+  auto vertex = this->dba.InsertVertex();
+  BlockCountingResource memory;
+
+  TypedValue holder{memgraph::query::Path(vertex), &memory};
+  ASSERT_EQ(holder.type(), TypedValue::Type::Path);
+  auto const after_construction = memory.outstanding();
+  ASSERT_GT(memory.allocations(), 0) << "the Path itself should come from the value's resource";
+
+  holder = memgraph::query::Path(vertex);
+
+  EXPECT_EQ(memory.outstanding(), after_construction)
+      << "move-assigning a Path released a block the resource never issued: " << memory.allocations()
+      << " allocations against " << memory.deallocations() << " deallocations";
+}
