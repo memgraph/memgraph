@@ -1994,10 +1994,8 @@ void MigrateAuthJson(nlohmann::json &data) {
   }
 
   if (*version > kCurrentEntityVersion) {
-    spdlog::warn("Auth entity has version {} which is newer than the current version {}; leaving unmodified",
-                 *version,
-                 kCurrentEntityVersion);
-    return;
+    throw AuthException(
+        "Auth entity has version {}, newer than the supported version {}", *version, kCurrentEntityVersion);
   }
 
   if (version == 2) {
