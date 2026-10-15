@@ -1601,16 +1601,24 @@ TypedValue operator!(const TypedValue &a) {
 }
 
 /**
- * Turns a numeric or string value into a string.
+ * Appends @p value to @p out in the form string concatenation gives it.
  *
- * @param value a value.
- * @return A string.
+ * Appends rather than returning a string so that the only buffer the result passes through is the
+ * one it ends up in, allocated from the allocator the result will carry.
  */
-std::string ValueToString(const TypedValue &value) {
-  // TODO: Should this allocate a string through value.alloc_?
-  if (value.IsString()) return std::string(value.ValueString());
-  if (value.IsInt()) return std::to_string(value.ValueInt());
-  if (value.IsDouble()) return fmt::format("{}", value.ValueDouble());
+void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
+  if (value.IsString()) {
+    out.append(value.ValueString());
+    return;
+  }
+  if (value.IsInt()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueInt());
+    return;
+  }
+  if (value.IsDouble()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueDouble());
+    return;
+  }
   // unsupported situations
   throw TypedValueException("Unsupported TypedValue::Type conversion to string");
 }
@@ -1697,35 +1705,35 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
 std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return TypedValue(a.ValueDuration() - b.ValueDuration());
+    return TypedValue(a.ValueDuration() - b.ValueDuration(), a.get_allocator());
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() - b.ValueDuration());
+    return TypedValue(a.ValueDate() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDate() && b.IsDate()) {
-    return TypedValue(a.ValueDate() - b.ValueDate());
+    return TypedValue(a.ValueDate() - b.ValueDate(), a.get_allocator());
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueDuration());
+    return TypedValue(a.ValueLocalTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsLocalTime() && b.IsLocalTime()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime());
+    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime(), a.get_allocator());
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration());
+    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsLocalDateTime() && b.IsLocalDateTime()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime());
+    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime(), a.get_allocator());
   }
   // ZonedDateTime
   if (a.IsZonedDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration());
+    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsZonedDateTime() && b.IsZonedDateTime()) {
-    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime());
+    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime(), a.get_allocator());
   }
   return std::nullopt;
 }
@@ -1754,28 +1762,26 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.alloc_);
   }
 
-  if (const auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
-    return *maybe_add;
+  // Moved out, not copied: copying a TypedValue selects the default resource for the copy, so
+  // returning the optional's value by copy would discard the allocator the helper just gave it.
+  if (auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
+    return *std::move(maybe_add);
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
   if (a.IsString() || b.IsString()) {
-    // Building the result in place keeps a long accumulator out of the two `std::allocator` strings
-    // that `ValueToString(a) + ValueToString(b)` would copy it through on the way here.
-    auto const appended_size = [](TypedValue const &v) -> size_t { return v.IsString() ? v.ValueString().size() : 32; };
+    // Reserved up front and appended into, so a long accumulator is copied once, into the buffer
+    // the result keeps. A non-string operand is a number, and the reserve covers its digits.
+    constexpr size_t kRoomForANumber = 32;
+    auto const appended_size = [](TypedValue const &v) -> size_t {
+      return v.IsString() ? v.ValueString().size() : kRoomForANumber;
+    };
     TypedValue::TString result(a.alloc_);
     result.reserve(appended_size(a) + appended_size(b));
-    auto append = [&result](TypedValue const &v) {
-      if (v.IsString()) {
-        result.append(v.ValueString());
-      } else {
-        result.append(ValueToString(v));
-      }
-    };
-    append(a);
-    append(b);
+    AppendValueTo(result, a);
+    AppendValueTo(result, b);
     return TypedValue(std::move(result), a.alloc_);
   }
 
@@ -1788,8 +1794,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
-  if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
-    return *maybe_sub;
+  if (auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
+    return *std::move(maybe_sub);
   }
   EnsureArithmeticallyOk(a, b, true, "subraction");
   // at this point we only have int and double
