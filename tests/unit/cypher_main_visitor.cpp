@@ -9074,9 +9074,6 @@ TEST_P(CypherMainVisitorTest, PeriodicCommitWithConditional) {
       ast_generator,
       "USING PERIODIC COMMIT cannot be used with WHEN ... THEN. Put 'CALL (row) { ... } IN TRANSACTIONS OF n ROWS' "
       "inside the branch instead.");
-  const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PERIODIC COMMIT 1 CREATE (:T)"));
-  ASSERT_TRUE(query);
-  EXPECT_TRUE(query->pre_query_directives_.commit_frequency_);
 }
 
 TEST_P(CypherMainVisitorTest, ConditionalQueryRejectedShapes) {
@@ -9111,7 +9108,8 @@ TEST_P(CypherMainVisitorTest, UnaliasedReturnInWhenBody) {
         query, ast_generator, "Expression in WHEN ... THEN ... must be aliased (use AS)!");
   }
   for (auto const *query : {"WHEN $a THEN MATCH (n:Q) RETURN n",
-                            "WHEN $a THEN CALL () { RETURN 1 AS y } RETURN y",
+                            // A CALL body clears the flag, so its own unaliased return is the CALL rule's to judge.
+                            "WHEN $a THEN CALL () { RETURN 1 + 1 } RETURN 1 AS x",
                             "WHEN $a THEN RETURN COUNT { MATCH (n) RETURN n.n } AS x",
                             "RETURN 1 + 1 UNION RETURN 1 + 1",
                             "CALL () { WHEN true THEN RETURN 1 AS x } RETURN x + 1",

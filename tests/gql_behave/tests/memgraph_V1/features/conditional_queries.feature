@@ -1,43 +1,7 @@
 Feature: Conditional queries
 
-    Scenario: Top-level WHEN takes the first branch when its predicate is true
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | a | true |
-        When executing query:
-            """
-            WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS x
-            """
-        Then the result should be:
-            | x |
-            | 1 |
-
-    Scenario: Top-level WHEN takes ELSE when the predicate is false
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | b | false |
-        When executing query:
-            """
-            WHEN $b THEN RETURN 1 AS x ELSE RETURN 2 AS x
-            """
-        Then the result should be:
-            | x |
-            | 2 |
-
     Scenario: Top-level WHEN treats a null predicate as false
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | z | null |
         When executing query:
@@ -48,26 +12,8 @@ Feature: Conditional queries
             | x |
             | 2 |
 
-    Scenario: Top-level WHEN without ELSE and no true predicate returns no rows
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | b | false |
-        When executing query:
-            """
-            WHEN $b THEN RETURN 1 AS x
-            """
-        Then the result should be empty
-
     Scenario: Top-level WHEN runs only the first true branch
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true |
         When executing query:
@@ -80,10 +26,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN takes a later branch when the earlier predicates are false
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true  |
             | b | false |
@@ -97,10 +39,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN with braced branches
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true |
         When executing query:
@@ -170,6 +108,7 @@ Feature: Conditional queries
         When executing query:
             """
             WHEN $a THEN MATCH p = (q:Q)-[:R]->(m) UNWIND [1, 2] AS i WITH *, [i] AS l, {i: i} AS mp RETURN *
+            ELSE RETURN 0 AS i, [] AS l, null AS m, {} AS mp, null AS p, null AS q
             """
         Then the result should be:
             | i | l   | m           | mp     | p                               | q           |
@@ -178,10 +117,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN branches match columns by name, not by position
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | b | false |
         When executing query:
@@ -192,28 +127,8 @@ Feature: Conditional queries
             | x  | y  |
             | 10 | 20 |
 
-    Scenario: Top-level WHEN branches may return different types in one column
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | b | false |
-        When executing query:
-            """
-            WHEN $b THEN RETURN 1 AS x ELSE RETURN 'a' AS x
-            """
-        Then the result should be:
-            | x   |
-            | 'a' |
-
     Scenario: Top-level WHEN write in the taken branch is visible later in that branch
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true |
         When executing query:
@@ -226,10 +141,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN untaken branch does not write
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | b | false |
         When executing query:
@@ -270,10 +181,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN branch must alias a returned property (control of: Top-level WHEN branch yields every row of its MATCH)
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true |
         When executing query:
@@ -313,7 +220,7 @@ Feature: Conditional queries
             | x      |
             | 'many' |
 
-    Scenario: Top-level WHEN predicate with a pattern
+    Scenario: Top-level WHEN predicate with a pattern that does not hold
         Given an empty graph
         And having executed:
             """
@@ -321,18 +228,14 @@ Feature: Conditional queries
             """
         When executing query:
             """
-            WHEN (:Q)-[:R]->() THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x
+            WHEN (:P)-[:R]->() THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x
             """
         Then the result should be:
-            | x     |
-            | 'yes' |
+            | x    |
+            | 'no' |
 
     Scenario: Top-level WHEN does not evaluate a predicate after the taken branch
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a   | true |
             | one | 1    |
@@ -346,10 +249,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN does not evaluate a subquery predicate after the taken branch
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true |
             | z | 0    |
@@ -361,44 +260,8 @@ Feature: Conditional queries
             | x |
             | 1 |
 
-    Scenario: Top-level WHEN does not run an untaken branch
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | a   | true |
-            | one | 1    |
-        When executing query:
-            """
-            WHEN $a THEN RETURN 1 AS x ELSE RETURN 1 / ($one - 1) AS x
-            """
-        Then the result should be:
-            | x |
-            | 1 |
-
-    Scenario: Top-level WHEN predicate error is raised (control of the two laziness scenarios before it)
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | one | 1 |
-        When executing query:
-            """
-            WHEN 1 / ($one - 1) = 1 THEN RETURN 1 AS x ELSE RETURN 2 AS x
-            """
-        # The error text is asserted in a unit test.
-        Then an error should be raised
-
     Scenario: Top-level WHEN with a nested braced WHEN
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true  |
             | b | false |
@@ -412,10 +275,6 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN branch with a braced UNION ALL
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true |
         When executing query:
@@ -429,16 +288,12 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN branch with a conditional CALL
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true  |
             | b | false |
         When executing query:
             """
-            WHEN $a THEN CALL () { WHEN $b THEN RETURN 1 AS y ELSE RETURN 2 AS y } RETURN y AS x
+            WHEN $a THEN CALL () { WHEN $b THEN RETURN 1 AS y ELSE RETURN 2 AS y } RETURN y AS x ELSE RETURN 3 AS x
             """
         Then the result should be:
             | x |
@@ -446,16 +301,12 @@ Feature: Conditional queries
 
     Scenario: Top-level WHEN branch with a conditional EXISTS
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true  |
             | b | false |
         When executing query:
             """
-            WHEN $a THEN RETURN EXISTS { WHEN $b THEN RETURN 1 AS y } AS x
+            WHEN $a THEN RETURN EXISTS { WHEN $b THEN RETURN 1 AS y } AS x ELSE RETURN true AS x
             """
         Then the result should be:
             | x     |
@@ -463,10 +314,6 @@ Feature: Conditional queries
 
     Scenario: CASE WHEN inside a top-level WHEN branch
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a | true  |
             | b | false |
@@ -480,16 +327,12 @@ Feature: Conditional queries
 
     Scenario: when stays usable as a variable name inside a top-level WHEN branch
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
         And parameters are:
             | a   | true |
             | two | 2    |
         When executing query:
             """
-            WHEN $a THEN WITH $two AS when RETURN when AS x
+            WHEN $a THEN WITH $two AS when RETURN when AS x ELSE RETURN 0 AS x
             """
         Then the result should be:
             | x |

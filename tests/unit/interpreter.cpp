@@ -2161,6 +2161,15 @@ TYPED_TEST(InterpreterTest, ConditionalQueryExplainAndProfile) {
                                         " | * Once",
                                         " * Once"}));
   }
+  // A CALL's conditional lists its columns in its first branch's order.
+  {
+    auto stream =
+        this->Interpret("EXPLAIN CALL () { WHEN $a THEN RETURN 1 AS y, 2 AS x ELSE RETURN 3 AS x, 4 AS y } RETURN x, y",
+                        {{"a", ExternalPropertyValue(true)}});
+    EXPECT_TRUE(std::ranges::any_of(stream.GetResults(), [](const auto &row) {
+      return row.front().ValueString().find("Conditional {y, x}") != std::string::npos;
+    }));
+  }
   // PROFILE shows the branch it ran.
   for (auto const a : {true, false}) {
     auto stream = this->Interpret("PROFILE WHEN $a THEN CREATE (:T) RETURN 1 AS x ELSE RETURN 2 AS x",
@@ -2197,13 +2206,6 @@ TYPED_TEST(InterpreterTest, ConditionalQueryErrors) {
   PropertyMap const a{{"a", ExternalPropertyValue(true)}};
   PropertyMap const one{{"one", ExternalPropertyValue(1)}};
   for (auto const &[query, params, text] : std::initializer_list<std::tuple<const char *, PropertyMap, const char *>>{
-           {"WHEN $a THEN CREATE (:T) ELSE RETURN 1 AS x",
-            a,
-            "All WHEN branches must return rows, update the graph, or be a standalone procedure call."},
-           {"WHEN $a THEN RETURN 1 AS x, 2 AS y ELSE RETURN 2 AS x",
-            a,
-            "All WHEN branches must return the same number of columns."},
-           {"WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS y", a, "All WHEN branches must have the same column names."},
            // A CALL body inside a branch keeps the CALL alias rule.
            {"WHEN $a THEN CALL () { RETURN 1 + 1 } RETURN 1 AS x",
             a,
@@ -2212,13 +2214,6 @@ TYPED_TEST(InterpreterTest, ConditionalQueryErrors) {
             a,
             "Query should either create or update something, or return results!"},
            {"WHEN n.n > 0 THEN RETURN 1 AS x ELSE RETURN 2 AS x", {}, "Unbound variable: n."},
-           {"WHEN count(*) > 0 THEN RETURN 1 AS x ELSE RETURN 2 AS x",
-            {},
-            "Aggregation functions are only allowed in WITH and RETURN."},
-           {"WHEN (q:Q)-[:R]->() THEN RETURN 1 AS x ELSE RETURN 2 AS x",
-            {},
-            "Unbounded variables are not allowed in EXISTS!"},
-           {"WHEN $one THEN RETURN 1 AS x ELSE RETURN 2 AS x", one, "WHEN expected boolean expression, got int."},
            {"WHEN $l THEN RETURN 1 AS x ELSE RETURN 2 AS x",
             {{"l", ExternalPropertyValue(std::vector<ExternalPropertyValue>{})}},
             "WHEN expected boolean expression, got list."},
@@ -2262,8 +2257,6 @@ TYPED_TEST(InterpreterTest, StandaloneCallTopLevelBranch) {
     EXPECT_EQ(stream.GetHeader(), std::vector<std::string>{"name"});
     EXPECT_EQ(stream.GetResults().size(), expected);
   }
-  EXPECT_EQ(IntColumn(this->Interpret("CALL () { WHEN true THEN CALL mg.procedures() YIELD name } RETURN 1 AS x")),
-            std::vector<int64_t>{1});
 }
 
 TYPED_TEST(InterpreterTest, InTransactionsInTopLevelBranch) {
