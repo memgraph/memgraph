@@ -17,7 +17,6 @@
 #include "query/relations/orderability.hpp"
 
 #include <algorithm>
-#include <boost/unordered/unordered_flat_set.hpp>
 #include <charconv>
 #include <cmath>
 #include <compare>
@@ -43,6 +42,7 @@
 
 #include <absl/base/no_destructor.h>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
@@ -4487,6 +4487,7 @@ class KShortestPathsCursor : public Cursor {
   void PushWeighted(WeightedQueueEntry &&entry) {
     uint32_t slot = 0;
     if (weighted_free_.empty()) {
+      DMG_ASSERT(weighted_entries_.size() < std::numeric_limits<uint32_t>::max(), "the frontier outgrew its index");
       slot = static_cast<uint32_t>(weighted_entries_.size());
       weighted_entries_.push_back(std::move(entry));
     } else {
@@ -5097,10 +5098,10 @@ class KShortestPathsCursor : public Cursor {
   /// Fills `path_nodes_` with the trie nodes from the root down to `leaf`.
   void CollectPathNodes(uint64_t leaf) {
     if (path_nodes_leaf_ == leaf) return;
-    path_nodes_leaf_ = leaf;
     path_nodes_.clear();
     for (uint64_t node = leaf; node != kNoNode; node = trie_[node].parent) path_nodes_.push_back(node);
     std::ranges::reverse(path_nodes_);
+    path_nodes_leaf_ = leaf;
   }
 
   void ResetState() {
