@@ -40,7 +40,7 @@ bool IsConstantLiteral(const Expression *expression) {
 }
 
 /// Like UsedSymbolsCollector, but walks a subquery body and a comprehension's filter and result in full. Feeds the
-/// remember-lists of operators that restore rows below a branch (Accumulate, OrderBy).
+/// symbols-read-above lists of operators that replay rows below a branch (Accumulate, OrderBy).
 /// A superset of @c SubqueryExpression::external_symbols_ on purpose: a missing symbol loses a value, an extra one
 /// only copies a Null.
 class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
@@ -96,18 +96,18 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   int in_subquery_depth_{0};
 };
 
-/// The symbols an operator has to put back on the frame for every row it replays, and the only
-/// way to work one out.
+/// The symbols read above an operator that replays rows, which are exactly the ones it has to put
+/// back on the frame for each row it replays.
 ///
 /// An OrderBy or Accumulate rebuilds each replayed row from this list alone. A symbol something
 /// above reads but the list omits is not a crash: the slot reads as Null and the row comes back
-/// wrong. So the list is built by naming what will read the rebuilt rows, rather than assembled
-/// from whichever symbols the caller had to hand. Over-covering only copies a Null, so a source
-/// that may read nothing is still worth naming.
-///
-class RestoreList {
+/// wrong. Membership is therefore stated as a question with an answer, is anything above reading
+/// this, and the list is built by naming the readers rather than assembled from whichever symbols
+/// the caller had to hand. Over-covering only copies a Null, so a reader that may read nothing is
+/// still worth naming.
+class SymbolsReadAbove {
  public:
-  RestoreList(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols)
+  SymbolsReadAbove(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols)
       : symbol_table_(symbol_table), bound_symbols_(bound_symbols) {}
 
   /// Symbols an operator above reads directly rather than through an expression, in the order it
@@ -1076,10 +1076,10 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
     // Only the projection reads the rows this OrderBy replays: Skip and Limit count them without
     // looking, and nothing else sits between.
-    RestoreList restore{body.symbol_table(), body.bound_symbols()};
-    restore.ReadBy(body.named_expressions());
+    SymbolsReadAbove read_above{body.symbol_table(), body.bound_symbols()};
+    read_above.ReadBy(body.named_expressions());
 
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(restore).Take());
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(read_above).Take());
     if (body.skip()) {
       last_op = std::make_unique<Skip>(std::move(last_op), body.skip());
     }
@@ -1100,12 +1100,12 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (!body.order_by().empty()) {
     // Whatever consumes this clause reads the projected columns, and a Filter(where) above reads
     // its own expression.
-    RestoreList restore{body.symbol_table(), body.bound_symbols()};
-    restore.ReadDirectly(body.output_symbols());
+    SymbolsReadAbove read_above{body.symbol_table(), body.bound_symbols()};
+    read_above.ReadDirectly(body.output_symbols());
     if (body.where()) {
-      restore.ReadBy(std::array{body.where()->expression_});
+      read_above.ReadBy(std::array{body.where()->expression_});
     }
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(restore).Take());
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(read_above).Take());
   }
   // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {
