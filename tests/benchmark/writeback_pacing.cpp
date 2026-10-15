@@ -26,6 +26,7 @@
 
 #include <sys/vfs.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -45,14 +46,15 @@ constexpr size_t kMiB = 1024UL * 1024UL;
 constexpr size_t kDefaultWindow = 32 * kMiB;
 constexpr size_t kChunk = 256 * 1024;
 
-// Pacing only has anything to prevent once the unpaced arm can reach `vm.dirty_background_ratio`,
-// which is a fraction of RAM, so the default is deliberately larger than a quick run would need.
-// `MG_BENCH_TOTAL_MIB` exists to raise it on a machine with more memory than this was tuned for.
+// Pacing has nothing to prevent until the unpaced arm can reach `vm.dirty_background_ratio`,
+// which is a fraction of RAM, so a run small enough to be polite reports that pacing is pure
+// overhead. The default is the largest total that stays well inside a small disk; raise it with
+// `MG_BENCH_TOTAL_MIB` on a machine with more memory than the writeback threshold needs.
 size_t TotalBytes() {
   if (auto const *from_env = std::getenv("MG_BENCH_TOTAL_MIB")) {
     return static_cast<size_t>(std::strtoull(from_env, nullptr, 10)) * kMiB;
   }
-  return 8192 * kMiB;
+  return 1024 * kMiB;
 }
 
 // A filesystem where sync_file_range does nothing would report a difference of zero between the
@@ -75,17 +77,24 @@ std::string ScratchDirUnusable(std::filesystem::path const &dir) {
   return {};
 }
 
-void WriteOneFile(std::filesystem::path const &path, size_t bytes, size_t window) {
+// Returns whether every byte asked for was written. A writer that stops early finishes sooner,
+// so a silent failure would be reported as throughput.
+bool WriteOneFile(std::filesystem::path const &path, size_t bytes, size_t window) {
   std::vector<char> block(kChunk, 'x');
   memgraph::utils::NonConcurrentOutputFile file;
-  if (!file.Open(path, memgraph::utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING)) return;
+  if (!file.Open(path, memgraph::utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING)) return false;
   if (window != 0) file.EnableWritebackPacing(window, memgraph::utils::PageCachePolicy::kKeep);
+  bool complete = true;
   for (size_t written = 0; written < bytes; written += kChunk) {
-    if (!file.Write(block.data(), kChunk)) break;
+    if (!file.Write(block.data(), kChunk)) {
+      complete = false;
+      break;
+    }
   }
-  file.Sync();
+  if (!file.Sync()) complete = false;
   file.Close();
   std::filesystem::remove(path);
+  return complete;
 }
 
 // `window_for` turns a thread count into the window each file should use.
@@ -102,15 +111,23 @@ void RunArm(benchmark::State &state, auto &&window_for) {
   auto const window = window_for(threads);
 
   for (auto _ : state) {
+    std::atomic<bool> all_complete{true};
     std::vector<std::jthread> writers;
     writers.reserve(threads);
     auto const start = std::chrono::steady_clock::now();
     for (size_t i = 0; i < threads; ++i) {
-      writers.emplace_back(
-          [&, i] { WriteOneFile(dir / ("mg_writeback_bench_" + std::to_string(i)), bytes_per_thread, window); });
+      writers.emplace_back([&, i] {
+        if (!WriteOneFile(dir / ("mg_writeback_bench_" + std::to_string(i)), bytes_per_thread, window)) {
+          all_complete.store(false, std::memory_order_relaxed);
+        }
+      });
     }
     writers.clear();  // joins
     auto const elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    if (!all_complete.load(std::memory_order_relaxed)) {
+      state.SkipWithError("a writer stopped early, so this time is not for the work asked for");
+      return;
+    }
     state.SetIterationTime(elapsed);
   }
 
