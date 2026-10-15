@@ -55,11 +55,9 @@ struct FineGrainedPermissionForPrivilegeResult {
   uint64_t permission_bitmask;
   memgraph::auth::PermissionLevel grant_or_deny;
   bool is_label;
-#endif
-  std::string description;
-#ifdef MG_ENTERPRISE
   bool weak_deny{false};
 #endif
+  std::string description;
 };
 
 constexpr std::string_view DenyEffective(bool const weak) { return weak ? "WEAK DENY" : "STRONG DENY"; }
@@ -236,8 +234,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
                                                                                .permission_bitmask = permission_bitmask,
                                                                                .grant_or_deny = grant_or_deny,
                                                                                .is_label = (permission_type == "LABEL"),
-                                                                               .description = permission_description,
-                                                                               .weak_deny = weak_deny});
+                                                                               .weak_deny = weak_deny,
+                                                                               .description = permission_description});
   };
 
   auto add_denies = [&](const std::string &entity_name, uint64_t strong_denies, uint64_t weak_denies, bool is_global) {
