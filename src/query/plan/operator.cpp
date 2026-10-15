@@ -5130,8 +5130,7 @@ class KShortestPathsCursor : public Cursor {
     shortest_paths_.shrink_to_fit();
     candidate_paths_.clear();
     candidate_paths_.shrink_to_fit();
-    path_nodes_.clear();
-    path_nodes_.shrink_to_fit();
+    path_nodes_.clear();  // keeps its capacity: one id per node of one path, refilled every row
     path_nodes_leaf_ = kNoNode;
     current_path_index_ = 0;
   }
