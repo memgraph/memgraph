@@ -338,20 +338,20 @@ TEST_P(KShortestMemoryTest, PathsShareTheTrie) {
   EXPECT_LE(run.peak, returned_bytes * 3 / 2) << "returned " << returned_bytes << " bytes of edges";
 }
 
-// Path storage goes back when a row's search ends, not when the next searched row starts: the
-// last row has no next one.
+// Path storage goes back when the next searched row starts: the second row serves one path
+// while holding only its own search, not the first row's 20,000.
+TEST_P(KShortestMemoryTest, ReleasesStorageBetweenRows) {
+  constexpr int kRungs = 20;
+  const auto run =
+      db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}, {0, 2 * kRungs - 1, 1}});
+  ASSERT_EQ(run.rows, 20001U);
+  EXPECT_LE(run.current_at_last_path, 1UZ << 20U);
+}
+
+// And once after the last row, which has no next search to start.
 TEST_P(KShortestMemoryTest, ReleasesStorageAfterLastRow) {
   constexpr int kRungs = 20;
   const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
-  ASSERT_EQ(run.rows, 20000U);
-  EXPECT_LE(run.current_after_last_row, 1UZ << 20U);
-}
-
-// Rows the cursor skips without a search - `s = t`, then `|0` - do not release it either.
-TEST_P(KShortestMemoryTest, ReleasesStorageAfterSkippedRows) {
-  constexpr int kRungs = 20;
-  const auto run = db_->KShortestLadderMemory(
-      db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}, {0, 0, 20000}, {0, 2 * kRungs - 1, 0}});
   ASSERT_EQ(run.rows, 20000U);
   EXPECT_LE(run.current_after_last_row, 1UZ << 20U);
 }
