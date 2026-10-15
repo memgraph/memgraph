@@ -182,6 +182,17 @@ inline std::optional<uint64_t> GetMemoryMappingsCount() {
   return count;
 }
 
+/// Returns the number of threads of the process, from the Threads line of /proc/self/status.
+inline std::optional<uint64_t> GetThreadCount() {
+  for (auto const &line : utils::ReadLines("/proc/self/status")) {
+    if (!line.starts_with("Threads:")) continue;
+    auto const parts = utils::Split(line);
+    if (parts.size() < 2) return std::nullopt;
+    return std::stoull(parts[1]);
+  }
+  return std::nullopt;
+}
+
 /// Returns the size of vm.max_map_count
 inline std::optional<int64_t> GetVmMaxMapCount() {
   auto vm_max_map_count_data = utils::ReadLines("/proc/sys/vm/max_map_count");
