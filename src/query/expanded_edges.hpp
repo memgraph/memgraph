@@ -75,6 +75,11 @@ class ExpandedEdges {
 
   auto empty() const -> bool { return size() == 0; }
 
+  /// The edge at `index`, built now. For a caller that holds a position rather than an iterator,
+  /// which is how it keeps that position across a call that hands control back to its own caller.
+  /// The edge comes back by value, because there is none to refer to until it is asked for.
+  auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
+
   /// The array, for a caller that needs one after all, which is every caller that has not moved to
   /// taking this range. Nothing on a hot path should want it: building it is the cost this type
   /// exists to avoid.
