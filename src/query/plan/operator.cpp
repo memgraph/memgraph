@@ -4623,8 +4623,6 @@ class KShortestPathsCursor : public Cursor {
     return out;
   }
 
-  static constexpr bool kTo = true;
-  static constexpr bool kFrom = !kTo;
   static constexpr bool kBackward = true;
   static constexpr bool kForward = !kBackward;
 
@@ -4666,10 +4664,10 @@ class KShortestPathsCursor : public Cursor {
   /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
   /// pass, the vertex we expand *from* on the target-side (`Backward`) pass. So both passes test the pairs a
   /// forward walk would, and an arc's verdict does not depend on which pass reaches it.
-  template <bool To, bool Backward>
-  bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
-                    Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    const VertexAccessor next = To == kTo ? edge.To() : edge.From();
+  template <bool Backward>
+  bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &next, const VertexAccessor &expand_from,
+                    const VertexEdgeMapT &reached, Frame &frame, ExpressionEvaluator &evaluator,
+                    ExecutionContext &context) {
     if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid()) || reached.contains(next))
       return false;
 
@@ -4750,26 +4748,28 @@ class KShortestPathsCursor : public Cursor {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           for (const auto &edge : OutEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kTo, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.To();
+            if (!ShouldExpand<kForward>(edge, next, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_in_edge_.emplace(edge.To(), edge);
-            if (bfs_out_edge_.contains(edge.To())) {
-              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(next, edge);
+            if (bfs_out_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_source_next_.push_back(edge.To());
+            bfs_source_next_.push_back(next);
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           for (const auto &edge : InEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kFrom, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.From();
+            if (!ShouldExpand<kForward>(edge, next, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_in_edge_.emplace(edge.From(), edge);
-            if (bfs_out_edge_.contains(edge.From())) {
-              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(next, edge);
+            if (bfs_out_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_source_next_.push_back(edge.From());
+            bfs_source_next_.push_back(next);
           }
         }
       }
@@ -4789,26 +4789,28 @@ class KShortestPathsCursor : public Cursor {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           for (const auto &edge : OutEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kTo, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.To();
+            if (!ShouldExpand<kBackward>(edge, next, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_out_edge_.emplace(edge.To(), edge);
-            if (bfs_in_edge_.contains(edge.To())) {
-              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(next, edge);
+            if (bfs_in_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_target_next_.push_back(edge.To());
+            bfs_target_next_.push_back(next);
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           for (const auto &edge : InEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.From();
+            if (!ShouldExpand<kBackward>(edge, next, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_out_edge_.emplace(edge.From(), edge);
-            if (bfs_in_edge_.contains(edge.From())) {
-              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(next, edge);
+            if (bfs_in_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_target_next_.push_back(edge.From());
+            bfs_target_next_.push_back(next);
           }
         }
       }
