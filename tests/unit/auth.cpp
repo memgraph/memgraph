@@ -2261,9 +2261,9 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
   regranted.Grant({"Employee"}, "salary", read);
   EXPECT_EQ(regranted, grant);
 
-  PropertyAccessPermissions denied_all = weak;
-  denied_all.Deny({"Employee"}, "*", read);
-  EXPECT_FALSE(denied_all.GetRules()[0].properties.contains("salary"));
+  PropertyAccessPermissions weak_wildcard_after_strong = strong;
+  weak_wildcard_after_strong.Deny({"Employee"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(weak_wildcard_after_strong, grant).Has(emp, "salary", read), PermissionLevel::DENY);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalWeakDeny) {
