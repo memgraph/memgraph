@@ -13,6 +13,8 @@
 
 #include <cstdint>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::dbms {
@@ -28,16 +30,6 @@ struct DatabaseInfo {
   int64_t db_query_memory_tracked{0};
 };
 
-static inline nlohmann::json ToJson(const DatabaseInfo &info) {
-  auto res = ToJson(info.storage_info);
-  res["triggers"] = info.triggers;
-  res["streams"] = info.streams;
-  res["db_memory_tracked"] = info.db_memory_tracked;
-  res["db_peak_memory_tracked"] = info.db_peak_memory_tracked;
-  res["db_storage_memory_tracked"] = info.db_storage_memory_tracked;
-  res["db_embedding_memory_tracked"] = info.db_embedding_memory_tracked;
-  res["db_query_memory_tracked"] = info.db_query_memory_tracked;
-  return res;
-}
+nlohmann::json ToJson(const DatabaseInfo &info);
 
 }  // namespace memgraph::dbms

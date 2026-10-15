@@ -12,8 +12,11 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
@@ -22,6 +25,7 @@
 namespace memgraph::query {
 
 class DbAccessor;
+class FineGrainedAuthChecker;
 class TypedValue;
 struct QueryUserOrRole;
 
@@ -30,6 +34,7 @@ const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
+const char kElementId[] = "ELEMENTID";
 }  // namespace
 
 struct FunctionContext {
@@ -41,6 +46,7 @@ struct FunctionContext {
   int64_t hops_counter{0};
   const QueryUserOrRole *user_or_role{nullptr};
   const QueryUserOrRole *triggering_user{nullptr};
+  FineGrainedAuthChecker const *auth_checker{nullptr};
 };
 
 using func_impl =
@@ -52,6 +58,14 @@ struct func_info {
 };
 
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
+
+struct ResolvedUserFunctions {
+  std::vector<user_func> functions;
+};
+
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions>;
+
+auto ResolveUserFunction(const std::string &name) -> user_func;
 
 /// Return the function implementation with the given name.
 ///

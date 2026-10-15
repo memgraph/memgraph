@@ -1,6 +1,7 @@
 set(rpc_src_files
     client.cpp
     protocol.cpp
+    progress_heartbeat.cpp
     server.cpp
     file_replication_handler.cpp
 )

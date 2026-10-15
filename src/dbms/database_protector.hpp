@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@ using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Ac
 struct DatabaseProtector : storage::DatabaseProtector {
   explicit DatabaseProtector(DatabaseAccess access);
   auto clone() const -> storage::DatabaseProtectorPtr override;
+  bool sealed() const override;
 
  private:
   DatabaseAccess access_;

@@ -16,15 +16,16 @@
 
 namespace memgraph::storage {
 
-void EdgeMetadataIndex::RebuildFrom(
-    utils::SkipListDb<Vertex> &vertices,
-    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info) {
+void EdgeMetadataIndex::RebuildFrom(utils::SkipListDb<Vertex> &vertices,
+                                    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
+                                    ProgressCallback const &on_progress) {
   data_.clear();
   auto vertex_acc = vertices.access();
   PopulateIndexDispatch(
       vertex_acc,
       [this]() { return data_.access(); },
-      [](Vertex &vertex, auto &metadata_acc) {
+      [&on_progress](Vertex &vertex, auto &metadata_acc) {
+        if (on_progress) on_progress();
         for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
           auto *edge = edge_ref.ptr;
           // NOLINTBEGIN(clang-analyzer-core.NullDereference)

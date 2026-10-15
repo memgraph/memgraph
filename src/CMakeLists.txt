@@ -1,6 +1,7 @@
 # CMake configuration for the main memgraph library and executable
 
 # add memgraph sub libraries, ordered by dependency
+add_subdirectory(value_order)
 add_subdirectory(csv)
 add_subdirectory(utils)
 add_subdirectory(metrics)
@@ -51,12 +52,9 @@ target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 # Note: When using CPack, mgconsole is built via CPack install script instead
 add_dependencies(memgraph mgconsole)
 
-# Link memgraph with custom libstdc++
-message(STATUS "Linking memgraph with custom libstdc++")
 target_link_libraries(memgraph PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
         mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-parameters mg-glue mg-flags mg::system mg::replication_handler
-        libstdc++_custom)
-target_link_options(memgraph PRIVATE -nostdlib++)
+        mg::toolchain)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
@@ -73,11 +71,13 @@ set_target_properties(memgraph PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+if (MG_PYTHON_SUPPORT)
 # Emulate the installed python_support, by creating a symlink
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/python_support
         BYPRODUCTS ${CMAKE_BINARY_DIR}/python_support
         COMMENT "Creating symlink for python_support")
+endif()
 
 # Strip the executable in release build.
 if(lower_build_type STREQUAL "release")
@@ -87,6 +87,36 @@ if(lower_build_type STREQUAL "release")
 endif()
 
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
+
+# The abi3 DT_NEEDED rewrite is attached automatically to the memgraph binary
+# (and every other executable) by the add_executable() override in
+# cmake/functions.cmake; see cmake/RewriteDtNeededAbi3.cmake for the script that
+# invokes patchelf, and src/query/CMakeLists.txt for where `Py_LIMITED_API` is
+# set.
+#
+# Emit the once-per-build configure-time warnings so the developer knows why
+# the rewrite was skipped (the helper itself is silent on the skip).
+if (MG_PYTHON_SUPPORT)
+find_program(PATCHELF_EXECUTABLE patchelf)
+# NO_CMAKE_FIND_ROOT_PATH: must match mg_apply_python_abi3_rewrite — the probe
+# asks what the RUNTIME linker can resolve, so the sysroot's own libpython3.so
+# (GDB python's abi3 stub, invisible to ld.so) must not count.
+find_library(MG_LIBPYTHON3_SO python3 NO_CMAKE_FIND_ROOT_PATH
+    PATHS /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu /usr/lib64 /usr/lib)
+if(MG_PYTHON_REWRITE_DT_NEEDED AND NOT (PATCHELF_EXECUTABLE AND MG_LIBPYTHON3_SO))
+        if(NOT PATCHELF_EXECUTABLE)
+                message(WARNING "patchelf not found; skipping DT_NEEDED rewrite. "
+                                "Install patchelf to make memgraph binaries version-portable across Python minor versions.")
+        endif()
+        if(NOT MG_LIBPYTHON3_SO)
+                message(WARNING "libpython3.so (unversioned abi3 SONAME) not found; skipping DT_NEEDED rewrite. "
+                                "On Debian/Ubuntu, symlink it manually: "
+                                "`sudo ln -sf libpython3.XX.so.1.0 /usr/lib/x86_64-linux-gnu/libpython3.so` "
+                                "(or build via release/package/mgbuild.sh, which points it at the chosen "
+                                "--python-build-version). Without this, binaries keep a versioned libpython dependency.")
+        endif()
+endif()
+endif() # MG_PYTHON_SUPPORT
 
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
@@ -110,8 +140,10 @@ add_custom_command(TARGET memgraph POST_BUILD
 install(TARGETS memgraph
     RUNTIME DESTINATION lib/memgraph)
 
-# Install custom libstdc++
-get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
+# A C++ runtime the binary was linked against has to travel with it. Nothing to install
+# when the host supplied the runtime, because the host will supply it at run time too.
+if (MG_TOOLCHAIN_RUNTIME_LIBRARY)
+set(CUSTOM_LIBSTDCXX_PATH "${MG_TOOLCHAIN_RUNTIME_LIBRARY}")
 message(STATUS "Installing custom libstdc++.so.6: ${CUSTOM_LIBSTDCXX_PATH}")
 
 # Get the directory of the custom libstdc++
@@ -174,17 +206,20 @@ install(FILES
                 GROUP_READ GROUP_EXECUTE
                 WORLD_READ WORLD_EXECUTE
 )
+endif ()
 
 install(TARGETS mg-module-support
     LIBRARY DESTINATION lib/memgraph)
 
 # Install Python source for supporting our embedded Python.
+if (MG_PYTHON_SUPPORT)
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
         DESTINATION lib/memgraph/python_support)
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp_mock.py
         DESTINATION lib/memgraph/python_support)
 install(FILES ${CMAKE_SOURCE_DIR}/include/_mgp_mock.py
         DESTINATION lib/memgraph/python_support)
+endif()
 
 # Install the includes file for writing custom procedures in C and C++>
 install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h

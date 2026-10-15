@@ -17,6 +17,7 @@
 #include <rocksdb/write_batch.h>
 
 #include "kvstore/kvstore.hpp"
+#include "kvstore/rocksdb_options.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::kvstore {
@@ -31,6 +32,7 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
   pimpl_->storage = std::move(storage);
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
+  ApplyRocksDBLogConfig(pimpl_->options);
   pimpl_->options.create_if_missing = true;
   rocksdb::DB *db = nullptr;
   auto s = rocksdb::DB::Open(pimpl_->options, pimpl_->storage.c_str(), &db);

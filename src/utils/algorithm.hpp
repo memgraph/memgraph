@@ -142,24 +142,6 @@ inline TVal First(TIterable &&iterable, TVal &&empty_value) {
 }
 
 /**
- * Return a reversed copy of the given collection.
- * The copy is allocated using the default allocator.
- */
-template <class TCollection>
-TCollection Reversed(const TCollection &collection) {
-  return TCollection(std::rbegin(collection), std::rend(collection));
-}
-
-/**
- * Return a reversed copy of the given collection.
- * The copy is allocated with the given `alloc`.
- */
-template <class TCollection, class TAllocator>
-TCollection Reversed(const TCollection &collection, const TAllocator &alloc) {
-  return TCollection(std::rbegin(collection), std::rend(collection), alloc);
-}
-
-/**
  * Converts a (beginning, end) pair of iterators into an iterable that can be
  * passed on to itertools.
  */

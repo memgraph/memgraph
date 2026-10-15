@@ -63,34 +63,64 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return;
   }
 
-  // We still need to system replicate
+  // We still need to system replicate.
+  // NB: DbInfo is a local, in-process aggregate only — NOT a wire type, so it needs no versioning of
+  // its own. Its fields are passed individually to Stream<SystemRecoveryRpc> below; the serialized
+  // request is the versioned SystemRecoveryReq (V1 -> V2 adds parameters -> V3 adds cold_databases,
+  // with server-side upgrade of an older peer's request). A future layout change bumps that RPC version.
   struct DbInfo {
     std::vector<storage::SalientConfig> configs;
     uint64_t last_committed_timestamp;
+    // Hot/cold: COLD set carried so a reconnecting/lagging replica converges to {HOT ∪ COLD}.
+    // One ColdTenantRecovery per suspended tenant (salient + stats); empty on non-enterprise /
+    // no-license.
+    std::vector<storage::ColdTenantRecovery> cold_databases;
   };
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
+  // Held until the stream is built so a later system tx cannot send its deltas before the recovery request.
+  auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
+    if constexpr (REQUIRE_LOCK) {
+      return system.GenTransactionGuard();
+    }
+    return std::nullopt;
+  });
 
+  DbInfo db_info = std::invoke([&] {
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-      return DbInfo{configs, system.LastCommittedSystemTimestamp()};
+#ifdef MG_ENTERPRISE
+      // Snapshot the COLD set inside the same system-transaction guard as the HOT ForEach so the two
+      // are coherent as-of last_committed_timestamp.
+      auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases)};
+#else
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}};
+#endif
     }
     // No license -> send only default config
-    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
+    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
+#ifdef MG_ENTERPRISE
+    auth::Auth::Config auth_config;
+    std::vector<auth::User> auth_users;
+    std::vector<auth::Role> auth_roles;
+    std::vector<auth::UserProfiles::Profile> auth_profiles;
+    if (is_enterprise) {
+      auth.WithReadLock([&](const auto &locked_auth) {
+        auth_config = locked_auth.GetConfig();
+        auth_users = locked_auth.AllUsers();
+        auth_roles = locked_auth.AllRoles();
+        auth_profiles = locked_auth.AllProfiles();
+      });
+    }
+#endif
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
       if (!is_enterprise) {
@@ -103,16 +133,15 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::UserProfiles::Profile>{},
                                                             params_snapshot);
       }
-      return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
-                                                            db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs),
-                                                            locked_auth.GetConfig(),
-                                                            locked_auth.AllUsers(),
-                                                            locked_auth.AllRoles(),
-                                                            locked_auth.AllProfiles(),
-                                                            params_snapshot);
-      });
+      return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                          db_info.last_committed_timestamp,
+                                                          std::move(db_info.configs),
+                                                          std::move(auth_config),
+                                                          std::move(auth_users),
+                                                          std::move(auth_roles),
+                                                          std::move(auth_profiles),
+                                                          params_snapshot,
+                                                          std::move(db_info.cold_databases));
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -124,7 +153,11 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           params_snapshot);
 #endif
     });
-    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
+    guard.reset();
+    auto const response = stream.SendAndWait();
+    if (response.result == SystemRecoveryRes::Result::FAILURE) {
+      // System recovery failed; do not record confirmations so the reset is re-advertised on the next
+      // SystemRestore.
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
@@ -190,13 +223,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   using ReplicasResT = std::map<std::string, std::map<std::string, int64_t>>;
   using MainResT = std::map<std::string, uint64_t>;
-  std::pair<MainResT, ReplicasResT> GetNumCommittedTxns() const;
+  // Empty when the dbms handler is exclusively locked (database create/drop in flight).
+  std::optional<std::pair<MainResT, ReplicasResT>> GetNumCommittedTxns() const;
 
 #endif
 
  private:
   void ClientsShutdown(auto &locked_repl_state) const {
-    spdlog::trace("Shutting down instance level clients.");
+    spdlog::info("Shutting down instance level clients.");
 
     auto &repl_clients = std::get<RoleMainData>(locked_repl_state->ReplicationData()).registered_replicas_;
     for (auto &client : repl_clients) {
@@ -213,7 +247,31 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       storage->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
     });
 
-    spdlog::trace("Replication storage clients destroyed.");
+    spdlog::info("Replication storage clients destroyed.");
+  }
+
+  using LockedReplState = utils::Synchronized<ReplicationState, utils::RWSpinLock>::LockedPtr;
+
+  // UnregisterReplica without the analytical-mode gate, for the rollback of a failed registration:
+  // that rollback must succeed precisely when a database did turn analytical mid-registration.
+  auto UnregisterReplica_(std::string_view name) -> query::UnregisterReplicaResult;
+
+  // The same, driven by a hold the caller already owns. repl_state_ is not recursive, so a rollback
+  // running inside RegisterReplica_ cannot reacquire it: UnregisterReplica_ fails its TryLock every time
+  // and reports NO_ACCESS while leaving the replica registered.
+  auto UnregisterReplicaLocked_(LockedReplState &locked_repl_state, std::string_view name)
+      -> query::UnregisterReplicaResult;
+
+  // Name of the first database found in analytical mode, if any. Registration and unregistration are
+  // instance-wide operations, so a single analytical database blocks both.
+  auto AnalyticalDatabase() const -> std::optional<std::string> {
+    std::optional<std::string> analytical_db;
+    dbms_handler_.ForEach([&analytical_db](dbms::DatabaseAccess db_acc) {
+      if (!analytical_db && db_acc->storage()->storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+        analytical_db = db_acc->name();
+      }
+    });
+    return analytical_db;
   }
 
   template <bool SendSwapUUID>
@@ -221,6 +279,15 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       -> std::expected<void, query::RegisterReplicaError> {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
+
+    // Reject before any replication state is mutated: persisting the instance-level client while no
+    // per-database client can be created leaves the replica permanently unattached, since every retry
+    // then fails with NAME_EXISTS.
+    if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
+      spdlog::error(
+          "Cannot register replica {} while database \"{}\" is in analytical mode.", config.name, *analytical_db);
+      return std::unexpected{RegisterReplicaError::ANALYTICAL_MODE};
+    }
 
     auto maybe_client = locked_repl_state->RegisterReplica(config);
     if (!maybe_client) {
@@ -261,40 +328,64 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     bool all_clients_good{true};
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
+      // One failed database rolls the whole registration back, and the Shutdown below has already torn the
+      // instance client down, so every further Start would only block on an aborted RPC client.
+      if (!all_clients_good) return;
+
       auto *storage = db_acc->storage();
-      if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
+      // Disk storage never participates in replication, so it is skipped rather than failed. Analytical
+      // does fail: silently skipping it is what leaves the replica permanently unattached. The up-front
+      // gate above already rejected that, so getting here means the mode flipped in between.
+      if (storage->storage_mode_ == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+      if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        all_clients_good = false;
+        return;
+      }
 
       auto protector = dbms::DatabaseProtector{db_acc};
 
       auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
       client->Start(storage, protector);
 
-      all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
-          [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
-            bool const success = std::invoke([state = client->State()]() {
-              // We force sync replicas in other situation
-              // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
-              // set the state to RECOVERY
-              return state != storage::replication::ReplicaState::DIVERGED_FROM_MAIN;
-            });
+      // Start runs the heartbeat synchronously but may leave a recovery task queued on the instance
+      // client's thread pool, holding a raw pointer to this client. A rejected client therefore must not be
+      // destroyed under the lock: ownership is handed back so it outlives the drain below.
+      auto rejected = storage->repl_storage_state_.replication_storage_clients_.WithLock(
+          [storage, client = std::move(client)](
+              auto &storage_clients) mutable -> storage::ReplicationStorageState::ReplicationStorageClientPtr {
+            // Re-read the mode under this lock. SetStorageMode stores IN_MEMORY_ANALYTICAL under the very
+            // same lock, so "analytical with a live client" is unrepresentable rather than merely unlikely.
+            if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return std::move(client);
 
-            if (success) {
-              storage_clients.push_back(std::move(client));
-            }
-            return success;
+            // We force sync replicas in other situation
+            // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
+            // set the state to RECOVERY
+            if (client->State() == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) return std::move(client);
+
+            storage_clients.push_back(std::move(client));
+            return nullptr;
           });
+
+      if (rejected) {
+        all_clients_good = false;
+        // Aborts the in-flight RPC, drops the queue and joins the worker, so no task can outlive `rejected`,
+        // which is destroyed at the end of this iteration. Must run with the clients' lock released: the
+        // task can be inside GetRecoverySteps waiting on engine_lock_, which a committing thread holds
+        // while waiting for that very lock.
+        instance_client_ptr->Shutdown();
+      }
     });
 
     if (!all_clients_good) {
       spdlog::error("Failed to register all databases for the replica {}. Started unregistering replica.", config.name);
-      switch (UnregisterReplica(config.name)) {
+      switch (UnregisterReplicaLocked_(locked_repl_state, config.name)) {
         using query::UnregisterReplicaResult;
+        case UnregisterReplicaResult::ANALYTICAL_MODE:
+          LOG_FATAL("UnregisterReplicaLocked_ must not apply the analytical-mode gate.");
         case UnregisterReplicaResult::NO_ACCESS:
-          spdlog::trace("Failed to unregister replica {} since we couldn't get unique access to ReplicationState.",
-                        config.name);
-          break;
+          LOG_FATAL("UnregisterReplicaLocked_ must not acquire ReplicationState; the caller already holds it.");
         case UnregisterReplicaResult::NOT_MAIN:
-          spdlog::trace(
+          spdlog::error(
               "Failed to unregister replica {} after failed registration process since the instance isn't main "
               "anymore. The instance left in inconsistent state, the administrator should manually delete the "
               "data and restart process.",
@@ -308,14 +399,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
               "and restart process.",
               config.name);
         case UnregisterReplicaResult::CANNOT_UNREGISTER:
-          spdlog::trace(
+          spdlog::error(
               "Failed to unregister replica {} after failed registration process since unregistration unsuccessful for "
               "all database clients. The instance left in inconsistent state, the administrator should manually delete "
               "the data and restart process.",
               config.name);
           break;
         case UnregisterReplicaResult::SUCCESS:
-          spdlog::trace("Replica {} successfully unregistered after failed registration process.", config.name);
+          spdlog::info("Replica {} successfully unregistered after failed registration process.", config.name);
           break;
       }
       return std::unexpected{RegisterReplicaError::CONNECTION_FAILED};
@@ -357,7 +448,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     if (!locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid)) {
       return false;
     }
-    spdlog::trace("Role set to replica, instance-level clients destroyed.");
+    spdlog::info("Role set to replica, instance-level clients destroyed.");
 
     // Start
     const auto success = std::visit(

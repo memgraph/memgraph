@@ -1,0 +1,12 @@
+# Node filters are evaluated independently of the label filters: B passes the label whitelist but
+# not the node allowlist, and C passes the node allowlist but is unreachable once B is pruned.
+query: >
+  MATCH (c:C)
+  WITH collect(c) AS allow
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {labelFilter: ['+B'], allowlistNodes: allow, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A

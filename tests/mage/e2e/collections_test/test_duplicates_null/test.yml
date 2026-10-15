@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.duplicates(null) AS result;
+
+output:
+  - result: []

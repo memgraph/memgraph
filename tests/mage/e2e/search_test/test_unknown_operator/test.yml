@@ -1,0 +1,7 @@
+# An unrecognized operator raises, listing the accepted operators.
+query: >
+  CALL search.node({U: 'p'}, 'bogus', 'a') YIELD node
+  RETURN node;
+
+exception: >
+  operator `bogus` invalid

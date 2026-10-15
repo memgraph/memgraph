@@ -11,22 +11,26 @@
 
 #pragma once
 
+#include <mutex>
+
 #include <cstdint>
 #include <map>
 #include <utility>
 
 #include "memory/db_arena_fwd.hpp"
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -63,10 +67,14 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-             utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
-             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+             PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             Transaction *transaction, Gid max_gid);
+
+    Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+             PropertyId property, PropertyValueRange const &range, View view, Storage *storage,
              Transaction *transaction, Gid max_gid);
 
     class Iterator {
@@ -90,18 +98,25 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       EdgeAccessor current_accessor_;
     };
 
-    Iterator begin() { return {this, index_accessor_.begin()}; }
+    Iterator begin() {
+      if (!bounds_valid_) return {this, index_accessor_.end()};
+      if (lower_bound_) {
+        return {this, index_accessor_.find_equal_or_greater(lower_bound_->value())};
+      }
+      return {this, index_accessor_.begin()};
+    }
 
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipListDb<Edge>::ConstAccessor pin_accessor_edge_;
+    EdgePin pin_accessor_edge_;
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -112,10 +127,14 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   class ChunkedIterable {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
-                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+                    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction, size_t num_chunks, Gid max_gid);
+
+    ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+                    PropertyId property, PropertyValueRange const &range, View view, Storage *storage,
                     Transaction *transaction, size_t num_chunks, Gid max_gid);
 
     class Iterator {
@@ -167,13 +186,14 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     size_t size() const { return chunks_.size(); }
 
    private:
-    utils::SkipListDb<Edge>::ConstAccessor pin_accessor_edge_;
+    EdgePin pin_accessor_edge_;
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -221,20 +241,28 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     bool IndexReady(EdgeTypeId edge_type, PropertyId property) const override;
 
+    bool IndexExists(EdgeTypeId edge_type, PropertyId property) const override;
+
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                   utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
+    Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                   PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction);
+
     ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                  utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                                 utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                  Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
+                                 utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                                 size_t num_chunks);
 
     void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                       std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
@@ -244,22 +272,22 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag indexed_built_;
+    mutable EdgeTypePropertyIndexed indexed_;
   };
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
-  /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
-  /// the entry alive in all_indices_, so RestoreIndex must not re-append there.
   [[nodiscard]] auto DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater)
       -> std::shared_ptr<IndividualIndex>;
-  void RestoreIndex(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> evicted,
-                    ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose property `arming` names, and returns how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   void DropGraphClearIndices() override;
 
@@ -267,8 +295,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);
@@ -278,11 +305,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const -> std::shared_ptr<IndividualIndex>;
-
-  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
-  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
-  bool InstallIndividualIndex_(EdgeTypeId edge_type, PropertyId property, std::shared_ptr<IndividualIndex> entry,
-                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
   metrics::GaugeHandle gauge_{};
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{

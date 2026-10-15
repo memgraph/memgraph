@@ -18,11 +18,14 @@
 #pragma pop_macro("EOF")  // bring EOF back
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"  // BuildSubqueryFold names SubqueryExpression::Fold
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -352,6 +355,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext *ctx) override;
 
   /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowRoutingTable(MemgraphCypher::ShowRoutingTableContext *ctx) override;
+
+  /**
    * @return LockPathQuery*
    */
   antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;
@@ -532,6 +540,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) override;
 
   /**
+   * @return SessionQuery*
+   */
+  antlrcpp::Any visitSessionQuery(MemgraphCypher::SessionQueryContext *ctx) override;
+
+  /**
    * @return ShowTransactions*
    */
   antlrcpp::Any visitShowTransactions(MemgraphCypher::ShowTransactionsContext *ctx) override;
@@ -545,6 +558,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return TransactionIdList*
    */
   antlrcpp::Any visitTransactionIdList(MemgraphCypher::TransactionIdListContext *ctx) override;
+
+  /**
+   * @return TerminateSessions*
+   */
+  antlrcpp::Any visitTerminateSessions(MemgraphCypher::TerminateSessionsContext *ctx) override;
+
+  /**
+   * @return TransactionQueueQuery*
+   */
+  antlrcpp::Any visitShowSessions(MemgraphCypher::ShowSessionsContext *ctx) override;
+
+  /**
+   * @return SessionIdList*
+   */
+  antlrcpp::Any visitSessionIdList(MemgraphCypher::SessionIdListContext *ctx) override;
 
   /**
    * @return VersionQuery*
@@ -615,6 +643,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return IndexQuery*
    */
   antlrcpp::Any visitDropIndex(MemgraphCypher::DropIndexContext *ctx) override;
+
+  antlrcpp::Any visitCreateGlobalVertexIndex(MemgraphCypher::CreateGlobalVertexIndexContext *ctx) override;
+
+  antlrcpp::Any visitDropGlobalVertexIndex(MemgraphCypher::DropGlobalVertexIndexContext *ctx) override;
 
   /**
    * @return EdgeIndexQuery*
@@ -762,6 +794,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) override;
 
+  antlrcpp::Any visitGrantPropertyPermission(MemgraphCypher::GrantPropertyPermissionContext *ctx) override;
+  antlrcpp::Any visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) override;
+  antlrcpp::Any visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) override;
+
   /**
    * @return AuthQuery*
    */
@@ -885,9 +921,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) override;
 
   /**
-   * @return vector<LabelIx>
+   * @return LabelTerm
    */
-  antlrcpp::Any visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) override;
+  antlrcpp::Any visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) override;
+
+  antlrcpp::Any visitPatternLabelExpression(MemgraphCypher::PatternLabelExpressionContext *ctx) override;
+
+  /// The label term a ':'-separated run of segments names. Shared by the two label-expression rules, which
+  /// carry the same segments and differ only in how their '|' loop decides to leave.
+  template <typename TSegment>
+  LabelTerm LabelExpressionFrom(const std::vector<TSegment *> &segments);
 
   /**
    * @return unordered_map<PropertyIx, Expression*>
@@ -1098,14 +1141,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitParameter(MemgraphCypher::ParameterContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return SubqueryExpression* (Expression)
    */
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * The body every brace form shares. The spellings differ only in their fold - and the construct their errors name
+   * follows from it - so the keyword is read at the `atom` level and passed in here.
+   *
+   * @return SubqueryExpression* (Expression)
    */
-  antlrcpp::Any visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) override;
+  Expression *BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx, SubqueryExpression::Fold fold);
 
   /**
    * @return pattern comprehension (Expression)
@@ -1113,7 +1159,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return SubqueryExpression* (Expression)
    * PatternExpression behaves the same way as ExistsExpression
    */
   antlrcpp::Any visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) override;
@@ -1281,6 +1327,18 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
+  /// What a WHEN body yields. All branches of one conditional must agree.
+  enum class ConditionalKind : uint8_t { kReturns, kUpdates, kStandaloneCall };
+
+  struct ConditionalQuery {
+    CypherQuery *query;
+    ConditionalKind kind;
+  };
+
+  /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
+  ConditionalQuery VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  ConditionalQuery VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+
   /**
    * @return MultiDatabaseQuery*
    */
@@ -1295,6 +1353,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return RenameDatabaseQuery*
    */
   antlrcpp::Any visitRenameDatabase(MemgraphCypher::RenameDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery* (action=SUSPEND)
+   */
+  antlrcpp::Any visitSuspendDatabase(MemgraphCypher::SuspendDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery* (action=RESUME)
+   */
+  antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
 
   /**
    * @return UseDatabaseQuery*
@@ -1362,6 +1430,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return SetSessionTraceQuery*
    */
   antlrcpp::Any visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitSessionSettingQuery(MemgraphCypher::SessionSettingQueryContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitSetSessionSetting(MemgraphCypher::SetSessionSettingContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitResetSessionSetting(MemgraphCypher::ResetSessionSettingContext *ctx) override;
 
   /**
    * @return std::pair<std::string, UserProfileQuery::LimitValueResult>
@@ -1444,6 +1527,28 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
 
+  /// The labels one `labelName` leaf stands for. A `$param` bound to a list stands for several, read as a
+  /// conjunction, which is what the colon form has always done with such a parameter.
+  std::vector<QueryLabelType> LabelsFromLabelName(MemgraphCypher::LabelNameContext *ctx);
+  std::vector<LabelIx> LabelsFromLabelLeaf(MemgraphCypher::LabelLeafContext *ctx);
+  std::vector<LabelIx> LabelsFromParameter(MemgraphCypher::ParameterContext *ctx);
+
+  /// A `variable.prop` label, which only CREATE accepts.
+  Expression *PropertyLookupLabel(MemgraphCypher::VariableContext *variable_ctx,
+                                  const std::vector<MemgraphCypher::PropertyLookupContext *> &lookups);
+  Expression *DynamicLabelFrom(MemgraphCypher::DynamicLabelContext *ctx);
+
+  /// Build the label term one parsed operator expression stands for, flattening nested `&`/`|` and
+  /// dropping parentheses. Nothing else is simplified: `!!A` and `A&!A` survive as written.
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::ParenLabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelAndContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelConjunctContext *ctx);
+
   ParsingContext context_;
   AstStorage *storage_;
 
@@ -1460,8 +1565,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // return.
   bool in_with_ = false;
   // Flag to indicate if we are parsing an EXISTS subquery
-  bool parsing_exists_subquery_ = false;
+  bool parsing_subquery_body_ = false;
   Parameters *parameters_;
+  // Token positions of `$name` parameters, mapped to their unescaped names. Stripped literals are not in here.
+  std::unordered_map<int32_t, std::string> parameter_names_;
 
   QueryInfo query_info_;
 };

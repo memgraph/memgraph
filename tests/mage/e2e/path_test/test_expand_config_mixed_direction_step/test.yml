@@ -1,0 +1,13 @@
+# One step naming an outgoing type and an incoming one admits both directions, so the walk leaves A
+# along R and arrives at A along OTHER. Neither adjacency list may be skipped for naming the step's
+# other direction.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: 'R>|<OTHER', minHops: 1, maxHops: 1})
+  YIELD result
+  WITH result ORDER BY [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A", "B"]
+  - names: ["A", "C"]

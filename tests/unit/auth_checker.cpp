@@ -12,8 +12,11 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <span>
+
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth_test_utils.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 
@@ -310,7 +313,7 @@ TEST(AuthChecker, Generate) {
       empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
 
   // Add user
-  auto user = auth->AddUser("new_user");
+  auto user = AddUser(*auth.Lock(), "new_user");
   ASSERT_TRUE(user);
 
   // ~Empty user should now fail~
@@ -323,7 +326,7 @@ TEST(AuthChecker, Generate) {
 
   // Add role and new user
   auto new_role = *auth->AddRole("new_role");
-  auto new_user2 = *auth->AddUser("new_user2");
+  auto new_user2 = *AddUser(*auth.Lock(), "new_user2");
   auto role = auth_checker.GenQueryUser("anyuser", {"new_role"});
   auto user2 = auth_checker.GenQueryUser("new_user2", {});
 
@@ -451,5 +454,401 @@ TEST(AuthChecker, Generate) {
   new_role.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
   auth->SaveRole(new_role);
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_WildcardVertexEdgeUnrestricted_NoPropertyRules) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  ASSERT_FALSE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_WildcardVertexEdgeUnrestricted_PropertyRulesNonEmpty) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  user.property_access_handler().label_properties().Deny({"l1"}, "ssn", memgraph::auth::PropertyPermissionType::READ);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  ASSERT_TRUE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_LabelFgRestricted_AlwaysTrue) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  ASSERT_TRUE(auth_checker.NeedsFineGrainedAuthChecker());
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMultiLabelDenyWins) {
+  // v1 has label "l1"; add "l2" so it has two labels
+  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());
+  this->dba.AdvanceCommand();
+
+  memgraph::auth::User user{"test"};
+  // GRANT all properties on l1, DENY ssn on l2
+  user.property_access_handler().label_properties().Grant({"l1"}, "*", memgraph::auth::PropertyPermissionType::READ);
+  user.property_access_handler().label_properties().Deny({"l2"}, "ssn", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  auto ssn_id = this->dba.NameToProperty("ssn");
+  auto name_id = this->dba.NameToProperty("name");
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+
+  // ssn denied because l2 denies it (DENY wins across labels)
+  EXPECT_FALSE(
+      auth_checker.HasPropertyPermission(label_ids, ssn_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+  // name allowed (l1 grants *, l2 has no rule for name so neutral → l1's grant applies)
+  EXPECT_TRUE(
+      auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGANoRulesDenied) {
+  memgraph::auth::User user{"test"};
+  // No property rules at all → no access
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  auto ssn_id = this->dba.NameToProperty("ssn");
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+
+  EXPECT_FALSE(
+      auth_checker.HasPropertyPermission(label_ids, ssn_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGARulesExistButNoGrant) {
+  memgraph::auth::User user{"test"};
+  // Rules exist for l1 (grant "name" only), so "ssn" has no grant → denied
+  user.property_access_handler().label_properties().Grant({"l1"}, "name", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  auto ssn_id = this->dba.NameToProperty("ssn");
+  auto name_id = this->dba.NameToProperty("name");
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+
+  EXPECT_FALSE(
+      auth_checker.HasPropertyPermission(label_ids, ssn_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+  EXPECT_TRUE(
+      auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeUnmentionedPropertyDenied) {
+  memgraph::auth::User user{"test"};
+  // Grant only "secret_code" on edge_type_1 — no wildcard, no rule for "amount"
+  user.property_access_handler().edge_type_properties().Grant(
+      {"edge_type_1"}, "secret_code", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  auto secret_id = this->dba.NameToProperty("secret_code");
+  auto amount_id = this->dba.NameToProperty("amount");
+
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      this->edge_type_one, secret_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+  // "amount" has no grant → denied (no rules = no access)
+  EXPECT_FALSE(auth_checker.HasPropertyPermission(
+      this->edge_type_one, amount_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAEdgeTypeDenyOverridesGrant) {
+  memgraph::auth::User user{"test"};
+  // Grant all edge properties, deny "secret_code" on edge_type_1
+  user.property_access_handler().edge_type_properties().Grant(
+      {"edge_type_1"}, "*", memgraph::auth::PropertyPermissionType::READ);
+  user.property_access_handler().edge_type_properties().Deny(
+      {"edge_type_1"}, "secret_code", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  auto secret_id = this->dba.NameToProperty("secret_code");
+  auto amount_id = this->dba.NameToProperty("amount");
+
+  EXPECT_FALSE(auth_checker.HasPropertyPermission(
+      this->edge_type_one, secret_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      this->edge_type_one, amount_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMatchingAnyMultiLabel) {
+  // v1 has label "l1"; add "l2" so it has labels {l1, l2}
+  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());
+  this->dba.AdvanceCommand();
+
+  memgraph::auth::User user{"test"};
+  // GRANT READ {*} ON NODES CONTAINING LABELS :l1, :l2 MATCHING ANY
+  user.property_access_handler().label_properties().Grant(
+      {"l1", "l2"}, "*", memgraph::auth::PropertyPermissionType::READ, memgraph::auth::MatchingMode::ANY);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto name_id = this->dba.NameToProperty("name");
+
+  // v1 has {l1, l2} — l1 is in the rule, so ANY matches
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+  EXPECT_TRUE(
+      auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+
+  // v2 has only {l2} — l2 is in the rule, so ANY matches
+  auto labels2 = this->v2.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels2.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids2(labels2->begin(), labels2->end());
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      label_ids2, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAMatchingExactlyMultiLabel) {
+  // v1 has label "l1"; add "l2" so it has labels {l1, l2}
+  ASSERT_TRUE(this->v1.AddLabel(this->dba.NameToLabel("l2")).has_value());
+  this->dba.AdvanceCommand();
+
+  memgraph::auth::User user{"test"};
+  // GRANT READ {*} ON NODES CONTAINING LABELS :l1, :l2 MATCHING EXACTLY
+  user.property_access_handler().label_properties().Grant(
+      {"l1", "l2"}, "*", memgraph::auth::PropertyPermissionType::READ, memgraph::auth::MatchingMode::EXACTLY);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto name_id = this->dba.NameToProperty("name");
+
+  // v1 has {l1, l2} — exact match
+  auto labels = this->v1.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids(labels->begin(), labels->end());
+  EXPECT_TRUE(
+      auth_checker.HasPropertyPermission(label_ids, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+
+  // v2 has only {l2} — does NOT match exactly (missing l1)
+  auto labels2 = this->v2.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels2.has_value());
+  std::vector<memgraph::storage::LabelId> label_ids2(labels2->begin(), labels2->end());
+  EXPECT_FALSE(auth_checker.HasPropertyPermission(
+      label_ids2, name_id, memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAGlobalGrantDeniedOnUnlabeledVertex) {
+  memgraph::auth::User user{"test"};
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::PropertyPermissionType::READ);
+
+  auto unlabeled = this->dba.InsertVertex();
+  auto name_id = this->dba.NameToProperty("name");
+  ASSERT_TRUE(unlabeled.SetProperty(name_id, memgraph::storage::PropertyValue("value")).has_value());
+  this->dba.AdvanceCommand();
+
+  auto labels = unlabeled.Labels(memgraph::storage::View::NEW);
+  ASSERT_TRUE(labels.has_value());
+  ASSERT_TRUE(labels->empty());
+
+  EXPECT_EQ(
+      user.property_access_handler().label_properties().HasGlobal("name", memgraph::auth::PropertyPermissionType::READ),
+      memgraph::auth::PermissionLevel::GRANT);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  // Global READ {*} should apply even when the vertex has no labels (issue #1).
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(std::span<memgraph::storage::LabelId const>{},
+                                                 name_id,
+                                                 memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivation) {
+  namespace auth = memgraph::auth;
+  namespace query = memgraph::query;
+
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_cached_fga_license_test"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
+  });
+
+  auth::SynchedAuth synched_auth(auth_dir, auth::Auth::Config{});
+  memgraph::glue::AuthChecker auth_checker(&synched_auth);
+
+  auto user = *AddUser(*synched_auth.Lock(), "test_user");
+  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, auth::kAllLabelPermissions);
+  synched_auth->SaveUser(user);
+
+  auto query_user = auth_checker.GenQueryUser("test_user", {});
+  ASSERT_TRUE(query_user && *query_user);
+
+  memgraph::license::global_license_checker.DisableTesting();
+
+  query::CachedFineGrainedAuth cache;
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  EXPECT_EQ(cache.get(), nullptr);
+
+  memgraph::license::global_license_checker.EnableTesting();
+
+  // Refresh should detect the license change and rebuild
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  ASSERT_NE(cache.get(), nullptr);
+
+  EXPECT_TRUE(cache.get()->Has(this->v1, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+  EXPECT_FALSE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
+#endif
+
+TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const session_long = &memgraph::query::session_long_policy;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  // Another user keeps access control on after the drop.
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
+  limited.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(limited);
+  auto role = *auth->AddRole("reader");
+  role.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveRole(role);
+
+  auto keep = *auth->AddRole("keep");
+  keep.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveRole(keep);
+  auto lose = *auth->AddRole("lose");
+  lose.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveRole(lose);
+
+#ifdef MG_ENTERPRISE
+  limited.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  limited.GrantUserImp();
+  auth->SaveUser(limited);
+  role.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  role.GrantUserImp();
+  auth->SaveRole(role);
+#endif
+
+  auto user_session = auth_checker.GenQueryUser("limited", {});
+  auto role_session = auth_checker.GenQueryUser("sso_user", {"reader"});
+  auto partial_session = auth_checker.GenQueryUser("sso_partial", {"keep", "lose"});
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_TRUE(partial_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(user_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(role_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph", session_long));
+#ifdef MG_ENTERPRISE
+  EXPECT_TRUE(user_session->CanImpersonate("admin", session_long));
+  EXPECT_TRUE(role_session->CanImpersonate("admin", session_long));
+#endif
+
+  ASSERT_TRUE(auth->RemoveUser("limited"));
+  ASSERT_TRUE(auth->RemoveRole("reader"));
+  ASSERT_TRUE(auth->RemoveRole("lose"));
+
+  // Partial role loss: the surviving role's privilege stays, the dropped role's is gone.
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_FALSE(partial_session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  // Up-to-date checks see the drop and refresh the cached principal.
+  EXPECT_FALSE(user_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph", up_to_date));
+  EXPECT_FALSE(role_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph", up_to_date));
+
+  // Once dropped, every later check is denied.
+  for (const auto &session : {user_session, role_session}) {
+    EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({AUTH, DELETE}, std::nullopt, session_long));
+    EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({}, std::nullopt, session_long));
+    EXPECT_FALSE(session->clone()->IsAuthorized({CREATE}, "memgraph", session_long));
+#ifdef MG_ENTERPRISE
+    EXPECT_FALSE(session->CanImpersonate("admin", session_long));
+    EXPECT_FALSE(session->CanImpersonate("admin", up_to_date));
+#endif
+  }
+
+  // Re-creating a user with the same name does not revive the dropped session.
+  auto recreated = *AddUser(*auth.Lock(), "limited");
+  recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(recreated);
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  auto empty_session = auth_checker.GenEmptyUser();
+  EXPECT_TRUE(empty_session->IsAuthorized({CREATE}, "memgraph", session_long));
+}
+
+TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped_last"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const session_long = &memgraph::query::session_long_policy;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  auto solo = *AddUser(*auth.Lock(), "solo");
+  solo.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(solo);
+
+  auto session = auth_checker.GenQueryUser("solo", {});
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+
+  // No users left: access control is off, so the dropped session is no longer restricted.
+  ASSERT_TRUE(auth->RemoveUser("solo"));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  // Access control back on: the dropped session is not revived.
+  auto recreated = *AddUser(*auth.Lock(), "solo");
+  recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(recreated);
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+}
+
+#ifdef MG_ENTERPRISE
+TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
+  memgraph::license::global_license_checker.EnableTesting();
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped_fga"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
+  limited.fine_grained_access_handler().label_permissions().Grant({"visible"},
+                                                                  memgraph::auth::FineGrainedPermission::READ);
+  auth->SaveUser(limited);
+  auto session = auth_checker.GenQueryUser("limited", {});
+
+  memgraph::storage::Config config{};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage(config)};
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{storage_dba.get()};
+
+  ASSERT_TRUE(auth->RemoveUser("limited"));
+  EXPECT_FALSE(session->IsAuthorized(
+      {memgraph::query::AuthQuery::Privilege::MATCH}, "memgraph", &memgraph::query::up_to_date_policy));
+
+  auto checker = auth_checker.GetFineGrainedAuthChecker(*session, &dba);
+  ASSERT_NE(checker, nullptr);
+  EXPECT_TRUE(checker->NeedsFineGrainedAuthChecker());
 }
 #endif

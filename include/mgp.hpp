@@ -100,20 +100,22 @@ class TerminatedMustAbortException : public MustAbortException {
 
 class ShutdownMustAbortException : public MustAbortException {
  public:
-  explicit ShutdownMustAbortException() : MustAbortException("Query was asked to because of server shutdown.") {}
+  explicit ShutdownMustAbortException()
+      : MustAbortException("Query was asked to terminate because of server shutdown.") {}
 };
 
 class TimeoutMustAbortException : public MustAbortException {
  public:
-  explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
+  explicit TimeoutMustAbortException()
+      : MustAbortException("Query was asked to terminate because the timeout was hit.") {}
 };
 
 class ExceptionMustAbortException : public MustAbortException {
  public:
   explicit ExceptionMustAbortException()
       : MustAbortException(
-            "Query was asked to because of an exception occurred. Please contact Memgraph support as this scenario "
-            "should not happen!") {}
+            "Query was asked to terminate because an exception occurred. Please contact Memgraph support as this "
+            "scenario should not happen!") {}
 };
 
 // Forward declarations
@@ -747,6 +749,9 @@ class Node {
 
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
+
+  /// @brief returns the mgp_vertex pointer
+  mgp_vertex *GetPtr() const;
 
   Node(const Node &other);
   Node(Node &&other) noexcept;
@@ -1788,6 +1793,8 @@ class Result {
   inline void SetValue(const Point3d &point);
   /// @brief Sets an @ref Enum value to be returned.
   inline void SetValue(const Enum &enum_v);
+  /// @brief Sets an arbitrary @ref Value to be returned.
+  inline void SetValue(const Value &value);
 
   void SetErrorMessage(std::string_view error_msg) const;
 
@@ -2110,20 +2117,23 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (map1 == map2) {
     return true;
   }
-  if (mgp::map_size(map1) != mgp::map_size(map2)) {
+  const size_t size = mgp::map_size(map1);
+  if (size != mgp::map_size(map2)) {
     return false;
   }
+  if (size == 0) {
+    return true;
+  }
+  // The sizes agree, so every key of map1 resolving in map2 means the key sets are the same.
   auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
-  for (auto *item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
-    if (mgp::map_item_key(item) == mgp::map_item_key(item)) {
-      return false;
-    }
-    if (!util::ValuesEqual(mgp::map_item_value(item), mgp::map_item_value(item))) {
-      return false;
-    }
+  bool equal = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item != nullptr && equal;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *other_value = mgp::map_at(map2, mgp::map_item_key(item));
+    equal = other_value != nullptr && util::ValuesEqual(mgp::map_item_value(item), other_value);
   }
   mgp::map_items_iterator_destroy(items_it);
-  return true;
+  return equal;
 }
 
 /// @brief Returns whether two MGP API nodes are equal.
@@ -3179,6 +3189,8 @@ inline Node::~Node() {
 }
 
 inline bool Node::IsDeleted() const { return mgp::vertex_is_deleted(ptr_); }
+
+inline mgp_vertex *Node::GetPtr() const { return ptr_; }
 
 inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
@@ -5208,6 +5220,11 @@ inline void Result::SetValue(const Enum &enum_v) {
   mgp::value_destroy(mgp_val);
 }
 
+inline void Result::SetValue(const Value &value) {
+  // func_result_set_value copies the value, so passing the wrapped pointer directly is safe.
+  mgp::MemHandlerCallback(func_result_set_value, result_, value.ptr());
+}
+
 inline void Result::SetErrorMessage(const std::string_view error_msg) const {
   mgp::MemHandlerCallback(func_result_set_error_msg, result_, error_msg.data());
 }
@@ -5403,6 +5420,22 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
     throw ValueException("Couldn't list all label+property indices");
   }
   return List(label_property_indices, StealType{});
+}
+
+inline bool CreateVertexPropertyIndex(mgp_graph *memgraph_graph, const std::string_view property) {
+  return create_vertex_property_index(memgraph_graph, property.data());
+}
+
+inline bool DropVertexPropertyIndex(mgp_graph *memgraph_graph, const std::string_view property) {
+  return drop_vertex_property_index(memgraph_graph, property.data());
+}
+
+inline List ListAllVertexPropertyIndices(mgp_graph *memgraph_graph) {
+  auto *indices = mgp::MemHandlerCallback(list_all_vertex_property_indices, memgraph_graph);
+  if (indices == nullptr) {
+    throw ValueException("Couldn't list all vertex-property indices");
+  }
+  return List(indices, StealType{});
 }
 
 inline constexpr std::string_view kErrorMsgKey = "error_msg";
@@ -5711,13 +5744,22 @@ struct hash<mgp::ZonedDateTime> {
 
 template <>
 struct hash<mgp::MapItem> {
-  size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
+  // Defined below, once hash<mgp::Value> is complete.
+  size_t operator()(const mgp::MapItem &x) const;
 };
 
 template <>
 struct hash<mgp::Map> {
   size_t operator()(const mgp::Map &x) const {
-    return mgp::util::FnvCollection<mgp::Map, mgp::MapItem, std::hash<mgp::MapItem>>{}(x);
+    if (x.Size() == 0) {
+      return 0;
+    }
+    // Combined commutatively: equal maps must hash alike whatever order their storage iterates in.
+    size_t result = 0;
+    for (const auto &item : x) {
+      result ^= hash<mgp::MapItem>{}(item);
+    }
+    return result;
   }
 };
 
@@ -5809,4 +5851,11 @@ struct hash<mgp::List> {
     return mgp::util::FnvCollection<mgp::List, mgp::Value, std::hash<mgp::Value>>{}(x);
   }
 };
+
+inline size_t hash<mgp::MapItem>::operator()(const mgp::MapItem &x) const {
+  // The value is hashed too, or same-shaped maps all land in one bucket and dedupe goes quadratic.
+  size_t seed = hash<std::string_view>{}(x.key);
+  seed ^= hash<mgp::Value>{}(x.value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  return seed;
+}
 }  // namespace std

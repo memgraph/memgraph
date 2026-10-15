@@ -17,8 +17,55 @@
 
 namespace memgraph::coordination {
 
-enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
-enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING, INVALID_ARGUMENT };
+enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER, LEADER_NOT_FOUND, LEADER_FAILED };
+// Forwarded to the leader (see CoordinatorInstance), like the role/privilege ops. SUCCESS/LEADER_FAILED/
+// LEADER_NOT_FOUND make the enum satisfy the ForwardableStatus concept; a follower maps a forwarding failure to
+// LEADER_FAILED (or LEADER_NOT_FOUND during an election) rather than crashing.
+enum class SetCoordinatorSettingStatus : uint8_t {
+  SUCCESS = 0,
+  RAFT_LOG_ERROR,
+  UNKNOWN_SETTING,
+  INVALID_ARGUMENT,
+  NOT_LEADER,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+
+enum class CreateRoleStatus : uint8_t {
+  SUCCESS = 0,
+  ROLE_ALREADY_EXISTS,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
+  // Name doesn't match --auth-user-or-role-name-regex. New values go last: the status crosses the wire when a follower
+  // forwards the write, so an older peer must keep decoding the values it already knows.
+  INVALID_ROLE_NAME
+};
+enum class DropRoleStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_ROLE,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+enum class GrantPrivilegeStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_ROLE,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+enum class RevokePrivilegeStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_ROLE,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
@@ -61,6 +108,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS,
   RAFT_LOG_ERROR,
+  NOT_LEADER,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
@@ -83,6 +131,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
 enum class RemoveCoordinatorInstanceStatus : uint8_t {
   SUCCESS = 0,
   NO_SUCH_ID,
+  NOT_LEADER,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
@@ -106,6 +155,7 @@ enum class UpdateConfigStatus : uint8_t {
   NO_SUCH_COORD,
   NO_SUCH_REPL_INSTANCE,
   RAFT_FAILURE,
+  NOT_LEADER,
   LEADER_FAILED,
   LEADER_NOT_FOUND,
 };

@@ -1,0 +1,4 @@
+query: >
+  RETURN text.compare_cleaned('abc123','abc124') AS result;
+output:
+  - result: false

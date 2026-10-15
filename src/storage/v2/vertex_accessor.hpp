@@ -17,9 +17,9 @@
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex.hpp"
 
-#include "query/hops_limit.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 
@@ -37,11 +37,11 @@ class VertexAccessor final {
  private:
   friend class Storage;
 
-  int64_t HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
+  int64_t HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, HopsLimit *hops_limit,
                                            EdgeDirection direction) const;
 
   int64_t HandleExpansionsWithEdgeTypes(edge_store &result_edges, const std::vector<EdgeTypeId> &edge_types,
-                                        const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                        const VertexAccessor *destination, HopsLimit *hops_limit,
                                         EdgeDirection direction) const;
 
  public:
@@ -66,6 +66,10 @@ class VertexAccessor final {
   Result<bool> RemoveLabel(LabelId label);
 
   Result<bool> HasLabel(LabelId label, View view) const;
+
+  /// Whether the vertex carries any label, which is all the `%` label wildcard asks. Reads the labels in
+  /// place when no delta applies, so it need not build the set to find it non-empty.
+  Result<bool> HasAnyLabel(View view) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
@@ -101,6 +105,9 @@ class VertexAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
+  std::vector<PropertyId> VectorIndexedProperties(std::span<LabelId const> labels) const;
+
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
   auto BuildResultInEdges(edge_store const &out_edges) const;
@@ -113,14 +120,14 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                             const VertexAccessor *destination = nullptr,
-                                            query::HopsLimit *hops_limit = nullptr) const;
+                                            HopsLimit *hops_limit = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                              const VertexAccessor *destination = nullptr,
-                                             query::HopsLimit *hops_limit = nullptr) const;
+                                             HopsLimit *hops_limit = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 

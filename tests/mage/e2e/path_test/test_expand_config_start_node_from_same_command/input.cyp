@@ -1,0 +1,1 @@
+CREATE (:Node {name:'Seeded'});

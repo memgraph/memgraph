@@ -14,12 +14,15 @@
 #include <algorithm>
 #include <cstdint>
 
+#include <nlohmann/json.hpp>
+
 #include "dbms/database.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
@@ -167,7 +170,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 }  // namespace
 
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                 TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                 TriggerEventType event_type, AstCache *query_cache, DbAccessor *db_accessor,
                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                  std::string_view db_name, TriggerPrivilegeContext privilege_context,
                  parameters::Parameters const *server_parameters)
@@ -177,6 +180,9 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
+  if (!utils::Downcast<CypherQuery>(parsed_statements_.query)) {
+    throw utils::BasicException("A trigger statement must be a Cypher query.");
+  }
   // We check immediately if the query is valid by trying to create a plan.
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     GetPlan(db_accessor, db_name, creator_);
@@ -186,8 +192,8 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name,
-                                                       std::shared_ptr<QueryUserOrRole> triggering_user) const {
+Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                                     std::shared_ptr<QueryUserOrRole> triggering_user) const {
   std::lock_guard plan_guard{plan_lock_};
   if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
@@ -196,6 +202,8 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
     ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
     ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
+    ast_storage.user_functions_ = parsed_statements_.ast_storage.user_functions_;
+    ast_storage.call_procedures_ = parsed_statements_.ast_storage.call_procedures_;
 
     std::vector<Identifier *> predefined_identifiers;
     predefined_identifiers.reserve(identifiers.size());
@@ -203,24 +211,31 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
         identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
     plan::v2::QueryPlannerContext planner_context;
+    // A trigger holds its own plan rather than sharing the plan cache, and its
+    // parameters are fixed when its statement is parsed, so the cacheability
+    // verdict does not apply here.
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
                                         utils::Downcast<CypherQuery>(parsed_statements_.query),
                                         parsed_statements_.parameters,
                                         db_accessor,
                                         predefined_identifiers,
-                                        planner_context);
+                                        planner_context)
+                            .plan;
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
 
   // GenQueryUser always returns a non-null shared_ptr and
   // both creator_ and triggering_user come from GenQueryUser
+  std::shared_ptr<QueryUserOrRole> effective_principal;
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     DMG_ASSERT(creator_, "Creator is null");
     if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
       throw utils::BasicException(
           fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
     }
+    // Clone under plan_lock_ so concurrent executions cannot race on creator_'s mutable auth cache.
+    effective_principal = creator_->clone();
   } else {
     // no users
     DMG_ASSERT(triggering_user, "Triggering user is null");
@@ -228,8 +243,9 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
       throw utils::BasicException(
           fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
     }
+    effective_principal = triggering_user;
   }
-  return trigger_plan_;
+  return {.plan = trigger_plan_, .effective_principal = std::move(effective_principal)};
 }
 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
@@ -242,7 +258,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba, db_acc->name(), triggering_user);
+  auto [trigger_plan, effective_principal] = GetPlan(dba, db_acc->name(), triggering_user);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -254,10 +270,16 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
   ctx.evaluation_context.edgetypes = NamesToEdgeTypes(plan.ast_storage().edge_types_, dba);
+  ctx.evaluation_context.resolved_user_functions = ResolveUserFunctions(plan.ast_storage().user_functions_);
   ctx.stopping_context = {
       .transaction_status = transaction_status,
       .is_shutting_down = is_shutting_down,
-      .timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr,
+      // Deadline anchored on the cached clock (see CreateTimeoutDeadline): no real now() here.
+      .deadline = (max_execution_time_sec > 0.0)
+                      ? std::make_optional(utils::CoarseSteadyNow() +
+                                           std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                               std::chrono::duration<double>{max_execution_time_sec}))
+                      : std::nullopt,
   };
   ctx.is_profile_query = false;
   ctx.evaluation_context.memory = execution_memory;
@@ -265,20 +287,18 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.is_main = is_main;
   ctx.metric_handles = db_acc->metric_handles();
   // used for authorization checks
-  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
+  ctx.user_or_role = std::move(effective_principal);
   // used for username() and roles() functions
   ctx.triggering_user = triggering_user;
 
 #ifdef MG_ENTERPRISE
+  std::unique_ptr<FineGrainedAuthChecker> fine_grained_checker;
   if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
       *ctx.user_or_role && dba) {
-    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
+    fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
     DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
-    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
-    // otherwise, we do assign the auth checker to check for label access control
-    if (!fine_grained_checker->HasUnrestrictedAccessToVertices() ||
-        !fine_grained_checker->HasUnrestrictedAccessToEdges()) {
-      ctx.auth_checker = std::move(fine_grained_checker);
+    if (fine_grained_checker->NeedsFineGrainedAuthChecker()) {
+      ctx.auth_checker = fine_grained_checker.get();
     }
   }
 #endif
@@ -342,7 +362,7 @@ bool MigrateTriggerData(nlohmann::json &json_data, uint64_t version) {
 TriggerStore::TriggerStore(std::filesystem::path directory)
     : storage_{std::move(directory)}, before_commit_triggers_{}, after_commit_triggers_{} {}
 
-void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+void TriggerStore::RestoreTrigger(AstCache *query_cache, DbAccessor *db_accessor,
                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
                                   std::string_view trigger_name, std::string_view trigger_data,
                                   std::string_view db_name, parameters::Parameters const *server_parameters) {
@@ -461,7 +481,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   spdlog::debug("Trigger loaded successfully!");
 }
 
-void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+void TriggerStore::RestoreTriggers(AstCache *query_cache, DbAccessor *db_accessor,
                                    const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
                                    std::string_view db_name, parameters::Parameters const *server_parameters) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
@@ -475,10 +495,10 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
 }
 
 void TriggerStore::AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                              TriggerEventType event_type, TriggerPhase phase,
-                              utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                              std::string_view db_name, TriggerPrivilegeContext privilege_context,
+                              TriggerEventType event_type, TriggerPhase phase, AstCache *query_cache,
+                              DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
+                              std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
+                              TriggerPrivilegeContext privilege_context,
                               parameters::Parameters const *server_parameters) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {

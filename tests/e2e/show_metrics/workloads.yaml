@@ -25,7 +25,7 @@ show_metrics_snapshot_cluster: &show_metrics_snapshot_cluster
 show_metrics_openmetrics_cluster: &show_metrics_openmetrics_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--metrics-format=OpenMetrics"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091"]
       log_file: "show_metrics_openmetrics.log"
       setup_queries: []
       validation_queries: []

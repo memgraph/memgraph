@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <iostream>
 #include <mgp.hpp>
 #include <stdexcept>
@@ -20,6 +21,8 @@
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
+constexpr std::string_view kProcedureFuzzyPhraseSearch = "fuzzy_phrase_search";
+constexpr std::string_view kProcedureFuzzyPhraseSearchEdges = "fuzzy_phrase_search_edges";
 constexpr std::string_view kProcedureRegexSearch = "regex_search";
 constexpr std::string_view kProcedureSearchAllProperties = "search_all";
 constexpr std::string_view kProcedureAggregate = "aggregate";
@@ -47,6 +50,8 @@ constexpr std::array<std::string_view, 4> kRecognisedConfigKeys{
 mgp::TextSearchConfig ParseConfig(const mgp::Map &config, bool fuzzy_supported);
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void FuzzyPhraseSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void FuzzyPhraseSearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void RegexSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchAllProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -79,6 +84,15 @@ void RejectIfUnsupported(bool fuzzy_supported, bool key_makes_difference, std::s
         fmt::format("text_search config '{}' is not supported on regex_search procedures.", key));
   }
 }
+
+// The last term is always a prefix here, so fuzzy_prefix:false is unsatisfiable -- reject it explicitly.
+void RejectExplicitNonPrefix(const mgp::Map &config) {
+  if (config.KeyExists(TextSearch::kConfigFuzzyPrefix) && !ExtractBool(config, TextSearch::kConfigFuzzyPrefix)) {
+    throw std::invalid_argument(
+        "fuzzy_phrase_search always treats the last term as a prefix; 'fuzzy_prefix:false' is not supported.");
+  }
+}
+
 }  // namespace
 
 mgp::TextSearchConfig TextSearch::ParseConfig(const mgp::Map &config, bool fuzzy_supported) {
@@ -101,6 +115,9 @@ mgp::TextSearchConfig TextSearch::ParseConfig(const mgp::Map &config, bool fuzzy
   if (config.KeyExists(kConfigFuzzyDistance)) {
     const auto raw = ExtractInt(config, kConfigFuzzyDistance);
     RejectIfUnsupported(fuzzy_supported, raw != 0, kConfigFuzzyDistance);
+    if (raw < 0 || raw > 2) {
+      throw std::invalid_argument("text_search config 'fuzzy_distance' must be between 0 and 2.");
+    }
     parsed.fuzzy_distance = static_cast<std::uint8_t>(raw);
   }
 
@@ -133,6 +150,58 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
       auto record = record_factory.NewRecord();
       auto row_list = row.ValueList();
       record.Insert(TextSearch::kReturnNode.data(), row_list[0].ValueNode());
+      record.Insert(TextSearch::kReturnScore.data(), row_list[1].ValueDouble());
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+// Fuzzy phrase search: adjacent, in-order terms (last term a prefix) over a single `data.<property>`.
+// Thin wrapper over text_search_mode::FUZZY_PHRASE; all the matching logic runs in mgcxx.
+void TextSearch::FuzzyPhraseSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto index_name = arguments[0].ValueString();
+    const auto search_query = arguments[1].ValueString();
+    const auto config_map = arguments[2].ValueMap();
+    auto config = ParseConfig(config_map, /*fuzzy_supported=*/true);
+    RejectExplicitNonPrefix(config_map);
+    config.fuzzy_prefix = true;
+    for (const auto &row :
+         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, text_search_mode::FUZZY_PHRASE, config)) {
+      auto record = record_factory.NewRecord();
+      auto row_list = row.ValueList();
+      record.Insert(TextSearch::kReturnNode.data(), row_list[0].ValueNode());
+      record.Insert(TextSearch::kReturnScore.data(), row_list[1].ValueDouble());
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+// Edge counterpart of FuzzyPhraseSearch over a relationship text index.
+void TextSearch::FuzzyPhraseSearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
+                                        mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto index_name = arguments[0].ValueString();
+    const auto search_query = arguments[1].ValueString();
+    const auto config_map = arguments[2].ValueMap();
+    auto config = ParseConfig(config_map, /*fuzzy_supported=*/true);
+    RejectExplicitNonPrefix(config_map);
+    config.fuzzy_prefix = true;
+    for (const auto &row :
+         mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::FUZZY_PHRASE, config)) {
+      auto record = record_factory.NewRecord();
+      auto row_list = row.ValueList();
+      record.Insert(TextSearch::kReturnEdge.data(), row_list[0].ValueRelationship());
       record.Insert(TextSearch::kReturnScore.data(), row_list[1].ValueDouble());
     }
   } catch (const std::exception &e) {
@@ -302,6 +371,19 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  query_module,
                  memory);
 
+    AddProcedure(TextSearch::FuzzyPhraseSearch,
+                 TextSearch::kProcedureFuzzyPhraseSearch,
+                 mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterConfig, {mgp::Type::Map, mgp::Type::Any}, default_config),
+                 },
+                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node),
+                  mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
+                 query_module,
+                 memory);
+
     AddProcedure(TextSearch::RegexSearch,
                  TextSearch::kProcedureRegexSearch,
                  mgp::ProcedureType::Read,
@@ -342,6 +424,19 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
 
     AddProcedure(TextSearch::SearchEdges,
                  TextSearch::kProcedureSearchEdges,
+                 mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterConfig, {mgp::Type::Map, mgp::Type::Any}, default_config),
+                 },
+                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
+                  mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
+                 query_module,
+                 memory);
+
+    AddProcedure(TextSearch::FuzzyPhraseSearchEdges,
+                 TextSearch::kProcedureFuzzyPhraseSearchEdges,
                  mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),

@@ -37,7 +37,6 @@ RpcInfoSpecialize(PromoteToMainRpc,            promote_to_main_rpc_success,     
 RpcInfoSpecialize(DemoteMainToReplicaRpc,      demote_main_to_replica_rpc_success,        demote_main_to_replica_rpc_fail,        demote_main_to_replica_rpc_seconds)
 RpcInfoSpecialize(RegisterReplicaOnMainRpc,    register_replica_on_main_rpc_success,      register_replica_on_main_rpc_fail,      register_replica_on_main_rpc_seconds)
 RpcInfoSpecialize(UnregisterReplicaRpc,        unregister_replica_rpc_success,            unregister_replica_rpc_fail,            unregister_replica_rpc_seconds)
-RpcInfoSpecialize(EnableWritingOnMainRpc,      enable_writing_on_main_rpc_success,        enable_writing_on_main_rpc_fail,        enable_writing_on_main_rpc_seconds)
 RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_success,   update_data_instance_config_rpc_fail,   update_data_instance_config_rpc_seconds)
     // clang-format on
 
@@ -54,7 +53,8 @@ RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_s
 auto ReplicationInstanceClient::InstanceName() const -> std::string const & { return instance_name_; }
 
 void ReplicationInstanceClient::UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const {
-  instance_checker_.SetInterval(new_config);
+  // Called on an already-running checker (runtime setting change), so wake it rather than SetInterval.
+  instance_checker_.SetIntervalAndWake(new_config);
 }
 
 void ReplicationInstanceClient::StartStateCheck() {
@@ -62,8 +62,9 @@ void ReplicationInstanceClient::StartStateCheck() {
     return;
   }
 
-  MG_ASSERT(instance_health_check_frequency_sec_ > std::chrono::seconds(0),
-            "Health check frequency must be greater than 0");
+  MG_ASSERT(instance_health_check_frequency_sec_ >= std::chrono::seconds{kMinInstanceHealthCheckFreqSec},
+            "Health check frequency must be at least {}s",
+            kMinInstanceHealthCheckFreqSec);
 
   instance_checker_.SetInterval(instance_health_check_frequency_sec_);
   instance_checker_.Run(instance_name_, [this] {
@@ -90,7 +91,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
     g.state_check_rpc_success->Increment();
     return res.arg_;
   } catch (rpc::RpcFailedException const &e) {
-    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
+    spdlog::warn("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
     g.state_check_rpc_fail->Increment();
     return {};
   }
@@ -106,20 +107,25 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     g.get_database_histories_rpc_success->Increment();
     return res.arg_;
   } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     g.get_database_histories_rpc_fail->Increment();
     return {};
   }
 }
 
-auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const
+    -> std::expected<ReplicationLagInfo, ReplicationLagStatus> {
   try {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
     auto res = stream.SendAndWait();
-    return res.arg_;
+    if (!res.arg_.has_value()) {
+      spdlog::error("Instance {} refused to report replication lag because it isn't main.", instance_name_);
+      return std::unexpected{ReplicationLagStatus::MAIN_IS_REPLICA};
+    }
+    return std::move(*res.arg_);
   } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
-    return {};
+    spdlog::warn("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
+    return std::unexpected{ReplicationLagStatus::MAIN_UNRESPONSIVE};
   }
 }
 

@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <limits>
+#include <tuple>
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -57,7 +58,7 @@ TYPED_TEST_SUITE(DecoderEncoderTest, FileTypes);
 TYPED_TEST(DecoderEncoderTest, ReadMarker) {
   {
     memgraph::storage::durability::Encoder<TypeParam> encoder;
-    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
     for (const auto &item : memgraph::storage::durability::kMarkersAll) {
       encoder.WriteMarker(item);
     }
@@ -65,7 +66,7 @@ TYPED_TEST(DecoderEncoderTest, ReadMarker) {
       uint8_t invalid = 1;
       encoder.Write(&invalid, sizeof(invalid));
     }
-    encoder.Finalize();
+    std::ignore = encoder.Finalize();
   }
   {
     memgraph::storage::durability::Decoder decoder;
@@ -80,43 +81,41 @@ TYPED_TEST(DecoderEncoderTest, ReadMarker) {
     ASSERT_FALSE(decoder.ReadMarker());
     ASSERT_FALSE(decoder.ReadMarker());
     auto pos = decoder.GetPosition();
-    ASSERT_TRUE(pos);
     ASSERT_EQ(pos, decoder.GetSize());
   }
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_READ_TEST(name, type, ...)                              \
-  TYPED_TEST(DecoderEncoderTest, Read##name) {                           \
-    std::vector<type> dataset{__VA_ARGS__};                              \
-    {                                                                    \
-      memgraph::storage::durability::Encoder<TypeParam> encoder;         \
-      encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);  \
-      for (const auto &item : dataset) {                                 \
-        encoder.Write##name(item);                                       \
-      }                                                                  \
-      {                                                                  \
-        uint8_t invalid = 1;                                             \
-        encoder.Write(&invalid, sizeof(invalid));                        \
-      }                                                                  \
-      encoder.Finalize();                                                \
-    }                                                                    \
-    {                                                                    \
-      memgraph::storage::durability::Decoder decoder;                    \
-      auto version = decoder.Initialize(this->storage_file, kTestMagic); \
-      ASSERT_TRUE(version);                                              \
-      ASSERT_EQ(*version, kTestVersion);                                 \
-      for (const auto &item : dataset) {                                 \
-        auto decoded = decoder.Read##name();                             \
-        ASSERT_TRUE(decoded);                                            \
-        ASSERT_EQ(*decoded, item);                                       \
-      }                                                                  \
-      ASSERT_FALSE(decoder.Read##name());                                \
-      ASSERT_FALSE(decoder.Read##name());                                \
-      auto pos = decoder.GetPosition();                                  \
-      ASSERT_TRUE(pos);                                                  \
-      ASSERT_EQ(pos, decoder.GetSize());                                 \
-    }                                                                    \
+#define GENERATE_READ_TEST(name, type, ...)                                           \
+  TYPED_TEST(DecoderEncoderTest, Read##name) {                                        \
+    std::vector<type> dataset{__VA_ARGS__};                                           \
+    {                                                                                 \
+      memgraph::storage::durability::Encoder<TypeParam> encoder;                      \
+      std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion); \
+      for (const auto &item : dataset) {                                              \
+        encoder.Write##name(item);                                                    \
+      }                                                                               \
+      {                                                                               \
+        uint8_t invalid = 1;                                                          \
+        encoder.Write(&invalid, sizeof(invalid));                                     \
+      }                                                                               \
+      std::ignore = encoder.Finalize();                                               \
+    }                                                                                 \
+    {                                                                                 \
+      memgraph::storage::durability::Decoder decoder;                                 \
+      auto version = decoder.Initialize(this->storage_file, kTestMagic);              \
+      ASSERT_TRUE(version);                                                           \
+      ASSERT_EQ(*version, kTestVersion);                                              \
+      for (const auto &item : dataset) {                                              \
+        auto decoded = decoder.Read##name();                                          \
+        ASSERT_TRUE(decoded);                                                         \
+        ASSERT_EQ(*decoded, item);                                                    \
+      }                                                                               \
+      ASSERT_FALSE(decoder.Read##name());                                             \
+      ASSERT_FALSE(decoder.Read##name());                                             \
+      auto pos = decoder.GetPosition();                                               \
+      ASSERT_EQ(pos, decoder.GetSize());                                              \
+    }                                                                                 \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -164,35 +163,34 @@ GENERATE_READ_TEST(
         memgraph::utils::small_vector<float>{1.0f, 2.0f, 3.0f}}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_SKIP_TEST(name, type, ...)                              \
-  TYPED_TEST(DecoderEncoderTest, Skip##name) {                           \
-    std::vector<type> dataset{__VA_ARGS__};                              \
-    {                                                                    \
-      memgraph::storage::durability::Encoder<TypeParam> encoder;         \
-      encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);  \
-      for (const auto &item : dataset) {                                 \
-        encoder.Write##name(item);                                       \
-      }                                                                  \
-      {                                                                  \
-        uint8_t invalid = 1;                                             \
-        encoder.Write(&invalid, sizeof(invalid));                        \
-      }                                                                  \
-      encoder.Finalize();                                                \
-    }                                                                    \
-    {                                                                    \
-      memgraph::storage::durability::Decoder decoder;                    \
-      auto version = decoder.Initialize(this->storage_file, kTestMagic); \
-      ASSERT_TRUE(version);                                              \
-      ASSERT_EQ(*version, kTestVersion);                                 \
-      for (auto it = dataset.begin(); it != dataset.end(); ++it) {       \
-        ASSERT_TRUE(decoder.Skip##name());                               \
-      }                                                                  \
-      ASSERT_FALSE(decoder.Skip##name());                                \
-      ASSERT_FALSE(decoder.Skip##name());                                \
-      auto pos = decoder.GetPosition();                                  \
-      ASSERT_TRUE(pos);                                                  \
-      ASSERT_EQ(pos, decoder.GetSize());                                 \
-    }                                                                    \
+#define GENERATE_SKIP_TEST(name, type, ...)                                           \
+  TYPED_TEST(DecoderEncoderTest, Skip##name) {                                        \
+    std::vector<type> dataset{__VA_ARGS__};                                           \
+    {                                                                                 \
+      memgraph::storage::durability::Encoder<TypeParam> encoder;                      \
+      std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion); \
+      for (const auto &item : dataset) {                                              \
+        encoder.Write##name(item);                                                    \
+      }                                                                               \
+      {                                                                               \
+        uint8_t invalid = 1;                                                          \
+        encoder.Write(&invalid, sizeof(invalid));                                     \
+      }                                                                               \
+      std::ignore = encoder.Finalize();                                               \
+    }                                                                                 \
+    {                                                                                 \
+      memgraph::storage::durability::Decoder decoder;                                 \
+      auto version = decoder.Initialize(this->storage_file, kTestMagic);              \
+      ASSERT_TRUE(version);                                                           \
+      ASSERT_EQ(*version, kTestVersion);                                              \
+      for (auto it = dataset.begin(); it != dataset.end(); ++it) {                    \
+        ASSERT_TRUE(decoder.Skip##name());                                            \
+      }                                                                               \
+      ASSERT_FALSE(decoder.Skip##name());                                             \
+      ASSERT_FALSE(decoder.Skip##name());                                             \
+      auto pos = decoder.GetPosition();                                               \
+      ASSERT_EQ(pos, decoder.GetSize());                                              \
+    }                                                                                 \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -229,44 +227,44 @@ GENERATE_SKIP_TEST(
         memgraph::utils::small_vector<float>{1.0f, 2.0f, 3.0f}}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_PARTIAL_READ_TEST(name, value)                                                \
-  TYPED_TEST(DecoderEncoderTest, PartialRead##name) {                                          \
-    {                                                                                          \
-      memgraph::storage::durability::Encoder<TypeParam> encoder;                               \
-      encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);                        \
-      encoder.Write##name(value);                                                              \
-      encoder.Finalize();                                                                      \
-    }                                                                                          \
-    {                                                                                          \
-      memgraph::utils::InputFile ifile;                                                        \
-      memgraph::utils::OutputFile ofile;                                                       \
-      ASSERT_TRUE(ifile.Open(this->storage_file));                                             \
-      ofile.Open(this->alternate_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING); \
-      auto size = ifile.GetSize();                                                             \
-      for (size_t i = 0; i <= size; ++i) {                                                     \
-        if (i != 0) {                                                                          \
-          uint8_t byte;                                                                        \
-          ASSERT_TRUE(ifile.Read(&byte, sizeof(byte)));                                        \
-          ofile.Write(&byte, sizeof(byte));                                                    \
-          ofile.Sync();                                                                        \
-        }                                                                                      \
-        memgraph::storage::durability::Decoder decoder;                                        \
-        auto version = decoder.Initialize(this->alternate_file, kTestMagic);                   \
-        if (i < kTestMagic.size() + sizeof(kTestVersion)) {                                    \
-          ASSERT_FALSE(version);                                                               \
-        } else {                                                                               \
-          ASSERT_TRUE(version);                                                                \
-          ASSERT_EQ(*version, kTestVersion);                                                   \
-        }                                                                                      \
-        if (i != size) {                                                                       \
-          ASSERT_FALSE(decoder.Read##name());                                                  \
-        } else {                                                                               \
-          auto decoded = decoder.Read##name();                                                 \
-          ASSERT_TRUE(decoded);                                                                \
-          ASSERT_EQ(*decoded, value);                                                          \
-        }                                                                                      \
-      }                                                                                        \
-    }                                                                                          \
+#define GENERATE_PARTIAL_READ_TEST(name, value)                                                              \
+  TYPED_TEST(DecoderEncoderTest, PartialRead##name) {                                                        \
+    {                                                                                                        \
+      memgraph::storage::durability::Encoder<TypeParam> encoder;                                             \
+      std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);                        \
+      encoder.Write##name(value);                                                                            \
+      std::ignore = encoder.Finalize();                                                                      \
+    }                                                                                                        \
+    {                                                                                                        \
+      memgraph::utils::InputFile ifile;                                                                      \
+      memgraph::utils::OutputFile ofile;                                                                     \
+      ASSERT_TRUE(ifile.Open(this->storage_file));                                                           \
+      std::ignore = ofile.Open(this->alternate_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING); \
+      auto size = ifile.GetSize();                                                                           \
+      for (size_t i = 0; i <= size; ++i) {                                                                   \
+        if (i != 0) {                                                                                        \
+          uint8_t byte;                                                                                      \
+          ASSERT_TRUE(ifile.Read(&byte, sizeof(byte)));                                                      \
+          std::ignore = ofile.Write(&byte, sizeof(byte));                                                    \
+          std::ignore = ofile.Sync();                                                                        \
+        }                                                                                                    \
+        memgraph::storage::durability::Decoder decoder;                                                      \
+        auto version = decoder.Initialize(this->alternate_file, kTestMagic);                                 \
+        if (i < kTestMagic.size() + sizeof(kTestVersion)) {                                                  \
+          ASSERT_FALSE(version);                                                                             \
+        } else {                                                                                             \
+          ASSERT_TRUE(version);                                                                              \
+          ASSERT_EQ(*version, kTestVersion);                                                                 \
+        }                                                                                                    \
+        if (i != size) {                                                                                     \
+          ASSERT_FALSE(decoder.Read##name());                                                                \
+        } else {                                                                                             \
+          auto decoded = decoder.Read##name();                                                               \
+          ASSERT_TRUE(decoded);                                                                              \
+          ASSERT_EQ(*decoded, value);                                                                        \
+        }                                                                                                    \
+      }                                                                                                      \
+    }                                                                                                        \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -316,42 +314,42 @@ GENERATE_PARTIAL_READ_TEST(
             memgraph::utils::small_vector<float>{1.0f, 2.0f, 3.0f}})}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_PARTIAL_SKIP_TEST(name, value)                                                \
-  TYPED_TEST(DecoderEncoderTest, PartialSkip##name) {                                          \
-    {                                                                                          \
-      memgraph::storage::durability::Encoder<TypeParam> encoder;                               \
-      encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);                        \
-      encoder.Write##name(value);                                                              \
-      encoder.Finalize();                                                                      \
-    }                                                                                          \
-    {                                                                                          \
-      memgraph::utils::InputFile ifile;                                                        \
-      memgraph::utils::OutputFile ofile;                                                       \
-      ASSERT_TRUE(ifile.Open(this->storage_file));                                             \
-      ofile.Open(this->alternate_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING); \
-      auto size = ifile.GetSize();                                                             \
-      for (size_t i = 0; i <= size; ++i) {                                                     \
-        if (i != 0) {                                                                          \
-          uint8_t byte;                                                                        \
-          ASSERT_TRUE(ifile.Read(&byte, sizeof(byte)));                                        \
-          ofile.Write(&byte, sizeof(byte));                                                    \
-          ofile.Sync();                                                                        \
-        }                                                                                      \
-        memgraph::storage::durability::Decoder decoder;                                        \
-        auto version = decoder.Initialize(this->alternate_file, kTestMagic);                   \
-        if (i < kTestMagic.size() + sizeof(kTestVersion)) {                                    \
-          ASSERT_FALSE(version);                                                               \
-        } else {                                                                               \
-          ASSERT_TRUE(version);                                                                \
-          ASSERT_EQ(*version, kTestVersion);                                                   \
-        }                                                                                      \
-        if (i != size) {                                                                       \
-          ASSERT_FALSE(decoder.Skip##name());                                                  \
-        } else {                                                                               \
-          ASSERT_TRUE(decoder.Skip##name());                                                   \
-        }                                                                                      \
-      }                                                                                        \
-    }                                                                                          \
+#define GENERATE_PARTIAL_SKIP_TEST(name, value)                                                              \
+  TYPED_TEST(DecoderEncoderTest, PartialSkip##name) {                                                        \
+    {                                                                                                        \
+      memgraph::storage::durability::Encoder<TypeParam> encoder;                                             \
+      std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);                        \
+      encoder.Write##name(value);                                                                            \
+      std::ignore = encoder.Finalize();                                                                      \
+    }                                                                                                        \
+    {                                                                                                        \
+      memgraph::utils::InputFile ifile;                                                                      \
+      memgraph::utils::OutputFile ofile;                                                                     \
+      ASSERT_TRUE(ifile.Open(this->storage_file));                                                           \
+      std::ignore = ofile.Open(this->alternate_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING); \
+      auto size = ifile.GetSize();                                                                           \
+      for (size_t i = 0; i <= size; ++i) {                                                                   \
+        if (i != 0) {                                                                                        \
+          uint8_t byte;                                                                                      \
+          ASSERT_TRUE(ifile.Read(&byte, sizeof(byte)));                                                      \
+          std::ignore = ofile.Write(&byte, sizeof(byte));                                                    \
+          std::ignore = ofile.Sync();                                                                        \
+        }                                                                                                    \
+        memgraph::storage::durability::Decoder decoder;                                                      \
+        auto version = decoder.Initialize(this->alternate_file, kTestMagic);                                 \
+        if (i < kTestMagic.size() + sizeof(kTestVersion)) {                                                  \
+          ASSERT_FALSE(version);                                                                             \
+        } else {                                                                                             \
+          ASSERT_TRUE(version);                                                                              \
+          ASSERT_EQ(*version, kTestVersion);                                                                 \
+        }                                                                                                    \
+        if (i != size) {                                                                                     \
+          ASSERT_FALSE(decoder.Skip##name());                                                                \
+        } else {                                                                                             \
+          ASSERT_TRUE(decoder.Skip##name());                                                                 \
+        }                                                                                                    \
+      }                                                                                                      \
+    }                                                                                                        \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -392,13 +390,13 @@ GENERATE_PARTIAL_SKIP_TEST(
 TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
   {
     memgraph::storage::durability::Encoder<TypeParam> encoder;
-    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
     encoder.WriteExternalPropertyValue(memgraph::storage::ExternalPropertyValue(123L));
-    encoder.Finalize();
+    std::ignore = encoder.Finalize();
   }
   {
     memgraph::utils::OutputFile file;
-    file.Open(this->storage_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = file.Open(this->storage_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
     for (auto marker : memgraph::storage::durability::kMarkersAll) {
       bool valid_marker;
       switch (marker) {
@@ -460,6 +458,8 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_DROP:
@@ -487,8 +487,8 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         file.SetPosition(memgraph::utils::OutputFile::Position::RELATIVE_TO_END,
                          -(sizeof(uint64_t) + sizeof(memgraph::storage::durability::Marker)));
         auto byte = static_cast<uint8_t>(marker);
-        file.Write(&byte, sizeof(byte));
-        file.Sync();
+        std::ignore = file.Write(&byte, sizeof(byte));
+        std::ignore = file.Sync();
       }
       {
         memgraph::storage::durability::Decoder decoder;
@@ -510,8 +510,8 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         file.SetPosition(memgraph::utils::OutputFile::Position::RELATIVE_TO_END,
                          -(sizeof(uint64_t) + sizeof(memgraph::storage::durability::Marker)));
         uint8_t byte = 1;
-        file.Write(&byte, sizeof(byte));
-        file.Sync();
+        std::ignore = file.Write(&byte, sizeof(byte));
+        std::ignore = file.Sync();
       }
       {
         memgraph::storage::durability::Decoder decoder;
@@ -535,9 +535,9 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
 TYPED_TEST(DecoderEncoderTest, DecoderPosition) {
   {
     memgraph::storage::durability::Encoder<TypeParam> encoder;
-    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
     encoder.WriteBool(true);
-    encoder.Finalize();
+    std::ignore = encoder.Finalize();
   }
   {
     memgraph::storage::durability::Decoder decoder;
@@ -550,7 +550,6 @@ TYPED_TEST(DecoderEncoderTest, DecoderPosition) {
       ASSERT_TRUE(decoded);
       ASSERT_TRUE(*decoded);
       auto pos = decoder.GetPosition();
-      ASSERT_TRUE(pos);
       ASSERT_EQ(pos, decoder.GetSize());
     }
   }
@@ -560,12 +559,12 @@ TYPED_TEST(DecoderEncoderTest, DecoderPosition) {
 TYPED_TEST(DecoderEncoderTest, EncoderPosition) {
   {
     memgraph::storage::durability::Encoder<TypeParam> encoder;
-    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    std::ignore = encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
     encoder.WriteBool(false);
     encoder.SetPosition(kTestMagic.size() + sizeof(kTestVersion));
     ASSERT_EQ(encoder.GetPosition(), kTestMagic.size() + sizeof(kTestVersion));
     encoder.WriteBool(true);
-    encoder.Finalize();
+    std::ignore = encoder.Finalize();
   }
   {
     memgraph::storage::durability::Decoder decoder;
@@ -576,7 +575,6 @@ TYPED_TEST(DecoderEncoderTest, EncoderPosition) {
     ASSERT_TRUE(decoded);
     ASSERT_TRUE(*decoded);
     auto pos = decoder.GetPosition();
-    ASSERT_TRUE(pos);
     ASSERT_EQ(pos, decoder.GetSize());
   }
 }

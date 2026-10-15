@@ -577,7 +577,7 @@ Feature: Subqueries
             | playerName | playerUpdated | teamName | teamUpdated   |
             | 'Player A' | 1719304206653 | 'Team A' | 1719304206653 |
 
-    Scenario: OPTIONAL CALL scoped subquery is not supported
+    Scenario: OPTIONAL CALL scoped subquery keeps a player with no team
         Given graph "subqueries"
         When executing query:
             """
@@ -587,8 +587,16 @@ Feature: Subqueries
                 RETURN team.name AS team
             }
             RETURN p.name AS playerName, team
+            ORDER BY playerName
             """
-        Then an error should be raised
+        Then the result should be, in order:
+            | playerName | team     |
+            | 'Player A' | 'Team A' |
+            | 'Player B' | 'Team A' |
+            | 'Player C' | null     |
+            | 'Player D' | 'Team B' |
+            | 'Player E' | 'Team C' |
+            | 'Player F' | 'Team C' |
 
     Scenario: Scoped CALL subquery with UNION over two ORDER BY branches
         Given graph "subqueries"
@@ -774,3 +782,707 @@ Feature: Subqueries
             RETURN playerName
             """
         Then an error should be raised
+
+    Scenario: Pattern comprehension in a CALL subquery declares a fresh variable, not the un-imported outer one
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player)
+            CALL {
+              MATCH (t:Team)
+              WITH t, size([(p)-[:PLAYS_FOR]->(x) | x]) AS cnt
+              RETURN t, cnt
+            }
+            RETURN DISTINCT p.name AS playerName, cnt
+            """
+        Then the result should be:
+            | playerName | cnt |
+            | 'Player A' | 5   |
+            | 'Player B' | 5   |
+            | 'Player C' | 5   |
+            | 'Player D' | 5   |
+            | 'Player E' | 5   |
+            | 'Player F' | 5   |
+
+    Scenario: Pattern comprehension in a CALL subquery may use an explicitly imported outer variable
+        Given graph "subqueries"
+        When executing query:
+            """
+            MATCH (p:Player {name: 'Player A'})
+            CALL (p) {
+              MATCH (t:Team)
+              WITH t, size([(p)-[:PLAYS_FOR]->(x) | x]) AS cnt
+              RETURN t, cnt
+            }
+            RETURN DISTINCT p.name AS playerName, cnt
+            """
+        Then the result should be:
+            | playerName | cnt |
+            | 'Player A' | 1   |
+
+    Scenario: A plain MATCH in a CALL subquery declares a fresh variable, not the un-imported outer one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CALL {
+              MATCH (p)-[:ACTED_IN]->(x)
+              RETURN x
+            }
+            RETURN p.name AS name, x.title AS title
+            ORDER BY name, title
+            """
+        Then the result should be, in order:
+            | name       | title |
+            | 'Regina'   | 'M1'  |
+            | 'Regina'   | 'M2'  |
+            | 'Zoe'      | 'M1'  |
+            | 'Zoe'      | 'M2'  |
+
+    Scenario: A CALL subquery may not return a variable that shadows an outer one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              MATCH (n:Parent)
+              RETURN n
+            }
+            RETURN n.name AS name
+            """
+        Then an error should be raised
+
+    Scenario: A nested CALL subquery may not return a variable that shadows the outermost one
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        # The inner return merges into the outer subquery's scope, which is empty, so the collision is only
+        # caught when that scope is merged into the main query's.
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              CALL {
+                MATCH (n:Parent)
+                RETURN n
+              }
+              RETURN n
+            }
+            RETURN n.name AS name
+            """
+        Then an error should be raised
+
+    Scenario: A CALL subquery may not return a shadowing variable through a UNION either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              MATCH (n:Parent) RETURN n
+              UNION
+              MATCH (n:Parent) RETURN n
+            }
+            RETURN n.name AS name
+            """
+        Then an error should be raised
+
+    Scenario: A shadowing variable may be returned under a different name
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Person {name: 'p2'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              CALL {
+                MATCH (n:Parent)
+                RETURN n
+              }
+              RETURN n AS m
+            }
+            RETURN n.name AS person, m.name AS shadowed
+            ORDER BY person
+            """
+        Then the result should be, in order:
+            | person | shadowed |
+            | 'p1'   | 'x1'     |
+            | 'p2'   | 'x1'     |
+
+    Scenario: A subquery may use a shadowing variable as long as the name does not escape
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'p1'})
+            CREATE (:Person {name: 'p2'})
+            CREATE (:Parent {name: 'x1'})
+            """
+        # Deliberately no aggregation in the subquery: that shape hits a pre-existing parallel-executor bug, and this
+        # suite also runs with USING PARALLEL EXECUTION.
+        When executing query:
+            """
+            MATCH (n:Person)
+            CALL {
+              MATCH (n:Parent)
+              RETURN n.name AS shadowed
+            }
+            RETURN n.name AS person, shadowed
+            ORDER BY person
+            """
+        Then the result should be, in order:
+            | person | shadowed |
+            | 'p1'   | 'x1'     |
+            | 'p2'   | 'x1'     |
+
+    Scenario: A pattern comprehension correlates through a legacy importing WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})-[:R]->(b:Node {id: 2})
+            CREATE (b)-[:R]->(a)
+            """
+        When executing query:
+            """
+            MATCH (p:Node)
+            CALL {
+              WITH p
+              RETURN size([(p)-[:R]->(x) | 1]) AS c
+            }
+            RETURN p.id AS id, c
+            ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 1 |
+            | 2  | 1 |
+
+    Scenario: A leading WITH that does not import the outer variable still shadows it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1})-[:R]->(b:Node {id: 2})
+            CREATE (b)-[:R]->(a)
+            """
+        # `c` is 2, the whole-graph count, because `p` inside the comprehension is a fresh variable.
+        When executing query:
+            """
+            MATCH (p:Node)
+            CALL {
+              WITH 1 AS k
+              RETURN size([(p)-[:R]->(x) | 1]) AS c
+            }
+            RETURN p.id AS id, c
+            ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 2 |
+            | 2  | 2 |
+
+    Scenario: A scoped CALL import stays in scope across an intermediate WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'}), (m2:Movie {id: '2'}), (m3:Movie {id: '3'})
+            CREATE (m4:Movie {id: '4'}), (m5:Movie {id: '5'}), (m6:Movie {id: '6'})
+            CREATE (m1)-[:relatedTo]->(m2), (m3)-[:relatedTo]->(m4), (m5)-[:relatedTo]->(m6)
+            """
+        When executing query:
+            """
+            MATCH (source1:Movie {id: '1'})
+            MATCH (source35:Movie) WHERE source35.id IN ['3', '5']
+            CALL (source1, source35) {
+              MATCH (source1)-[]-(des1)
+              WITH des1
+              MATCH (source35)-[]-(des2)
+              RETURN des1, des2
+            }
+            RETURN DISTINCT des1.id AS d1, collect(DISTINCT des2.id) AS d2
+            """
+        Then the result should be (ignoring element order for lists):
+            | d1  | d2           |
+            | '2' | ['4', '6']   |
+
+    Scenario: A scoped CALL import is not clobbered for the outer query either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'}), (m2:Movie {id: '2'}), (m3:Movie {id: '3'})
+            CREATE (m4:Movie {id: '4'}), (m5:Movie {id: '5'}), (m6:Movie {id: '6'})
+            CREATE (m1)-[:relatedTo]->(m2), (m3)-[:relatedTo]->(m4), (m5)-[:relatedTo]->(m6)
+            """
+        When executing query:
+            """
+            MATCH (source1:Movie {id: '1'})
+            MATCH (source35:Movie) WHERE source35.id IN ['3', '5']
+            CALL (source1, source35) {
+              MATCH (source1)-[]-(des1)
+              WITH des1
+              MATCH (source35)-[]-(des2)
+              RETURN des1, des2
+            }
+            RETURN source35.id AS outer_after, des2.id AS d2
+            ORDER BY outer_after, d2
+            """
+        Then the result should be, in order:
+            | outer_after | d2  |
+            | '3'         | '4' |
+            | '5'         | '6' |
+
+    Scenario: A CALL (*) import stays in scope across an intermediate WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'}), (m2:Movie {id: '2'}), (m3:Movie {id: '3'})
+            CREATE (m4:Movie {id: '4'}), (m5:Movie {id: '5'}), (m6:Movie {id: '6'})
+            CREATE (m1)-[:relatedTo]->(m2), (m3)-[:relatedTo]->(m4), (m5)-[:relatedTo]->(m6)
+            """
+        When executing query:
+            """
+            MATCH (source1:Movie {id: '1'})
+            MATCH (source35:Movie) WHERE source35.id IN ['3', '5']
+            CALL (*) {
+              MATCH (source1)-[]-(des1)
+              WITH des1
+              MATCH (source35)-[]-(des2)
+              RETURN des1, des2
+            }
+            RETURN DISTINCT des1.id AS d1, collect(DISTINCT des2.id) AS d2
+            """
+        Then the result should be (ignoring element order for lists):
+            | d1  | d2           |
+            | '2' | ['4', '6']   |
+
+    Scenario: A legacy leading WITH import does not survive an intermediate WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'}), (m2:Movie {id: '2'}), (m3:Movie {id: '3'})
+            CREATE (m4:Movie {id: '4'}), (m5:Movie {id: '5'}), (m6:Movie {id: '6'})
+            CREATE (m1)-[:relatedTo]->(m2), (m3)-[:relatedTo]->(m4), (m5)-[:relatedTo]->(m6)
+            """
+        # `source35` after `WITH des1` really is a new variable here, so the whole graph is scanned.
+        # Behaves the same before and after the scoped-import fix: this guards the legacy form, it does
+        # not reproduce the defect.
+        When executing query:
+            """
+            MATCH (source1:Movie {id: '1'})
+            MATCH (source35:Movie) WHERE source35.id IN ['3', '5']
+            CALL {
+              WITH source1, source35
+              MATCH (source1)-[]-(des1)
+              WITH des1
+              MATCH (source35)-[]-(des2)
+              RETURN des1, des2
+            }
+            RETURN DISTINCT des1.id AS d1, collect(DISTINCT des2.id) AS d2
+            """
+        Then the result should be (ignoring element order for lists):
+            | d1  | d2                                  |
+            | '2' | ['2', '1', '4', '3', '6', '5']      |
+
+    Scenario: A write clause after an intermediate WITH attaches to the scoped CALL import
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        And having executed:
+            """
+            MATCH (s:Movie {id: '1'})
+            CALL (s) {
+              MATCH (s)-[]-(x)
+              WITH x
+              CREATE (s)-[:BAD]->(:Probe)
+              RETURN x
+            }
+            RETURN count(*) AS c
+            """
+        When executing query:
+            """
+            MATCH (n) WITH count(n) AS total
+            MATCH (a)-[:BAD]->(b)
+            RETURN total, a.id AS from_id, labels(b) AS to_labels
+            """
+        Then the result should be:
+            | total | from_id | to_labels   |
+            | 3     | '1'     | ['Probe']   |
+
+    Scenario: An OPTIONAL MATCH miss on a scoped CALL import does not null the outer variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        # `source` keeps its outer symbol here, so if the planner re-scans it the OPTIONAL MATCH miss
+        # null-fills the outer slot itself - visible as `outer_after`. A genuinely new variable would not.
+        When executing query:
+            """
+            MATCH (source:Movie {id: '1'})
+            CALL (source) {
+              MATCH (source)-[]-(des1)
+              WITH des1
+              OPTIONAL MATCH (source)-[:noSuchType]-(des2)
+              RETURN des1, des2
+            }
+            RETURN source.id AS outer_after, des1.id AS d1, des2 AS d2
+            """
+        Then the result should be:
+            | outer_after | d1  | d2   |
+            | '1'         | '2' | null |
+
+    Scenario: A MERGE after an intermediate WITH attaches to the scoped CALL import
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        # An unbound `source` makes MERGE create a fresh node, so the edge dangles off a phantom.
+        And having executed:
+            """
+            MATCH (source:Movie {id: '1'})
+            CALL (source) {
+              MATCH (source)-[]-(des1)
+              WITH des1
+              MERGE (source)-[:mergedTo]->(des1)
+              RETURN des1
+            }
+            RETURN count(*) AS c
+            """
+        When executing query:
+            """
+            MATCH (n) WITH count(n) AS total
+            MATCH (a)-[:mergedTo]->(b)
+            RETURN total, a.id AS from_id, b.id AS to_id
+            """
+        Then the result should be:
+            | total | from_id | to_id |
+            | 2     | '1'     | '2'   |
+
+    Scenario: A scoped CALL import stays in scope in every UNION branch of the body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (m1:Movie {id: '1'})-[:relatedTo]->(m2:Movie {id: '2'})
+            """
+        When executing query:
+            """
+            MATCH (source:Movie {id: '1'})
+            CALL (source) {
+              MATCH (source)-[]-(des1)
+              WITH des1
+              MATCH (source)-[]-(des2)
+              RETURN des2.id AS d
+              UNION
+              MATCH (source)-[]-(des3)
+              WITH des3
+              MATCH (source)-[]-(des4)
+              RETURN des4.id AS d
+            }
+            RETURN d
+            """
+        Then the result should be:
+            | d   |
+            | '2' |
+
+    Scenario: OPTIONAL CALL nulls every column the body returns
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (a)-[:TYPE]->(b)
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN m.id AS mid, m.id + 1 AS next
+            }
+            RETURN n.id AS nid, mid, next
+            """
+        Then the result should be:
+            | nid | mid  | next |
+            | 1   | 2    | 3    |
+            | 2   | null | null |
+
+    Scenario: OPTIONAL CALL with a RETURN * body keeps the imported variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (a)-[:TYPE]->(b)
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN *
+            }
+            RETURN n.id AS nid, m.id AS mid
+            """
+        Then the result should be:
+            | nid | mid  |
+            | 1   | 2    |
+            | 2   | null |
+
+    Scenario: OPTIONAL CALL over a UNION body nulls the union's columns
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Node {id: 1}), (b:Node {id: 2}), (c:Node {id: 3}), (a)-[:TYPE]->(b)
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            OPTIONAL CALL (n) {
+              MATCH (n)-[:TYPE]->(m)
+              RETURN m.id AS v
+              UNION
+              MATCH (n)<-[:TYPE]-(m)
+              RETURN m.id AS v
+            }
+            RETURN n.id AS nid, v
+            """
+        Then the result should be:
+            | nid | v    |
+            | 1   | 2    |
+            | 2   | 1    |
+            | 3   | null |
+
+    Scenario: A variable named optional right before CALL is not the OPTIONAL keyword
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS optional
+            CALL (optional) {
+              RETURN optional * 10 AS scaled
+            }
+            RETURN optional, scaled
+            """
+        Then the result should be:
+            | optional | scaled |
+            | 1        | 10     |
+            | 2        | 20     |
+
+    Scenario Outline: A RETURN-less CALL whose body has a UNION keeps every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            <call>
+            RETURN i
+            """
+        Then the result should be:
+            | i |
+            | 1 |
+            | 2 |
+        When executing control query:
+            """
+            MATCH (t:T) WITH count(t) AS t MATCH (u:U) RETURN t, count(u) AS u
+            """
+        Then the result should be:
+            | t | u |
+            | 2 | 2 |
+
+        Examples:
+            | call                                                                        |
+            | CALL (i) { CREATE (:T) UNION ALL CREATE (:U) }                              |
+            | CALL (i) { CREATE (:T) UNION CREATE (:U) }                                  |
+            | CALL { WITH i CREATE (:T {v: i}) UNION ALL WITH i CREATE (:U {v: i}) }      |
+            | CALL (i) { CREATE (:T) UNION ALL CREATE (:U) } IN TRANSACTIONS OF 1 ROWS    |
+
+    Scenario Outline: A CALL whose UNION parts end in CALL ... YIELD drops a row its body does not produce
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) {
+              UNWIND [] AS k CREATE (:T) CALL mg.procedures() YIELD name
+              <union>
+              UNWIND [] AS k CREATE (:U) CALL mg.procedures() YIELD name
+            }
+            RETURN i
+            """
+        Then the result should be empty
+
+        Examples:
+            | union     |
+            | UNION ALL |
+            | UNION     |
+
+    Scenario Outline: A write in any UNION part of a CALL body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { <body> }
+            MATCH (w:W)
+            WITH i, x, count(w) AS c
+            RETURN count(*) AS rows, collect(DISTINCT c) AS cs
+            """
+        Then the result should be:
+            | rows   | cs   |
+            | <rows> | [3]  |
+
+        Examples:
+            | body                                                                                  | rows |
+            | CREATE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                              | 6    |
+            | MERGE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                               | 6    |
+            | FOREACH (k IN [1] \| CREATE (:W {v: i})) RETURN 1 AS x UNION ALL RETURN 2 AS x         | 6    |
+            | CREATE (:W {v: i}) CALL () { RETURN 1 AS y } RETURN y AS x                            | 3    |
+            | CALL (i) { CREATE (:W {v: i}) RETURN 1 AS y UNION ALL RETURN 2 AS y } RETURN y AS x   | 6    |
+            | CALL (i) { CREATE (:W {v: i}) } WITH 1 AS a RETURN a AS x                             | 3    |
+
+    Scenario: A MERGE before a WITH in a CALL body is visible to every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            CALL (*) {
+              MERGE (n:R {id: 1}) ON CREATE SET n.k = 0 ON MATCH SET n.k = 1
+              WITH n
+              RETURN n
+            }
+            RETURN i, n.k AS k
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | k |
+            | 0 | 1 |
+            | 1 | 1 |
+
+    Scenario: A write in the first UNION part of a CALL IN TRANSACTIONS body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { CREATE (:W) RETURN 1 AS x UNION ALL RETURN 2 AS x } IN TRANSACTIONS OF 1 ROWS
+            MATCH (w:W)
+            RETURN i, x, count(w) AS c
+            ORDER BY i, x
+            """
+        Then the result should be:
+            | i | x | c |
+            | 1 | 1 | 2 |
+            | 1 | 2 | 2 |
+            | 2 | 1 | 2 |
+            | 2 | 2 | 2 |
+
+    Scenario Outline: A read-only CALL after a write keeps the write barrier
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) AS i
+            CREATE (:Q)
+            CALL () { RETURN 1 AS x }
+            <tail>
+            """
+        When executing query:
+            """
+            MATCH (q:Q) RETURN count(q) AS c
+            """
+        Then the result should be:
+            | c   |
+            | 100 |
+
+        Examples:
+            | tail                     |
+            | RETURN i LIMIT 1         |
+            | WITH i LIMIT 1 RETURN i  |
+
+    Scenario: A write procedure in a CALL body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { CALL example_c.write_procedure('v') YIELD created_vertex RETURN 1 AS x }
+            MATCH (n)
+            WITH i, x, count(n) AS c
+            RETURN count(*) AS rows, collect(DISTINCT c) AS cs
+            """
+        Then the result should be:
+            | rows | cs  |
+            | 3    | [3] |
+
+    Scenario: RETURN * after a CALL whose body has a UNION includes the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a | i |
+            | 1 | 1 |
+            | 2 | 1 |
+            | 1 | 2 |
+            | 2 | 2 |
+
+    Scenario: CALL (*) after a CALL whose body has a UNION imports the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            CALL (*) { RETURN a + 10 AS b }
+            RETURN a, b
+            """
+        Then the result should be:
+            | a | b  |
+            | 1 | 11 |
+            | 2 | 12 |
+
+    Scenario Outline: A UNION column that rebinds a scoped import still keeps its rows distinct
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { UNWIND [1, 2, 3] AS k <rebind> UNION RETURN 5 AS i }
+            RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c   |
+            | <c> |
+
+        Examples:
+            | rebind               | c |
+            | RETURN k AS i        | 8 |
+            | WITH k AS i RETURN i | 8 |
+
+    Scenario: RETURN * after a UNION body that returns a scoped import lists the import once
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN i, 1 AS a UNION ALL RETURN i, 2 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a | i |
+            | 1 | 1 |
+            | 2 | 1 |
+            | 1 | 2 |
+            | 2 | 2 |

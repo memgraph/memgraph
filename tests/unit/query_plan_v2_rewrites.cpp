@@ -21,12 +21,147 @@
 
 #include <utility>
 
+#include <cmath>
+#include <initializer_list>
+#include <optional>
+#include <vector>
+
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
+#include "query/plan_v2/resolve/analysis.hpp"
+#include "query/plan_v2/rewrite/fold.hpp"
 #include "query/plan_v2/rewrite/rewrites.hpp"
 
 namespace memgraph::query::plan::v2 {
 namespace {
+
+using storage::ExternalPropertyValue;
+
+// ==========================================================================
+// Pure constant-fold evaluator
+// ==========================================================================
+
+// FoldConstant borrows its operands by pointer; adapt an inline value list to
+// that interface so each test reads as a single expression.
+auto Fold(symbol op, std::initializer_list<ExternalPropertyValue> operands) -> std::optional<ExternalPropertyValue> {
+  std::vector<ExternalPropertyValue const *> ptrs;
+  ptrs.reserve(operands.size());
+  for (auto const &v : operands) ptrs.push_back(&v);
+  return FoldConstant(op, ptrs);
+}
+
+TEST(FoldConstant, AddsTwoInts) {
+  auto const result = Fold(symbol::Add, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{1}}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsInt());
+  EXPECT_EQ(result->ValueInt(), 2);
+}
+
+TEST(FoldConstant, ComparisonYieldsBool) {
+  auto const result = Fold(symbol::Lt, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{2}}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsBool());
+  EXPECT_TRUE(result->ValueBool());
+}
+
+TEST(FoldConstant, UnaryMinusNegates) {
+  auto const result = Fold(symbol::UnaryMinus, {ExternalPropertyValue{int64_t{5}}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsInt());
+  EXPECT_EQ(result->ValueInt(), -5);
+}
+
+TEST(FoldConstant, DivisionByZeroDeclines) {
+  EXPECT_FALSE(Fold(symbol::Div, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{0}}}).has_value());
+}
+
+TEST(FoldConstant, NonNumericArithmeticDeclines) {
+  EXPECT_FALSE(
+      Fold(symbol::Mul, {ExternalPropertyValue{std::string_view{"a"}}, ExternalPropertyValue{std::string_view{"b"}}})
+          .has_value());
+}
+
+// Mixed-type arithmetic keeps Cypher's result type: int + double is double.
+// The result is a different constant from Int{3} under constant identity.
+TEST(FoldConstant, MixedIntDoubleAddYieldsDouble) {
+  auto const result = Fold(symbol::Add, {ExternalPropertyValue{1.0}, ExternalPropertyValue{int64_t{2}}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsDouble());
+  EXPECT_EQ(result->ValueDouble(), 3.0);
+}
+
+// Cypher's three-valued logic: a determining operand wins over null, an
+// undetermined combination stays null.
+TEST(FoldConstant, AndOfFalseAndNullIsFalse) {
+  auto const result = Fold(symbol::And, {ExternalPropertyValue{false}, ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsBool());
+  EXPECT_FALSE(result->ValueBool());
+}
+
+TEST(FoldConstant, OrOfTrueAndNullIsTrue) {
+  auto const result = Fold(symbol::Or, {ExternalPropertyValue{true}, ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsBool());
+  EXPECT_TRUE(result->ValueBool());
+}
+
+TEST(FoldConstant, AndOfTrueAndNullIsNull) {
+  auto const result = Fold(symbol::And, {ExternalPropertyValue{true}, ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+// Or is asymmetric with And: a false operand can't determine the result, so
+// `false OR null` stays null (mirror of AndOfTrueAndNullIsNull).
+TEST(FoldConstant, OrOfFalseAndNullIsNull) {
+  auto const result = Fold(symbol::Or, {ExternalPropertyValue{false}, ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+// Xor never short-circuits (unlike And/Or, no operand can determine it alone),
+// so any null operand yields null.
+TEST(FoldConstant, XorWithNullIsNull) {
+  auto const result = Fold(symbol::Xor, {ExternalPropertyValue{true}, ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+// A list-valued result is not a scalar constant: Add over two lists concatenates
+// (a List), so ToConstant declines and the fold leaves the expression alone.
+TEST(FoldConstant, ListResultDeclines) {
+  auto const list = ExternalPropertyValue{ExternalPropertyValue::list_t{ExternalPropertyValue{int64_t{1}}}};
+  EXPECT_FALSE(Fold(symbol::Add, {list, list}).has_value());
+}
+
+// Null propagates through arithmetic and unary operators as a folded null
+// constant, not as a declined fold.
+TEST(FoldConstant, AddOfNullIsNull) {
+  auto const result = Fold(symbol::Add, {ExternalPropertyValue{int64_t{5}}, ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+TEST(FoldConstant, UnaryMinusOfNullIsNull) {
+  auto const result = Fold(symbol::UnaryMinus, {ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+TEST(FoldConstant, NotOfNullIsNull) {
+  auto const result = Fold(symbol::Not, {ExternalPropertyValue{}});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+// Double division never throws: 0.0/0.0 folds to a NaN constant per IEEE.
+TEST(FoldConstant, ZeroOverZeroFoldsToNaN) {
+  auto const result = Fold(symbol::Div, {ExternalPropertyValue{0.0}, ExternalPropertyValue{0.0}});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result->IsDouble());
+  EXPECT_TRUE(std::isnan(result->ValueDouble()));
+}
 
 class EgraphTestBase : public ::testing::Test {
  protected:
@@ -43,6 +178,11 @@ class EgraphTestBase : public ::testing::Test {
   void ExpectAllDistinct(std::vector<eclass> const &ops) {
     for (size_t i = 0; i < ops.size(); ++i)
       for (size_t j = i + 1; j < ops.size(); ++j) ExpectDistinct(ops[i], ops[j]);
+  }
+
+  auto ConstantOf(eclass e) -> std::optional<storage::ExternalPropertyValue> {
+    if (auto const *expr = Core().eclass(Find(e)).analysis().expression()) return expr->known_constant_value;
+    return std::nullopt;
   }
 };
 
@@ -264,12 +404,124 @@ TEST_F(InlineThroughOperatorTest, InlineThroughAdd) {
 
   auto ident = eg_.MakeIdentifier(sym);
   auto lit2 = eg_.MakeLiteral(storage::ExternalPropertyValue{2});
-  [[maybe_unused]] auto add = eg_.MakeAdd(ident, lit2);
+  auto add = eg_.MakeAdd(ident, lit2);
 
+  // Inlining merges the Identifier into the bound literal; once both operands
+  // are constant the fold rule collapses Add(1, 2) to 3. The salient property
+  // here is that inlining reaches an Identifier nested in a parent operator.
   auto result = ApplyAllRewrites(eg_);
-  EXPECT_EQ(result.rewrites_applied, 1);
   EXPECT_TRUE(result.saturated());
   ExpectSame(ident, lit1);
+  // The fold then fires through the inlined operand: Add(1, 2) collapses to 3.
+  auto const folded = ConstantOf(add);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsInt());
+  EXPECT_EQ(folded->ValueInt(), 3);
+}
+
+// =======================================================================
+// Constant folding (fact-gated rewrite)
+// =======================================================================
+
+class ConstantFoldTest : public EgraphTestBase {};
+
+// Tracer: a binary op over two constant operands folds to their value.
+TEST_F(ConstantFoldTest, FoldsAddOfTwoLiterals) {
+  auto one = eg_.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  auto sum = eg_.MakeAdd(one, one);
+  auto two = eg_.MakeLiteral(ExternalPropertyValue{int64_t{2}});
+
+  ExpectDistinct(sum, two);
+  ApplyAllRewrites(eg_);
+  ExpectSame(sum, two);
+  // The merge alone can't tell a wrongly-typed fold result apart; pin the
+  // folded value and its type too.
+  auto const folded = ConstantOf(sum);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsInt());
+  EXPECT_EQ(folded->ValueInt(), 2);
+}
+
+// The fold result keeps its Cypher type: 1.0 + 2 folds to Double{3.0}, a
+// different constant from the Int{3} literal - the two must not merge.
+TEST_F(ConstantFoldTest, FoldPreservesResultType) {
+  auto one_double = eg_.MakeLiteral(ExternalPropertyValue{1.0});
+  auto two_int = eg_.MakeLiteral(ExternalPropertyValue{int64_t{2}});
+  auto sum = eg_.MakeAdd(one_double, two_int);
+  auto three_int = eg_.MakeLiteral(ExternalPropertyValue{int64_t{3}});
+
+  ApplyAllRewrites(eg_);
+
+  auto const folded = ConstantOf(sum);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsDouble());
+  EXPECT_EQ(folded->ValueDouble(), 3.0);
+  ExpectDistinct(sum, three_int);
+}
+
+// A NaN-producing fold interns cleanly: the expression carries a NaN constant.
+TEST_F(ConstantFoldTest, FoldsZeroOverZeroToNaNConstant) {
+  auto zero = eg_.MakeLiteral(ExternalPropertyValue{0.0});
+  auto div = eg_.MakeDiv(zero, zero);
+
+  ApplyAllRewrites(eg_);
+
+  auto const folded = ConstantOf(div);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsDouble());
+  EXPECT_TRUE(std::isnan(folded->ValueDouble()));
+}
+
+// Folding cascades under saturation: 1+1+1+1 collapses innermost-out to 4.
+TEST_F(ConstantFoldTest, CascadesNestedAdds) {
+  auto one = eg_.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  auto s2 = eg_.MakeAdd(one, one);
+  auto s3 = eg_.MakeAdd(s2, one);
+  auto s4 = eg_.MakeAdd(s3, one);
+  auto four = eg_.MakeLiteral(ExternalPropertyValue{int64_t{4}});
+
+  ApplyAllRewrites(eg_);
+  ExpectSame(s4, four);
+}
+
+// Regression: `-(0.0)` folds to `-0.0`, which must intern distinctly from the
+// pre-existing `+0.0` literal - the sign is observable (`1.0/x` flips ±inf).
+TEST_F(ConstantFoldTest, NegativeZeroDoesNotCollapseIntoPositiveZero) {
+  auto pos_zero = eg_.MakeLiteral(ExternalPropertyValue{0.0});
+  auto neg = eg_.MakeUnaryMinus(pos_zero);
+
+  ApplyAllRewrites(eg_);
+
+  auto const folded = ConstantOf(neg);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsDouble());
+  EXPECT_EQ(folded->ValueDouble(), 0.0);             // equal under IEEE ==
+  EXPECT_TRUE(std::signbit(folded->ValueDouble()));  // but negative zero
+  ExpectDistinct(neg, pos_zero);
+}
+
+// A non-constant operand blocks the fold: the expression keeps no constant.
+TEST_F(ConstantFoldTest, DoesNotFoldNonConstantOperand) {
+  auto param = eg_.MakeParameterLookup(0);
+  auto one = eg_.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  auto sum = eg_.MakeAdd(param, one);
+
+  ApplyAllRewrites(eg_);
+  EXPECT_FALSE(ConstantOf(sum).has_value());
+}
+
+// The rule wires the non-arithmetic operator families too: a comparison over
+// constants folds to a boolean constant.
+TEST_F(ConstantFoldTest, FoldsComparisonToBool) {
+  auto one = eg_.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  auto two = eg_.MakeLiteral(ExternalPropertyValue{int64_t{2}});
+  auto lt = eg_.MakeLt(one, two);
+
+  ApplyAllRewrites(eg_);
+  auto const folded = ConstantOf(lt);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsBool());
+  EXPECT_TRUE(folded->ValueBool());
 }
 
 }  // namespace

@@ -1,5 +1,8 @@
 set(test_prefix memgraph__unit__)
 
+# COST is a test's sanitized Debug runtime in seconds on a CI runner. ctest starts the costliest
+# tests first, so a parallel run does not end with the longest ones running alone.
+
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)
 find_package(antlr4-runtime REQUIRED)
@@ -25,6 +28,15 @@ target_link_libraries(storage_test_utils mg::storage)
 add_library(disk_test_utils disk_test_utils.cpp)
 target_link_libraries(disk_test_utils mg::storage)
 
+# A value of every type, for the suites that need to walk the whole value space
+add_library(value_shapes value_shapes.cpp)
+target_link_libraries(value_shapes mg::storage)
+target_include_directories(value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
+
+add_library(typed_value_shapes typed_value_shapes.cpp)
+target_link_libraries(typed_value_shapes mg-query value_shapes)
+target_include_directories(typed_value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
+
 # Header-only helpers shared across storage test files
 # (parameterized DDL abort/ghost/restore tests).
 add_library(ddl_abort_helpers INTERFACE)
@@ -42,6 +54,7 @@ target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GT
 add_unit_test(integrations_kafka_consumer
     SOURCES integrations_kafka_consumer.cpp kafka_mock.cpp
     LINK_TARGETS kafka-mock mg-integrations-kafka
+    TEST_PROPERTIES COST 80
 )
 
 add_unit_test(mgp_kafka_c_api
@@ -65,6 +78,11 @@ add_unit_test(bfs_fine_grained
     LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(crc_accumulator
+        SOURCES crc_accumulator.cpp
+        LINK_TARGETS mg-utils
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
@@ -80,6 +98,11 @@ add_unit_test(cypher_main_visitor
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_storage_access
+    SOURCES query_storage_access.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(event_map
         SOURCES event_map.cpp
         LINK_TARGETS mg-events mg-utils
@@ -89,16 +112,22 @@ add_unit_test(event_map
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+    TEST_PROPERTIES COST 150
 )
 
-add_unit_test(plan_pretty_print
-    SOURCES plan_pretty_print.cpp
-    LINK_TARGETS mg-query disk_test_utils
+add_unit_test(query_plan_pruning_bfs
+    SOURCES query_plan_pruning_bfs.cpp
+    LINK_TARGETS mg-query
 )
 
 add_unit_test(query_cost_estimator
     SOURCES query_cost_estimator.cpp
     LINK_TARGETS mg-query
+)
+
+add_unit_test(glue_communication
+    SOURCES glue_communication.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_dump
@@ -109,6 +138,7 @@ add_unit_test(query_dump
 add_unit_test(query_expression_evaluator
     SOURCES query_expression_evaluator.cpp
     LINK_TARGETS mg-query disk_test_utils
+    TEST_PROPERTIES COST 140
 )
 
 add_unit_test(query_frame_change
@@ -118,6 +148,11 @@ add_unit_test(query_frame_change
 
 add_unit_test(query_cache
     SOURCES query_cache.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_timeout_deadline
+    SOURCES query_timeout_deadline.cpp
     LINK_TARGETS mg-query
 )
 
@@ -159,6 +194,7 @@ add_unit_test(query_plan_edge_cases
 add_unit_test(query_plan_match_filter_return
     SOURCES query_plan_match_filter_return.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
+    TEST_PROPERTIES COST 145
 )
 
 add_unit_test(query_plan_operator_to_string
@@ -198,6 +234,14 @@ add_unit_test(query_plan_v2_converter
 add_unit_test(query_plan_v2_cardinality
     SOURCES query_plan_v2_cardinality.cpp
     LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Analysis framework (constant identity + lattice)
+# ============================================================================
+add_unit_test(query_plan_v2_analysis
+    SOURCES query_plan_v2_analysis.cpp
+    LINK_TARGETS mg-query mg-planner
 )
 
 # ============================================================================
@@ -249,6 +293,17 @@ add_unit_test(transaction_queue
 add_unit_test(transaction_queue_multiple
     SOURCES transaction_queue_multiple.cpp
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+    TEST_PROPERTIES COST 50
+)
+
+add_unit_test(query_plan_printer_race
+    SOURCES query_plan_printer_race.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
+add_unit_test(query_index_differential
+    SOURCES query_index_differential.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
 
@@ -275,12 +330,14 @@ add_unit_test(query_procedure_mgp_module
 )
 
 
+if (MG_PYTHON_SUPPORT)
 add_unit_test(query_procedure_py_module
     SOURCES query_procedure_py_module.cpp
     LINK_TARGETS mg-query disk_test_utils
     CUSTOM_MAIN
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
+endif()
 
 
 add_unit_test(query_procedures_mgp_graph
@@ -295,10 +352,20 @@ add_unit_test(query_virtual_graph
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
+add_unit_test(query_procedure_text_search_query_fields
+    SOURCES query_procedure_text_search_query_fields.cpp
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
 
 # END query/procedure
 add_unit_test(query_profile
     SOURCES query_profile.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_graph_free
+    SOURCES query_graph_free.cpp
     LINK_TARGETS mg-query
 )
 
@@ -310,6 +377,7 @@ add_unit_test(query_required_privileges
 add_unit_test(query_semantic
     SOURCES query_semantic.cpp
     LINK_TARGETS mg-query disk_test_utils
+    TEST_PROPERTIES COST 95
 )
 
 add_unit_test(query_variable_start_planner
@@ -324,7 +392,24 @@ add_unit_test(stripped
 
 add_unit_test(typed_value
     SOURCES typed_value.cpp
-    LINK_TARGETS mg-query disk_test_utils
+    LINK_TARGETS mg-query disk_test_utils typed_value_shapes
+)
+
+# Test mg-value-order.
+#
+# Takes its own main rather than the shared one, which links the memory and
+# utility libraries: this binary is meant to link the library under test and
+# nothing else of ours, so that the library keeping no dependencies of its own
+# is something the linker checks rather than something a comment claims.
+add_unit_test(value_order_numbers
+    CUSTOM_MAIN
+    SOURCES value_order_numbers.cpp
+    LINK_TARGETS mg-value-order GTest::gtest_main
+)
+
+add_unit_test(query_relations
+    SOURCES query_relations.cpp
+    LINK_TARGETS mg-query
 )
 
 # Test mg-communication
@@ -363,10 +448,26 @@ add_unit_test(network_timeouts
     LINK_TARGETS mg-communication
 )
 
+add_unit_test(accept_emfile
+    SOURCES accept_emfile.cpp
+    LINK_TARGETS mg-communication mg-metrics mg-flags
+)
+
+add_unit_test(session_registry
+    SOURCES session_registry.cpp
+    LINK_TARGETS mg-communication
+)
+
 # Test mg-kvstore
 add_unit_test(kvstore
     SOURCES kvstore.cpp
     LINK_TARGETS mg-kvstore mg-utils
+)
+
+# Test mg-parameters
+add_unit_test(parameters
+    SOURCES parameters.cpp
+    LINK_TARGETS mg-parameters
 )
 
 if (MG_ENTERPRISE)
@@ -404,16 +505,33 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+# Hot/cold tenants: gatekeeper 4-state lifecycle machine
+add_unit_test(hot_cold_gatekeeper
+    SOURCES hot_cold_gatekeeper.cpp
+    LINK_TARGETS mg-utils
+)
+
+# Hot/cold tenants: node-local suspend engine (HOT -> COLD teardown)
+add_unit_test(hot_cold_suspend
+    SOURCES hot_cold_suspend.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
+# Hot/cold tenants: node-local resume engine (COLD -> HOT, single-flight)
+add_unit_test(hot_cold_resume
+    SOURCES hot_cold_resume.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
     LINK_TARGETS mg-utils mg-aws
 )
 
-add_unit_test(utils_barrier
-    SOURCES utils_barrier.cpp
+add_unit_test(utils_nofile_limit
+    SOURCES utils_nofile_limit.cpp
     LINK_TARGETS mg-utils
-    TEST_PROPERTIES TIMEOUT 60
 )
 
 add_unit_test(utils_hot_mask
@@ -421,8 +539,21 @@ add_unit_test(utils_hot_mask
     LINK_TARGETS mg-utils
 )
 
+# The startup tests build a pool per iteration, so ctest's default cost of one slot per test lets
+# them be scheduled alongside a full machine's worth of other tests. Declaring the slots they need
+# keeps that from happening; where the machine has fewer, ctest runs this test on its own.
+# PROCESSORS mirrors the widest startup pool, kMixed + kHighPriority in
+# StartupPublishesMixedWorkers, and has to be changed with it. TIMEOUT caps a run that wedges
+# rather than fails: a pool whose workers never arrive at the latch leaves every thread waiting on
+# it, the constructor included.
 add_unit_test(utils_priority_thread_pool
     SOURCES utils_priority_thread_pool.cpp
+    LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
+)
+
+add_unit_test(utils_epoch_tracker
+    SOURCES utils_epoch_tracker.cpp
     LINK_TARGETS mg-utils
 )
 
@@ -433,6 +564,16 @@ add_unit_test(utils_exceptions
 
 add_unit_test(utils_file
     SOURCES utils_file.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_page_cache_releaser
+    SOURCES utils_page_cache_releaser.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_stat
+    SOURCES utils_stat.cpp
     LINK_TARGETS mg-utils
 )
 
@@ -466,6 +607,16 @@ add_unit_test(jemalloc_hook_stress_test
     LINK_TARGETS mg-memory mg-utils
 )
 
+add_unit_test(memory_purge_unused_memory
+    SOURCES memory_purge_unused_memory.cpp
+    LINK_TARGETS mg-memory-utils mg-utils
+)
+
+add_unit_test(tls_destructor_registration
+    SOURCES tls_destructor_registration.cpp
+    LINK_TARGETS mg-memory mg-utils
+)
+
 add_unit_test(utils_on_scope_exit
     SOURCES utils_on_scope_exit.cpp
     LINK_TARGETS mg-utils
@@ -476,14 +627,19 @@ add_unit_test(utils_pointer_pack
     LINK_TARGETS mg-utils
 )
 
+# A writer that is never granted the exclusive lock blocks in the acquisition with nothing
+# asserting on it, so a broken lock wedges rather than fails. TIMEOUT stops that from running to
+# the job's own cancellation with nothing naming this test.
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 add_unit_test(utils_scheduler
     SOURCES utils_scheduler.cpp
     LINK_TARGETS mg-utils mg-flags mg-settings
+    TEST_PROPERTIES COST 60
 )
 
 add_unit_test(utils_signals
@@ -521,6 +677,16 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_id_bitmap
+    SOURCES utils_id_bitmap.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(storage_v2_interesting_ids
+    SOURCES storage_v2_interesting_ids.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(skip_list_range_chunking
     SOURCES skip_list_range_chunking.cpp
     LINK_TARGETS mg-utils
@@ -539,6 +705,7 @@ add_unit_test(utils_file_locker
 add_unit_test(utils_thread_pool
     SOURCES utils_thread_pool.cpp
     LINK_TARGETS mg-utils fmt::fmt
+    TEST_PROPERTIES COST 65
 )
 
 add_unit_test(csv_csv_parsing
@@ -546,9 +713,34 @@ add_unit_test(csv_csv_parsing
     LINK_TARGETS mg::csv
 )
 
-add_unit_test(utils_async_timer
-    SOURCES utils_async_timer.cpp
+add_unit_test(query_jsonl_reader
+    SOURCES query_jsonl_reader.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(utils_prefetched
+    SOURCES utils_prefetched.cpp
     LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_byte_source
+    SOURCES utils_byte_source.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_download_temp_file
+    SOURCES utils_download_temp_file.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(query_download_failure_reporting
+    SOURCES query_download_failure_reporting.cpp
+    LINK_TARGETS mg-query mg-requests
+)
+
+add_unit_test(requests_transfer_stall
+    SOURCES requests_transfer_stall.cpp
+    LINK_TARGETS mg-requests mg-utils
 )
 
 add_unit_test(license
@@ -620,6 +812,7 @@ add_unit_test(utils_observer
 add_unit_test(commit_log_v2
     SOURCES commit_log_v2.cpp
     LINK_TARGETS gflags mg-utils mg::storage
+    TEST_PROPERTIES COST 75
 )
 
 add_unit_test(property_value_v2
@@ -627,8 +820,18 @@ add_unit_test(property_value_v2
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(storage_v2_comparable_bounds
+    SOURCES storage_v2_comparable_bounds.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2
     SOURCES storage_v2.cpp
+    LINK_TARGETS mg::storage storage_test_utils disk_test_utils
+)
+
+add_unit_test(storage_v2_commit_lock_narrowing
+    SOURCES storage_v2_commit_lock_narrowing.cpp
     LINK_TARGETS mg::storage storage_test_utils disk_test_utils
 )
 
@@ -660,6 +863,7 @@ add_unit_test(storage_v2_enum_store
 add_unit_test(storage_v2_constraints
     SOURCES storage_v2_constraints.cpp
     LINK_TARGETS mg::storage mg-dbms disk_test_utils ddl_abort_helpers
+    TEST_PROPERTIES COST 50
 )
 
 if(ENABLE_JEMALLOC)
@@ -674,9 +878,14 @@ add_unit_test(storage_v2_decoder_encoder
     LINK_TARGETS mg::storage
 )
 
+# Much the slowest test in the suite: it writes and recovers snapshots and WAL
+# across every durability mode, and in a sanitized build it runs long enough that
+# the general cap would leave it far less headroom than it leaves every other
+# test. It keeps the signal settings, so a hang in it still dumps core.
 add_unit_test(storage_v2_durability_inmemory
     SOURCES storage_v2_durability_inmemory.cpp
-    LINK_TARGETS mg::storage mg-dbms
+    LINK_TARGETS mg::storage mg-dbms storage_test_utils
+    TEST_PROPERTIES TIMEOUT 1800 COST 800
 )
 
 add_unit_test(storage_v2_create_snapshot
@@ -686,6 +895,11 @@ add_unit_test(storage_v2_create_snapshot
 
 add_unit_test(storage_v2_recover_snapshot
     SOURCES storage_v2_recover_snapshot.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(two_pc_commit_cache
+    SOURCES two_pc_commit_cache.cpp
     LINK_TARGETS mg::storage mg-dbms
 )
 
@@ -714,6 +928,11 @@ add_unit_test(storage_v2_edge_inmemory
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_light_edges
+    SOURCES storage_v2_light_edges.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
 add_unit_test(storage_v2_edge_ondisk
     SOURCES storage_v2_edge_ondisk.cpp
     LINK_TARGETS mg::storage disk_test_utils
@@ -724,9 +943,20 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_gc_index_sweep
+    SOURCES storage_v2_gc_index_sweep.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_index_arming
+    SOURCES storage_v2_index_arming.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_non_sequential_isolation
     SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage
+    TEST_PROPERTIES COST 400
 )
 
 add_unit_test(storage_v2_delta_correctness
@@ -737,6 +967,28 @@ add_unit_test(storage_v2_delta_correctness
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils disk_test_utils ddl_abort_helpers
+    TEST_PROPERTIES COST 55
+)
+
+add_unit_test(storage_v2_index_drop_visibility
+    SOURCES storage_v2_index_drop_visibility.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
+add_unit_test(storage_v2_async_indexer
+    SOURCES storage_v2_async_indexer.cpp
+    LINK_TARGETS mg::storage mg-utils
+    TEST_PROPERTIES COST 180
+)
+
+add_unit_test(storage_v2_index_entry_lifetime
+    SOURCES storage_v2_index_entry_lifetime.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
+add_unit_test(storage_v2_object_removal
+    SOURCES storage_v2_object_removal.cpp
+    LINK_TARGETS mg::storage mg-utils
 )
 
 add_unit_test(storage_v2_name_id_mapper
@@ -744,9 +996,19 @@ add_unit_test(storage_v2_name_id_mapper
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(value_shapes_coverage
+    SOURCES value_shapes_coverage.cpp
+    LINK_TARGETS mg::storage value_shapes
+)
+
+add_unit_test(typed_value_shapes_coverage
+    SOURCES typed_value_shapes_coverage.cpp
+    LINK_TARGETS mg-query mg-glue typed_value_shapes
+)
+
 add_unit_test(storage_v2_property_store
     SOURCES storage_v2_property_store.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage value_shapes
     CUSTOM_MAIN
 )
 
@@ -757,7 +1019,7 @@ add_unit_test(storage_v2_wal_file
 
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
-    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
+    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue storage_test_utils mg-replication_handler
 )
 
 add_unit_test(storage_v2_error
@@ -792,6 +1054,12 @@ add_unit_test(storage_v2_storage_mode
 
 add_unit_test(storage_v2_schema_info
     SOURCES storage_v2_schema_info.cpp
+    LINK_TARGETS mg::storage storage_test_utils
+    TEST_PROPERTIES COST 70
+)
+
+add_unit_test(storage_v2_config
+    SOURCES storage_v2_config.cpp
     LINK_TARGETS mg::storage
 )
 
@@ -813,6 +1081,12 @@ add_unit_test(cluster_client_ssl
     LINK_TARGETS mg-communication mg::io mg::utils Boost::filesystem
 )
 add_dependencies(${test_unit_prefix}cluster_client_ssl memgraph__unit__tls_certs_dir)
+
+add_unit_test(tls_min_version
+    SOURCES tls_min_version.cpp
+    LINK_TARGETS mg-communication mg::io mg::utils Boost::filesystem
+)
+add_dependencies(${test_unit_prefix}tls_min_version memgraph__unit__tls_certs_dir)
 
 if (MG_ENTERPRISE)
     add_unit_test(management_servers
@@ -851,6 +1125,13 @@ else ()
     )
 endif ()
 
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_sso_authenticator
+        SOURCES coordinator_sso_authenticator.cpp
+        LINK_TARGETS mg-glue mg-auth
+    )
+endif ()
+
 add_unit_test(cpp_api
     SOURCES cpp_api.cpp
     LINK_TARGETS mg-query disk_test_utils
@@ -860,12 +1141,12 @@ add_unit_test(cpp_api
 
 add_unit_test(vector_index
     SOURCES vector_index.cpp
-    LINK_TARGETS mg::storage ddl_abort_helpers
+    LINK_TARGETS mg::storage mg-glue ddl_abort_helpers
 )
 
 add_unit_test(vector_edge_index
     SOURCES vector_edge_index.cpp
-    LINK_TARGETS mg::storage ddl_abort_helpers
+    LINK_TARGETS mg::storage mg-glue ddl_abort_helpers
 )
 
 add_unit_test(text_index
@@ -875,9 +1156,25 @@ add_unit_test(text_index
 
 # Test mg-auth
 if (MG_ENTERPRISE)
+    add_unit_test(atomic_auth_overlay
+        SOURCES atomic_auth_overlay.cpp
+        LINK_TARGETS mg-auth mg-kvstore mg-utils
+    )
+
+    add_unit_test(auth_repository
+        SOURCES repository.cpp
+        LINK_TARGETS mg-auth mg-kvstore mg-utils
+    )
+
+    add_unit_test(auth_layer
+        SOURCES auth_layer.cpp
+        LINK_TARGETS mg-auth mg-license mg-kvstore mg-utils mg-system
+    )
+
     add_unit_test(auth
         SOURCES auth.cpp
         LINK_TARGETS mg-auth mg-license Boost::filesystem
+        TEST_PROPERTIES COST 70
     )
 
     file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")
@@ -907,6 +1204,7 @@ add_unit_test(slk_core
 add_unit_test(slk_streams
     SOURCES slk_streams.cpp
     LINK_TARGETS mg-slk gflags fmt::fmt
+    TEST_PROPERTIES COST 70
 )
 
 # Test utilities
@@ -923,7 +1221,7 @@ add_unit_test(rpc
 if (MG_ENTERPRISE)
     add_unit_test(rpc_timeouts
         SOURCES rpc_timeouts.cpp
-        LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages
+        LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue mg-replication_handler rpc_messages
     )
     add_dependencies(${test_unit_prefix}rpc_timeouts memgraph__unit__tls_certs_dir)
 endif ()
@@ -934,16 +1232,41 @@ add_unit_test(rpc_in_progress
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
+# Test rpc progress heartbeat (sends only on recorded progress)
+# The peer-gone test waits for the heartbeat to notice the client leave, with nothing bounding
+# that wait, so a heartbeat that never notices wedges rather than fails. TIMEOUT stops that from
+# running to the job's own cancellation with nothing naming this test.
+add_unit_test(rpc_progress_heartbeat
+    SOURCES rpc_progress_heartbeat.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
+)
+
+# Test rpc file framing (receive-buffer duplicate-file bug)
+add_unit_test(rpc_file_framing
+    SOURCES rpc_file_framing.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
 # Test replication-rpc-progress
+# One test asserts that a request type with no configured timeout waits for its response
+# indefinitely, so a response that never comes hangs the run. TIMEOUT is what bounds it.
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 # Test snapshot-rpc-progress
 add_unit_test(snapshot_rpc_progress
     SOURCES snapshot_rpc_progress.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
+# Test cancellation of full-scan schema operations (index population, constraint validation)
+add_unit_test(storage_v2_schema_cancellation
+    SOURCES storage_v2_schema_cancellation.cpp
+    LINK_TARGETS mg-storage-v2
 )
 
 add_unit_test(snapshot_progress
@@ -953,7 +1276,12 @@ add_unit_test(snapshot_progress
 
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
-    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
+    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc mg-replication_handler rpc_messages
+)
+
+add_unit_test(replication_state_writing
+    SOURCES replication_state_writing.cpp
+    LINK_TARGETS mg-replication mg-repl_coord_glue
 )
 
 # Test websocket
@@ -1079,6 +1407,16 @@ if (MG_ENTERPRISE)
 
 endif ()
 
+# Test coordinator global_read_only SET/SHOW setting path
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_global_read_only_setting
+        SOURCES coordinator_global_read_only_setting.cpp
+        LINK_TARGETS gflags mg-coordination mg-repl_coord_glue
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+    )
+
+endif ()
+
 # Test coordinator env flag handler
 if (MG_ENTERPRISE)
     add_unit_test(coordinator_env_flag_handler
@@ -1129,6 +1467,7 @@ if (MG_ENTERPRISE)
         memgraph__unit__coordinator_state_manager
         memgraph__unit__coordinator_log_store
         memgraph__unit__coordinator_raft_state
+        memgraph__unit__coordinator_global_read_only_setting
         memgraph__unit__coordinator_env_flag_handler
         memgraph__unit__coordinator_instance_context
         memgraph__unit__coordinator_instance_aux
@@ -1189,3 +1528,20 @@ add_unit_test(logging
     SOURCES logging.cpp
     LINK_TARGETS gflags mg-flags
 )
+
+add_unit_test(utils_queued_byte_source
+    SOURCES utils_queued_byte_source.cpp
+    LINK_TARGETS mg-utils
+)
+
+# Per-test PROCESSORS, TIMEOUT and RESOURCE_GROUPS, measured rather than guessed.
+# Included last so that every test it names already exists. A property set by
+# hand above wins: test_properties.cmake does not name those tests.
+include(${CMAKE_CURRENT_SOURCE_DIR}/test_properties.cmake)
+
+# The disk claims above do nothing unless ctest is given this specification, and
+# a RESOURCE_GROUPS property with no specification is ignored silently rather
+# than reported. Setting it here writes it into the generated CTestTestfile, so
+# it applies to a plain ctest run from anywhere in the build tree and no caller
+# has to remember a command-line flag.
+set(CTEST_RESOURCE_SPEC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ctest_resources.json)

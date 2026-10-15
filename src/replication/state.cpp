@@ -79,15 +79,15 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data.data_)) {
     std::get<RoleReplicaData>(replication_data.data_).uuid_ = utils::UUID{};
-    spdlog::trace("Replica's replication uuid for replica has been reset");
+    spdlog::info("Replica's replication uuid for replica has been reset");
   }
 #endif
   if (std::holds_alternative<RoleReplicaData>(replication_data.data_)) {
     auto const &replica_uuid = std::get<RoleReplicaData>(replication_data.data_).uuid_;
     auto const uuid = std::string(replica_uuid);
-    spdlog::trace("Recovered main's uuid for replica {}", uuid);
+    spdlog::info("Recovered main's uuid for replica {}", uuid);
   } else {
-    spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data.data_).uuid_));
+    spdlog::info("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data.data_).uuid_));
   }
 
   replication_data_ = std::move(replication_data);

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Help function
@@ -10,8 +10,13 @@ Build script for Memgraph using Conan 2 and CMake.
 
 OPTIONS:
     --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
-    --target TARGET         Specific CMake target to build (default: all targets)
-    --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
+    --target TARGET...      CMake target(s) to build (default: all targets). Accepts
+                            multiple targets in one sequence, e.g.
+                            --target memgraph memgraph__unit
+    --reserve-cores N       Leave N cores free for other work (default: 0, uses all cores)
+    --compile-jobs N        Pin concurrent compile steps (default: derived from memory)
+    --link-jobs N           Pin concurrent link steps (default: derived from memory)
+    --no-job-memory-cap     Do not cap concurrency by memory; -j alone decides
     --skip-os-deps          Skip OS dependency checks
     --keep-build            Keep existing build directory for incremental builds
     --config-only           Only configure CMake, don't build
@@ -19,10 +24,26 @@ OPTIONS:
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
+    --fips                  Build for a FIPS 140-3 approved-mode image (maps to -DMG_FIPS=ON; omits
+                            components whose crypto cannot come from the validated OpenSSL)
+    --mage MODE             MAGE query modules (C++, Python, Rust). MODE is one of:
+                              off  = no MAGE (default)
+                              on   = build MAGE together with Memgraph
+                              only = build just MAGE, not Memgraph itself
+                                     (trims the conan dependency graph)
+    --cugraph               Also build MAGE cuGraph GPU modules (implies --mage on)
+    --no-python             Build memgraph without the embedded Python interpreter
+                            (Python query modules are unavailable; no libpython dependency)
+    --profiling MODES       Comma-separated profiling build modes (e.g. --profiling fp,mem):
+                              fp  = retain frame pointers for low-overhead 'perf' (MG_PROFILE)
+                              mem = memory-profiling build, disables jemalloc (MG_MEMORY_PROFILE)
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
     VENV_DIR                Path to Python virtual environment (default: env)
+    MG_PYTHON               Python interpreter to use (must be >= 3.10). By
+                            default the newest suitable python3/python3.X on
+                            PATH is picked automatically.
 
 CMAKE_ARGS:
     Any additional arguments are passed directly to CMake configuration.
@@ -30,6 +51,13 @@ CMAKE_ARGS:
         -DASAN=ON               Enable Address Sanitizer
         -DUBSAN=ON              Enable Undefined Behavior Sanitizer
         -DCMAKE_CXX_FLAGS=...   Additional compiler flags
+
+    Compile and link steps are capped so their peak memory fits the machine (or
+    the container's cgroup limit), whatever -j is used. --compile-jobs,
+    --link-jobs and --no-job-memory-cap override the derived caps; the memory
+    budgeted per step is retunable too:
+        -DMG_MEMORY_PER_COMPILE_JOB_MB=N
+        -DMG_MEMORY_PER_LINK_JOB_MB=N
 
 EXAMPLES:
     # Standard release build
@@ -44,6 +72,21 @@ EXAMPLES:
     # Build specific target
     ./build.sh --target memgraph
 
+    # Build multiple targets at once
+    ./build.sh --target memgraph memgraph__unit
+
+    # Build Memgraph together with the MAGE query modules
+    ./build.sh --mage on
+
+    # Build just the MAGE query modules (no Memgraph)
+    ./build.sh --mage only
+
+    # MAGE-only with GPU modules against a prebuilt cuGraph
+    ./build.sh --mage only --cugraph -DMG_CUGRAPH_ROOT=/opt/conda
+
+    # Build without the embedded Python interpreter
+    ./build.sh --no-python
+
     # Configure only, don't build
     ./build.sh --config-only
 
@@ -56,7 +99,7 @@ EOF
 
 # Default values
 BUILD_TYPE="Release"
-TARGET=""
+TARGETS=()
 CMAKE_ARGS=""
 config_only=false
 keep_build=false
@@ -66,7 +109,15 @@ offline=false
 update_lockfile=false
 graph_info=false
 RESERVE_CORES=0
+COMPILE_JOBS=""
+LINK_JOBS=""
+JOB_MEMORY_CAP=on
 SPLIT_DEBUG=off
+FIPS=off
+PROFILING=""
+MAGE=off
+CUGRAPH=off
+PYTHON_SUPPORT=on
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -75,8 +126,16 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --target)
-            TARGET="$2"
-            shift 2
+            shift
+            # Consume all following args until the next flag as target names.
+            while [[ $# -gt 0 && "$1" != -* ]]; do
+                TARGETS+=("$1")
+                shift
+            done
+            if [[ ${#TARGETS[@]} -eq 0 ]]; then
+                echo "Error: --target requires at least one target name" >&2
+                exit 1
+            fi
             ;;
         --config-only)
             config_only=true
@@ -113,9 +172,41 @@ while [[ $# -gt 0 ]]; do
             RESERVE_CORES="$2"
             shift 2
             ;;
+        --compile-jobs)
+            COMPILE_JOBS="$2"
+            shift 2
+            ;;
+        --link-jobs)
+            LINK_JOBS="$2"
+            shift 2
+            ;;
+        --no-job-memory-cap)
+            JOB_MEMORY_CAP=off
+            shift
+            ;;
         --split-debug)
             SPLIT_DEBUG=on
             shift
+            ;;
+        --fips)
+            FIPS=on
+            shift
+            ;;
+        --mage)
+            MAGE="$2"
+            shift 2
+            ;;
+        --cugraph)
+            CUGRAPH=on
+            shift
+            ;;
+        --no-python)
+            PYTHON_SUPPORT=off
+            shift
+            ;;
+        --profiling)
+            PROFILING="$2"
+            shift 2
             ;;
         --help|-h)
             show_help
@@ -128,8 +219,95 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Job pools are cache variables, so an omitted flag keeps whatever the previous
+# configure left behind; pass 0 to go back to the memory-derived default.
+for jobs in "$COMPILE_JOBS" "$LINK_JOBS"; do
+    if [[ -n "$jobs" && ! "$jobs" =~ ^[0-9]+$ ]]; then
+        echo "Error: --compile-jobs and --link-jobs take a non-negative integer (got '$jobs')" >&2
+        exit 1
+    fi
+done
+if [[ -n "$COMPILE_JOBS" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_COMPILE_JOBS=$COMPILE_JOBS"
+fi
+if [[ -n "$LINK_JOBS" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_LINK_JOBS=$LINK_JOBS"
+fi
+if [[ ! "$RESERVE_CORES" =~ ^[0-9]+$ ]]; then
+    echo "Error: --reserve-cores takes a non-negative integer (got '$RESERVE_CORES')" >&2
+    exit 1
+fi
+if [[ ! "$CMAKE_ARGS" =~ MG_RESERVE_CORES ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_RESERVE_CORES=$RESERVE_CORES"
+fi
+
+# Stated explicitly either way, so dropping --no-job-memory-cap restores the
+# cap instead of inheriting the previous configure's OFF. A raw -D for the same
+# variable stays authoritative.
+if [[ ! "$CMAKE_ARGS" =~ MG_LIMIT_PARALLELISM_BY_MEMORY ]]; then
+    if [[ "$JOB_MEMORY_CAP" == "off" ]]; then
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_LIMIT_PARALLELISM_BY_MEMORY=OFF"
+    else
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_LIMIT_PARALLELISM_BY_MEMORY=ON"
+    fi
+fi
+
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+if [[ "$FIPS" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_FIPS=ON"
+fi
+
+if [[ ! "$CMAKE_ARGS" =~ MG_PYTHON_SUPPORT ]]; then
+    if [[ "$PYTHON_SUPPORT" == "off" ]]; then
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_PYTHON_SUPPORT=OFF"
+    else
+        CMAKE_ARGS="$CMAKE_ARGS -DMG_PYTHON_SUPPORT=ON"
+    fi
+fi
+
+if [[ "$MAGE" != "off" && "$MAGE" != "on" && "$MAGE" != "only" ]]; then
+    echo "Error: --mage must be 'off', 'on', or 'only' (got '$MAGE')" >&2
+    exit 1
+fi
+
+# conan.lock must always be generated from the FULL dependency graph; a
+# lockfile created from the trimmed MAGE-only graph would be missing the
+# memgraph dependencies and break every full build. (The reverse is fine:
+# MAGE-only builds consume the full lockfile as a superset.)
+if [[ "$update_lockfile" = true && "$MAGE" == "only" ]]; then
+    echo "Error: --update-lockfile requires the full dependency graph; drop '--mage only'" >&2
+    exit 1
+fi
+
+# cuGraph modules are part of MAGE, so --cugraph implies at least --mage on
+# (an explicit --mage only is respected).
+if [[ "$CUGRAPH" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_ENABLE_CUGRAPH=ON"
+    if [[ "$MAGE" == "off" ]]; then
+        MAGE=on
+    fi
+fi
+
+if [[ "$MAGE" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MEMGRAPH=ON -DMG_BUILD_MAGE=ON"
+elif [[ "$MAGE" == "off" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MEMGRAPH=ON -DMG_BUILD_MAGE=OFF"
+fi
+
+# Map comma-separated --profiling tokens to CMake options.
+if [[ -n "$PROFILING" ]]; then
+    IFS=',' read -ra _profiling_modes <<< "$PROFILING"
+    for mode in "${_profiling_modes[@]}"; do
+        case "$mode" in
+            fp)  CMAKE_ARGS="$CMAKE_ARGS -DMG_PROFILE=ON" ;;
+            mem) CMAKE_ARGS="$CMAKE_ARGS -DMG_MEMORY_PROFILE=ON" ;;
+            "")  ;;
+            *)   echo "Error: unknown --profiling mode '$mode' (valid: fp, mem)"; exit 1 ;;
+        esac
+    done
 fi
 
 # Detect distro
@@ -137,22 +315,69 @@ source environment/util.sh
 DISTRO="$(operating_system)"
 echo "Distro: $DISTRO"
 
+# Resolve a Python >= 3.10 (the floor for every python invocation here and in
+# init-dev). Handles distros whose default python3 is older but ship a newer
+# versioned binary (e.g. centos-9: python3 = 3.9, python3.12 installed).
+PYTHON="$(resolve_python)" || exit 1
+export MG_PYTHON="$PYTHON"
+echo "Python: $PYTHON ($("$PYTHON" --version 2>&1))"
+
+# Rust (mgcxx) is installed via rustup into ~/.cargo. Login shells get it on
+# PATH from ~/.cargo/env via the shell profile, but CI / non-login shells
+# don't — source it here so `cargo` resolves in both.
+if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+    source "$HOME/.cargo/env"
+fi
+
 # Validate build type
 if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
     echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
     exit 1
 fi
 
-# Initialize arrays for arguments
-HOST_PROFILES=("-pr:h" "memgraph_toolchain_v7")
+# Which profiles describe this host, and whether it has a bundled toolchain to build
+# against. Hosts without one use their system compiler, so nothing here may assume the
+# toolchain's directory layout exists.
+BUNDLED_TOOLCHAIN=true
+case "$DISTRO" in
+    freebsd-*)
+        BUNDLED_TOOLCHAIN=false
+        HOST_PROFILES=("-pr:h" "memgraph_freebsd")
+        BUILD_PROFILE="memgraph_freebsd_build"
+        ;;
+    *)
+        HOST_PROFILES=("-pr:h" "memgraph_toolchain_v8")
+        BUILD_PROFILE="memgraph_build_profile"
+        ;;
+esac
+
 CONAN_COMMON_ARGS=(
-  -pr:b memgraph_build_profile
+  -pr:b "$BUILD_PROFILE"
   -s build_type="$BUILD_TYPE"
   -s os.distro="$DISTRO"
 )
 
+# Every conan invocation runs through this, so the toolchain root is named once and
+# only where there is a bundled toolchain to point at. Whether one is used at all is
+# the profile's to say, and conan carries that into the CMake preset it generates.
+CONAN_ENV=(env)
+if [[ "$BUNDLED_TOOLCHAIN" = true ]]; then
+    CONAN_ENV+=("MG_TOOLCHAIN_ROOT=/opt/toolchain-v8")
+else
+    # Tools taken from the platform appear as references the Linux lockfile does not
+    # carry, so the lock can constrain what it knows and no more.
+    CONAN_COMMON_ARGS+=("--lockfile-partial")
+fi
+
 if [[ "$offline" = true ]]; then
     CONAN_COMMON_ARGS+=("--no-remote")
+fi
+
+# MAGE-only mode: trim the conan dependency graph to what MAGE needs. The
+# conanfile also flips MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON via the
+# generated CMake toolchain (see conanfile.py generate()).
+if [[ "$MAGE" == "only" ]]; then
+    CONAN_COMMON_ARGS+=("-o" "&:mage_only=True")
 fi
 
 # delete existing build directory
@@ -167,14 +392,21 @@ fi
 
 # run check for operating system dependencies
 if [[ "$skip_os_deps" = false ]]; then
-    if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
-        echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
-        exit 1
-    fi
-    if ! ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS; then
-        echo "Error: Dependency check failed for MEMGRAPH_BUILD_DEPS"
-        exit 1
-    fi
+    # Hard requirements: without these the build itself fails.
+    for deps_group in TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; do
+        if ! ./environment/os/install_deps.sh check "$deps_group"; then
+            echo "Error: Dependency check failed for $deps_group"
+            exit 1
+        fi
+    done
+    # Not needed to compile — only to run the test suites / the built
+    # memgraph. Warn so the gap is visible, but don't block the build.
+    for deps_group in MEMGRAPH_TEST_DEPS MEMGRAPH_RUN_DEPS; do
+        if ! ./environment/os/install_deps.sh check "$deps_group"; then
+            echo "Warning: missing $deps_group packages (needed to run tests / memgraph itself);"
+            echo "         install with: sudo ./environment/os/install_deps.sh install $deps_group"
+        fi
+    done
 else
     echo "Skipping OS dependency checks"
 fi
@@ -187,11 +419,18 @@ bash ./init-dev "${DEV_SETUP_ARGS[@]}"
 
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
     echo "Using existing virtual environment at $VENV_DIR"
+    # A venv created by an older interpreter keeps that version forever —
+    # reject it rather than fail later in subtler ways.
+    if ! "$VENV_DIR/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+        echo "Error: $VENV_DIR uses $("$VENV_DIR/bin/python" --version 2>&1), but >= 3.10 is required." >&2
+        echo "Delete it (rm -rf $VENV_DIR) and re-run to recreate it with $PYTHON." >&2
+        exit 1
+    fi
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
 else
     echo "Creating virtual environment and installing conan"
-    python3 -m venv "$VENV_DIR"
+    "$PYTHON" -m venv "$VENV_DIR"
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
     pip install "conan>=2.26.0"
@@ -241,7 +480,7 @@ fi
 # generate dependency graph and exit early
 if [[ "$graph_info" = true ]]; then
     echo "Generating dependency graph -> graph.html"
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan graph info . \
+    "${CONAN_ENV[@]}" conan graph info . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --format=html > graph.html
     echo "Open graph.html in a browser to view the dependency graph"
@@ -253,7 +492,7 @@ if [[ "$update_lockfile" = true ]]; then
     echo "Updating conan.lock"
     # Resolve recipe revisions from remotes (including local-recipes-index),
     # not from any stale local cache export, so lockfiles stay portable.
-    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create . \
+    "${CONAN_ENV[@]}" conan lock create . \
       "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}" \
       --update \
       --lockfile="" \
@@ -261,7 +500,7 @@ if [[ "$update_lockfile" = true ]]; then
 fi
 
 # install conan dependencies
-MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan install . --build=missing \
+"${CONAN_ENV[@]}" conan install . --build=missing \
   "${HOST_PROFILES[@]}" "${CONAN_COMMON_ARGS[@]}"
 
 source build/generators/conanbuild.sh
@@ -287,14 +526,19 @@ if [[ "$config_only" = true ]]; then
 fi
 
 # Build command with optional target
-# Determine number of parallel jobs (reserve cores for system responsiveness)
+# Ninja's ceiling for steps no job pool covers, such as code generation.
 BUILD_JOBS=$(( $(nproc) - RESERVE_CORES ))
 if [[ $BUILD_JOBS -lt 1 ]]; then
     BUILD_JOBS=1
 fi
 
+TARGET_ARGS=()
+if [[ ${#TARGETS[@]} -gt 0 ]]; then
+    TARGET_ARGS=(--target "${TARGETS[@]}")
+fi
+
 cmake \
   --build build \
   --preset $PRESET \
-  ${TARGET:+--target $TARGET} \
+  "${TARGET_ARGS[@]}" \
   -j "$BUILD_JOBS"

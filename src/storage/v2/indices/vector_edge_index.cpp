@@ -13,11 +13,15 @@
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <shared_mutex>
+#include <string>
 #include <unordered_set>
+#include <utility>
+
+#include <spdlog/spdlog.h>
 
 #include "flags/general.hpp"
-#include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/tracked_vector_allocator.hpp"
@@ -62,12 +66,12 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   auto mg_edge_index =
       mg_vector_edge_index_t::make(metric, {}, {}, std::move(tape_allocator), std::move(vectors_tape_allocator));
   if (!mg_edge_index) {
-    throw query::VectorSearchException(fmt::format(
+    throw VectorSearchException(fmt::format(
         "Failed to create vector edge index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
   }
 
   if (!mg_edge_index.index.try_reserve(limits)) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         fmt::format("Failed to create vector edge index {}. Failed to reserve memory for the index", spec.index_name));
   }
 
@@ -81,21 +85,32 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
 }
 
 void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex,
-                                     Vertex *to_vertex, std::optional<std::size_t> thread_id) {
+                                     Vertex *to_vertex, NameIdMapper *name_id_mapper,
+                                     std::optional<std::size_t> thread_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(fmt::format("Vector edge index {} does not exist.", index_id));
+    throw VectorSearchException(fmt::format("Vector edge index {} does not exist.", index_id));
   }
   auto &item_ptr = it->second;
   auto &spec = item_ptr->spec;
   auto property = edge->properties.GetProperty(spec.property);
   if (property.IsNull()) return;
+  // An empty plain list has nothing to index and stays a plain list; never promote it to a tag.
+  if (!property.IsVectorIndexId() && property.IsAnyList() && property.ListSize() == 0) return;
+  // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
+  // index's uSearch so RegisterIndexId re-registers the real vector — else this second index gets nothing
+  if (property.IsVectorIndexId()) {
+    DMG_ASSERT(!property.ValueVectorIndexIds().empty(), "VectorIndexId property has no index IDs");
+    property.ValueVectorIndexList() = GetVectorPropertyFromEdgeIndex(
+        edge, name_id_mapper->IdToName(property.ValueVectorIndexIds()[0]), name_id_mapper);
+  }
 
   auto vector = RegisterIndexId(property, index_id);
-  edge->properties.SetProperty(spec.property, property);
 
+  // Tag only after uSearch accepted the vector: a rejected one (e.g. wrong dimension) must keep its list.
   // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
   UpdateVectorIndex(item_ptr->mg_index, spec, edge, vector, thread_id);
+  edge->properties.SetProperty(spec.property, property);
   {
     auto lock = std::unique_lock{edge_endpoints_mutex_};
     edge_endpoints_[edge] = EdgeEndpoints{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge_type = edge_type};
@@ -103,8 +118,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
 }
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
-                                  NameIdMapper *name_id_mapper,
-                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                  NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
@@ -118,10 +132,8 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
         auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
         if (edge->deleted() || to_vertex->deleted()) continue;
 
-        AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, thread_id);
-        if (snapshot_info) {
-          snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
-        }
+        AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
+        if (on_progress) on_progress();
       }
     });
     return true;
@@ -131,58 +143,118 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
   }
 }
 
-void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
-                                   utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
-                                   ActiveIndicesUpdater const &updater,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto &spec = recovery_info.spec;
+void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRecoveryInfo> &recovery_infos,
+                                                  VectorEdgeIndexRecovery::EdgeVectors &edge_vectors,
+                                                  utils::SkipListDb<Vertex>::Accessor &vertices,
+                                                  NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
+                                                  ProgressCallback const &on_progress) {
+  if (recovery_infos.empty()) return;
+
+  absl::flat_hash_map<PropertyId, std::vector<std::pair<uint64_t, std::shared_ptr<EdgeTypeIndexItem>>>> prop_to_items;
   try {
-    auto &recovery_entries = recovery_info.index_entries;
-    const auto index_id = SetupIndex(spec, name_id_mapper);
-    if (!index_id.has_value()) {
-      throw query::VectorSearchException(
-          "Given vector edge index already exists. Corrupted or invalid index recovery files.");
+    for (auto &ri : recovery_infos) {
+      auto index_id = SetupIndex(ri.spec, name_id_mapper);
+      if (!index_id.has_value()) {
+        throw VectorSearchException(fmt::format(
+            "Vector edge index '{}' already exists. Corrupted or invalid recovery files.", ri.spec.index_name));
+      }
+      prop_to_items[ri.spec.property].emplace_back(*index_id, index_->at(*index_id));
     }
-    auto &item_ptr = index_->at(*index_id);
-    auto &mg_index = item_ptr->mg_index;
 
-    auto process_vertex_for_recovery = [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
-      for (auto &edge_tuple : vertex.out_edges) {
-        const auto edge_type = std::get<kEdgeTypeIdPos>(edge_tuple);
-        if (!spec.edge_type_filter.Matches(edge_type)) continue;
+    auto find_captured_vector = [&](PropertyId property, Gid gid) -> utils::small_vector<float> * {
+      auto map_it = edge_vectors.find(property);
+      if (map_it == edge_vectors.end()) return nullptr;
+      auto entry_it = map_it->second.find(gid);
+      if (entry_it == map_it->second.end()) return nullptr;
+      return &entry_it->second;
+    };
 
-        auto *to_vertex = std::get<kVertexPos>(edge_tuple);
-        auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
-        if (vertex.deleted() || to_vertex->deleted() || edge->deleted()) continue;
+    // No structural changes to edge_vectors (no insert/erase on either map level) — only the
+    // small_vector value per gid is consumed, so the multi-threaded path needs no lock on the map.
+    auto process_edge = [&](Edge *edge, EdgeEndpoints endpoints, std::optional<std::size_t> thread_id) {
+      for (auto &[property, item_list] : prop_to_items) {
+        auto stored_value = edge->properties.GetProperty(property);
+        if (stored_value.IsNull()) continue;
 
-        if (auto it = recovery_entries.find(edge->gid); it != recovery_entries.end()) {
-          auto &vector = it->second;
-          // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
-          UpdateVectorIndex(mg_index, spec, edge, vector, thread_id);
+        const bool stored_as_tag = stored_value.IsVectorIndexId();
+        utils::small_vector<float> vec;
+
+        if (stored_as_tag) {
+          auto *entry_ptr = find_captured_vector(property, edge->gid);
+          if (!entry_ptr) {
+            spdlog::error(
+                "Recovery: edge {} property {} stored as tag but missing vector — "
+                "data was lost before this build; storing null.",
+                edge->gid.AsUint(),
+                name_id_mapper->IdToName(property.AsUint()));
+            edge->properties.SetProperty(property, PropertyValue());
+            continue;
+          }
+          vec = std::exchange(*entry_ptr, {});
+        } else {
+          auto maybe_vec = TryListToVector(stored_value);
+          if (!maybe_vec) continue;
+          vec = std::move(*maybe_vec);
+        }
+        // A plain [] is a legitimate value with nothing to index; it stays a plain list and is never
+        // promoted to a tag (a tag with no usearch entry would read as lost on the next recovery).
+        if (vec.empty()) continue;
+
+        utils::small_vector<uint64_t> member_ids;
+        for (auto &[index_id, item_ptr] : item_list) {
+          if (!item_ptr->spec.edge_type_filter.Matches(endpoints.edge_type)) continue;
+          UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, edge, vec, thread_id);
+          member_ids.push_back(index_id);
+        }
+
+        if (!member_ids.empty()) {
+          // Every usearch mutex is released by now, so taking edge_endpoints_mutex_ here keeps the lock order.
           {
             auto lock = std::unique_lock{edge_endpoints_mutex_};
-            edge_endpoints_[edge] =
-                EdgeEndpoints{.from_vertex = &vertex, .to_vertex = to_vertex, .edge_type = edge_type};
+            edge_endpoints_[edge] = endpoints;
           }
-          // release vector resources to prevent memory growth while doing recovery
-          vector.clear();
-          vector.shrink_to_fit();
-        } else {
-          AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, thread_id);
+          const bool already_correct =
+              stored_as_tag && std::ranges::is_permutation(stored_value.ValueVectorIndexIds(), member_ids);
+          if (!already_correct) {
+            // The property store persists only the ids; the vector already lives in usearch.
+            edge->properties.SetProperty(
+                property, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(member_ids), .vector = {}}));
+          }
+        } else if (stored_as_tag) {
+          edge->properties.SetProperty(property, PropertyValue(std::vector<double>(vec.begin(), vec.end())));
         }
-      }
-      if (snapshot_info) {
-        snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
       }
     };
 
+    auto process_vertex = [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
+      if (!vertex.deleted()) {
+        for (auto &edge_tuple : vertex.out_edges) {
+          const auto edge_type = std::get<kEdgeTypeIdPos>(edge_tuple);
+          auto *to_vertex = std::get<kVertexPos>(edge_tuple);
+          auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+          if (to_vertex->deleted() || edge->deleted()) continue;
+          process_edge(
+              edge, EdgeEndpoints{.from_vertex = &vertex, .to_vertex = to_vertex, .edge_type = edge_type}, thread_id);
+        }
+      }
+      if (on_progress) on_progress();
+    };
+
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
-      PopulateVectorIndexMultiThreaded(vertices, process_vertex_for_recovery);
+      PopulateVectorIndexMultiThreaded(vertices, process_vertex);
     } else {
-      PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
+      PopulateVectorIndexSingleThreaded(vertices, process_vertex);
     }
+
+    edge_vectors.clear();
   } catch (const std::exception &) {
-    DropIndex(spec.index_name, name_id_mapper);
+    for (auto &ri : recovery_infos) {
+      try {
+        DropIndex(ri.spec.index_name, name_id_mapper);
+      } catch (const std::exception &e) {
+        spdlog::warn("Failed to drop vector edge index '{}' after recovery failure: {}", ri.spec.index_name, e.what());
+      }
+    }
     throw;
   }
 
@@ -190,7 +262,8 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
 }
 
 std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(std::string_view index_name,
-                                                                               NameIdMapper *name_id_mapper) {
+                                                                               NameIdMapper *name_id_mapper,
+                                                                               ProgressCallback const &on_progress) {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) return std::nullopt;
   const auto index_id = *maybe_id;
@@ -218,6 +291,7 @@ std::optional<VectorEdgeIndex::DroppedIndexCapture> VectorEdgeIndex::DropIndex(s
       const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
       std::vector<double> vector(dimension);
       for (auto *edge : dropped_edges) {
+        if (on_progress) on_progress();
         auto vector_property = edge->properties.GetProperty(spec.property);
         if (UnregisterIndexId(vector_property, index_id)) {
           mg_index.index.get(edge, vector.data());
@@ -289,6 +363,8 @@ void VectorEdgeIndex::Clear() {
 
 void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                                           PropertyId property, const PropertyValue &value) {
+  // No vector edge indexes: a value can only be a vector-index id when one exists, so there is nothing to do.
+  if (index_->empty()) return;
   // Property should already be updated to the vector index id if it has vector index defined on it.
   if (value.IsVectorIndexId()) {
     const auto &vector_property = value.ValueVectorIndexList();
@@ -325,7 +401,7 @@ void VectorEdgeIndex::EraseEndpointsIfUnreferenced(Edge *edge) {
 void VectorEdgeIndex::RemoveEdgeFromIndex(Edge *edge, uint64_t index_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException(
+    throw VectorSearchException(
         fmt::format("Error in removing edge from index: index id {} does not exist.", index_id));
   }
   auto &item_ptr = it->second;
@@ -378,7 +454,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
     return std::nullopt;
   });
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
+    throw VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto &item_ptr = index_->at(*maybe_id);
   auto &mg_index = item_ptr->mg_index;
@@ -420,7 +496,7 @@ void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collec
               EdgeEndpoints{.from_vertex = info.from_vertex, .to_vertex = info.to_vertex, .edge_type = info.edge_type};
         }
       } else {
-        DMG_ASSERT(old_value.IsNull(), "Unexpected property value type in abort processor of vector edge index");
+        // Any non-tag before-image (null or a plain list such as []) means the edge was not indexed.
         const auto indices_by_prop = GetIndicesByProperty(property);
         for (const auto &[idx_id, filter] : indices_by_prop) {
           if (!filter->Matches(info.edge_type)) continue;
@@ -496,11 +572,11 @@ utils::small_vector<float> VectorEdgeIndex::GetVectorPropertyFromEdgeIndex(Edge 
                                                                            NameIdMapper *name_id_mapper) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
-    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
+    throw VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto it = index_->find(*maybe_id);
   if (it == index_->end()) {
-    throw query::VectorSearchException("Vector edge index {} does not exist.", index_name);
+    throw VectorSearchException("Vector edge index {} does not exist.", index_name);
   }
   auto &item_ptr = it->second;
   auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
@@ -586,49 +662,82 @@ void VectorEdgeIndex::SerializeAllVectorEdgeIndices(durability::BaseEncoder *enc
 }
 
 // VectorEdgeIndexRecovery implementation
-void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
-                                                std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-                                                utils::SkipListDb<Vertex>::Accessor &vertices) {
-  for (auto &recovery_info : recovery_info_vec) {
-    if (recovery_info.spec.index_name == index_name) {
-      auto maybe_index_id = name_id_mapper->NameToIdIfExists(index_name);
-      DMG_ASSERT(maybe_index_id.has_value(), "Index name not found in name-id mapper during recovery drop");
-      auto index_id = *maybe_index_id;
-      // Iterate all vertices to find edges and restore properties
-      for (auto &vertex : vertices) {
-        for (auto &edge_tuple : vertex.out_edges) {
-          if (!recovery_info.spec.edge_type_filter.Matches(std::get<kEdgeTypeIdPos>(edge_tuple))) continue;
-          auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, PropertyValue &value, const Edge *edge,
+                                                      std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
+                                                      EdgeVectors &edge_vectors) {
+  // A tag with no vector is the legacy on-disk form of []; treat it as the plain empty list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) {
+    value = PropertyValue(std::vector<double>{});
+  }
 
-          auto it = recovery_info.index_entries.find(edge->gid);
-          if (it == recovery_info.index_entries.end()) continue;
+  const bool has_spec = r::any_of(recovery_info_vec, [&](const auto &ri) { return ri.spec.property == property; });
 
-          auto edge_property = edge->properties.GetProperty(recovery_info.spec.property);
-          if (UnregisterIndexId(edge_property, index_id)) {
-            edge->properties.SetProperty(recovery_info.spec.property,
-                                         PropertyValue(std::vector<double>(it->second.begin(), it->second.end())));
-          } else {
-            edge->properties.SetProperty(recovery_info.spec.property, edge_property);
-          }
-        }
-      }
+  if (has_spec) {
+    if (value.IsVectorIndexId()) {
+      edge_vectors[property][edge->gid] = value.ValueVectorIndexList();
+    } else if (auto it = edge_vectors.find(property); it != edge_vectors.end()) {
+      it->second.erase(edge->gid);
+    }
+  } else {
+    // No active spec for this property. A tag value here is a stale artifact (its index was
+    // dropped before this WAL record). Convert it to a plain list so the final build sees no tag.
+    if (value.IsVectorIndexId()) {
+      auto vec = value.ValueVectorIndexList();
+      value = PropertyValue(std::vector<double>(vec.begin(), vec.end()));
     }
   }
-  std::erase_if(recovery_info_vec, [&](const auto &ri) { return ri.spec.index_name == index_name; });
 }
 
-void VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
-                                                      std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec) {
-  const auto maybe_vector = std::invoke([&]() -> std::optional<utils::small_vector<float>> {
-    if (value.IsVectorIndexId()) return value.ValueVectorIndexList();
-    return TryListToVector(value);
-  });
-  if (!maybe_vector) return;
+void VectorEdgeIndexRecovery::UpdateOnIndexDrop(std::string_view index_name_view,
+                                                std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
+                                                EdgeVectors &edge_vectors,
+                                                utils::SkipListDb<Vertex>::Accessor &vertices,
+                                                NameIdMapper *name_id_mapper) {
+  // The view may alias the spec erased below; keep an owning copy for everything after the erase.
+  const std::string index_name{index_name_view};
+  auto it = r::find_if(recovery_info_vec, [&](const auto &ri) { return ri.spec.index_name == index_name; });
+  if (it == recovery_info_vec.end()) return;
+  const PropertyId property = it->spec.property;
+  recovery_info_vec.erase(it);
 
-  for (auto &ri : recovery_info_vec) {
-    if (ri.spec.property == property) {
-      ri.index_entries[edge->gid] = *maybe_vector;
+  // If another spec still covers this property, edge_vectors[property] remains valid for the final
+  // build. Only when no spec remains must we restore stored tags to plain lists and drop the map entry.
+  const bool other_spec_on_property =
+      r::any_of(recovery_info_vec, [&](const auto &ri) { return ri.spec.property == property; });
+  if (other_spec_on_property) return;
+
+  auto map_it = edge_vectors.find(property);
+
+  // A tag on this property is an artifact of the dropped index; demote to a plain list
+  // (or null if no vector is available).
+  for (auto &vertex : vertices) {
+    if (vertex.deleted()) continue;
+    for (auto &edge_tuple : vertex.out_edges) {
+      auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+      if (edge->deleted()) continue;
+      auto stored = edge->properties.GetProperty(property);
+      if (!stored.IsVectorIndexId()) continue;
+
+      if (map_it != edge_vectors.end()) {
+        auto entry_it = map_it->second.find(edge->gid);
+        if (entry_it != map_it->second.end()) {
+          edge->properties.SetProperty(
+              property, PropertyValue(std::vector<double>(entry_it->second.begin(), entry_it->second.end())));
+          continue;
+        }
+      }
+      spdlog::error(
+          "Recovery: edge {} property {} carries a VectorIndexId tag for dropped index '{}' "
+          "but has no vector entry — data was lost before this drop; setting to null.",
+          edge->gid.AsUint(),
+          name_id_mapper->IdToName(property.AsUint()),
+          index_name);
+      edge->properties.SetProperty(property, PropertyValue());
     }
+  }
+
+  if (map_it != edge_vectors.end()) {
+    edge_vectors.erase(map_it);
   }
 }
 
@@ -669,6 +778,15 @@ std::optional<uint64_t> VectorEdgeIndex::ActiveIndices::ApproximateEdgesVectorCo
   if (it == index_container_->end()) return std::nullopt;
   auto guard = utils::SharedResourceLockGuard(it->second->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
   return it->second->mg_index.index.size();
+}
+
+std::vector<PropertyId> VectorEdgeIndex::ActiveIndices::IndexedProperties(EdgeTypeId edge_type) const {
+  if (!index_container_) return {};
+  std::vector<PropertyId> result;
+  for (const auto &[_, item_ptr] : *index_container_) {
+    if (item_ptr->spec.edge_type_filter.Matches(edge_type)) result.push_back(item_ptr->spec.property);
+  }
+  return result;
 }
 
 }  // namespace memgraph::storage

@@ -1,5 +1,5 @@
 name: 'Cancel run on merge_group failure'
-description: 'Cancels the current workflow run via the GitHub API. The caller must gate this with `if: failure() && github.event_name == ''merge_group''` because composite actions cannot read the calling job''s runtime status.'
+description: 'Cancels the current workflow run via the GitHub API to fail fast. Must be used from a separate job that lists the failing job in `needs` and is gated with `if: failure() && github.event_name == ''merge_group''`. Running it as a step of the failing job cancels that job while it is still in progress, which replaces its conclusion with `cancelled` and leaves the run with no job concluding `failure`.'
 
 runs:
   using: 'composite'
@@ -12,7 +12,7 @@ runs:
         RUN_ID: ${{ github.run_id }}
       run: |
         set -euo pipefail
-        echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after merge_group job failure"
+        echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after a merge_group failure"
         curl -fsSL -X POST \
           --proto '=https' --proto-redir '=https' \
           -H "Accept: application/vnd.github+json" \

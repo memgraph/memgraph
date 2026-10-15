@@ -11,7 +11,9 @@
 
 #include "query/frontend/stripped.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -76,7 +78,12 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       }
       throw LexingException("Invalid query because of a wrong token.");
     }
-    tokens.emplace_back(token, original_.substr(i, len));
+    if (token == Token::PARAMETER) {
+      auto ws = MatchWhitespaceAndComments(i + 1);
+      tokens.emplace_back(token, "$" + original_.substr(i + 1 + ws, len - 1 - ws));
+    } else {
+      tokens.emplace_back(token, original_.substr(i, len));
+    }
     i += len;
 
     // If we notice execute, we possibly create a trigger which has defined statements.
@@ -99,6 +106,48 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         break;
       }
     }
+  }
+
+  // a +/- after `[`, or after `,` inside brackets, can only be a unary sign:
+  // fold it into the number so sign variants of a list strip to the same text
+  // and share one AST cache entry
+  {
+    auto const is_space = [](auto const &token) { return token.first == Token::SPACE; };
+    auto const is_number = [](auto const &token) { return token.first == Token::INT || token.first == Token::REAL; };
+    auto const is_sign = [](auto const &token) {
+      return token.first == Token::SPECIAL && (token.second == "-" || token.second == "+");
+    };
+
+    std::vector<std::pair<Token, std::string>> folded;
+    folded.reserve(tokens.size());
+    int bracket_depth = 0;
+    bool at_list_element_start = false;
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+      auto const &token = tokens[i];
+      if (at_list_element_start && is_sign(token)) {
+        auto const number =
+            std::ranges::find_if_not(tokens.begin() + static_cast<std::ptrdiff_t>(i + 1), tokens.end(), is_space);
+        if (number != tokens.end() && is_number(*number)) {
+          folded.emplace_back(number->first, token.second + number->second);
+          i = static_cast<std::size_t>(number - tokens.begin());
+          at_list_element_start = false;
+          continue;
+        }
+      }
+      if (token.first == Token::SPECIAL) {
+        if (token.second == "[") {
+          ++bracket_depth;
+        } else if (token.second == "]" && bracket_depth > 0) {
+          --bracket_depth;
+        }
+      }
+      if (!is_space(token)) {
+        at_list_element_start =
+            token.first == Token::SPECIAL && (token.second == "[" || (token.second == "," && bracket_depth > 0));
+      }
+      folded.push_back(token);
+    }
+    tokens = std::move(folded);
   }
 
   std::vector<std::string> token_strings;
@@ -408,6 +457,12 @@ int StrippedQuery::MatchReal(int start) const {
   enum class State { START, BEFORE_DOT, DOT, AFTER_DOT, E, E_MINUS, AFTER_E };
   State state = State::START;
   auto i = start;
+  // A real literal needs a fractional part or an exponent, so tracking where
+  // the last complete one ended keeps a bare run of digits out of the real
+  // parser. Longest match would otherwise hand it over: the decimal-integer
+  // matcher stops at a leading zero, making `09` longer as a real than as an
+  // integer. It also drops a partial trailing exponent, as in `1.5e`.
+  auto end_of_real = start;
   while (i < static_cast<int>(original_.size())) {
     if (original_[i] == '.') {
       if (state != State::BEFORE_DOT && state != State::START) break;
@@ -430,24 +485,27 @@ int StrippedQuery::MatchReal(int start) const {
       break;
     }
     ++i;
+    if (state == State::AFTER_DOT || state == State::AFTER_E) end_of_real = i;
   }
-  if (state == State::DOT) --i;
-  if (state == State::E) --i;
-  if (state == State::E_MINUS) i -= 2;
-  return i - start;
+  return end_of_real - start;
 }
 
 int StrippedQuery::MatchParameter(int start) const {
   int len = original_.size();
   if (start + 1 == len) return 0;
   if (original_[start] != '$') return 0;
+  // ANTLR skips whitespace between '$' and the parameter name/number,
+  // so the stripper must do the same to stay in sync.
+  int const ws = MatchWhitespaceAndComments(start + 1);
+  int const after_ws = start + 1 + ws;
+  if (after_ws >= len) return 0;
   int max_len = 0;
-  max_len = std::max(max_len, MatchUnescapedName(start + 1));
-  max_len = std::max(max_len, MatchEscapedName(start + 1));
-  max_len = std::max(max_len, MatchKeyword(start + 1));
-  max_len = std::max(max_len, MatchDecimalInt(start + 1));
+  max_len = std::max(max_len, MatchUnescapedName(after_ws));
+  max_len = std::max(max_len, MatchEscapedName(after_ws));
+  max_len = std::max(max_len, MatchKeyword(after_ws));
+  max_len = std::max(max_len, MatchDecimalInt(after_ws));
   if (max_len == 0) return 0;
-  return 1 + max_len;
+  return 1 + ws + max_len;
 }
 
 int StrippedQuery::MatchEscapedName(int start) const {

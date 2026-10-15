@@ -29,7 +29,7 @@ inline constexpr size_t kChunkWholeSize = kChunkHeaderSize + kChunkMaxDataSize;
  */
 inline constexpr size_t kHandshakeSize = 20;
 
-inline constexpr auto kSupportedVersions = std::array<uint16_t, 5>{0x0100, 0x0400, 0x0401, 0x0403, 0x0502};
+inline constexpr auto kSupportedVersions = std::array<uint16_t, 6>{0x0100, 0x0400, 0x0401, 0x0403, 0x0404, 0x0502};
 
 inline constexpr int kPullAll = -1;
 inline constexpr int kPullLast = -1;

@@ -1,0 +1,1 @@
+CREATE (:Person {name: 'Bob'});

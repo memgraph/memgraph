@@ -1,0 +1,8 @@
+# The JSON-string form accepts a property list per label: one movie matches on title, the other on tagline.
+query: >
+  CALL search.node_all('{"Movie": ["title", "tagline"]}', 'exact', 'Matrix') YIELD node
+  RETURN node.title AS title ORDER BY title;
+
+output:
+  - title: 'Heat'
+  - title: 'Matrix'

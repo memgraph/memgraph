@@ -36,7 +36,7 @@ CUDA_VERSION="13.0"
 MALLOC="false"
 CUGRAPH="false"
 OUTPUT=""
-WHEELS_PREBUILT_DIR="$PROJECT_ROOT/mage/wheels"
+WHEELS_PREBUILT_DIR="$PROJECT_ROOT/release/package/mage/wheels"
 
 usage() {
   cat <<EOF
@@ -55,7 +55,7 @@ Options:
   --cugraph true|false      Variant flag — implies --cuda true
   --output PATH             Output .run file
                             (default: memgraph-mage-offline-<version>-<arch><suffix>.run)
-  --wheels-dir PATH         Pre-built host wheels to bundle (default: \$PROJECT_ROOT/mage/wheels)
+  --wheels-dir PATH         Pre-built host wheels to bundle (default: \$PROJECT_ROOT/release/package/mage/wheels)
 EOF
 }
 
@@ -152,9 +152,9 @@ cp -v "$MAGE_DEB" "$STAGING/bundle/debs/"
 # pip-installs from the .run's bundled requirements file. To keep the version
 # pins consistent, we mirror the deb's choice here: CUDA build → -gpu file.
 if [[ "$CUDA" == "true" ]]; then
-  MAGE_REQ_SRC="$PROJECT_ROOT/mage/python/requirements-gpu.txt"
+  MAGE_REQ_SRC="$PROJECT_ROOT/src/mage/python/requirements-gpu.txt"
 else
-  MAGE_REQ_SRC="$PROJECT_ROOT/mage/python/requirements.txt"
+  MAGE_REQ_SRC="$PROJECT_ROOT/src/mage/python/requirements.txt"
 fi
 
 cp -v "$MAGE_REQ_SRC" "$STAGING/bundle/requirements/mage-requirements.txt"

@@ -104,8 +104,14 @@ class RaftState {
   auto GetDeltasBatchProgressSize() const -> uint64_t;
   auto GetInstanceDownTimeoutSec() const -> uint32_t;
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
+  auto GetGlobalReadOnly() const -> bool;
+  auto GetRoles() const -> std::vector<CoordinatorRole>;
 
  private:
+  // Polls the Raft configuration until the server with the given id is present (or absent, when present is false).
+  // The bound is derived from the Raft parameters because NuRaft may defer membership messages to the next heartbeat.
+  auto WaitForServerConfig(int32_t coordinator_id, bool present) const -> bool;
+
   uint16_t coordinator_port_;
   int32_t coordinator_id_;
 

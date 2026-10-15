@@ -11,7 +11,13 @@
 
 #pragma once
 
+#include <atomic>
+#include <mutex>
 #include <optional>
+#include <set>
+#include <string>
+
+#include <nlohmann/json_fwd.hpp>
 
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
@@ -27,6 +33,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -51,6 +58,40 @@ class MemoryTracker;
 }
 
 namespace memgraph::storage {
+
+/// StorageAccessType and ResourceLockGuard::Type name the same four ways to hold main_lock_, one
+/// in storage's vocabulary and one in the lock's. Convert only here, so the two enums stay
+/// independent (utils/ must not learn storage's vocabulary) without the mapping being restated at
+/// each acquisition site. NO_ACCESS has no counterpart: it means no hold, which a guard expresses
+/// by not owning one.
+constexpr utils::ResourceLockGuard::Type ToGuardType(StorageAccessType rw_type) {
+  switch (rw_type) {
+    case StorageAccessType::UNIQUE:
+      return utils::ResourceLockGuard::UNIQUE;
+    case StorageAccessType::WRITE:
+      return utils::ResourceLockGuard::WRITE;
+    case StorageAccessType::READ:
+      return utils::ResourceLockGuard::READ;
+    case StorageAccessType::READ_ONLY:
+      return utils::ResourceLockGuard::READ_ONLY;
+    case StorageAccessType::NO_ACCESS:
+      LOG_FATAL("NO_ACCESS names the absence of a hold; it has no lock mode");
+  }
+}
+
+constexpr StorageAccessType ToAccessType(utils::ResourceLockGuard::Type type) {
+  switch (type) {
+    case utils::ResourceLockGuard::UNIQUE:
+      return StorageAccessType::UNIQUE;
+    case utils::ResourceLockGuard::WRITE:
+      return StorageAccessType::WRITE;
+    case utils::ResourceLockGuard::READ:
+      return StorageAccessType::READ;
+    case utils::ResourceLockGuard::READ_ONLY:
+      return StorageAccessType::READ_ONLY;
+  }
+}
+
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
@@ -95,6 +136,7 @@ struct IndicesInfo {
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
+  std::vector<PropertyId> vertex_property;
   std::vector<TextIndexSpec> text_indices;
   std::vector<TextEdgeIndexSpec> text_edge_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
@@ -132,33 +174,57 @@ struct StorageInfo {
   utils::CompressionLevel property_store_compression_level;
   uint64_t schema_vertex_count;
   uint64_t schema_edge_count;
+
+  friend bool operator==(const StorageInfo &, const StorageInfo &) = default;
 };
 
-static inline nlohmann::json ToJson(const StorageInfo &info) {
-  nlohmann::json res;
-
-  res["edges"] = info.edge_count;
-  res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_res;
-  res["disk"] = info.disk_usage;
-  res["label_indices"] = info.label_indices;
-  res["label_prop_indices"] = info.label_property_indices;
-  res["text_indices"] = info.text_indices;
-  res["vector_indices"] = info.vector_indices;
-  res["vector_edge_indices"] = info.vector_edge_indices;
-  res["existence_constraints"] = info.existence_constraints;
-  res["unique_constraints"] = info.unique_constraints;
-  res["type_constraints"] = info.type_constraints;
-  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
-  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
-  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
-                       {"WAL_enabled", info.durability_wal_enabled}};
-  res["property_store_compression_enabled"] = info.property_store_compression_enabled;
-  res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
-  res["schema_vertex_count"] = info.schema_vertex_count;
-  res["schema_edge_count"] = info.schema_edge_count;
-  return res;
+// Single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
+// the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
+// (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
+// StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
+// in earlier reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
+// visitor handles scalars directly and enums via `if constexpr (std::is_enum_v<T>)`. Templated on Self so
+// the SAME field list serves a const StorageInfo (save) and a mutable one (load).
+template <typename Self, typename Visit>
+void StorageInfoForEachField(Self &s, Visit &&visit) {
+  visit("vertex_count", s.vertex_count);
+  visit("edge_count", s.edge_count);
+  visit("average_degree", s.average_degree);
+  visit("memory_res", s.memory_res);
+  visit("peak_memory_res", s.peak_memory_res);
+  visit("unreleased_delta_objects", s.unreleased_delta_objects);
+  visit("disk_usage", s.disk_usage);
+  visit("label_indices", s.label_indices);
+  visit("label_property_indices", s.label_property_indices);
+  visit("text_indices", s.text_indices);
+  visit("vector_indices", s.vector_indices);
+  visit("vector_edge_indices", s.vector_edge_indices);
+  visit("existence_constraints", s.existence_constraints);
+  visit("unique_constraints", s.unique_constraints);
+  visit("type_constraints", s.type_constraints);
+  visit("storage_mode", s.storage_mode);
+  visit("isolation_level", s.isolation_level);
+  visit("durability_snapshot_enabled", s.durability_snapshot_enabled);
+  visit("durability_wal_enabled", s.durability_wal_enabled);
+  visit("property_store_compression_enabled", s.property_store_compression_enabled);
+  visit("property_store_compression_level", s.property_store_compression_level);
+  visit("schema_vertex_count", s.schema_vertex_count);
+  visit("schema_edge_count", s.schema_edge_count);
 }
+
+// Hot/cold: the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
+// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set. Replaces the
+// earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1 pairing structural (no
+// length-mismatch guard). Composed of storage:: types only, so it can sit in both the dbms and
+// replication_handler signatures without a layer cycle. A resumed cold tenant trusts its own
+// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here (cold-tenant epoch machinery
+// was intentionally removed — a cold tenant accumulates no divergent commits to reconcile).
+struct ColdTenantRecovery {
+  SalientConfig salient;
+  StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats
+};
+
+nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};
@@ -190,6 +256,16 @@ using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
 class Accessor;
 
+/// What a drop does when the index it names is not there.
+///
+/// A statement reports it, because the user asked to drop something that does not exist. A replica
+/// applies what its main durably decided instead, and the durable order can hold two drops of one
+/// index, so the second one arrives against an index the first already evicted. Recording that drop
+/// anyway keeps the transaction non-empty, and an empty one carries no commit timestamp, so the
+/// replica would stop acknowledging its main. It also leaves the replica's own log holding the same
+/// records its main's does, which is what its recovery and any cascading replica replay.
+enum class AbsentIndex : uint8_t { kFails, kIsRecorded };
+
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
@@ -215,6 +291,13 @@ class Storage {
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
+
+  // A storage is broken when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A broken storage
+  // rejects data queries until recovered via RECOVER SNAPSHOT.
+  bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
+
+  void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
@@ -249,9 +332,17 @@ class Storage {
 
   StorageMode GetStorageMode() const noexcept;
 
-  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
+  // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
+  // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
+  // on {snapshot + WAL} on disk to recover). PERIODIC_SNAPSHOT-only or DISABLED is
+  // NOT suspendable.
+  [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
+    return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  }
 
-  void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
+  virtual void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) = 0;
+
+  void FreeMemory() { FreeMemory({}, false); }
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
@@ -343,6 +434,9 @@ class Storage {
   // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
 
+  // Set when durability recovery failed and the storage was brought up empty.
+  std::atomic<bool> broken_{false};
+
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
 
@@ -351,8 +445,27 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
+  // EXPERIMENTAL (commit-lock-narrowing); only taken on the ON path. Serializes committers across
+  // mint->durability->publish and guards the WAL group.
+  // LOCK ORDER: main_lock_ -> commit_mutex_ -> engine_lock_. Never acquire commit_mutex_ while holding
+  // engine_lock_ (non-recursive SpinLock: inversion also risks self-deadlock). Enforced by convention: the
+  // committer holds commit_mutex_ while releasing/re-taking engine_lock_ (3-phase commit), so no RAII guard fits.
+  // The DMG_ASSERT in PublishCommit catches mint order != publish order, which would corrupt the watermark.
+  mutable std::mutex commit_mutex_;
+  // Runtime-only watermark: the last fully-published LOCAL MVCC commit timestamp (from timestamp_). Not
+  // commit_ts_info_.ldt_, which tracks MAIN's durable timestamp so a replica stays in sync with main.
+  std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
+  // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
+  // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
+  // re-read. Within a transaction read what the accessor pinned instead, transaction_.storage_mode
+  // or transaction_.isolation_level.
+  //
+  // Atomic for the readers that hold nothing. Some only report (the getters below, GetInfo, SHOW
+  // REPLICAS) and are stale on return regardless. The rest cannot take a hold first because the
+  // hold is what the value decides, or because taking it would deadlock. For those the rule is: an
+  // unlocked read may choose, but only a read under a hold may commit to the choice.
+  std::atomic<IsolationLevel> isolation_level_;
+  std::atomic<StorageMode> storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};
 
   metrics::DatabaseMetricHandles metric_handles_{};
@@ -393,7 +506,8 @@ class Storage {
 
   /// Creates a database protector for async operations
   /// @return DatabaseProtector instance for committing async transactions
-  /// @note Never returns nullptr - always provides a valid protector
+  /// @note May return nullptr while the tenant is not live: not yet bound to its gatekeeper, dropped,
+  ///       suspended, or being destroyed. Callers must abort the async operation on a nullptr result.
   auto make_database_protector() const -> std::unique_ptr<DatabaseProtector> { return database_protector_factory_(); }
 
   /// Gets the database protector factory for copying to new storage instances
@@ -420,24 +534,27 @@ inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
   return os;
 }
 
+/// Acquires `main_lock_` in the mode `rw_type` names. Blocks indefinitely without a timeout; with
+/// one, throws the timeout exception belonging to that mode.
+utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
+                                             std::optional<std::chrono::milliseconds> timeout);
+
 class Accessor {
  public:
-  static constexpr struct SharedAccess {
-  } shared_access;
+  /// Takes ownership of a hold on `storage`'s main_lock_. The caller acquires it: blocking with a
+  /// timeout via AcquireGuardOrThrow, or non-blocking via a try_to_lock guard. Construction itself
+  /// never blocks and never fails, so a probe can decide whether to build an accessor at all.
+  ///
+  /// The access type comes from the guard, not alongside it. It is recorded as
+  /// original_access_type_, which the WAL carries to replicas to pick the mode they replay under,
+  /// so a guard and a type that disagreed would have a replica take a different hold than we did.
+  /// Nothing is lost by deriving it: no downgrade can have happened yet.
+  ///
+  /// The isolation level and storage mode are read from `storage` under the guard rather than
+  /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
+  /// them before acquiring could build a transaction against a mode that has since changed.
+  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
 
-  static constexpr struct UniqueAccess {
-  } unique_access;
-
-  static constexpr struct ReadOnlyAccess {
-  } read_only_access;
-
-  Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-           StorageAccessType rw_type = StorageAccessType::WRITE,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -448,22 +565,22 @@ class Accessor {
 
   StorageAccessType original_access_type() const { return original_access_type_; }
 
+  /// The mode currently held, which is not always the one requested: a READ_ONLY hold downgrades
+  /// to READ, and a released hold leaves NO_ACCESS. For what was asked for, see
+  /// original_access_type().
   StorageAccessType type() const {
-    if (unique_guard_.owns_lock()) {
-      return UNIQUE;
-    }
-    if (storage_guard_.owns_lock()) {
-      switch (storage_guard_.type()) {
-        case utils::SharedResourceLockGuard::Type::WRITE:
-          return WRITE;
-        case utils::SharedResourceLockGuard::Type::READ:
-          return READ;
-        case utils::SharedResourceLockGuard::Type::READ_ONLY:
-          return READ_ONLY;
-      }
-    }
-    return NO_ACCESS;
+    if (!guard_.owns_lock()) return NO_ACCESS;
+    return ToAccessType(guard_.type());
   }
+
+  /// Moves out this accessor's hold on `main_lock_`, making the returned guard its sole owner
+  /// (this accessor then reports NO_ACCESS and releases nothing at destruction).
+  ///
+  /// A caller passing its hold onward (e.g. to FreeMemory) must move this same object. Adopting
+  /// `main_lock_` into a second guard instead gives the one hold two owners, so it is released
+  /// twice: once by the callee, again when this accessor is destroyed. What the callee requires of
+  /// the hold is the callee's to check.
+  auto ReleaseGuard() -> utils::ResourceLockGuard { return std::move(guard_); }
 
   virtual VertexAccessor CreateVertex() = 0;
 
@@ -489,6 +606,29 @@ class Accessor {
                                                   std::span<storage::PropertyValueRange const> property_ranges,
                                                   View view, size_t num_chunks, IndexOrder order = IndexOrder::ASC) = 0;
 
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, View view, size_t num_chunks) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, const PropertyValue &value, View view,
+                                                  size_t num_chunks) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property,
+                                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                  View view, size_t num_chunks) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, View view) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValue const &value, View view) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+                                    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) = 0;
+
+  /// As the bounds overload, and also applies the range's value predicate to every entry.
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, PropertyValueRange const &range, View view,
+                                                  size_t num_chunks) = 0;
+
   virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
@@ -499,35 +639,29 @@ class Accessor {
 
   virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) = 0;
 
-  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
-                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
-
   virtual EdgesIterable Edges(PropertyId property, View view) = 0;
 
   virtual EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) = 0;
 
-  virtual EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                              View view) = 0;
+
+  virtual EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                            View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view,
                                             size_t num_chunks) = 0;
 
-  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                            size_t num_chunks) = 0;
-
   virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, const PropertyValue &value, View view,
-                                            size_t num_chunks) = 0;
-
-  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                             size_t num_chunks) = 0;
 
   virtual auto DeleteVertex(VertexAccessor *vertex) -> Result<std::optional<VertexAccessor>>;
@@ -549,6 +683,13 @@ class Accessor {
 
   virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                           std::span<PropertyValueRange const> bounds) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property, PropertyValue const &value) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower,
+                                          std::optional<utils::Bound<PropertyValue>> const &upper) const = 0;
 
   virtual uint64_t ApproximateEdgeCount() const = 0;
 
@@ -622,6 +763,10 @@ class Accessor {
 
   virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
 
+  virtual bool VertexPropertyIndexReady(PropertyId property) const = 0;
+
+  virtual bool VertexPropertyIndexExists(PropertyId property) const = 0;
+
   bool TextIndexExists(const std::string &index_name) const {
     return transaction_.active_indices_->text_->IndexExists(index_name);
   }
@@ -691,7 +836,9 @@ class Accessor {
 
   EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
-  StorageMode GetCreationStorageMode() const noexcept;
+  /// The storage mode this accessor's hold pins, in force for the life of that hold. Prefer it over
+  /// Storage::GetStorageMode(), which holds nothing and is stale on return.
+  StorageMode GetPinnedStorageMode() const noexcept;
 
   std::string id() const { return storage_->name(); }
 
@@ -715,6 +862,9 @@ class Accessor {
   virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
                                                                                  CheckCancelFunction cancel_check) = 0;
 
+  virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalVertexIndex(
+      PropertyId property, CheckCancelFunction cancel_check) = 0;
+
   // Convenience overloads with default cancel check
   auto CreateIndex(LabelId label) -> std::expected<void, StorageIndexDefinitionError> {
     return CreateIndex(label, neverCancel);
@@ -737,55 +887,108 @@ class Accessor {
     return CreateGlobalEdgeIndex(property, neverCancel);
   }
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
+  auto CreateGlobalVertexIndex(PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateGlobalVertexIndex(property, neverCancel);
+  }
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
-      LabelId label, std::vector<storage::PropertyPath> &&properties,
-      std::optional<IndexOrder> order = std::nullopt) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                                     std::vector<storage::PropertyPath> &&properties,
+                                                                     std::optional<IndexOrder> order = std::nullopt,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
-                                                                                     storage::PropertyId property) = 0;
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(
+      PropertyId property, AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(
+      PropertyId property, AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(
+      storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) = 0;
 
   virtual std::expected<void, storage::StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
                                                                                    storage::PropertyId property) = 0;
 
-  std::expected<void, storage::StorageIndexDefinitionError> CreateTextIndex(const TextIndexSpec &text_index_info);
+  std::expected<void, storage::StorageIndexDefinitionError> CreateTextIndex(const TextIndexSpec &text_index_info,
+                                                                            ProgressCallback const &on_progress = {});
 
   std::expected<void, storage::StorageIndexDefinitionError> DropTextIndex(const std::string &index_name);
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateTextEdgeIndex(
-      const TextEdgeIndexSpec &text_edge_index_info);
+      const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress = {});
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) = 0;
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(
+      VectorIndexSpec spec, ProgressCallback const &on_progress) = 0;
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) = 0;
+  // Dropping a vector index rewrites every indexed vertex's property back from an index id to its vector, which
+  // is O(indexed vertices) on the calling thread; on_progress lets a caller under a peer timeout observe it.
+  virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(
+      std::string_view index_name, ProgressCallback const &on_progress) = 0;
 
   virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
 
   virtual utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const = 0;
 
-  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) = 0;
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
+      VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) = 0;
 
+  // Constraint creation walks every vertex, so it takes the same cancel check as index creation: it is called once
+  // per vertex and returning true abandons the validation, leaving the constraint unpublished.
   virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
-      LabelId label, PropertyId property) = 0;
+      LabelId label, PropertyId property, CheckCancelFunction cancel_check) = 0;
 
   virtual std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
                                                                                                PropertyId property) = 0;
 
   virtual std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) = 0;
 
   virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                  const std::set<PropertyId> &properties) = 0;
 
   virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
-      LabelId label, PropertyId property, TypeConstraintKind type) = 0;
+      LabelId label, PropertyId property, TypeConstraintKind type, CheckCancelFunction cancel_check) = 0;
+
+  // Convenience overloads with default cancel check
+  auto CreateExistenceConstraint(LabelId label, PropertyId property)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateExistenceConstraint(label, property, neverCancel);
+  }
+
+  auto CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties)
+      -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
+    return CreateUniqueConstraint(label, properties, neverCancel);
+  }
+
+  auto CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateTypeConstraint(label, property, type, neverCancel);
+  }
+
+  auto CreatePointIndex(storage::LabelId label, storage::PropertyId property)
+      -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreatePointIndex(label, property, {});
+  }
+
+  auto CreateVectorIndex(VectorIndexSpec spec) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreateVectorIndex(std::move(spec), {});
+  }
+
+  auto CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreateVectorEdgeIndex(std::move(spec), {});
+  }
+
+  auto DropVectorIndex(std::string_view index_name) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return DropVectorIndex(index_name, {});
+  }
 
   virtual std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label,
                                                                                           PropertyId property,
@@ -796,7 +999,7 @@ class Accessor {
   auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
 
   auto GetEnumStoreUnique() -> EnumStore & {
-    DMG_ASSERT(unique_guard_.owns_lock());
+    DMG_ASSERT(type() == UNIQUE);
     return storage_->enum_store_;
   }
 
@@ -981,6 +1184,42 @@ class Accessor {
     return storage_->description_store_.GetProperty(storage_->NameToProperty(prop_name));
   }
 
+  void SetPropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value,
+                                   std::string_view desc) {
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetPropertyValue(prop, value, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::PROPERTY_VALUE,
+                                        std::vector<LabelId>{},
+                                        EdgeTypeId{},
+                                        prop,
+                                        std::string{desc},
+                                        std::vector<LabelId>{},
+                                        std::vector<LabelId>{},
+                                        value);
+  }
+
+  bool DeletePropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value) {
+    auto prop = storage_->NameToProperty(prop_name);
+    bool deleted = storage_->description_store_.DeletePropertyValue(prop, value);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::PROPERTY_VALUE,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          prop,
+                                          std::vector<LabelId>{},
+                                          std::vector<LabelId>{},
+                                          value);
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetPropertyValueDescription(std::string_view prop_name,
+                                                         ExternalPropertyValue const &value) const {
+    return storage_->description_store_.GetPropertyValue(storage_->NameToProperty(prop_name), value);
+  }
+
   void SetEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
                                      std::span<std::string const> to_label_names, std::string_view desc) {
     auto from_labels = ResolveLabels(from_label_names);
@@ -1152,9 +1391,11 @@ class Accessor {
 #endif
  protected:
   Storage *storage_;
-  utils::SharedResourceLockGuard storage_guard_;
-  std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
-  /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
+  /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
+  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
+  utils::ResourceLockGuard guard_;
+  /// IMPORTANT: constructed after the guard, both for destruction order and so that the mode and
+  /// isolation level it captures are read under that guard.
   Transaction transaction_;
   std::optional<uint64_t> commit_timestamp_;
   bool is_transaction_active_;
@@ -1176,7 +1417,6 @@ class Accessor {
   void MarkEdgeAsDeleted(Edge *edge);
 
  private:
-  StorageMode creation_storage_mode_;
 };
 
 }  // namespace memgraph::storage

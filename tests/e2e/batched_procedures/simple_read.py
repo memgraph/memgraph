@@ -139,5 +139,86 @@ def test_batching_strings_c(connection):
     assert len(result) == num_strings
 
 
+def test_batching_in_subquery(connection):
+    # A subquery restarts its branch for every input row, so the batched stream has to be torn down
+    # and re-initialized per row instead of staying where the previous row left it.
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            "UNWIND [1, 2] AS x " "CALL (x) { CALL batch_py_read.batch_nums() YIELD num RETURN num } " "RETURN x, num",
+        )
+    )
+    assert result == [(x, i) for x in (1, 2) for i in range(1, 11)]
+
+    # LIMIT leaves the stream mid-batch, so the restart interrupts a live stream. `num` alone cannot see
+    # that -- a cursor that wrongly resumes replays the same numbers -- so check `init_called`.
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            "UNWIND [1, 2] AS x "
+            "CALL (x) { CALL batch_py_read.batch_nums() YIELD num, init_called RETURN num, init_called LIMIT 2 } "
+            "RETURN x, num, init_called",
+        )
+    )
+    assert result == [(x, i, True) for x in (1, 2) for i in range(1, 3)]
+
+
+def test_batching_in_subquery_c(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+    num_ints = 3
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            "UNWIND [1, 2] AS x "
+            f"CALL (x) {{ CALL batch_c_read.batch_nums({num_ints}) YIELD output RETURN output }} "
+            "RETURN x, output",
+        )
+    )
+    assert result == [(x, i) for x in (1, 2) for i in range(1, num_ints + 1)]
+
+
+def test_shutdown_reaches_below_a_procedure(connection):
+    # The probe is the lower of two procedure calls and LIMIT stops the query mid-stream, so its
+    # cleanup can only come from the teardown the procedure above it starts.
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(
+        cursor,
+        "CALL batch_py_read.teardown_probe_rows() YIELD num "
+        "CALL mg.procedures() YIELD name "
+        "RETURN num, name LIMIT 1",
+    )
+
+    cleanup_ran = execute_and_fetch_all(
+        cursor, "CALL batch_py_read.teardown_probe_cleanup_ran() YIELD cleanup_ran RETURN cleanup_ran"
+    )[0][0]
+    assert cleanup_ran
+
+
+def test_one_cleanup_per_initializer(connection):
+    # Every stream the procedure starts is torn down exactly once: by the next pull's cleanup, by the
+    # shutdown, or by the cursor's destructor. A reset must not tear it down a second time.
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "CALL batch_py_read.teardown_probe_reset_counts() YIELD ok RETURN ok")
+
+    execute_and_fetch_all(
+        cursor,
+        "UNWIND [1, 2] AS x "
+        "CALL (x) { CALL batch_py_read.teardown_probe_rows() YIELD num RETURN num LIMIT 2 } "
+        "RETURN x, num",
+    )
+
+    inits, cleanups = execute_and_fetch_all(
+        cursor, "CALL batch_py_read.teardown_probe_counts() YIELD inits, cleanups RETURN inits, cleanups"
+    )[0]
+    assert inits == 2
+    assert cleanups == inits
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

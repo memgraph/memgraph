@@ -30,8 +30,6 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "DemoteInstance", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "DemoteMainToReplicaRpcFail", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "DemoteMainToReplicaRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
-        {"name": "EnableWritingOnMainRpcFail", "type": "HighAvailability", "metric type": "Counter"},
-        {"name": "EnableWritingOnMainRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "FailedToBecomeLeader", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "GetDatabaseHistoriesRpcFail", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "GetDatabaseHistoriesRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
@@ -70,9 +68,6 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "DemoteMainToReplicaRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "DemoteMainToReplicaRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "DemoteMainToReplicaRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
-        {"name": "EnableWritingOnMainRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
-        {"name": "EnableWritingOnMainRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
-        {"name": "EnableWritingOnMainRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "FinalizeTxnReplication_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "FinalizeTxnReplication_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "FinalizeTxnReplication_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
@@ -130,6 +125,16 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "WalFilesRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
+        # HotCold (sorted by metric type, name)
+        {"name": "DatabaseResumes", "type": "HotCold", "metric type": "Counter"},
+        {"name": "DatabaseSuspends", "type": "HotCold", "metric type": "Counter"},
+        {"name": "ColdDatabases", "type": "HotCold", "metric type": "Gauge"},
+        {"name": "DatabaseResumeLatency_us_50p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseResumeLatency_us_90p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseResumeLatency_us_99p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_50p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_90p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_99p", "type": "HotCold", "metric type": "Histogram"},
         # Index (alphabetical)
         {"name": "ActiveEdgePropertyIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveEdgeTypeIndices", "type": "Index", "metric type": "Gauge"},
@@ -141,7 +146,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveTextIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveVectorEdgeIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Gauge"},
+        {"name": "ActiveVertexPropertyIndices", "type": "Index", "metric type": "Gauge"},
         # Memory (sorted by type, metric_type, name)
+        {"name": "GCIndexSweeps", "type": "Memory", "metric type": "Counter"},
         {"name": "DbEmbeddingMemoryTracked", "type": "Memory", "metric type": "Gauge"},
         {"name": "DbMemoryTracked", "type": "Memory", "metric type": "Gauge"},
         {"name": "DbPeakMemoryTracked", "type": "Memory", "metric type": "Gauge"},
@@ -163,6 +170,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ApplyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CallProcedureOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CartesianOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ConditionalOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ConstructNamedPathOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CreateExpandOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CreateNodeOperator", "type": "Operator", "metric type": "Counter"},
@@ -192,17 +200,14 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ScanAllByEdgeIdOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgeOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgePropertyOperator", "type": "Operator", "metric type": "Counter"},
-        {"name": "ScanAllByEdgePropertyRangeOperator", "type": "Operator", "metric type": "Counter"},
-        {"name": "ScanAllByEdgePropertyValueOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgeTypeOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgeTypePropertyOperator", "type": "Operator", "metric type": "Counter"},
-        {"name": "ScanAllByEdgeTypePropertyRangeOperator", "type": "Operator", "metric type": "Counter"},
-        {"name": "ScanAllByEdgeTypePropertyValueOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByIdOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByLabelOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByLabelPropertiesOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByPointDistanceOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByPointWithinbboxOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ScanAllByVertexPropertyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "SetLabelsOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "SetNestedPropertyOperator", "type": "Operator", "metric type": "Counter"},
@@ -260,8 +265,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
     results = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
     actual_metrics = [{"name": x["name"], "type": x["type"], "metric type": x["metric type"]} for x in results]
 
-    for expected, actual in zip(expected_metrics, actual_metrics):
-        assert expected == actual
+    assert actual_metrics == expected_metrics
 
 
 def get_metric_value(memgraph, metric_name, on_clause=None):
@@ -409,7 +413,7 @@ def test_failed_prepare_incremented_on_prepare_error(connect):
     initial = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedPrepare")
     try:
         cursor.execute("BEGIN")
-        cursor.execute("CREATE USER test_user")
+        cursor.execute("CREATE INDEX ON :Label")
     except Exception:
         pass
     after = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedPrepare")

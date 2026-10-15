@@ -16,14 +16,21 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 
 namespace memgraph::storage {
 
 class VerticesIterable final {
-  using AscIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry>;
-  using DescIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry>;
+  using AscIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<>>;
+  using DescIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<>>;
+  using Asc1Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<1>>;
+  using Desc1Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<1>>;
+  using Asc2Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<2>>;
+  using Desc2Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<2>>;
+  using VertexPropertyIterable = InMemoryVertexPropertyIndex::Iterable;
 
-  using Data = std::variant<AllVerticesIterable, InMemoryLabelIndex::Iterable, AscIterable, DescIterable>;
+  using Data = std::variant<AllVerticesIterable, InMemoryLabelIndex::Iterable, AscIterable, DescIterable, Asc1Iterable,
+                            Desc1Iterable, Asc2Iterable, Desc2Iterable, VertexPropertyIterable>;
 
   Data data_;
 
@@ -36,6 +43,16 @@ class VerticesIterable final {
 
   explicit VerticesIterable(DescIterable v) : data_(std::move(v)) {}
 
+  explicit VerticesIterable(Asc1Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Desc1Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Asc2Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Desc2Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(VertexPropertyIterable v) : data_(std::move(v)) {}
+
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
 
@@ -45,8 +62,10 @@ class VerticesIterable final {
   ~VerticesIterable() = default;
 
   class Iterator final {
-    using Data = std::variant<AllVerticesIterable::Iterator, InMemoryLabelIndex::Iterable::Iterator,
-                              AscIterable::Iterator, DescIterable::Iterator>;
+    using Data =
+        std::variant<AllVerticesIterable::Iterator, InMemoryLabelIndex::Iterable::Iterator, AscIterable::Iterator,
+                     DescIterable::Iterator, Asc1Iterable::Iterator, Desc1Iterable::Iterator, Asc2Iterable::Iterator,
+                     Desc2Iterable::Iterator, VertexPropertyIterable::Iterator>;
 
     Data data_;
 
@@ -61,6 +80,16 @@ class VerticesIterable final {
     explicit Iterator(AscIterable::Iterator it) : data_(std::move(it)) {}
 
     explicit Iterator(DescIterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Asc1Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Desc1Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Asc2Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Desc2Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(VertexPropertyIterable::Iterator it) : data_(std::move(it)) {}
 
     Iterator(const Iterator &) = default;
     Iterator &operator=(const Iterator &) = default;

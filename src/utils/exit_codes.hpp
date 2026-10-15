@@ -23,6 +23,9 @@ namespace memgraph::utils {
 enum class ExitCode : std::uint8_t {
   StorageDirectoryOwnerMismatch = 12,
   LogFileNotWritable = 13,
+  FipsModeUnavailable = 14,
+  FipsModeUnsupportedPasswordAlgorithm = 15,
+  FipsModeRequiresEnterprise = 16,
 };
 
 /// `std::exit`-ready status of an ExitCode.

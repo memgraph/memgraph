@@ -16,13 +16,24 @@ import pytest
 from common import execute_and_fetch_all
 
 
-def test_data_instance_cannot_switch_analytical():
+def storage_mode(cursor):
+    rows = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
+    return {row[0]: row[1] for row in rows}["storage_mode"]
+
+
+def test_data_instance_switches_analytical_without_replicas():
+    # A MAIN data instance with no registered replicas may enter analytical mode: nothing replicates
+    # from it, so no replica can miss the writes that analytical mode keeps out of the WAL. Registering
+    # replicas back is what the operator does after switching to transactional again.
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     cursor = connection.cursor()
-    with pytest.raises(mgclient.DatabaseError) as e:
-        execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL")
-    assert "Data instances cannot use analytical mode" in str(e.value)
+
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL")
+    assert storage_mode(cursor) == "IN_MEMORY_ANALYTICAL"
+
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL")
+    assert storage_mode(cursor) == "IN_MEMORY_TRANSACTIONAL"
 
 
 if __name__ == "__main__":

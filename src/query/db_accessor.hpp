@@ -14,12 +14,12 @@
 #include "memory/query_memory_control.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/hops_limit.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -392,7 +392,9 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
+  void EnableDeltaChainCache() { accessor_->GetTransaction()->EnableDeltaChainCache(); }
+
+  void DisableDeltaChainCache() { accessor_->GetTransaction()->DisableDeltaChainCache(); }
 
   bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {
     return accessor_->CheckIndicesAreReady(required_indices);
@@ -447,6 +449,25 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property) {
+    return VerticesIterable(accessor_->Vertices(property, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property, storage::PropertyValue const &value) {
+    return VerticesIterable(accessor_->Vertices(property, value, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property,
+                            std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+                            std::optional<utils::Bound<storage::PropertyValue>> const &upper) {
+    return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property,
+                            storage::PropertyValueRange const &range) {
+    return VerticesIterable(accessor_->Vertices(property, range, view));
+  }
+
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
     return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
   }
@@ -463,6 +484,27 @@ class DbAccessor final {
         accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
   }
 
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          const storage::PropertyValue &value, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, value, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
+                                          const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
+                                          size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, lower_bound, upper_bound, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          storage::PropertyValueRange const &range, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, range, view, num_chunks)};
+  }
+
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, view, num_chunks)};
   }
@@ -472,14 +514,6 @@ class DbAccessor final {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, view, num_chunks)};
   }
 
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
-                                    size_t num_chunks) {
-    return EdgesChunkedIterable{
-        accessor_->ChunkedEdges(edge_type, property, lower_bound, upper_bound, view, num_chunks)};
-  }
-
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property, size_t num_chunks) {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, view, num_chunks)};
   }
@@ -487,13 +521,6 @@ class DbAccessor final {
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
                                     const storage::PropertyValue value, size_t num_chunks) {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
-  }
-
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
-                                    size_t num_chunks) {
-    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
@@ -512,29 +539,27 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                      const storage::PropertyValue value) {
-    return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
-  }
-
-  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
-  }
-
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
-    return EdgesIterable(accessor_->Edges(property, value, view));
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                      storage::PropertyValueRange const &range) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, range, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::PropertyId property,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    return EdgesIterable(accessor_->Edges(property, lower, upper, view));
+  EdgesIterable Edges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range) {
+    return EdgesIterable(accessor_->Edges(property, range, view));
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, range, view, num_chunks)};
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, range, view, num_chunks)};
   }
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
@@ -676,7 +701,7 @@ class DbAccessor final {
 
   void Abort() { accessor_->Abort(); }
 
-  storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetCreationStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetPinnedStorageMode(); }
 
   bool LabelIndexReady(storage::LabelId label) const { return accessor_->LabelIndexReady(label); }
 
@@ -698,6 +723,10 @@ class DbAccessor final {
 
   bool EdgePropertyIndexReady(storage::PropertyId property) const {
     return accessor_->EdgePropertyIndexReady(property);
+  }
+
+  bool VertexPropertyIndexReady(storage::PropertyId property) const {
+    return accessor_->VertexPropertyIndexReady(property);
   }
 
   bool TextIndexExists(const std::string &index_name) const;
@@ -771,6 +800,17 @@ class DbAccessor final {
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) const {
     return accessor_->ApproximateVertexCount(label, properties, bounds);
+  }
+
+  int64_t VerticesCount(storage::PropertyId property) const { return accessor_->ApproximateVertexCount(property); }
+
+  int64_t VerticesCount(storage::PropertyId property, storage::PropertyValue const &value) const {
+    return accessor_->ApproximateVertexCount(property, value);
+  }
+
+  int64_t VerticesCount(storage::PropertyId property, std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+                        std::optional<utils::Bound<storage::PropertyValue>> const &upper) const {
+    return accessor_->ApproximateVertexCount(property, lower, upper);
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
@@ -880,6 +920,15 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageIndexDefinitionError> DropGlobalEdgeIndex(storage::PropertyId property) {
     return accessor_->DropGlobalEdgeIndex(property);
+  }
+
+  std::expected<void, storage::StorageIndexDefinitionError> CreateGlobalVertexIndex(
+      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateGlobalVertexIndex(property, std::move(cancel_check));
+  }
+
+  std::expected<void, storage::StorageIndexDefinitionError> DropGlobalVertexIndex(storage::PropertyId property) {
+    return accessor_->DropGlobalVertexIndex(property);
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
@@ -1041,6 +1090,20 @@ class DbAccessor final {
 
   std::optional<std::string> GetPropertyDescription(std::string_view prop_name) const {
     return accessor_->GetPropertyDescription(prop_name);
+  }
+
+  void SetPropertyValueDescription(std::string_view prop_name, storage::ExternalPropertyValue const &value,
+                                   std::string_view desc) {
+    accessor_->SetPropertyValueDescription(prop_name, value, desc);
+  }
+
+  bool DeletePropertyValueDescription(std::string_view prop_name, storage::ExternalPropertyValue const &value) {
+    return accessor_->DeletePropertyValueDescription(prop_name, value);
+  }
+
+  std::optional<std::string> GetPropertyValueDescription(std::string_view prop_name,
+                                                         storage::ExternalPropertyValue const &value) const {
+    return accessor_->GetPropertyValueDescription(prop_name, value);
   }
 
   void SetEdgeTypePatternDescription(std::span<std::string const> from_labels, std::string_view edge_type_name,

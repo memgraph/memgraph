@@ -260,7 +260,21 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedure) {
   call_op.procedure_name_ = "mg.reload";
   call_op.arguments_ = {LITERAL("example")};
   call_op.result_fields_ = {"name", "signature"};
-  call_op.is_write_ = false;
+  call_op.graph_access_ = GraphAccess::Read;
+  call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
+
+  this->CheckPlanType(&call_op, RWType::R);
+}
+
+// A procedure that reaches no graph is still a read as far as the query's reported type and the read
+// counter are concerned. Only PlanRequiresStorageAccess distinguishes it, which StorageAccessCheckTest
+// below covers.
+TYPED_TEST(ReadWriteTypeCheckTest, CallGraphFreeProcedureIsStillARead) {
+  plan::CallProcedure call_op;
+  call_op.input_ = std::make_shared<Once>();
+  call_op.procedure_name_ = "mg.procedures";
+  call_op.result_fields_ = {"name", "signature"};
+  call_op.graph_access_ = GraphAccess::None;
   call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   this->CheckPlanType(&call_op, RWType::R);
@@ -272,7 +286,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallWriteProcedure) {
   call_op.procedure_name_ = "mg.reload";
   call_op.arguments_ = {LITERAL("example")};
   call_op.result_fields_ = {"name", "signature"};
-  call_op.is_write_ = true;
+  call_op.graph_access_ = GraphAccess::Write;
   call_op.result_symbols_ = {this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   this->CheckPlanType(&call_op, RWType::RW);
@@ -288,7 +302,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedureBeforeUpdate) {
   std::vector<Symbol> result_symbols{this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   last_op = std::make_shared<plan::CallProcedure>(
-      last_op, procedure_name, arguments, result_fields, result_symbols, nullptr, 0, false, 1);
+      last_op, procedure_name, arguments, result_fields, result_symbols, nullptr, 0, GraphAccess::Read, 1);
 
   this->CheckPlanType(last_op.get(), RWType::RW);
 }
@@ -327,6 +341,30 @@ TYPED_TEST(ReadWriteTypeCheckTest, Foreach) {
   Symbol x = this->GetSymbol("x");
   std::shared_ptr<LogicalOperator> foreach = std::make_shared<plan::Foreach>(nullptr, nullptr, nullptr, x);
   this->CheckPlanType(foreach.get(), RWType::RW);
+}
+
+TYPED_TEST(ReadWriteTypeCheckTest, Conditional) {
+  // CALL () { WHEN true THEN MATCH (n) CREATE () }: a body's input is a bare Once, whose Visit returns false.
+  std::shared_ptr<LogicalOperator> scan_all = std::make_shared<ScanAll>(nullptr, this->GetSymbol("n"));
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(scan_all, NodeCreationInfo());
+  auto writing =
+      std::make_shared<Conditional>(std::make_shared<Once>(),
+                                    std::vector<Conditional::Branch>{{.predicate = LITERAL(true), .plan = create}},
+                                    std::vector<Symbol>{});
+  this->CheckPlanType(writing.get(), RWType::RW);
+
+  // CALL () { WHEN EXISTS { MATCH (m) } THEN RETURN 1 AS y }: only the predicate's fold reads.
+  std::shared_ptr<LogicalOperator> fold = std::make_shared<EvaluatePatternFilter>(
+      std::make_shared<ScanAll>(nullptr, this->GetSymbol("m")), this->GetSymbol("exists"), Fold::kBool);
+  Symbol y = this->GetSymbol("y");
+  std::shared_ptr<LogicalOperator> branch =
+      std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{NEXPR("y", LITERAL(1))});
+  auto reading = std::make_shared<Conditional>(
+      std::make_shared<Once>(),
+      std::vector<Conditional::Branch>{{.predicate = LITERAL(true), .pattern_filters = {fold}, .plan = branch}},
+      std::vector<Symbol>{y});
+  this->CheckPlanType(reading.get(), RWType::R);
+  EXPECT_TRUE(PlanRequiresStorageAccess(*reading));
 }
 
 TYPED_TEST(ReadWriteTypeCheckTest, CheckUpdateType) {

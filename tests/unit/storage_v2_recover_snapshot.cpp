@@ -95,7 +95,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   // Add some data
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
+    acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
@@ -107,7 +107,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   // Add more data
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
+    acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
@@ -172,7 +172,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
-    for (const auto &vertex : vertices) {
+    for ([[maybe_unused]] const auto &vertex : vertices) {
       count++;
     }
     ASSERT_EQ(count, 1) << "Should have exactly one vertex after recovery";
@@ -230,7 +230,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
     // Add some data
     {
       auto acc = storage->Access(memgraph::storage::WRITE);
-      auto vertex = acc->CreateVertex();
+      acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -256,7 +256,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
-    for (const auto &vertex : vertices) {
+    for ([[maybe_unused]] const auto &vertex : vertices) {
       count++;
     }
     ASSERT_EQ(count, 0) << "Should have exactly zero vertices after restart";
@@ -276,7 +276,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
-    for (const auto &vertex : vertices) {
+    for ([[maybe_unused]] const auto &vertex : vertices) {
       count++;
     }
     ASSERT_EQ(count, 1) << "Should have exactly one vertex after recovery";
@@ -330,7 +330,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   // Add some data
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
+    acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
@@ -342,7 +342,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   // Add some data
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
+    acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
@@ -356,7 +356,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
     auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
-    for (const auto &vertex : vertices) {
+    for ([[maybe_unused]] const auto &vertex : vertices) {
       count++;
     }
     ASSERT_EQ(count, 1) << "Should have exactly one vertex after recovery";
@@ -418,7 +418,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   // Add more data (generates more WALs)
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->CreateVertex();
+    acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 

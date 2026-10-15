@@ -41,10 +41,32 @@ class BenchmarkInstallationType:
     NATIVE = "native"
     DOCKER = "docker"
     EXTERNAL = "external"
+    # Coordinator-managed HA cluster: one main and one SYNC replica behind three coordinators. Not an
+    # installation type a caller picks; high availability is its own axis, selected with --run-ha or
+    # --ha-only. It lives here because it is what BaseRunner.create keys the cluster runner on.
+    HA = "ha"
 
     @classmethod
     def get_all_installation_types(cls):
+        return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL, cls.HA]
+
+    @classmethod
+    def get_selectable_installation_types_for_ha(cls):
+        """Installation types a high availability cluster can be measured alongside."""
+        return [t for t in cls.get_selectable_installation_types() if t in cls.get_local_binary_installation_types()]
+
+    @classmethod
+    def get_selectable_installation_types(cls):
+        """How a single Memgraph is installed and run, which is orthogonal to high availability."""
         return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL]
+
+    @classmethod
+    def get_local_binary_installation_types(cls):
+        """
+        Types that start Memgraph from a binary on this machine, so --vendor-binary applies to them
+        and is auto-detected and validated for them.
+        """
+        return [cls.NATIVE, cls.HA]
 
 
 class BenchmarkClientLanguage:
@@ -72,6 +94,7 @@ BENCHMARK_MODE_CONFIG = "benchmark_mode_config"
 PLATFORM = "platform"
 COUNT = "count"
 DURATION = "duration"
+QUERY_HASH = "query_hash"
 NUM_WORKERS = "num_workers"
 CPU = "cpu"
 MEMORY = "memory"
@@ -98,6 +121,7 @@ CACHE = "cache"
 DISK_PREPARATION_RSS = "disk_storage_preparation"
 IN_MEMORY_ANALYTICAL_RSS = "in_memory_analytical_preparation"
 STORAGE_MODE = "storage_mode"
+INSTALLATION_TYPE = "installation_type"
 IN_MEMORY_TRANSACTIONAL = "IN_MEMORY_TRANSACTIONAL"
 IN_MEMORY_ANALYTICAL = "IN_MEMORY_ANALYTICAL"
 ON_DISK_TRANSACTIONAL = "ON_DISK_TRANSACTIONAL"

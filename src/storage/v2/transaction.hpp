@@ -21,7 +21,9 @@
 #include <spdlog/spdlog.h>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
@@ -134,7 +136,7 @@ struct Transaction {
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
-              metrics::GaugeHandle unreleased_delta_gauge = {})
+              uint64_t last_durable_num_committed_txns = 0, metrics::GaugeHandle unreleased_delta_gauge = {})
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         original_start_timestamp(start_timestamp),
@@ -145,9 +147,22 @@ struct Transaction {
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
-        constraint_verification_info{(active_constraints && !active_constraints->empty())
-                                         ? std::optional<ConstraintVerificationInfo>{std::in_place}
-                                         : std::nullopt},
+        active_constraints_{std::move(active_constraints)},
+        // The parameter has been moved from by now, so these ids come from the member.
+        constraint_verification_info{
+            (active_constraints_ && !active_constraints_->empty())
+                ? std::optional<
+                      ConstraintVerificationInfo>{std::in_place,
+                                                  ConstraintRelevance{
+                                                      .unique_properties =
+                                                          active_constraints_->unique_->ConstrainedProperties(),
+                                                      .unique_labels =
+                                                          active_constraints_->unique_->ConstrainedLabels(),
+                                                      .existence_properties =
+                                                          active_constraints_->existence_->ConstrainedProperties(),
+                                                      .existence_labels =
+                                                          active_constraints_->existence_->ConstrainedLabels()}}
+                : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}
                       : std::nullopt},
@@ -158,8 +173,8 @@ struct Transaction {
         point_index_change_collector_{point_index_ctx_},
         query_memory_tracker_{},
         last_durable_ts_{last_durable_ts},
+        last_durable_num_committed_txns_{last_durable_num_committed_txns},
         active_indices_{std::move(active_indices)},
-        active_constraints_{std::move(active_constraints)},
         async_index_helper_(std::move(async_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
@@ -215,12 +230,51 @@ struct Transaction {
     manyDeltasCache.Invalidate(vertex);
   }
 
-  void SetParallelExecution() { parallel_execution_ = true; }
+  // Only sound when one thread reads the transaction: manyDeltasCache is a set of unsynchronised hash
+  // maps. Only worth it when the transaction re-reads a vertex, since a single pass pays to fill a
+  // cache it never reads back. A transaction can check neither, so it caches nothing until asked.
+  // Disabling is permanent for the transaction. A later statement cannot establish that an earlier
+  // one's workers have finished, and the protocol rule that keeps two statements from overlapping on
+  // one transaction is not storage's to lean on, so a transaction read from several threads once is
+  // never cached again.
+  void EnableDeltaChainCache() { delta_chain_cache_enabled_ = !delta_chain_cache_withdrawn_; }
 
-  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
+  void DisableDeltaChainCache() {
+    delta_chain_cache_enabled_ = false;
+    delta_chain_cache_withdrawn_ = true;
+  }
+
+  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && delta_chain_cache_enabled_; }
+
+  // Shared by the read path and the write path, so neither can disagree with the other about what is
+  // visible. An uncommitted delta carries its writer's transaction id here rather than a commit
+  // stamp, which this reports as outside the snapshot, since ids are handed out above every
+  // timestamp. Narrowing moves an SI transaction's boundary down to snapshot_ts, which is where the
+  // test becomes inclusive.
+  [[nodiscard]] bool CommittedBeforeSnapshot(uint64_t ts) const noexcept {
+    return commit_lock_narrowing ? ts <= snapshot_ts : ts < start_timestamp;
+  }
+
+  // Exclusive bound for deferred delta reconstruction: in the snapshot iff ts < bound. Narrowing
+  // passes snapshot_ts + 1 so this names the same set the inclusive test above does.
+  [[nodiscard]] uint64_t SchemaReconstructionBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts + 1 : start_timestamp;
+  }
+
+  // The bound the snapshot writer hands to index and constraint listings, which admit an entry whose
+  // own commit stamp is at or below it. Inclusive, where the bound above excludes its endpoint, so
+  // narrowing passes snapshot_ts here and one more there. Adding one here instead would admit a
+  // commit the snapshot must not carry, and WAL recovery would refuse the duplicate.
+  [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts : start_timestamp;
+  }
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  // Last-published MVCC ts frozen at BEGIN (<= start_timestamp); the SI visibility boundary when narrowing is ON.
+  uint64_t snapshot_ts{};
+  // True only for SI txns with commit-lock-narrowing ON; otherwise visibility is ts < start_timestamp.
+  bool commit_lock_narrowing{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`
@@ -234,9 +288,25 @@ struct Transaction {
   utils::pmr::list<MetadataDelta> md_deltas;
   bool has_serialization_error{};
   bool has_non_sequential_deltas{};
+  // A property delta does not say whether it was on a vertex or an edge. That is known where the
+  // delta is created, so it is recorded here rather than worked out later by following the delta
+  // chain back to whatever it belongs to.
+  PropertyWriteTargets wrote_properties_on{};
+  // Which indexes this transaction's writes could have left something to sweep, filled by the write
+  // path itself. Only analytical uses it: transactional arming is read off the deltas as the
+  // collector unlinks them, and analytical produces no deltas to read. Empty, and allocation-free,
+  // otherwise.
+  IndexArming index_arming{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
+
+  /// Concurrent safe constraints that existed at the beginning of the transaction
+  /// Used for constraint validation during commit.
+  ///
+  /// Declared ahead of `constraint_verification_info`, which borrows the constrained id sets from
+  /// this snapshot: the borrower is then initialised second and destroyed first.
+  ActiveConstraintsPtr active_constraints_;
 
   // A cache which is consistent to the current transaction_id + command_id.
   // Used to speedup getting info about a vertex when there is a long delta
@@ -282,13 +352,13 @@ struct Transaction {
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
+  /// Number of committed txns paired with last_durable_ts_, captured from the same atomic load so a snapshot
+  /// writes a mutually consistent (durable_timestamp, num_committed_txns) pair.
+  uint64_t last_durable_num_committed_txns_{0};
 
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndicesPtr active_indices_;
-  /// Concurrent safe constraints that existed at the beginning of the transaction
-  /// Used for constraint validation during commit
-  ActiveConstraintsPtr active_constraints_;
   CommitCallbacks commit_callbacks_;
   /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
   /// cleared on successful commit (see commit_callbacks_.RunAll site).
@@ -297,7 +367,8 @@ struct Transaction {
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;
 
-  bool parallel_execution_{false};  // For now just disable for the whole query
+  bool delta_chain_cache_enabled_{false};
+  bool delta_chain_cache_withdrawn_{false};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

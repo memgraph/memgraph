@@ -15,6 +15,7 @@
 #include <set>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {
@@ -62,6 +63,12 @@ class UniqueConstraints {
     virtual void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const = 0;
     virtual void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) = 0;
     virtual bool empty() const = 0;
+
+    /// The properties and the labels any active unique constraint is keyed on, as two independent
+    /// unions rather than per-constraint pairs. Asked once per transaction, so a write does not
+    /// reach these.
+    virtual auto ConstrainedProperties() const -> InterestingProperties = 0;
+    virtual auto ConstrainedLabels() const -> InterestingLabels = 0;
 
     virtual void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                                      uint64_t transaction_start_timestamp) = 0;

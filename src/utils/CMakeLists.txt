@@ -18,14 +18,17 @@ add_library(mg::utils ALIAS mg-utils)
 
 target_sources(mg-utils
     PRIVATE
-    async_timer.cpp
     base64.cpp
+    crc_accumulator.cpp
+    download_temp_file.cpp
     file.cpp
     file_locker.cpp
     file_owner.cpp
+    fips.cpp
     startup_failure.cpp
     memory.cpp
     memory_tracker.cpp
+    page_cache_releaser.cpp
     readable_size.cpp
     signals.cpp
     sysinfo/memory.cpp
@@ -46,6 +49,7 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
+    session_context.cpp
     shared_quota.cpp
 
     PUBLIC
@@ -54,6 +58,7 @@ target_sources(mg-utils
     FILES
     allocator/page_aligned.hpp
     allocator/page_slab_memory_resource.hpp
+    crc_accumulator.hpp
     data_queue.hpp
     exponential_backoff.hpp
     fixed_string.hpp
@@ -66,7 +71,6 @@ target_sources(mg-utils
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
-    barrier.hpp
     transparent_compare.hpp
     compile_time.hpp
     resource_monitoring.hpp
@@ -81,14 +85,18 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
+find_package(ctre REQUIRED)
 
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags mg-fnv)
-target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc stdc++fs Threads::Threads uuid rt range-v3::range-v3)
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp rollbear::strong_type gflags mg-fnv libuuid::libuuid)
+target_link_libraries(mg-utils PRIVATE AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer librdtsc::librdtsc Threads::Threads rt range-v3::range-v3 ctre::ctre)
 if (ENABLE_JEMALLOC)
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=1)
 else()
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
 endif()
+
+# Passed as a definition so build_info.cpp needn't include the generated version.hpp.
+target_compile_definitions(mg-utils PRIVATE MEMGRAPH_VERSION_STRING="${MEMGRAPH_VERSION}")
 
 
 add_library(mg-aws STATIC)

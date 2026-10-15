@@ -32,6 +32,7 @@ def parse_args():
     argp.add_argument("--benchmark-results", type=str, required=True)
     argp.add_argument("--benchmark-results-in-memory-analytical-path", type=str, required=False)
     argp.add_argument("--benchmark-results-on-disk-txn-path", type=str, required=False)
+    argp.add_argument("--benchmark-results-ha-path", type=str, required=False)
     argp.add_argument("--github-run-id", type=int, required=True)
     argp.add_argument("--github-run-number", type=int, required=True)
     argp.add_argument("--head-branch-name", type=str, required=True)
@@ -60,6 +61,14 @@ def post_measurement(args):
         except IOError:
             log.error(f"Failed to load {args.benchmark_results_on_disk_txn_path}.")
 
+    ha_data = None
+    if args.benchmark_results_ha_path is not None:
+        try:
+            with open(args.benchmark_results_ha_path, "r") as ha_file:
+                ha_data = json.load(ha_file)
+        except IOError:
+            log.error(f"Failed to load {args.benchmark_results_ha_path}.")
+
     # The default values should result in a maximum time of about 5 minutes
     sleep_time = 10
     backoff_factor = 1.2
@@ -78,6 +87,7 @@ def post_measurement(args):
                     "results": in_memory_txn_data,
                     "in_memory_analytical_results": in_memory_analytical_data,
                     "on_disk_txn_results": on_disk_txn_data,
+                    "ha_results": ha_data,
                     "git_branch": args.head_branch_name,
                 },
                 timeout=3,

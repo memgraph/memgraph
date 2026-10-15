@@ -1,0 +1,9 @@
+# A null start node yields no rows instead of a type error, so a path built from an OPTIONAL MATCH
+# does not have to be guarded by the caller.
+query: >
+  OPTIONAL MATCH (missing:NoSuchLabel)
+  CALL path.create(missing, {})
+  YIELD path
+  RETURN path;
+
+output: []

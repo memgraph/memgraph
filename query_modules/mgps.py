@@ -1,5 +1,3 @@
-import time
-
 import mgp
 
 
@@ -15,10 +13,10 @@ def components(
 
 @mgp.read_proc
 def await_indexes(context: mgp.ProcCtx, seconds: int):
-    # Nothing smart here
-    # This method exists only for compatibility with Neo4j's
-    # db.awaitIndexes, inside the Apache Spark Connector integration
-    time.sleep(1)
+    # No-op: index creation is synchronous, so there is nothing to await.
+    # This method exists only for compatibility with the Apache Spark
+    # Connector integration.
+    pass
 
 
 @mgp.function

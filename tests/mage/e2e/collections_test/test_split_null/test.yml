@@ -1,0 +1,4 @@
+query: >
+  CALL collections.split(null, 7) YIELD splitted RETURN splitted;
+
+output: []

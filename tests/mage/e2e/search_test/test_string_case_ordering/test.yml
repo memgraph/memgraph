@@ -1,0 +1,8 @@
+# String comparison is by codepoint: uppercase sorts before lowercase, so only capitalized names are < 'a'.
+query: >
+  CALL search.node({W: 'name'}, '<', 'a') YIELD node
+  RETURN node ORDER BY node.name;
+
+output:
+  - node: {"labels": ["W"], "properties": {"name": "Apple"}}
+  - node: {"labels": ["W"], "properties": {"name": "Zebra"}}

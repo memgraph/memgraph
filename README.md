@@ -55,7 +55,7 @@ query language, ACID-compliant, and highly available.
 - **Indexes** - Built-in vector indexes power hybrid graph retrieval with
 similarity search in a single query, alongside text and geospatial indexes for
 keyword and location-aware queries.
-- **[MAGE](mage/README.md) algorithm library** - 40+ graph algorithms in C++,
+- **[MAGE](src/mage/README.md) algorithm library** - 40+ graph algorithms in C++,
 Python, and CUDA including PageRank, community detection, GNN-based link
 prediction, temporal graph networks, embeddings, and native ML.
 - **Atomic GraphRAG** - Pivot search, graph expansion, ranking, and prompt
@@ -157,7 +157,7 @@ of MemgraphDB from your browser.
 
 <p align="left">
   <a href="https://memgraph.com/docs/memgraph-cloud">
-    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Fcloud.gif">
+    <img width="450px" alt="Memgraph Cloud" src="https://github.com/user-attachments/assets/32fd29aa-331e-4d54-bd0d-42d87d0ff1ff" />
   </a>
 </p>
 
@@ -175,7 +175,7 @@ ad hoc queries, and optimize their performance.
 
 <p align="left">
   <a href="https://memgraph.com/docs/memgraph-lab">
-    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Flab.gif">
+    <img width="450px" alt="Memgraph Lab" src="https://github.com/user-attachments/assets/a83c14cf-e590-4247-9b91-9200db67c127">
   </a>
 </p>
 
@@ -185,6 +185,7 @@ using Kafka, RedPanda or Pulsar streams, CSV, JSON, Parquet, and JSONL files
 (from local disk, S3, or HTTP), or Cypher commands.
 
 ## :school: Learning Resources
+
 - [Memgraph documentation](https://memgraph.com/docs)
 - [Best practices repository](https://github.com/memgraph/best-practices)
 - [Memgraph internals notes](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)

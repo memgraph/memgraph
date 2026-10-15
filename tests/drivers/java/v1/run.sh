@@ -2,6 +2,7 @@
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
+source "$DIR/../../wget_retry.sh"
 
 for i in java javac; do
     if ! which $i >/dev/null; then
@@ -14,7 +15,7 @@ DRIVER=neo4j-java-driver.jar
 
 if [ ! -f $DRIVER ]; then
     # Driver downloaded from: http://central.maven.org/maven2/org/neo4j/driver/neo4j-java-driver/1.5.2/neo4j-java-driver-1.5.2.jar
-    wget -nv https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/drivers/java/neo4j-java-driver-1.5.2.jar -O $DRIVER || exit 1
+    wget_retry https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/drivers/java/neo4j-java-driver-1.5.2.jar -O $DRIVER || exit 1
 fi
 
 javac -classpath .:$DRIVER Basic.java

@@ -56,10 +56,19 @@ struct RecoveredIndicesAndConstraints {
     std::vector<EdgeTypeId> edge;
     std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
     std::vector<PropertyId> edge_property;
+    std::vector<PropertyId> vertex_property;
     std::vector<TextIndexSpec> text_indices;
     std::vector<TextEdgeIndexSpec> text_edge_indices;
     std::vector<VectorIndexRecoveryInfo> vector_indices;
     std::vector<VectorEdgeIndexRecoveryInfo> vector_edge_indices;
+
+    // Vectors behind VectorIndexId tags, captured on snapshot load / WAL replay.
+    // RecoverAllVectorIndices moves them out and clears the map.
+    VectorIndexRecovery::VertexVectors vertex_vectors;
+
+    // Per-property map: PropertyId → (Gid → float vector) for vector-edge-indexed edge properties.
+    // Populated during snapshot/WAL replay; each vector is consumed (moved out) during the build, then cleared.
+    VectorEdgeIndexRecovery::EdgeVectors edge_vectors;
   } indices;
 
   struct ConstraintsMetadata {
@@ -93,6 +102,25 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
     list->pop_back();
   } else {
     throw RecoveryFailure(error_message);
+  }
+}
+
+// Removes an index that a replayed drop refers to, tolerating its absence.
+//
+// The log can legitimately hold two drops of one index: a drop settles that the index exists when
+// its statement runs and evicts when it commits, so two transactions can both record one. Older
+// snapshots reach the same place from the other side, recording the index as gone under a durable
+// timestamp below the drop's.
+//
+// Applying a drop to something already absent is idempotent, so tolerating it hides no corruption.
+// It does give up a canary for an index that vanished for another reason, which is why the strict
+// RemoveRecoveredIndexConstraint stays in use everywhere else.
+template <typename TObj>
+void RemoveRecoveredIndexIfPresent(std::vector<TObj> *list, TObj obj) {
+  auto it = std::find(list->begin(), list->end(), obj);
+  if (it != list->end()) {
+    std::swap(*it, list->back());
+    list->pop_back();
   }
 }
 

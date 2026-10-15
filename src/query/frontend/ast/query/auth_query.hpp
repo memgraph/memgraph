@@ -53,7 +53,24 @@ class AuthQuery : public memgraph::query::Query {
     SET_MAIN_DATABASE,
     GRANT_IMPERSONATE_USER,
     DENY_IMPERSONATE_USER,
+    GRANT_PROPERTY_PERMISSION,
+    DENY_PROPERTY_PERMISSION,
+    REVOKE_PROPERTY_PERMISSION,
   };
+
+  enum class PropertyPermissionType : uint8_t { NONE = 0, READ = 1, WRITE = 2 };
+
+  friend constexpr PropertyPermissionType operator|(PropertyPermissionType a, PropertyPermissionType b) {
+    return static_cast<PropertyPermissionType>(std::to_underlying(a) | std::to_underlying(b));
+  }
+
+  friend constexpr PropertyPermissionType operator&(PropertyPermissionType a, PropertyPermissionType b) {
+    return static_cast<PropertyPermissionType>(std::to_underlying(a) & std::to_underlying(b));
+  }
+
+  friend constexpr PropertyPermissionType &operator|=(PropertyPermissionType &a, PropertyPermissionType b) {
+    return a = a | b;
+  }
 
   enum class Privilege {
     CREATE,
@@ -81,13 +98,16 @@ class AuthQuery : public memgraph::query::Query {
     TRANSACTION_MANAGEMENT,
     MULTI_DATABASE_EDIT,
     MULTI_DATABASE_USE,
-    COORDINATOR,
     IMPERSONATE_USER,
     PROFILE_RESTRICTION,
     PARALLEL_EXECUTION,
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
-    RELOAD_TLS
+    RELOAD_TLS,
+    // Coordinator-only privileges (READ / WRITE in the grammar). Not part of kPrivilegesAll, so GRANT ALL PRIVILEGES on
+    // a data instance does not grant them; they gate queries only on coordinators.
+    COORDINATOR_READ,
+    COORDINATOR_WRITE
   };
 
   enum class FineGrainedPrivilege {
@@ -112,6 +132,8 @@ class AuthQuery : public memgraph::query::Query {
     ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
   };
 
+  enum class PropertyEntityKind { NODE, EDGE };
+
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
     MAIN,     // MAIN database (enterprise)
@@ -122,6 +144,8 @@ class AuthQuery : public memgraph::query::Query {
   AuthQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
+
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
   memgraph::query::AuthQuery::Action action_;
   std::string user_;
@@ -134,12 +158,20 @@ class AuthQuery : public memgraph::query::Query {
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
+  // True for GRANT/DENY/REVOKE ALL PRIVILEGES. On coordinators this maps to both COORDINATOR_READ and
+  // COORDINATOR_WRITE; privileges_ still carries the data-instance kPrivilegesAll expansion for other instances.
+  bool all_privileges_{false};
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
   std::vector<memgraph::query::AuthQuery::LabelMatchingMode> label_matching_modes_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
+  std::vector<std::string> property_permissions_;
+  std::vector<std::string> property_entity_names_;
+  PropertyEntityKind property_entity_kind_{PropertyEntityKind::NODE};
+  LabelMatchingMode property_matching_mode_{LabelMatchingMode::ANY};
+  PropertyPermissionType property_permission_types_{PropertyPermissionType::NONE};
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -158,10 +190,16 @@ class AuthQuery : public memgraph::query::Query {
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
     object->privileges_ = privileges_;
+    object->all_privileges_ = all_privileges_;
     object->label_privileges_ = label_privileges_;
     object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
+    object->property_permissions_ = property_permissions_;
+    object->property_entity_names_ = property_entity_names_;
+    object->property_entity_kind_ = property_entity_kind_;
+    object->property_matching_mode_ = property_matching_mode_;
+    object->property_permission_types_ = property_permission_types_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;
     return object;
@@ -195,7 +233,62 @@ class AuthQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-/// Constant that holds all available privileges.
+/// The two coordinator-only privileges (READ / WRITE in the grammar).
+inline bool IsCoordinatorPrivilege(AuthQuery::Privilege privilege) {
+  return privilege == AuthQuery::Privilege::COORDINATOR_READ || privilege == AuthQuery::Privilege::COORDINATOR_WRITE;
+}
+
+/// Coordinators expose only a small slice of the whole auth surface:
+///   - role management: CREATE ROLE, DROP ROLE, SHOW ROLES;
+///   - coordinator privilege management on roles: GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE|ALL PRIVILEGES,
+///     SHOW PRIVILEGES FOR ROLE <role>;
+///   - self-service identity: SHOW CURRENT USER, SHOW CURRENT ROLE.
+/// GRANT/REVOKE are permitted only for the coordinator privileges (COORDINATOR_READ/COORDINATOR_WRITE, or
+/// ALL PRIVILEGES which maps to both) and never target a USER; fine-grained access control (label/edge-type entity
+/// privileges) is rejected. SHOW PRIVILEGES likewise never targets a USER (coordinators have no users) -- SHOW CURRENT
+/// USER is the exception, as it names the principal the session authenticated as rather than a stored user. Every other
+/// auth query -- DENY in any form, GRANT DATABASE, property permissions, ... -- is rejected on a coordinator.
+inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
+  switch (query.action_) {
+    case AuthQuery::Action::CREATE_ROLE:
+    case AuthQuery::Action::DROP_ROLE:
+    case AuthQuery::Action::SHOW_ROLES:
+    case AuthQuery::Action::SHOW_CURRENT_USER:
+    case AuthQuery::Action::SHOW_CURRENT_ROLE:
+      return true;
+    case AuthQuery::Action::GRANT_PRIVILEGE:
+    case AuthQuery::Action::REVOKE_PRIVILEGE: {
+      if (query.entity_type_ == AuthQuery::UserOrRoleType::USER) {
+        return false;
+      }
+      // Reject fine-grained access control (GRANT ... ON NODES/EDGES ...); coordinators have no graph.
+      if (!query.label_privileges_.empty() || !query.edge_type_privileges_.empty()) {
+        return false;
+      }
+      // ALL PRIVILEGES maps to both coordinator privileges.
+      if (query.all_privileges_) {
+        return true;
+      }
+      if (query.privileges_.empty()) {
+        return false;
+      }
+      for (auto const privilege : query.privileges_) {
+        if (!IsCoordinatorPrivilege(privilege)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case AuthQuery::Action::SHOW_PRIVILEGES:
+      // The ON MAIN|CURRENT|DATABASE clause targets a database; coordinators have none.
+      return query.entity_type_ != AuthQuery::UserOrRoleType::USER &&
+             query.database_specification_ == AuthQuery::DatabaseSpecification::NONE;
+    default:
+      return false;
+  }
+}
+
+/// Constant that holds all available privileges only for data instance. Coordinator privileges are excluded here.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::CREATE,
     AuthQuery::Privilege::DELETE,
@@ -222,7 +315,6 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::STORAGE_MODE,
     AuthQuery::Privilege::MULTI_DATABASE_EDIT,
     AuthQuery::Privilege::MULTI_DATABASE_USE,
-    AuthQuery::Privilege::COORDINATOR,
     AuthQuery::Privilege::IMPERSONATE_USER,
     AuthQuery::Privilege::PROFILE_RESTRICTION,
     AuthQuery::Privilege::PARALLEL_EXECUTION,

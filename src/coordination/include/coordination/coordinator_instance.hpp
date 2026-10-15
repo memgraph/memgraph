@@ -18,6 +18,8 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
@@ -75,7 +77,8 @@ class CoordinatorInstance {
 
   auto ShowInstance() const -> InstanceStatus;
 
-  auto ShowInstances() const -> std::vector<InstanceStatus>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
@@ -91,9 +94,32 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
+  auto CreateRole(std::string_view role_name) const -> CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> DropRoleStatus;
+
+  // Strong read of the committed role set: served locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader. Returns nullopt when the leader is unreachable -- never local replicated state, so
+  // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
+  auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
+
+  // Strong read of a single role's privileges: served locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader. Returns nullopt when the leader is unreachable -- never local replicated state; the
+  // returned pair is {role_found, mask}.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
+  // Leader-local read backing the GetRolePrivileges forwarding RPC. Returns nullopt if this coordinator is not the
+  // ready leader, otherwise {role_found, mask}.
+  auto GetRolePrivilegesAsLeader(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+
+  // Leader-local read backing the GetRoutingTable forwarding RPC.
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
-  auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 
@@ -105,6 +131,10 @@ class CoordinatorInstance {
 
   auto YieldLeadership() const -> YieldLeadershipStatus;
 
+  // NOT_LEADER if this coordinator isn't the Raft leader. Doesn't forward, so the handler serving a forwarded request
+  // never blocks the single management thread on another hop.
+  auto YieldLeadershipAsLeader() const -> YieldLeadershipStatus;
+
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();
@@ -114,16 +144,18 @@ class CoordinatorInstance {
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
-  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
-  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+  // Both return nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+  auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
+
+  // nullopt if this coordinator isn't a ready leader.
+  auto ShowCoordinatorSettingsAsLeader() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+  // Carries the reason instead of nullopt so a forwarding follower can report why the leader has no lag data.
+  auto ShowReplicationLagAsLeader() const -> ReplicationLagResult;
 
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
-  auto ShowReplicationLagAsFollower(int32 leader_id) const
-      -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
-  auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
-
   auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
                          std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
       -> AddCoordinatorInstanceStatus;
@@ -132,7 +164,6 @@ class CoordinatorInstance {
       -> AddCoordinatorInstanceStatus;
 
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
-  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   // When a coordinator is becoming a leader, we could be in several situations:
   // 1. Whole cluster was ok, lock was closed, we will find current main. Only last leader probably died.
@@ -149,20 +180,68 @@ class CoordinatorInstance {
 
   auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
 
-  auto FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector *;
+  // Returns a shared owner, not a pointer into coordinator_connectors_: a raft config change can erase the entry (see
+  // UpdateClientConnectors) while a caller is still blocked in SendRpc on it, and erasing a list element destroys the
+  // element itself -- std::list only promises addresses survive insertion. Holding a copy keeps the connector alive for
+  // the duration of the call; nullptr means no connector for that id.
+  auto FindClientConnector(int32_t leader_id) const -> std::shared_ptr<CoordinatorInstanceConnector>;
 
-  // nullopt if I am the leader, otherwise StatusMessage
+  auto AmReadyLeader() const -> bool {
+    return raft_state_->GetLeaderId() == raft_state_->GetMyCoordinatorId() &&
+           status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY;
+  }
+
+  // nullopt means "serve this locally", otherwise the status to report.
+  // A Raft leader is served locally even when it isn't ready yet: it has no connector to itself, so forwarding would
+  // report a misleading LEADER_NOT_FOUND instead of the caller's own NOT_LEADER. Every caller must therefore follow
+  // this with a readiness check (or deliberately allow a not-ready leader through, as the leadership escape hatches
+  // do).
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
   auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {
-    auto const leader_id = raft_state_->GetLeaderId();
-    if (leader_id == raft_state_->GetMyCoordinatorId() &&
-        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+    if (raft_state_->IsLeader()) {
       return std::nullopt;
     }
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
+    auto const leader_id = raft_state_->GetLeaderId();
+    // The shared owner is held for the whole (blocking) call, so a concurrent config change can't destroy it mid-RPC.
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendRpc<Rpc>(std::forward<Args>(args)...).value_or(false) ? StatusEnum::SUCCESS
+                                                                               : StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
+  }
+
+  // Like ForwardToLeader, but for RPCs whose response carries the leader's exact status (as std::optional<StatusEnum>)
+  // instead of a bool success flag, so the follower can act on statuses like ROLE_ALREADY_EXISTS. An empty response
+  // (the RPC itself failed) maps to LEADER_FAILED. Same local-vs-forward rule as ForwardToLeader.
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
+  auto ForwardStatusToLeader(Args &&...args) const -> std::optional<StatusEnum> {
+    if (raft_state_->IsLeader()) {
+      return std::nullopt;
+    }
+    auto const leader_id = raft_state_->GetLeaderId();
+    if (auto const leader = FindClientConnector(leader_id); leader != nullptr) {
+      // Outer optional: the RPC itself succeeded. Inner: the leader actually reported a status. Both must hold, or we
+      // would return nullopt here and the caller would misread it as "I am the leader".
+      if (auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...); res.has_value() && res->has_value()) {
+        return **res;
+      }
+      return StatusEnum::LEADER_FAILED;
+    }
+    return StatusEnum::LEADER_NOT_FOUND;
+  }
+
+  // Same as ForwardToLeader but for queries reading the cluster state, where the leader's answer is the payload rather
+  // than a status. Callers must first check AmReadyLeader() and serve the read locally if it holds. nullopt if the
+  // leader couldn't be reached, which is distinct from the leader answering with an empty payload.
+  template <rpc::IsRpc Rpc, typename... Args>
+  auto SendReadToLeader(Args &&...args) const -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
+    auto const leader_id = raft_state_->GetLeaderId();
+    auto const leader = FindClientConnector(leader_id);
+    if (leader == nullptr) {
+      spdlog::trace("Connection to leader {} not found, {} not forwarded.", leader_id, Rpc::Request::kType.name);
+      return std::nullopt;
+    }
+    return leader->SendRpc<Rpc>(std::forward<Args>(args)...);
   }
 
   std::optional<utils::TlsConfig> tls_config_;
@@ -187,7 +266,10 @@ class CoordinatorInstance {
   mutable utils::ResourceLock coord_instance_lock_{};
 
   // Connectors are used by raft state via observer.
-  mutable utils::Synchronized<std::list<std::pair<int32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+  // NOTE: Held by shared_ptr because a connector is used outside the spinlock: FindClientConnector hands one out and
+  // the caller blocks in SendRpc on it, while a raft config change can concurrently erase the entry.
+  mutable utils::Synchronized<std::list<std::pair<int32_t, std::shared_ptr<CoordinatorInstanceConnector>>>,
+                              utils::SpinLock>
       coordinator_connectors_;
 
   std::unique_ptr<RaftState> raft_state_;

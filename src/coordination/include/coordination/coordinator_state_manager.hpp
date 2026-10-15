@@ -15,7 +15,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <exception>
 #include <functional>
 #include <iterator>
 #include <libnuraft/basic_types.hxx>
@@ -34,7 +33,6 @@
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::coordination {
@@ -69,20 +67,13 @@ class CoordinatorStateManager final : public state_mgr {
 
     std::vector<CoordinatorInstanceAux> coord_instances_aux;
     coord_instances_aux.reserve(cluster_config_servers.size());
-
-    try {
-      std::ranges::transform(cluster_config_servers,
-                             std::back_inserter(coord_instances_aux),
-                             [](auto const &server) -> CoordinatorInstanceAux {
-                               auto j = nlohmann::json::parse(server->get_aux());
-                               return j.template get<CoordinatorInstanceAux>();
-                             });
-    } catch (std::exception const &e) {
-      LOG_FATAL("Error occurred while parsing aux field {}", e.what());
-    }
-
+    std::ranges::transform(cluster_config_servers, std::back_inserter(coord_instances_aux), ParseAux);
     return coord_instances_aux;
   }
+
+  // Returns aux of this coordinator as configured at startup. Unlike `GetCoordinatorInstancesAux`, it doesn't depend
+  // on the cluster config, which may temporarily miss this coordinator while it is joining the cluster.
+  [[nodiscard]] auto GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux;
 
   auto load_config() -> std::shared_ptr<cluster_config> override;
 
@@ -106,6 +97,8 @@ class CoordinatorStateManager final : public state_mgr {
   void HandleVersionMigration();
 
   void TryUpdateClusterConfigFromDisk();
+
+  static auto ParseAux(std::shared_ptr<srv_config> const &server) -> CoordinatorInstanceAux;
 
   mutable utils::RWSpinLock config_mutex_;
   int32_t my_id_;

@@ -22,20 +22,28 @@ def test_show_databases_w_user():
     user2_connection = common.connect(username="user2", password="test")
     user3_connection = common.connect(username="user3", password="test")
 
+    # SHOW DATABASES (plural) carries a HOT/COLD State column and a ready/broken Health column;
+    # SHOW DATABASE (singular, current db) does not.
     assert common.execute_and_fetch_all(admin_connection.cursor(), "SHOW DATABASES") == [
-        ("db1",),
-        ("db2",),
-        ("memgraph",),
+        ("db1", "HOT", "ready"),
+        ("db2", "HOT", "ready"),
+        ("memgraph", "HOT", "ready"),
     ]
     assert common.execute_and_fetch_all(admin_connection.cursor(), "SHOW DATABASE") == [("memgraph",)]
 
-    assert common.execute_and_fetch_all(user_connection.cursor(), "SHOW DATABASES") == [("db1",), ("memgraph",)]
+    assert common.execute_and_fetch_all(user_connection.cursor(), "SHOW DATABASES") == [
+        ("db1", "HOT", "ready"),
+        ("memgraph", "HOT", "ready"),
+    ]
     assert common.execute_and_fetch_all(user_connection.cursor(), "SHOW DATABASE") == [("memgraph",)]
 
-    assert common.execute_and_fetch_all(user2_connection.cursor(), "SHOW DATABASES") == [("db2",)]
+    assert common.execute_and_fetch_all(user2_connection.cursor(), "SHOW DATABASES") == [("db2", "HOT", "ready")]
     assert common.execute_and_fetch_all(user2_connection.cursor(), "SHOW DATABASE") == [("db2",)]
 
-    assert common.execute_and_fetch_all(user3_connection.cursor(), "SHOW DATABASES") == [("db1",), ("db2",)]
+    assert common.execute_and_fetch_all(user3_connection.cursor(), "SHOW DATABASES") == [
+        ("db1", "HOT", "ready"),
+        ("db2", "HOT", "ready"),
+    ]
     assert common.execute_and_fetch_all(user3_connection.cursor(), "SHOW DATABASE") == [("db1",)]
 
 

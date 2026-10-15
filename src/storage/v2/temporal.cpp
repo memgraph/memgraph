@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,11 @@ ZonedTemporalData::ZonedTemporalData(ZonedTemporalType type,
                                      std::chrono::sys_time<std::chrono::microseconds> microseconds,
                                      utils::Timezone timezone)
     : type{type}, microseconds{microseconds}, timezone{timezone} {}
+
+std::strong_ordering ZonedTemporalData::operator<=>(const ZonedTemporalData &other) const {
+  if (auto const kind = type <=> other.type; kind != std::strong_ordering::equal) return kind;
+  return utils::ZonedDateTime(microseconds, timezone) <=> utils::ZonedDateTime(other.microseconds, other.timezone);
+}
 
 int64_t ZonedTemporalData::IntMicroseconds() const { return microseconds.time_since_epoch().count(); }
 

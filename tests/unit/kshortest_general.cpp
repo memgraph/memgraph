@@ -44,13 +44,11 @@ class VertexDb : public Database {
     return db_->Access(memgraph::storage::WRITE);
   }
 
-  std::unique_ptr<LogicalOperator> MakeKShortestOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
-                                                         EdgeAtom::Direction direction,
-                                                         const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
-                                                         const std::shared_ptr<LogicalOperator> &input,
-                                                         bool existing_node, memgraph::query::Expression *lower_bound,
-                                                         memgraph::query::Expression *upper_bound,
-                                                         memgraph::query::Expression *limit) override {
+  std::unique_ptr<LogicalOperator> MakeKShortestOperator(
+      Symbol source_sym, Symbol sink_sym, Symbol edge_sym, EdgeAtom::Direction direction,
+      const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::shared_ptr<LogicalOperator> &input,
+      bool existing_node, memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit) override {
     return std::make_unique<ExpandVariable>(input,
                                             source_sym,
                                             sink_sym,
@@ -62,7 +60,7 @@ class VertexDb : public Database {
                                             lower_bound,
                                             upper_bound,
                                             existing_node,
-                                            memgraph::query::plan::ExpansionLambda{},
+                                            filter_lambda,
                                             std::nullopt,
                                             std::nullopt,
                                             limit);
@@ -151,6 +149,101 @@ TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
   // Test with limit 5 (more than available paths)
   spdlog::info("KShortestTest: Testing with limit 5");
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
+
+  // The top-up loop skips paths below the bound before the limit is served, so the two interact.
+  spdlog::info("KShortestTest: Testing lower bound 2 with limit 1");
+  db_->KShortestTest(db_.get(), 2, -1, EdgeAtom::Direction::OUT, {}, 1);
+}
+
+// A dropped candidate shows up as a missing path only once deviations start deep, which the
+// 6-vertex fixture never does - it stops at index 3 where the ladder reaches 10. Runs the ladder
+// unbounded and checks the exact count and per-index length against the brute-force enumerator.
+// The bounded, truncated case below drives the same depth through the length bound and `| k`.
+TEST_F(GeneralKShortestTestInMemory, LadderMatchesOracleAtDepth) {
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
+    db_->KShortestTest(
+        db_.get(), -1, -1, direction, {}, -1, FilterLambdaType::NONE, kLadderVertexLocations, kLadderEdges);
+  }
+}
+
+// The unbounded case leaves the length bound, the `| k` truncation and the expansion memo out of
+// the deep regime entirely: with no bound the candidate-too-long return never fires, and with no
+// filter lambda the memo is never consulted. This case drives all three at deviation index 10, and
+// its `| k` truncates most of the groups it enumerates.
+TEST_F(GeneralKShortestTestInMemory, LadderBoundedAndTruncatedAtDepth) {
+  db_->KShortestTest(db_.get(),
+                     -1,
+                     12,
+                     EdgeAtom::Direction::BOTH,
+                     {},
+                     5,
+                     FilterLambdaType::USE_CTX,
+                     kLadderVertexLocations,
+                     kLadderEdges);
+}
+
+// Depth is not enough on its own: every deviation root on the ladder stays productive, so a driver
+// that stops deviating once the index is deep still reaches every path there. This graph's roots
+// interleave, and three of its pairs lose a path when such a root is skipped.
+TEST_F(GeneralKShortestTestInMemory, InterleavedRootsMatchOracle) {
+  db_->KShortestTest(db_.get(),
+                     -1,
+                     -1,
+                     EdgeAtom::Direction::BOTH,
+                     {},
+                     -1,
+                     FilterLambdaType::NONE,
+                     kInterleavedVertexLocations,
+                     kInterleavedEdges);
+}
+
+TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
+  db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
+}
+
+// Filter lambda: the k shortest paths of the subgraph the lambda leaves behind.
+class FilteredKShortestTestInMemory
+    : public ::testing::TestWithParam<std::tuple<int, EdgeAtom::Direction, FilterLambdaType>> {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+TEST_P(FilteredKShortestTestInMemory, All) {
+  auto const [upper_bound, direction, filter_lambda_type] = GetParam();
+  this->db_->KShortestTest(db_.get(), -1, upper_bound, direction, {}, -1, filter_lambda_type);
+}
+
+std::unique_ptr<VertexDb<FilteredKShortestTestInMemory::StorageType>> FilteredKShortestTestInMemory::db_{nullptr};
+
+INSTANTIATE_TEST_SUITE_P(Filtered, FilteredKShortestTestInMemory,
+                         testing::Combine(testing::Values(3, -1),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(FilterLambdaType::USE_FRAME, FilterLambdaType::USE_CTX)));
+
+// A null verdict prunes exactly as false does, one line apart in `EvaluateFilterLambda`, so the
+// expectations match `USE_FRAME` and there is nothing for the matrix to vary.
+TEST_F(FilteredKShortestTestInMemory, NullLambdaPrunesLikeFalse) {
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_FRAME_NULL);
+}
+
+// The non-boolean verdict throws on the first edge that reaches vertex 5, which every direction and
+// bound does, so the harness returns before it looks at either.
+TEST_F(FilteredKShortestTestInMemory, NonBooleanLambdaThrows) {
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::ERROR);
+}
+
+// Filter lambda combined with a path limit, which the lambda must not disturb.
+TEST_F(FilteredKShortestTestInMemory, FilteredWithLimit) {
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 1, FilterLambdaType::USE_CTX);
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 3, FilterLambdaType::USE_CTX);
 }
 
 class GeneralKShortestTestOnDisk
@@ -198,4 +291,9 @@ TEST_F(GeneralKShortestTestOnDisk, KShortestWithLimit) {
 
   // Test with limit 5 (more than available paths)
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
+}
+
+// One filter lambda case on disk storage; the exhaustive matrix runs in memory.
+TEST_F(GeneralKShortestTestOnDisk, KShortestWithFilterLambda) {
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_CTX);
 }

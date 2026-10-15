@@ -198,16 +198,11 @@ auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable 
   return graph_atoms;
 }
 
-FilterMatching ToFilterMatching(Matching &matching) {
-  FilterMatching filter_matching;
-  filter_matching.expansions = matching.expansions;
-  filter_matching.edge_symbols = matching.edge_symbols;
-  filter_matching.filters = matching.filters;
-  filter_matching.atom_symbol_to_expansions = matching.atom_symbol_to_expansions;
-  filter_matching.named_paths = matching.named_paths;
-  filter_matching.expansion_symbols = matching.expansion_symbols;
-
-  return filter_matching;
+/// Re-plans @p original around @p varied's expansion order. Only the @c Matching base varies, so assigning through the
+/// base slice keeps every field @c SubqueryMatching adds - a new one needs no change here.
+SubqueryMatching ToSubqueryMatching(const Matching &varied, SubqueryMatching original) {
+  static_cast<Matching &>(original) = varied;
+  return original;
 }
 
 }  // namespace
@@ -266,19 +261,19 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
   return MakeCartesianProduct(std::move(variants));
 }
 
-CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching,
-                                                             const SymbolTable &symbol_table) {
-  auto filter_matchings_cnt = 0;
+CartesianProduct<VaryMatchingStart> VarySubqueryMatchingStarts(const Matching &matching,
+                                                               const SymbolTable &symbol_table) {
+  auto subquery_matchings_cnt = 0;
   for (const auto &filter : matching.filters) {
-    filter_matchings_cnt += static_cast<int>(filter.matchings.size());
+    subquery_matchings_cnt += static_cast<int>(filter.subquery_matchings.size());
   }
 
   std::vector<VaryMatchingStart> variants;
-  variants.reserve(filter_matchings_cnt);
+  variants.reserve(subquery_matchings_cnt);
 
   for (const auto &filter : matching.filters) {
-    for (const auto &filter_matching : filter.matchings) {
-      variants.emplace_back(filter_matching, symbol_table);
+    for (const auto &subquery_matching : filter.subquery_matchings) {
+      variants.emplace_back(subquery_matching, symbol_table);
     }
   }
 
@@ -290,7 +285,7 @@ VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part, const S
       matchings_(VaryMatchingStart(query_part_.matching, symbol_table)),
       optional_matchings_(VaryMultiMatchingStarts(query_part_.optional_matching, symbol_table)),
       merge_matchings_(VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)),
-      filter_matchings_(VaryFilterMatchingStarts(query_part_.matching, symbol_table)) {}
+      subquery_matchings_(VarySubqueryMatchingStarts(query_part_.matching, symbol_table)) {}
 
 VaryQueryPartMatching::iterator::iterator(SingleQueryPart query_part, VaryMatchingStart::iterator matchings_begin,
                                           VaryMatchingStart::iterator matchings_end,
@@ -379,24 +374,21 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
              "Either there are no filter matchings or we can always generate"
              "a variation");
 
-  auto all_filter_matchings = *filter_it_;
-  auto all_filter_matchings_idx = 0;
+  auto all_subquery_matchings = *filter_it_;
+  auto all_subquery_matchings_idx = 0;
   for (auto &filter : current_query_part_.matching.filters) {
-    auto matchings_size = filter.matchings.size();
+    auto matchings_size = filter.subquery_matchings.size();
 
-    std::vector<FilterMatching> new_matchings;
+    std::vector<SubqueryMatching> new_matchings;
     new_matchings.reserve(matchings_size);
 
     for (auto i = 0; i < matchings_size; i++) {
-      new_matchings.push_back(ToFilterMatching(all_filter_matchings[all_filter_matchings_idx]));
-      new_matchings[i].symbol = filter.matchings[i].symbol;
-      new_matchings[i].type = filter.matchings[i].type;
-      new_matchings[i].subquery = filter.matchings[i].subquery;
-
-      all_filter_matchings_idx++;
+      new_matchings.push_back(
+          ToSubqueryMatching(all_subquery_matchings[all_subquery_matchings_idx], filter.subquery_matchings[i]));
+      all_subquery_matchings_idx++;
     }
 
-    filter.matchings = std::move(new_matchings);
+    filter.subquery_matchings = std::move(new_matchings);
   }
 }
 

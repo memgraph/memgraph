@@ -11,18 +11,28 @@
 
 #pragma once
 
+#include <algorithm>
 #include <regex>
 #include <tuple>
 #include <utility>
 #include "query/frontend/ast/query/named_expression.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
+#include "utils/atomic_memory_block.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
+#include "utils/pmr/vector.hpp"
 
 #include "absl/container/flat_hash_set.h"
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
+/// The values an `IN` tests against, held once per query rather than rebuilt per row.
+///
+/// Whether the list holds a Null is answered from a flag rather than by looking. `IN` reports Null
+/// instead of false when the list has one, so every row whose value is not in the list used to
+/// probe a second time to find that out - the probe that costs the most, since it only happens when
+/// the first one missed. It is a property of the list, so it is worked out when the list is.
 struct CachedSet {
   using allocator_type = utils::Allocator<CachedSet>;
   using alloc_traits = std::allocator_traits<allocator_type>;
@@ -31,11 +41,25 @@ struct CachedSet {
   absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
       cache_;
 
+  /// Whether a lookup here answers the equality question `IN` asks.
+  ///
+  /// The set is keyed by equivalence, which holds a pair alike that equality leaves undecided or
+  /// answers false. The two part company over an element holding a Null or a NaN.
+  bool answers_equality_{true};
+
+  /// Maintained by `Insert`, which is the only route into the set, so it stays true of whatever
+  /// the set holds however the values got there.
+  bool has_null_{false};
+
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
-  CachedSet(const CachedSet &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+  CachedSet(const CachedSet &other, allocator_type alloc)
+      : cache_(other.cache_, alloc), answers_equality_(other.answers_equality_), has_null_(other.has_null_) {}
 
-  CachedSet(CachedSet &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
+  CachedSet(CachedSet &&other, allocator_type alloc)
+      : cache_(std::move(other.cache_), alloc),
+        answers_equality_(other.answers_equality_),
+        has_null_(other.has_null_) {}
 
   CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
@@ -49,21 +73,59 @@ struct CachedSet {
 
   ~CachedSet() = default;
 
-  void Reset() { cache_.clear(); }
+  void Reset() {
+    cache_.clear();
+    answers_equality_ = true;
+    has_null_ = false;
+  }
+
+  /// Whether anything has been cached here yet. An `IN` over an empty list is answered before it
+  /// gets this far, so holding nothing means holding nothing yet.
+  bool Empty() const { return cache_.empty(); }
+
+  /// Adds one value, keeping both of the things the set records about what it holds.
+  void Insert(const TypedValue &value) {
+    if (value.IsNull()) {
+      has_null_ = true;
+    } else if (!relations::equality::EqualsItself(value)) {
+      // An element that equality does not hold equal to itself costs the set its exactness: a
+      // lookup reports it present where equality would answer false, for one holding a NaN.
+      answers_equality_ = false;
+    }
+    cache_.insert(value);
+  }
+
+  /// Hands every value held to `visit`.
+  template <typename Visitor>
+  void ForEach(Visitor visit) const {
+    for (auto const &value : cache_) visit(value);
+  }
 
   bool SetValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
       return false;
     }
     const auto &list = maybe_list.ValueList();
-    for (const auto &element : list) {
-      cache_.insert(element);
-    }
+    // absl hash sets are not exception-safe: an allocation refused mid-insert leaves the set
+    // corrupted. Allocations here are tracked but not refused; limits apply once the block ends.
+    utils::AtomicMemoryBlock([&] {
+      cache_.reserve(list.size());
+      for (const auto &element : list) {
+        Insert(element);
+      }
+    });
     return true;
   }
 
   // Func to check if cache_ contains value
   bool Contains(const TypedValue &value) const { return cache_.contains(value); }
+
+  /// Whether a lookup here answers the equality question `IN` asks.
+  bool AnswersEquality() const { return answers_equality_; }
+
+  /// Whether one of these is Null, which makes `IN` answer Null rather than false for a value that
+  /// is not among them.
+  bool HasNull() const { return has_null_; }
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
@@ -116,7 +178,7 @@ class FrameChangeCollector {
       return std::nullopt;
     }
     // Empty is considered unpopulated
-    if (it->second.cache_.empty()) {
+    if (it->second.Empty()) {
       return std::nullopt;
     }
     return std::optional{std::cref(it->second)};
@@ -135,14 +197,20 @@ class FrameChangeCollector {
     return std::optional{std::cref(*it->second)};
   }
 
+  /// Invalidates whatever a write to `symbol` invalidates.
+  ///
+  /// Every frame write comes through here, and most queries track nothing at all, so the answer for
+  /// a query with no `IN` and no regex has to be reachable without touching a hash table.
   void ResetCache(Symbol const &symbol) {
-    ResetInListCacheInternal(symbol.position_);
-    ResetRegexCacheInternal(symbol.position_);
+    if (invalidators_.empty()) [[likely]]
+      return;
+    ResetCacheInternal(symbol.position_);
   }
 
   void ResetCache(NamedExpression const &named_expression) {
-    ResetInListCacheInternal(named_expression.symbol_pos_);
-    ResetRegexCacheInternal(named_expression.symbol_pos_);
+    if (invalidators_.empty()) [[likely]]
+      return;
+    ResetCacheInternal(named_expression.symbol_pos_);
   }
 
   void ResetInListCache(Symbol const &symbol) { ResetInListCacheInternal(symbol.position_); }
@@ -174,10 +242,11 @@ class FrameChangeCollector {
     // Merge inlist_cache_: combine cached values (union of sets)
     for (auto &&[key, cached_set] : other.inlist_cache_) {
       auto [it, inserted] = inlist_cache_.emplace(key, CachedSet(get_allocator()));
-      // Merge the cached values (union of sets) - works for both new and existing keys
-      for (auto &&value : cached_set.cache_) {
-        it->second.cache_.emplace(value);
-      }
+      // Merge the cached values (union of sets) - works for both new and existing keys. Going
+      // through `Insert` rather than straight into the set is what keeps the two things recorded
+      // about the contents true of the merged set: both are properties of what it holds, and the
+      // merged set holds what both sides held.
+      cached_set.ForEach([&](TypedValue const &value) { it->second.Insert(value); });
     }
 
     // Merge regex_cache_: if key doesn't exist in main, insert it
@@ -258,6 +327,22 @@ class FrameChangeCollector {
   }
 
  private:
+  /// A key is looked up in both caches because a key names an expression, and which of the two
+  /// caches holds it is not recorded anywhere.
+  void ResetCacheInternal(Symbol::Position_t const &symbol_pos) {
+    auto const it = invalidators_.find(symbol_pos);
+    if (it == invalidators_.cend()) [[likely]]
+      return;
+    for (auto const &key : it->second) {
+      if (auto const in_list = inlist_cache_.find(key); in_list != inlist_cache_.cend()) {
+        in_list->second.Reset();
+      }
+      if (auto const regex = regex_cache_.find(key); regex != regex_cache_.cend()) {
+        regex->second = std::nullopt;  // tracked but not populated
+      }
+    }
+  }
+
   void ResetInListCacheInternal(Symbol::Position_t const &symbol_pos) {
     auto const it = invalidators_.find(symbol_pos);
     if (it == invalidators_.cend()) [[likely]]
@@ -265,17 +350,6 @@ class FrameChangeCollector {
     for (auto const &key : it->second) {
       if (auto const it2 = inlist_cache_.find(key); it2 != inlist_cache_.cend()) {
         it2->second.Reset();
-      }
-    }
-  }
-
-  void ResetRegexCacheInternal(Symbol::Position_t const &symbol_pos) {
-    auto const it = invalidators_.find(symbol_pos);
-    if (it == invalidators_.cend()) [[likely]]
-      return;
-    for (auto const &key : it->second) {
-      if (auto it2 = regex_cache_.find(key); it2 != regex_cache_.cend()) {
-        it2->second = std::nullopt;  // tracked but not populated
       }
     }
   }

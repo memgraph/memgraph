@@ -228,8 +228,21 @@ install_ebs_csi_driver() {
         return 0
     fi
 
+    # kustomize fetches the remote base with its own `git fetch`; in CI (GITHUB_TOKEN
+    # set) authenticate it via git's env-config so the shared runner IP isn't rate-limited.
+    local -a git_auth_env=()
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        local auth_b64
+        auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 | tr -d '\n')"
+        git_auth_env=(
+            GIT_CONFIG_COUNT=1
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth_b64"
+        )
+    fi
+
     # Install EBS CSI driver
-    kubectl apply -k "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/ecr/?ref=release-1.25"
+    env "${git_auth_env[@]}" kubectl apply -k "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/ecr/?ref=release-1.25"
 
     if [[ $? -ne 0 ]]; then
         log_error "Failed to install EBS CSI driver"

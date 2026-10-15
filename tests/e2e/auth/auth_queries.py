@@ -257,6 +257,8 @@ def test_username_and_roles_functions_in_trigger(memgraph):
     memgraph.execute("CREATE USER trigger_admin;")
     memgraph.execute("GRANT ALL PRIVILEGES TO trigger_admin;")
     memgraph.execute(f"GRANT * ON NODES CONTAINING LABELS * TO trigger_admin;")
+    memgraph.execute("GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO trigger_admin;")
+    memgraph.execute("GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO trigger_admin;")
     memgraph_with_trigger_admin = Memgraph(username="trigger_admin", password="")
 
     # again capture the username and roles of the user who invoked the trigger

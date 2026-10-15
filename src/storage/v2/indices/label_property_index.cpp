@@ -71,6 +71,10 @@ auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const
   return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
 }
 
+void PropertiesPermutationHelper::ExtractInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
+  properties.ExtractPropertyValuesMissingAsNull(sorted_properties_, out);
+}
+
 void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue const &value,
                                          std::vector<PropertyValue> &extracted_values) const {
   auto it = grouped_by_outer_prop_id_.find(outer_prop_id);
@@ -78,25 +82,30 @@ void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue
   auto const &sorted_positions = it->second;
   for (auto const &pos : sorted_positions) {
     auto const *nested_value = ReadNestedPropertyValue(value, sorted_properties_[pos] | rv::drop(1));
-    extracted_values[pos] = *nested_value;
+    // The path need not resolve: `value` may not be a map, or may be one without the property.
+    // No value at the path means a null index key.
+    extracted_values[pos] = nested_value ? *nested_value : PropertyValue{};
+  }
+}
+
+void PropertiesPermutationHelper::ApplyPermutationInPlace(std::span<PropertyValue> values) const {
+  for (const auto &cycle : cycles_) {
+    auto tmp = std::move(values[cycle.front()]);
+    for (auto pos : std::span{cycle}.subspan<1>()) {
+      tmp = std::exchange(values[pos], std::move(tmp));
+    }
+    values[cycle.front()] = std::move(tmp);
   }
 }
 
 auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> values) const
-    -> IndexOrderedPropertyValues {
-  for (const auto &cycle : cycles_) {
-    auto tmp = std::move(values[cycle.front()]);
-    for (auto pos : std::span{cycle}.subspan<1>()) {
-      tmp = std::exchange(values[pos], tmp);
-    }
-    values[cycle.front()] = std::move(tmp);
-  }
-
+    -> IndexOrderedValuesVector {
+  ApplyPermutationInPlace(std::span{values});
   return {std::move(values)};
 }
 
 auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, PropertyValue const &value,
-                                               IndexOrderedPropertyValues const &cmp_values) const
+                                               IndexOrderedValuesView cmp_values) const
     -> std::vector<std::pair<std::ptrdiff_t, bool>> {
   auto enum_properties = rv::enumerate(sorted_properties_);
   auto relevant_paths =
@@ -104,7 +113,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 
   auto is_match = [&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
     auto &&[index, path] = el;
-    auto const &cmp_value = cmp_values.values_[position_lookup_[index]];
+    auto const &cmp_value = cmp_values[position_lookup_[index]];
     // Outer property was already read to get `value`, strip that off of the path
     DMG_ASSERT(!path.empty(), "PropertyPath should be at least 1");
     auto const *nested_value = ReadNestedPropertyValue(value, path | rv::drop(1));
@@ -113,9 +122,9 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
   return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
 
-auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
-                                                IndexOrderedPropertyValues const &values) const -> std::vector<bool> {
-  return properties.ArePropertiesEqual(sorted_properties_, values.values_, position_lookup_);
+void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
+                                                std::vector<bool> &out) const {
+  properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
 }
 
 size_t PropertyValueRange::hash() const noexcept {
@@ -131,8 +140,8 @@ size_t PropertyValueRange::hash() const noexcept {
 }
 
 void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
-  const auto &it = p2l.find(propId);
-  if (it == p2l.end()) return;
+  const auto &it = lookup->p2l.find(propId);
+  if (it == lookup->p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
     if (!std::ranges::contains(vertex->labels, label)) continue;
@@ -148,8 +157,8 @@ void LabelPropertyIndexAbortProcessor::CollectOnPropertyChange(PropertyId propId
 }
 
 void LabelPropertyIndexAbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-  const auto &it = l2p.find(label);
-  if (it == l2p.end()) return;
+  const auto &it = lookup->l2p.find(label);
+  if (it == lookup->l2p.end()) return;
 
   auto dedup = std::set<LabelPropertyIndex::IndexInfo>{};
   for (const auto &[property, index_info] : it->second) {

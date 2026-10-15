@@ -1,0 +1,12 @@
+# `limit` stops the node-global walk as it stops the others, and breadth-first order means the two rows
+# it returns are the shortest paths rather than whichever the walk found first.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, maxHops: 3, uniqueness: 'NODE_GLOBAL', limit: 2})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]

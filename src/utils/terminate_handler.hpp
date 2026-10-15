@@ -16,6 +16,7 @@
 #include <iosfwd>
 #include <iostream>
 
+#include "utils/build_info.hpp"
 #include "utils/stacktrace.hpp"
 
 namespace memgraph::utils {
@@ -26,6 +27,10 @@ namespace memgraph::utils {
  * http://en.cppreference.com/w/cpp/utility/program/abort.
  */
 inline void TerminateHandler(std::ostream &stream) noexcept {
+  const auto build_info = GetBuildInfo();
+  stream << "Memgraph " << build_info.version
+         << " (build-id: " << (build_info.build_id.empty() ? "unknown" : build_info.build_id)
+         << ", build-type: " << build_info.build_name << ")\n";
   if (auto exc = std::current_exception()) {
     try {
       std::rethrow_exception(exc);

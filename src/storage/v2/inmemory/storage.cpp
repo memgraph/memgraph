@@ -15,17 +15,21 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <mutex>
 #include <optional>
 #include <system_error>
 #include <unordered_set>
+#include <utility>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "memory/global_memory_control.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -37,17 +41,17 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/inmemory/claimed_objects.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
-#include "utils/async_timer.hpp"
 #include "utils/timer.hpp"
 
 /// REPLICATION ///
@@ -59,6 +63,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/atomic_utils.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/memory_tracker.hpp"
@@ -76,6 +81,10 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 namespace {
+
+// Sub-directory holding durability files superseded by a new base state. Kept in sync with the name
+// utils::GetFilesFromDir filters out, so archived files are invisible to every directory scan.
+constexpr std::string_view kOldDurabilityDir = ".old";
 
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -97,6 +106,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(EDGE_PROPERTY_INDEX_DROP);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_VERTEX_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_VERTEX_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_EDGE_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
@@ -161,10 +172,7 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
 
   // String HAS to be a valid cron expr
-  void Update(const memgraph::utils::SchedulerInterval &in) override {
-    scheduler_->SetInterval(in);
-    scheduler_->SpinOnce();
-  }
+  void Update(const memgraph::utils::SchedulerInterval &in) override { scheduler_->SetIntervalAndWake(in); }
 
  private:
   memgraph::utils::Scheduler *scheduler_;
@@ -195,10 +203,9 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas,
-                           std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
-                           std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
-                           IndexPerformanceTracker &impact_tracker) {
+void UnlinkDeltasAndCollectDeleted(delta_container &deltas, BatchedList<Edge *> &current_deleted_edges,
+                                   BatchedList<Gid> &current_deleted_vertices,
+                                   IndexArming::TransactionScope const &arming_scope) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -208,7 +215,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
           return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
         "downstream active non-sequential delta found during rapid cleanup");
-    impact_tracker.update(delta.action);
+    arming_scope.note(delta);
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::NULL_PTR:
@@ -229,7 +236,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas,
         edge.SetDelta(nullptr);
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          current_deleted_edges.push_back(edge.gid);
+          current_deleted_edges.push_back(prev.edge);
         }
         break;
       }
@@ -325,6 +332,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
+  MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
+            "Light edges require properties on edges (--storage-light-edge implies "
+            "--storage-properties-on-edges=true).");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -354,35 +364,82 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.durability.recover_on_startup) {
-    // Disable ttl until after recovery and role switch / write enabled
+    // Disable TTL until after recovery and the role switch / write-enabled check.
+    // LOAD-BEARING for hot/cold RESUME: a resumed tenant is rebuilt through this ctor
+    // (recover_on_startup=true), so this deny-default (false) is what prevents TTL from
+    // running under the permissive struct-default in the window between the TTL scheduler
+    // starting (inside RecoverData) and on_published_ rewiring the MAIN-only user check.
+    // Do not move or remove this call.
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     utils::Timer const recovery_timer;
-    auto info = recovery_.RecoverData(
-        uuid(),
-        repl_storage_state_,
-        &vertices_,
-        &edges_,
-        edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
-        &edge_count_,
-        name_id_mapper_.get(),
-        &indices_,
-        &constraints_,
-        config_,
-        db_arena_,
-        &wal_seq_num_,
-        &enum_store_,
-        config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); },
-        name(),
-        &ttl_,
-        &description_store_);
+    // Exception-safety for light edges: if RecoverData throws after wiring one
+    // or more pool-allocated light Edge* into vertex adjacency, the exception
+    // escapes the InMemoryStorage constructor.  C++ runs member destructors but
+    // never the ~InMemoryStorage body, so the ClearLightEdges() teardown in the
+    // dtor would be skipped — orphaning every live light Edge* (the vertices_
+    // SkipList dtor frees its Vertex nodes without touching the adjacency
+    // Edge*).  Heavy edges are unaffected (freed by the edges_ SkipList dtor).
+    // The catch below gates on the flag so the heavy path remains byte-identical
+    // and delegates to ClearLightEdges() which is noexcept-safe (LightEdgePool::
+    // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
+    // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
+    // directly without queuing).
+    auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
+      try {
+        return recovery_.RecoverData(
+            uuid(),
+            repl_storage_state_,
+            &vertices_,
+            &edges_,
+            edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
+            &edge_count_,
+            name_id_mapper_.get(),
+            &indices_,
+            &constraints_,
+            config_,
+            db_arena_,
+            &wal_seq_num_,
+            &enum_store_,
+            config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+            [this](Gid edge_gid) { return FindEdge(edge_gid); },
+            name(),
+            &ttl_,
+            &description_store_);
+      } catch (...) {
+        // --storage-allow-recovery-failure: instead of crashing the process, bring this
+        // database up empty and broken. RecoverData only reads durability files, so the
+        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT
+        // or restore the whole data directory from a backup. Any exception is treated as
+        // a broken boot when the flag is on: data-driven corruption does not always
+        // surface as RecoveryFailure (e.g. a flipped count byte yields std::length_error
+        // or OutOfMemoryException from a reserve/loop bound). When the flag is off, every
+        // exception propagates unchanged after freeing any pool-allocated light edges.
+        if (!config_.durability.allow_recovery_failure) {
+          if (config_.salient.items.storage_light_edge) {
+            ClearLightEdges();
+          }
+          throw;
+        }
+        spdlog::warn("Database '{}' failed to recover; bringing it up in the broken state.", name());
+        // Clear() harvests and frees the live light edges itself (gated on storage_light_edge),
+        // so it is the single owner on this path; do not pre-free here or it double-frees.
+        Clear();
+        name_id_mapper_->Clear();
+        description_store_.Clear();
+        // Snapshot recovery may have already armed the storage-ttl background thread; stop it so a
+        // broken database doesn't keep firing TTL jobs against cleared storage.
+        ttl_.Disable();
+        SetBroken(true);
+        return std::nullopt;
+      }
+    });
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
-      timestamp_ = std::max(timestamp_, info->next_timestamp);
+      SetTimestampQuiescent(std::max(timestamp_, info->next_timestamp));
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
@@ -402,6 +459,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         }
       }
     }
+
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
     bool files_moved = false;
@@ -437,7 +495,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (free_mem_fn_override) {
     free_memory_func_ = *std::move(free_mem_fn_override);
   } else {
-    free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+    free_memory_func_ = [this](utils::ResourceLockGuard main_guard, bool periodic) {
       CollectGarbage(std::move(main_guard), periodic);
 
       // Indices
@@ -446,6 +504,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
       static_cast<InMemoryEdgePropertyIndex *>(indices_.edge_property_index_.get())->RunGC();
+      static_cast<InMemoryVertexPropertyIndex *>(indices_.vertex_property_index_.get())->RunGC();
 
       // Constraints
       static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get())->RunGC();
@@ -456,13 +515,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       }
       vertices_.run_gc();
       edges_.run_gc();
+      DrainLightEdgeGraveyard();
 
       // Auto-indexer also has a skiplist
       async_indexer_.RunGC();
-
-      // AsyncTimer resources are global, not particularly storage related, more query related
-      // At some point in the future this should be scheduled by something else
-      utils::AsyncTimer::GCRun();
     };
   }
 
@@ -477,7 +533,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] {
       const memory::DbArenaScope db_arena_scope{db_arena_};
-      this->FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, true);
+      this->FreeMemory({}, true);
     });
   }
 
@@ -518,10 +574,29 @@ InMemoryStorage::~InMemoryStorage() {
   }
 
   snapshot_runner_.Stop();
-  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+  // A broken database must not write an exit snapshot over its untouched corrupt files.
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler && !IsBroken()) {
     create_snapshot_handler("exit");
   }
+  // Leak fix: a deleted light edge whose delta chain was never GC-unlinked
+  // (an older txn was active at delete time) is referenced ONLY by an un-GC'd
+  // RECREATE_OBJECT delta in committed_transactions_/waiting_gc_deltas_. The
+  // clear() below frees those deltas but NOT the pool-allocated Edge*, and
+  // ClearLightEdges only drains {adjacency, graveyard, deleted_edges_} -> the
+  // Edge* would leak. A forced CollectGarbage here would work but is NOT noexcept
+  // (allocations, logging) and a throw in a dtor calls std::terminate. Instead
+  // run a noexcept harvester that frees exactly those delta-chain-only light
+  // edges (disjoint from the three sets ClearLightEdges drains, so no double
+  // free). Gated: heavy Edge* live in edges_ and are freed by the skiplist.
+  if (config_.salient.items.storage_light_edge) {
+    HarvestDeltaChainOnlyLightEdges();
+  }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
+  // Free live light edges (pool-allocated Edge*) before teardown. Gated: heavy
+  // edges live in edges_ and are freed by the skip-list, not here.
+  if (config_.salient.items.storage_light_edge) {
+    ClearLightEdges();
+  }
 }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
@@ -532,26 +607,28 @@ void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change
   }
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
-                                                    IsolationLevel isolation_level, StorageMode storage_mode,
-                                                    StorageAccessType rw_type,
-                                                    std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
-      config_(storage->config_.salient.items) {}
-
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode,
-                                                    std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
+                                                    std::optional<IsolationLevel> override_isolation_level,
+                                                    utils::ResourceLockGuard guard)
+    : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
+    // Sampled before Abort(), which moves commit_info into the graveyard. One CommitInfo is shared
+    // by every delta a transaction writes, so publishing restamps all of them at once.
+    bool const published =
+        commit_timestamp_ && transaction_.commit_info != nullptr &&
+        transaction_.commit_info->timestamp.load(std::memory_order_acquire) != transaction_.transaction_id;
     InMemoryAccessor::Abort();
-    // We didn't actually commit
-    commit_timestamp_.reset();
+    // An unpublished timestamp goes to FinalizeTransaction below to be marked finished; left
+    // unmarked it counts as an active transaction for the life of the process and stops all
+    // reclamation. A published one is dropped here and stays unmarked instead: Abort() undid none
+    // of its deltas, so they are still linked into the version chains while their storage sits in
+    // the graveyard, and marking it would let a collection pass free that storage under a reader.
+    if (published) commit_timestamp_.reset();
   }
 
   InMemoryAccessor::FinalizeTransaction();
@@ -660,6 +737,20 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
+
+      // A light edge is named only by the adjacency of its endpoints, and deleting an edge erases
+      // it from both, so nothing can reach it afterwards to collect it: hand it over here instead.
+      // A heavy edge needs no handover, its skip-list node is still there for the scan to find.
+      if (config_.storage_light_edge) {
+        // Collect the Edge* off-lock, then splice in O(1) under the SpinLock — the
+        // critical section must not do O(batch) node allocation while locked.
+        BatchedList<Edge *> light_edges;
+        for (auto const &edge : deleted_edges) {
+          light_edges.push_back(edge.edge_.ptr);
+        }
+        mem_storage->deleted_edges_.WithLock(
+            [&](auto &storage_deleted_edges) { storage_deleted_edges.splice(light_edges); });
+      }
     }
   }};
 
@@ -675,74 +766,33 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   return maybe_result;
 }
 
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                                   EdgeTypeId edge_type) {
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
-
-  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
-  // locks
-  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
-
-  auto *from_vertex = from->vertex_;
-  auto *to_vertex = to->vertex_;
-
-  // This has to be called before any object gets locked
-  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
-  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
-  transaction_.async_index_helper_.Track(edge_type);
-
-  auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
-  DeltaChainState const from_state =
-      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
-
-  // If to and from are the same we need to ensure to_result is the same as from_result
-  DeltaChainState to_state = from_state;
-  if (to_vertex != from_vertex) {
-    WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
-    if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
-    to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
-  }
-
-  if (storage_->config_.salient.items.enable_schema_metadata) {
-    storage_->stored_edge_types_.try_insert(edge_type);
-  }
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInternal(
+    Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type, DeltaChainState from_state, DeltaChainState to_state,
+    storage::Gid gid, std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
+    std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
+    // SchemaInfo handles edge creation via vertices; add collector here if that ever changes
+    Edge *edge_ptr = nullptr;
     auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
+    if (config_.storage_light_edge) {
+      // Create throws on OOM (propagated to abort the txn), never returns null.
+      edge_ptr = InMemoryStorage::LightEdgePool::Create(gid, delta);
+    } else {
+      edge_acc = mem_storage->edges_.access();
+      auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+      MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+      edge_ptr = &*it;
     }
+    if (delta) {
+      delta->prev.Set(edge_ptr);
+    }
+    edge = EdgeRef(edge_ptr);
     if (auto &idx = mem_storage->edges_metadata_index_) {
-      idx->OnEdgeCreated(gid, from->vertex_);
+      idx->OnEdgeCreated(gid, from_vertex);
     }
   }
 
@@ -755,9 +805,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                             from_state,
                             to_state]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
+    if (from_state == DeltaChainState::NON_SEQUENTIAL) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
+    if (to_state == DeltaChainState::NON_SEQUENTIAL) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -779,6 +831,64 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                                                   EdgeTypeId edge_type) {
+  MG_ASSERT(from->transaction_ == to->transaction_,
+            "VertexAccessors must be from the same transaction when creating "
+            "an edge!");
+  MG_ASSERT(from->transaction_ == &transaction_,
+            "VertexAccessors must be from the same transaction in when "
+            "creating an edge!");
+
+  // It's important to destruct the accessor after we unlock the vertices to avoid expensive skip list gc while we hold
+  // the locks
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
+
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+  // Obtain the locks by `gid` order to avoid lock cycles.
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    // The vertices are the same vertex, only lock one.
+    guard_from.lock();
+  }
+
+  transaction_.async_index_helper_.Track(edge_type);
+  auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+  DeltaChainState const from_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
+
+  // If to and from are the same we need to ensure to_result is the same as from_result
+  DeltaChainState to_state = from_state;
+  if (to_vertex != from_vertex) {
+    WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+    to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
+  }
+
+  if (storage_->config_.salient.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
+  }
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+
+  auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
+  MG_ASSERT(result.has_value(), "CreateEdgeInternal must not fail when called from CreateEdge");
+  return *result;
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
@@ -808,10 +918,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  // It's important to destruct accessors after we unlock the vertices to avoid expensive skip list gc while we hold the
-  // locks
+  // It's important to destruct the accessor after we unlock the vertices to avoid expensive skip list gc while we hold
+  // the locks
   std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
-
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -858,49 +967,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // possible.
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
-    }
-    if (auto &idx = mem_storage->edges_metadata_index_) {
-      idx->OnEdgeCreated(gid, from->vertex_);
-    }
-  }
-
-  utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-
-    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
-
-    // Update indices if they exist.
-    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
-
-    // Increment edge count.
-    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-  });
-
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+  auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
+  MG_ASSERT(result.has_value(), "CreateEdgeInternal must not fail when called from CreateEdgeEx");
+  return *result;
 }
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
@@ -952,6 +1021,9 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // while still holding engine lock and after durability + replication,
   // check if we can fast discard deltas (i.e. do not hand over to GC)
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // Caller MUST hold engine_lock_ (unchecked: SpinLock has no owner API). The transaction_id_ check below
+  // is what excludes a reader that began in this commit's mint-to-publish window.
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
@@ -965,8 +1037,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   }
 }
 
-void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
-  Abort();
+void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs(ProgressCallback const &on_progress) {
+  Abort(on_progress);
   // We have aborted, need to release/cleanup commit_timestamp_ here
   DMG_ASSERT(commit_timestamp_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -975,12 +1047,25 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
+void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
+  // Transactional arming is read off the deltas as the GC unlinks them. Analytical makes no deltas,
+  // so its writes note what they touched on the transaction and it is handed over here instead.
+  // Without this an analytical workload that only creates and updates never arms a sweep, and every
+  // superseded index entry it writes stays until something is deleted.
+  if (!transaction_.index_arming.arms_anything()) return;
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  mem_storage->pending_index_arming_.WithLock([this](IndexArming &pending) { pending |= transaction_.index_arming; });
+}
+
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitArgs const commit_args) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  const bool narrowing = mem_storage->config_.experimental_commit_lock_narrowing;
+
+  PublishIndexArming();
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
@@ -1008,6 +1093,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{validation_result.error()};
   }
 
+  // Serialize committers across mint->publish: (1) mint order must equal watermark publish order;
+  // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
+  // publish, since its unpublished writes are invisible to MVCC.
+  auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
@@ -1023,7 +1113,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // There are probably others. We not to check all of them and figure out if they are allowed and what are
   // they even doing here...
 
-  // Write transaction to WAL while holding the engine lock to make sure
+  // Write transaction to WAL under whichever lock is serialising committers here, so
   // that committed transactions are sorted by the commit timestamp in the
   // WAL files. We supply the new commit timestamp to the function so that
   // it knows what will be the final commit timestamp. The WAL must be
@@ -1033,10 +1123,31 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Replica can log only the write transaction received from main
   // so the wal files are consistent
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
+  // Asserted where the two are derived, so that separating them fails here rather than at whichever
+  // comparison notices first.
+  DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
+             "on a main the durable commit timestamp must be the local one");
+
+  // Copied while engine_lock_ is still held, because a replica switches epoch under that lock alone
+  // and ReplicationEpoch::id() is a view into a string SetEpoch replaces. Reading it after the
+  // release below would race that switch and could hand the WAL a view of a freed buffer.
+  auto const epoch_id = std::string{mem_storage->repl_storage_state_.epoch_.id()};
+
+  // Release engine_lock so BEGIN need not wait on WAL + replication (commit_mutex_ still held).
+  if (narrowing) {
+    engine_guard.unlock();
+  }
+
+  // Publishing needs engine_lock_; narrowing released it above, so take it back (commit_mutex_ is still held).
+  auto const with_engine_lock = [&](auto &&publish) {
+    if (!engine_guard.owns_lock()) engine_guard.lock();
+    publish();
+    if (narrowing) engine_guard.unlock();
+  };
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-  if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
-    FinalizeCommitPhase(durability_commit_timestamp);
+  if (!mem_storage->InitializeWalFile(epoch_id)) {
+    with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
     // No WAL file, hence no need to finalize it
     return {};
   }
@@ -1057,7 +1168,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
         }
       });
   if (replica_write_was_applied) {
@@ -1072,15 +1183,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
 
           auto failures = replicating_txn.CollectAllFailures();
-          auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-            return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                                .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-          };
-          // update replicas' cached commit info
-          replicating_txn.UpdateCommitTsInfo(update_func);
+          // update replicas' cached commit info to this txn's absolute committed-txn count
+          replicating_txn.UpdateCommitTsInfo();
 
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
@@ -1091,34 +1198,53 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
 
+        // Skip on failed prepare: the flag must stay false so WAL recovery rolls this transaction back.
+        // Queueing runs ahead of the flag for the reason FinalizeCommitPhase gives, and this arm calls
+        // the steps separately because its publish waits on the replicas.
         if (repl_prepare_phase_ok) {
-          // All replicas voted yes, hence they want to commit the current transaction
-          FinalizeCommitPhase(durability_commit_timestamp);
+          QueueSchemaUpdate(durability_commit_timestamp);
+          FinalizeWalCommitStatus();
         }
-        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
-
+        // The WAL commit flag is durable and replicas may have committed: an exception below must still publish,
+        // otherwise ~InMemoryAccessor aborts a transaction the WAL considers committed.
+        bool published = false;
+        utils::OnScopeExit const publish_on_unwind{[&] {
+          if (!repl_prepare_phase_ok || published) return;
+          published = true;
+          try {
+            with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
+          } catch (...) {
+            spdlog::error("Failed to publish a transaction whose WAL commit flag was already written.");
+          }
+        }};
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-        // Send to all replicas they can finalize a transaction
+        // MVCC publish is deferred until after this call: before STRICT_SYNC replicas ack, failover
+        // could still roll the commit back, so publishing earlier would expose a value that can vanish.
         replicating_txn.FinalizeTransaction(
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
-        auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-          return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                              .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-        };
-        // update replicas' cached commit info only if the txn was actually committed
-        if (repl_prepare_phase_ok) {
-          replicating_txn.UpdateCommitTsInfo(update_func);
-        }
 
         if (!failures.empty()) {
-          // Release engine lock because we don't have to hold it anymore for abort
-          engine_guard.unlock();
+          // Reachable only with repl_prepare_phase_ok == false, since FinalizeTransaction's failures are
+          // deliberately not collected here. Claim the publish regardless: the abort below drops the commit
+          // timestamp, so a scope exit that published after it would dereference an empty optional and make
+          // visible a transaction that was just rolled back.
+          published = true;
+          if (engine_guard.owns_lock()) engine_guard.unlock();
           AbortAndResetCommitTs();
           return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
+        }
+
+        if (repl_prepare_phase_ok) {
+          // Publish only after replicas finalize: with engine_lock_ released a BEGIN could otherwise see a commit
+          // a failover may roll back (safe pre-narrowing only because engine_lock_ was held throughout).
+          published = true;
+          with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
+          // After publish: main's commit_ts_info_ is bumped in PublishCommit; replica caches must not lead it.
+          replicating_txn.UpdateCommitTsInfo();
         }
 
         return {};
@@ -1127,33 +1253,58 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return *std::move(res);
 }
 
-void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
+void InMemoryStorage::InMemoryAccessor::QueueSchemaUpdate(uint64_t const durability_commit_timestamp) {
+  if (!config_.enable_schema_info) return;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // Deferring keeps schema updates in commit timestamp order, so the schema processing code cannot
+  // read a slow in-flight edge operation part-way through a label modification.
+  std::scoped_lock const lock{mem_storage->schema_queue_mutex_};
+  mem_storage->pending_schema_updates_.emplace(
+      durability_commit_timestamp,
+      SchemaUpdateData(std::move(transaction_.schema_diff_),
+                       std::move(transaction_.post_process_),
+                       transaction_.SchemaReconstructionBound(),
+                       *commit_timestamp_,
+                       mem_storage->config_.salient.items.properties_on_edges));
+}
 
-  if (config_.enable_schema_info) {
-    // Queue schema update instead of processing immediately. This ensures
-    // schema updates are processed in commit timestamp order, solving a race
-    // condition whereby a slow in-flight edge operation can be accidentally
-    // read by the schema processing code in a label modification.
-    std::lock_guard<std::mutex> const lock{mem_storage->schema_queue_mutex_};
-    mem_storage->pending_schema_updates_.emplace(
-        durability_commit_timestamp,
-        SchemaUpdateData(std::move(transaction_.schema_diff_),
-                         std::move(transaction_.post_process_),
-                         transaction_.start_timestamp,
-                         durability_commit_timestamp,
-                         mem_storage->config_.salient.items.properties_on_edges));
-  }
-
+void InMemoryStorage::InMemoryAccessor::FinalizeWalCommitStatus() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
   // is fine.
-  if (commit_flag_wal_position_ != 0 && needs_wal_update_) {
-    constexpr bool commit{true};
-    mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
+  if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
+    mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
+  }
+}
+
+void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_commit_timestamp,
+                                                      std::unique_lock<utils::SpinLock> const &engine_guard) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  DMG_ASSERT(engine_guard.owns_lock() && engine_guard.mutex() == &mem_storage->engine_lock_,
+             "PublishCommit requires engine_lock_ held");
+
+  if (mem_storage->config_.experimental_commit_lock_narrowing) {
+    // Before any visibility side effect, and exempt from the tracker's OOM throw: the WAL and the
+    // replicas are already done, so this must not be the thing that fails.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    auto &windows = mem_storage->commit_windows_;
+    if (mem_storage->timestamp_ > *commit_timestamp_ + 1) {
+      windows.push_back({.commit_ts = *commit_timestamp_, .end_ts = mem_storage->timestamp_});
+    }
+    if (!windows.empty()) {
+      auto const oldest_active = mem_storage->commit_log_->OldestActive();
+      while (!windows.empty() && windows.front().end_ts <= oldest_active) windows.pop_front();
+    }
   }
 
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
   transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
+  if (mem_storage->config_.experimental_commit_lock_narrowing) {
+    // Same engine_lock_ hold as the visibility store, so a later throw cannot leave the watermark behind.
+    MG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+              "watermark must strictly increase: commit mint order and publish order have diverged");
+    mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
+  }
 
   // If the transaction had non-sequential deltas (or another transaction propagated
   // the flag to us), we should re-establish the `has_uncommitted_non_sequential_deltas`
@@ -1215,14 +1366,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+  if (transaction_.storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
 
   // Mark transaction as finished for commit ordering and MVCC visibility.
-  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers
-  // to vertices. GC protects these by using last_processed_commit_ts_ as a safety horizon
-  // (see CollectGarbage implementation).
+  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
+  // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
+  // requires that nothing at or above that boundary is unlinked while it waits.
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
 
   if (config_.enable_schema_info) {
@@ -1238,7 +1389,18 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   if (!transaction_.text_edge_index_change_collector_.empty()) {
     transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
+
   is_transaction_active_ = false;
+}
+
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
+                                                            std::unique_lock<utils::SpinLock> const &engine_guard) {
+  // Queueing allocates and so can throw, which is why it runs first: a throw leaves the WAL commit
+  // flag false, so recovery rolls the transaction back and agrees with the abort that follows.
+  // Flipping the flag first would durably claim a commit that memory then discards.
+  QueueSchemaUpdate(durability_commit_timestamp);
+  FinalizeWalCommitStatus();
+  PublishCommit(durability_commit_timestamp, engine_guard);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -1270,7 +1432,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
+  // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
+  // start_timestamp, so this is inert to the read path.
+  transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
+  // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
+  // the next batch would have every later commit re-enter its vertices into constraints none of
+  // its own writes named, which nothing would then come back to collect.
+  if (transaction_.constraint_verification_info) transaction_.constraint_verification_info->Clear();
   // Do NOT touch `original_start_timestamp` — it must remain stable per-query
   // (procedures use it as a cache key across PERIODIC COMMIT).
 
@@ -1279,18 +1448,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return result;
 }
 
-void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
-    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
-    std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
+                                                            BatchedList<Gid> &current_deleted_vertices,
+                                                            IndexArming &arming) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
 
-  // 1.a) old garbage_undo_buffers are safe to remove
-  //      we are the only transaction, no one is reading those unlinked deltas
-  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
-
-  // 1.b.0) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
+  // 1.a) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
   mem_storage->committed_transactions_.WithLock(
@@ -1298,15 +1463,20 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
-  // 1.b.1) unlink, gathering the removals
+  // 1.b) unlink, gathering the removals. These belong to other transactions, so each is read
+  //      using its own record of what its property writes were on, not this transaction's.
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, impact_tracker);
+    auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
+    UnlinkDeltasAndCollectDeleted(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
   }
 
   // STEP 2) this transaction's deltas
-  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, impact_tracker);
+  auto const arming_scope = arming.for_deltas_of(transaction_.wrote_properties_on);
+  UnlinkDeltasAndCollectDeleted(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
-  // STEP 3) clear all deltas after unlinking is complete
+  // STEP 3) clear all deltas after unlinking is complete. The graveyard is freed here too: an unlink walk
+  //         follows `next` into blocks an earlier abort left there, so they must outlive both walks above.
+  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
   linked_undo_buffers.clear();
   transaction_.deltas.clear();
 }
@@ -1314,34 +1484,41 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices;
-  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_edges;
-  auto impact_tracker = IndexPerformanceTracker{};
+  BatchedList<Gid> current_deleted_vertices;
+  BatchedList<Edge *> current_deleted_edges;
+  auto arming = IndexArming{};
 
   // STEP 1 + STEP 2 - delta cleanup
-  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, arming);
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
     mem_storage->deleted_vertices_.WithLock(
-        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
+        [&](auto &deleted_vertices) { deleted_vertices.splice(current_deleted_vertices); });
   }
   if (!current_deleted_edges.empty()) {
-    mem_storage->deleted_edges_.WithLock(
-        [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
+    // Both heavy and light edges defer to deleted_edges_ here; light edges are
+    // pushed to the graveyard later, at GC-collection time.
+    // O(1) splice under the SpinLock — never an O(batch) copy while locked.
+    mem_storage->deleted_edges_.WithLock([&](auto &deleted_edges) { deleted_edges.splice(current_deleted_edges); });
   }
 
-  // STEP 4) hint to GC that indices need cleanup for performance reasons
-  if (impact_tracker.impacts_vertex_indexes()) {
-    mem_storage->gc_index_cleanup_vertex_performance_.store(true, std::memory_order_release);
-  }
-  if (impact_tracker.impacts_edge_indexes()) {
-    mem_storage->gc_index_cleanup_edge_performance_.store(true, std::memory_order_release);
+  // STEP 4) hint to GC that indices need cleanup for performance reasons. These deltas are gone
+  // by the time a collection cycle runs, so this is the only place that can tell what they could
+  // have invalidated.
+  if (arming.arms_anything()) {
+    mem_storage->pending_index_arming_.WithLock([&](IndexArming &pending) { pending |= arming; });
   }
 }
 
-void InMemoryStorage::InMemoryAccessor::Abort() {
+void InMemoryStorage::InMemoryAccessor::Abort() { Abort({}); }
+
+void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progress) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+
+  // An analytical abort undoes nothing, so its writes -- and whatever they left for a sweep to
+  // collect -- are still there.
+  PublishIndexArming();
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
@@ -1369,11 +1546,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                                               transaction_.start_timestamp);
     }
 
-    // We collect vertices and edges we've created here and then splice them into
-    // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
-    // by one and acquiring lock every time.
-    std::vector<Gid> my_deleted_vertices;
-    std::vector<Gid> my_deleted_edges;
+    // We collect vertices and edges we've deleted here into local vectors first,
+    // then remove them directly from the skiplists and transfer ownership
+    // to the GC in one locked batch, instead of acquiring the lock once per element.
+    BatchedList<Gid> my_deleted_vertices;
+    BatchedList<Edge *> my_deleted_edges;
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
@@ -1388,6 +1565,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // nullptr or another monolithic block belonging to a committed but
     // uncollected transaction.
     for (const auto &delta : transaction_.deltas) {
+      if (on_progress) on_progress();
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::EDGE: {
@@ -1403,19 +1581,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                if (processor_prop_is_interesting) {
-                  // TODO: MVCC collect out_edges (including ones deleted this txn)
-                  //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
-                  //       ATM we don't handle that corner case. Setting a property on an edge that would then be
-                  //       removed
-                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                    if (edge_ref.ptr != edge) continue;
-                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                    index_abort_processor.vector_edge_.CollectOnPropertyChange(
-                        edge_type, prop_id, *current->property.value, from_vertex, to_vertex, edge);
-                  }
-                }
+                index_abort_processor.CollectOnEdgePropertyChange(
+                    prop_id, *current->property.value, from_vertex, edge, transaction_.deltas);
 
                 edge->properties.SetProperty(prop_id, *current->property.value);
 
@@ -1424,7 +1591,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 edge->SetDeleted(true);
-                my_deleted_edges.push_back(edge->gid);
+                my_deleted_edges.push_back(edge);
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
@@ -1539,11 +1706,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             // properties are disabled.
             storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-            // TODO: Change edge type index to work with EdgeRef rather than Edge *
             if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
             auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-            index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+            index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge);
             // TODO: ensure collector also processeses for edge_type+property index
 
             break;
@@ -1617,6 +1783,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
 
     for (Delta &delta : transaction_.deltas) {
+      if (on_progress) on_progress();
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::VERTEX: {
@@ -1663,7 +1830,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         garbage_undo_buffers.emplace_back(mark_timestamp,
                                           std::move(transaction_.deltas),
                                           std::move(transaction_.commit_info),
-                                          transaction_.transaction_id);
+                                          transaction_.transaction_id,
+                                          transaction_.wrote_properties_on);
       });
     }
 
@@ -1676,27 +1844,26 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
                                   mem_storage->name_id_mapper_.get());
-    // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
-    if (!my_deleted_edges.empty()) {
-      if (auto &idx = mem_storage->edges_metadata_index_) {
-        idx->OnEdgesDeleted(my_deleted_edges);
-      }
-    }
-
-    // VERTICES (has ptr to Edges, must be before removing edges)
+    // Handed to CollectGarbage for the same reason as the edges below: a removal on this thread
+    // races a sweep or scan holding no pin on `vertices_`.
     if (!my_deleted_vertices.empty()) {
-      auto acc = mem_storage->vertices_.access();
-      for (auto gid : my_deleted_vertices) {
-        acc.remove(gid);
-      }
+      mem_storage->deleted_vertices_.WithLock(
+          [&](auto &deleted_vertices) { deleted_vertices.splice(my_deleted_vertices); });
     }
 
-    // EDGES
+    // EDGES / LIGHT EDGES
+    // Hand these to CollectGarbage rather than removing them here, so that the GC pass is the only
+    // place an edge leaves storage. An inline removal runs on this client thread, unsynchronised
+    // with a sweep or a scan that is mid-walk over an index entry naming the edge: the removal
+    // tags the node with the newest accessor id, which nothing that started later holds back, so
+    // it can be freed under a reader that had no chance to pin it first. Deferring means
+    // every removal is ordered after the same pass's index cleanup, on the one thread that does
+    // it. Light edges have no skiplist node and are only ever routed this way -- pushing them to
+    // light_edge_graveyard_ here would snap the guard epoch before post-abort readers exist, and
+    // the drain would free under them -- so both kinds now take the same path.
+    // O(1) splice under the SpinLock -- never an O(batch) copy while locked.
     if (!my_deleted_edges.empty()) {
-      auto edges_acc = mem_storage->edges_.access();
-      for (auto gid : my_deleted_edges) {
-        edges_acc.remove(gid);
-      }
+      mem_storage->deleted_edges_.WithLock([&](auto &deleted_edges) { deleted_edges.splice(my_deleted_edges); });
     }
   }
 
@@ -1709,21 +1876,42 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
+    // Hand this transaction's deltas over to GC BEFORE marking the commit
+    // timestamp finished. MarkFinished advances commit_log_->OldestActive(),
+    // and another committing transaction's fast-discard precondition
+    // (CheckForFastDiscardOfDeltas: `no_older_transactions`) treats an advanced
+    // OldestActive as "I am the only transaction left, so every delta except my
+    // own is already registered in committed_transactions_/waiting_gc_deltas_
+    // and safe to free". If we marked finished first, there would be a window in
+    // which this transaction is no longer active yet its deltas are still linked
+    // in the version chains and not yet registered, so that fast-discard could
+    // free a delta our still-linked deltas reference via `prev`, leaving a
+    // dangling pointer for a later GC to dereference (use-after-free). The
+    // registration lock release is sequenced-before MarkFinished, so any thread
+    // that observes this txn as finished (through the commit_log SpinLock) also
+    // observes the registration (through the committed_transactions_ SpinLock).
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(InMemoryStorage::GCDeltas(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id));
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
+                                                              std::move(transaction_.deltas),
+                                                              std::move(transaction_.commit_info),
+                                                              transaction_.transaction_id,
+                                                              transaction_.wrote_properties_on));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          committed_transactions.emplace_back(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id);
+          committed_transactions.emplace_back(0,
+                                              std::move(transaction_.deltas),
+                                              std::move(transaction_.commit_info),
+                                              transaction_.transaction_id,
+                                              transaction_.wrote_properties_on);
         });
       }
     }
+
+    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
     commit_timestamp_.reset();
   }
 }
@@ -1750,8 +1938,11 @@ void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
   }
 
   for (auto &update : to_process) {
-    schema_info_.ProcessTransaction(
-        update.schema_diff, update.post_process, update.start_ts, update.commit_ts, update.property_on_edges);
+    schema_info_.ProcessTransaction(update.schema_diff,
+                                    update.post_process,
+                                    update.snapshot_bound,
+                                    update.local_commit_ts,
+                                    update.property_on_edges);
   }
 }
 
@@ -1769,13 +1960,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_label_index
-           ->PopulateIndex(label,
-                           in_memory->vertices_.access(),
-                           std::nullopt,
-                           updater,
-                           std::nullopt,
-                           &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               label, in_memory->vertices_.access(), std::nullopt, updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1813,7 +1999,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                            in_memory->vertices_.access(),
                            std::nullopt,
                            updater,
-                           std::nullopt,
+                           {},
                            order,
                            &transaction_,
                            std::move(cancel_check))
@@ -1835,8 +2021,14 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
 }
 
 void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
-  if (storage_guard_.owns_lock() && storage_guard_.type() == utils::SharedResourceLockGuard::Type::READ_ONLY) {
-    storage_guard_.downgrade_to_read();
+  // Only transactional can let writers in for the population: they record deltas, so the populating
+  // scan still reads its own snapshot, and their stale index entries wait for GC. Analytical writes
+  // in place with no deltas to read past, and its index maintenance erases entries eagerly (see
+  // ActiveIndices::UpdateOnRemoveLabel), which would race the scan that is still filling the same
+  // skip list. Keep the READ_ONLY hold, which excludes writers and analytical GC alike.
+  if (transaction_.storage_mode != StorageMode::IN_MEMORY_TRANSACTIONAL) return;
+  if (guard_.owns_lock() && guard_.type() == utils::ResourceLockGuard::READ_ONLY) {
+    guard_.downgrade_to_read();
   }
 }
 
@@ -1854,7 +2046,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   DowngradeToReadIfValid();
   if (!mem_edge_type_index
            ->PopulateIndex(
-               edge_type, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+               edge_type, in_memory->vertices_.access(), updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1888,13 +2080,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_property_index
-           ->PopulateIndex(edge_type,
-                           property,
-                           in_memory->vertices_.access(),
-                           updater,
-                           std::nullopt,
-                           &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               edge_type, property, in_memory->vertices_.access(), updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1929,8 +2116,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_property_index
-           ->PopulateIndex(
-               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(property, in_memory->vertices_.access(), updater, {}, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1945,28 +2131,91 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateGlobalVertexIndex(
+    PropertyId property, CheckCancelFunction cancel_check) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating global vertex property index requires unique or read-only access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_vertex_property_index =
+      static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_vertex_property_index->RegisterIndex(property, updater)) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+  DowngradeToReadIfValid();
+  if (!mem_vertex_property_index
+           ->PopulateIndex(property,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           {},
+                           &transaction_,
+                           std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
+  }
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [=](uint64_t commit_timestamp) { return mem_vertex_property_index->PublishIndex(property, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater]() {
+    (void)mem_vertex_property_index->DropIndex(property, updater);
+  });
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_create, property);
+  return {};
+}
+
+namespace {
+
+/// Sequences an index drop. Two things about the order carry the correctness.
+///
+/// Existence is settled here and never asked again, because the caller writes its log records
+/// against this answer. Re-asking the catalogue from the commit callback would let an index created
+/// in between be evicted with no record, and recovery would bring back a dropped index.
+///
+/// Evicting and publishing stay in the one call that does both under the catalogue lock, and it
+/// waits for the commit. Evicting earlier leaves the catalogue without an entry that any other
+/// publisher then hands out, and a writer admitted after that maintains nothing for the index, so
+/// an abort restores it short of that writer's rows.
+///
+/// The commit runs the callback after clearing the abort list, so nothing is left to undo an
+/// eviction that got halfway. Every DropIndex implementation therefore allocates everything it
+/// needs before it writes anything, and an allocation that throws leaves the catalogue, the
+/// published indices and the statistics all as they were. Publishing before the catalogue entry
+/// goes is not observable: a transaction reads the published indices only when it begins, and the
+/// committing transaction holds engine_lock_ across the callback, while the catalogue is read
+/// under the lock the callback itself holds.
+///
+/// Answers whether the index was there. That settles whether an eviction is scheduled, and it is
+/// what the caller weighs its AbsentIndex against. Callers record their own metadata deltas, which
+/// is what differs between kinds.
+template <typename TIndex, typename... TArgs>
+[[nodiscard]] bool DropIndexOnCommit(Transaction &transaction, PlanInvalidator &invalidator, TIndex *index,
+                                     ActiveIndicesUpdater const &updater, TArgs... args) {
+  if (!index->GetActiveIndices()->IndexExists(args...)) {
+    return false;
+  }
+  auto publisher = invalidator.invalidate_for_timestamp_wrapper([index, updater, args...](uint64_t /*commit_ts*/) {
+    return static_cast<bool>(index->DropIndex(args..., updater));
+  });
+  transaction.commit_callbacks_.Add(std::move(publisher));
+  return true;
+}
+
+}  // namespace
+
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping label index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping label index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  // Capture the evicted entry so an aborted DROP (e.g. STRICT_SYNC commit failure)
-  // can re-install it instead of leaving the index permanently gone on main.
-  std::shared_ptr<InMemoryLabelIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_label_index->DropIndex(label, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present = DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_label_index, updater, label);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_label_index, label, updater, evicted]() mutable {
-    mem_label_index->RestoreIndex(label, std::move(evicted), updater);
-  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1974,40 +2223,34 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
+    AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping label-property index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping label-property index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
 
-  LabelPropertyIndex::DropResult drop_result;
-  std::shared_ptr<InMemoryLabelPropertyIndex::IndividualIndex<InMemoryLabelPropertyIndex::Entry>> asc_evicted;
-  std::shared_ptr<InMemoryLabelPropertyIndex::IndividualIndex<InMemoryLabelPropertyIndex::DescEntry>> desc_evicted;
-  std::optional<InMemoryLabelPropertyIndex::PropertiesIndicesStats> stats_evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    auto captured = mem_label_property_index->DropIndex(label, properties, updater, order);
-    drop_result = captured.result;
-    asc_evicted = std::move(captured.asc_evicted);
-    desc_evicted = std::move(captured.desc_evicted);
-    stats_evicted = std::move(captured.stats_evicted);
-    return static_cast<bool>(drop_result);
-  });
+  // Spelled out rather than going through DropIndexOnCommit, whose comment gives the sequence and
+  // its reasons, because this statement settles which ORDERS it will evict and emits a record per
+  // order. Settling them here is the same requirement that function states about existence.
+  auto const drop_result = mem_label_property_index->OrdersPresent(label, properties, order);
   if (!drop_result) {
-    return std::unexpected{IndexDefinitionError{}};
+    if (absent == AbsentIndex::kFails) {
+      return std::unexpected{IndexDefinitionError{}};
+    }
+    // There is nothing to evict, and the record still has to be written. A caller that records an
+    // absent index replays one record at a time, so `order` is the one order this record covers.
+    MG_ASSERT(order, "A recorded drop of an absent index has to name the order it drops");
+    transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties), *order);
+    return {};
   }
-  transaction_.abort_callbacks_.Add(
-      [mem_label_property_index, label, properties, updater, asc_evicted, desc_evicted, stats_evicted]() mutable {
-        mem_label_property_index->RestoreIndex(label,
-                                               std::move(properties),
-                                               std::move(asc_evicted),
-                                               std::move(desc_evicted),
-                                               std::move(stats_evicted),
-                                               updater);
-      });
-
+  auto const settled_order = [&]() -> std::optional<IndexOrder> {
+    if (drop_result.dropped_asc && drop_result.dropped_desc) return std::nullopt;
+    return drop_result.dropped_asc ? IndexOrder::ASC : IndexOrder::DESC;
+  }();
   if (drop_result.dropped_asc) {
     transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop,
                                         label,
@@ -2020,39 +2263,41 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
                                         std::vector<storage::PropertyPath>(properties),
                                         IndexOrder::DESC);
   }
+
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [mem_label_property_index, label, properties = std::move(properties), updater, settled_order](
+          uint64_t /*commit_ts*/) {
+        return static_cast<bool>(mem_label_property_index->DropIndex(label, properties, updater, settled_order));
+      });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
   // We don't care if there is a replication error because on main node the change will go through
 
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type) {
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping edge-type index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping edge-type index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  std::shared_ptr<InMemoryEdgeTypeIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_type_index->DropIndex(edge_type, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_type_index, updater, edge_type);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_type_index, edge_type, updater, evicted]() mutable {
-    mem_edge_type_index->RestoreIndex(edge_type, std::move(evicted), updater);
-  });
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
-                                                                                              PropertyId property) {
+                                                                                              PropertyId property,
+                                                                                              AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping edge-type property index requires a unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping edge-type property index requires a unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to drop the index, no properties on edges
@@ -2061,27 +2306,20 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  // Done inside the wrapper to ensure plan cache invalidation is safe.
-  std::shared_ptr<InMemoryEdgeTypePropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_type_property_index->DropIndex(edge_type, property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present = DropIndexOnCommit(
+      transaction_, *storage_->invalidator_, mem_edge_type_property_index, updater, edge_type, property);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_type_property_index, edge_type, property, updater, evicted]() mutable {
-    mem_edge_type_property_index->RestoreIndex(edge_type, property, std::move(evicted), updater);
-  });
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
-    PropertyId property) {
+    PropertyId property, AbsentIndex absent) {
   // UNIQUE access will be done only through schema.assert
-  MG_ASSERT(type() == UNIQUE || type() == READ,
-            "Dropping global edge property index requires unique or read access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping global edge property index requires unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
@@ -2091,28 +2329,40 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  std::shared_ptr<InMemoryEdgePropertyIndex::IndividualIndex> evicted;
-  storage_->invalidator_->invalidate_now([&] {
-    evicted = mem_edge_property_index->DropIndex(property, updater);
-    return static_cast<bool>(evicted);
-  });
-  if (!evicted) {
+  auto const present =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_edge_property_index, updater, property);
+  if (!present && absent == AbsentIndex::kFails) {
     return std::unexpected{IndexDefinitionError{}};
   }
-  transaction_.abort_callbacks_.Add([mem_edge_property_index, property, updater, evicted]() mutable {
-    mem_edge_property_index->RestoreIndex(property, std::move(evicted), updater);
-  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
+    PropertyId property, AbsentIndex absent) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
+            "Dropping global vertex property index requires unique, read-only or read access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_vertex_property_index =
+      static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
+  auto const present =
+      DropIndexOnCommit(transaction_, *storage_->invalidator_, mem_vertex_property_index, updater, property);
+  if (!present && absent == AbsentIndex::kFails) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
+  return {};
+}
+
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
-    storage::LabelId label, storage::PropertyId property) {
+    storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
-  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2153,7 +2403,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
-    VectorIndexSpec spec) {
+    VectorIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -2161,7 +2411,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
   if (vector_edge_index.IndexExists(spec.index_name) ||
-      !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
+      !vector_index.CreateIndex(
+          spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time so concurrent readers don't observe a
@@ -2183,14 +2434,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
-    std::string_view index_name) {
+    std::string_view index_name, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto updater = in_memory->indices_.MakeUpdater();
   auto &metric_handles = in_memory->metric_handles_;
-  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  if (auto vec_capture = vector_index.DropIndex(index_name, in_memory->name_id_mapper_.get(), on_progress)) {
     transaction_.commit_callbacks_.Add([&vector_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_index.PublishActiveIndices(updater);
       metric_handles.active_vector_indices.Decrement();
@@ -2200,7 +2451,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     transaction_.abort_callbacks_.Add([&vector_index, capture = std::move(*vec_capture)]() mutable {
       vector_index.RestoreIndex(std::move(capture));
     });
-  } else if (auto edge_capture = vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get())) {
+  } else if (auto edge_capture =
+                 vector_edge_index.DropIndex(index_name, in_memory->name_id_mapper_.get(), on_progress)) {
     transaction_.commit_callbacks_.Add([&vector_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
       vector_edge_index.PublishActiveIndices(updater);
       metric_handles.active_vector_edge_indices.Decrement();
@@ -2229,7 +2481,7 @@ utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVecto
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
-    VectorEdgeIndexSpec spec) {
+    VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -2237,7 +2489,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
   if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
-      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
+      !vector_edge_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get(), on_progress)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   // Defer publication to commit time. See CreateVectorIndex above.
@@ -2257,7 +2509,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError>
-InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
+InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property,
+                                                             CheckCancelFunction cancel_check) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating existence requires a read only or unique access to the storage!");
@@ -2268,7 +2521,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   }
   try {
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
-            in_memory->vertices_.access(), label, property, std::nullopt, std::nullopt);
+            in_memory->vertices_.access(), label, property, std::nullopt, {}, cancel_check);
         !validation_result.has_value()) {
       (void)existence_constraints->DropConstraint(label, property);
       return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
@@ -2276,6 +2529,9 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   } catch (const utils::OutOfMemoryException &) {
     (void)existence_constraints->DropConstraint(label, property);
     throw;
+  } catch (const PopulateCancel &) {
+    (void)existence_constraints->DropConstraint(label, property);
+    return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionCancelationError{}}};
   }
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
@@ -2316,16 +2572,30 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                          CheckCancelFunction cancel_check) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating unique constraint requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
-  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
+  // CreateConstraint drops the constraint it installed before letting the cancellation out.
+  auto ret =
+      std::invoke([&]() -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
+        try {
+          auto created = mem_unique_constraints->CreateConstraint(
+              label, properties, in_memory->vertices_.access(), std::nullopt, {}, cancel_check);
+          if (!created) {
+            return std::unexpected{StorageUniqueConstraintDefinitionError{created.error()}};
+          }
+          return created.value();
+        } catch (const PopulateCancel &) {
+          return std::unexpected{StorageUniqueConstraintDefinitionError{ConstraintDefinitionCancelationError{}}};
+        }
+      });
   if (!ret) {
-    return std::unexpected{StorageUniqueConstraintDefinitionError{ret.error()}};
+    return std::unexpected{ret.error()};
   }
   if (ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret.value();
@@ -2359,9 +2629,14 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   // Defer publication to commit time so concurrent readers don't observe the
   // drop if the DDL transaction aborts. Matches the CREATE path above.
   auto updater = in_memory->constraints_.MakeUpdater();
-  transaction_.commit_callbacks_.Add([mem_unique_constraints, updater](uint64_t /*commit_ts*/) {
-    updater(mem_unique_constraints->GetActiveConstraints());
-  });
+  // Hand the evicted constraint to GC rather than letting it die with these callbacks: freeing its skiplist is
+  // O(constrained vertices), and on a replica this runs on the RPC handler thread its peer is waiting on. Only on
+  // commit -- an abort restores the constraint instead, and then this callback never runs.
+  transaction_.commit_callbacks_.Add(
+      [mem_unique_constraints, updater, evicted = captured.evicted](uint64_t /*commit_ts*/) mutable {
+        updater(mem_unique_constraints->GetActiveConstraints());
+        mem_unique_constraints->RetireConstraint(std::move(evicted));
+      });
   // Reinstall the evicted entry on abort so the constraint stays live.
   transaction_.abort_callbacks_.Add(
       [mem_unique_constraints, label, properties, evicted = std::move(captured.evicted)]() mutable {
@@ -2372,7 +2647,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
-    LabelId label, PropertyId property, TypeConstraintKind kind) {
+    LabelId label, PropertyId property, TypeConstraintKind kind, CheckCancelFunction cancel_check) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating IS TYPED constraint requires a read only or unique access to the storage!");
@@ -2382,8 +2657,8 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   try {
-    if (auto validation_result =
-            TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
+    if (auto validation_result = TypeConstraints::ValidateVerticesOnConstraint(
+            in_memory->vertices_.access(), label, property, kind, {}, cancel_check);
         !validation_result.has_value()) {
       (void)type_constraints->DropConstraint(label, property, kind);
       return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
@@ -2391,6 +2666,9 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
   } catch (const utils::OutOfMemoryException &) {
     (void)type_constraints->DropConstraint(label, property, kind);
     throw;
+  } catch (const PopulateCancel &) {
+    (void)type_constraints->DropConstraint(label, property, kind);
+    return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionCancelationError{}}};
   }
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
@@ -2439,12 +2717,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     std::span<storage::PropertyValueRange const> property_ranges, View view, IndexOrder order) {
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  if (order == IndexOrder::DESC) {
-    return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::DescEntry>(
-        label, properties, property_ranges, view, storage_, &transaction_));
-  }
-  return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::Entry>(
-      label, properties, property_ranges, view, storage_, &transaction_));
+  return active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_, order);
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
@@ -2468,70 +2741,130 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  if (order == IndexOrder::DESC) {
-    return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
-        label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
-  }
-  return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
-      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+  return active_indices->ChunkedVertices(
+      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks, order);
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property,
+                                                                           const PropertyValue &value, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(property,
+                                                                 std::move(vertex_acc),
+                                                                 utils::MakeBoundInclusive(value),
+                                                                 utils::MakeBoundInclusive(value),
+                                                                 view,
+                                                                 storage_,
+                                                                 &transaction_,
+                                                                 num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_, num_chunks));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, PropertyValue const &value,
+                                                             View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(property,
+                                                   std::move(vertex_acc),
+                                                   utils::MakeBoundInclusive(value),
+                                                   utils::MakeBoundInclusive(value),
+                                                   view,
+                                                   storage_,
+                                                   &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
+    PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, PropertyValueRange const &range,
+                                                             View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(
+      active_indices->Vertices(property, std::move(vertex_acc), range, view, storage_, &transaction_));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property,
+                                                                           PropertyValueRange const &range, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), range, view, storage_, &transaction_, num_chunks));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
-  return EdgesIterable(
-      active_indices->Edges(edge_type, std::move(vertex_acc), std::move(edge_acc), view, storage_, &transaction_));
+  return EdgesIterable(active_indices->Edges(edge_type, std::move(vertex_acc), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesIterable(active_indices->Edges(edge_type,
-                                             property,
-                                             std::move(vertex_acc),
-                                             std::move(edge_acc),
-                                             std::nullopt,
-                                             std::nullopt,
-                                             view,
-                                             storage_,
-                                             &transaction_));
+  return EdgesIterable(active_indices->Edges(
+      edge_type, property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
+                                                       PropertyValueRange const &range, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_->edge_type_properties_.get());
+  return EdgesIterable(
+      active_indices->Edges(edge_type, property, std::move(vertex_acc), range, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
                                                        const PropertyValue &value, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesIterable(active_indices->Edges(edge_type,
                                              property,
                                              std::move(vertex_acc),
-                                             std::move(edge_acc),
                                              utils::MakeBoundInclusive(value),
                                              utils::MakeBoundInclusive(value),
-                                             view,
-                                             storage_,
-                                             &transaction_));
-}
-
-EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
-                                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                       View view) {
-  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
-  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesIterable(active_indices->Edges(edge_type,
-                                             property,
-                                             std::move(vertex_acc),
-                                             std::move(edge_acc),
-                                             lower_bound,
-                                             upper_bound,
                                              view,
                                              storage_,
                                              &transaction_));
@@ -2539,21 +2872,26 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(
-      property, std::move(vertex_acc), std::move(edge_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, PropertyValueRange const &range,
+                                                       View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
+  return EdgesIterable(active_indices->Edges(property, std::move(vertex_acc), range, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *mem_edge_property_active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesIterable(mem_edge_property_active_indices->Edges(property,
                                                                std::move(vertex_acc),
-                                                               std::move(edge_acc),
                                                                utils::MakeBoundInclusive(value),
                                                                utils::MakeBoundInclusive(value),
                                                                view,
@@ -2561,59 +2899,45 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, cons
                                                                &transaction_));
 }
 
-EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
-                                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                       View view) {
-  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edge_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
-  auto *mem_edge_property_active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesIterable(mem_edge_property_active_indices->Edges(
-      property, std::move(vertex_acc), std::move(edge_acc), lower_bound, upper_bound, view, storage_, &transaction_));
-}
-
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_->edge_type_.get());
+  return EdgesChunkedIterable(
+      active_indices->ChunkedEdges(edge_type, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
+                                                                     PropertyValueRange const &range, View view,
+                                                                     size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(
-      edge_type, std::move(vertices_acc), std::move(edges_acc), view, storage_, &transaction_, num_chunks));
+      edge_type, property, std::move(vertices_acc), range, view, storage_, &transaction_, num_chunks));
+}
+
+EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property,
+                                                                     PropertyValueRange const &range, View view,
+                                                                     size_t num_chunks) {
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), range, view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_->edge_type_properties_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
                                                            property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            std::nullopt,
                                                            std::nullopt,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
-}
-
-EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
-  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
-  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
-      transaction_.active_indices_->edge_type_properties_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
-                                                           property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           lower_bound,
-                                                           upper_bound,
                                                            view,
                                                            storage_,
                                                            &transaction_,
@@ -2623,49 +2947,21 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, View view,
                                                                      size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           std::nullopt,
-                                                           std::nullopt,
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      property, std::move(vertices_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, const PropertyValue &value,
                                                                      View view, size_t num_chunks) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
   return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
                                                            std::move(vertices_acc),
-                                                           std::move(edges_acc),
                                                            utils::MakeBoundInclusive(value),
                                                            utils::MakeBoundInclusive(value),
-                                                           view,
-                                                           storage_,
-                                                           &transaction_,
-                                                           num_chunks));
-}
-
-EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
-    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
-  auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
-  auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
-  auto *active_indices =
-      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_->edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
-                                                           std::move(vertices_acc),
-                                                           std::move(edges_acc),
-                                                           lower_bound,
-                                                           upper_bound,
                                                            view,
                                                            storage_,
                                                            &transaction_,
@@ -2696,7 +2992,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
-  uint64_t last_durable_ts = 0;
+  uint64_t snapshot_ts = 0;
+  CommitTsInfo commit_ts_info;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
   ActiveConstraintsPtr active_constraints;
@@ -2704,10 +3001,16 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
+    // Capture the SI snapshot boundary under the same engine_lock hold as the mint (consistent with
+    // start_timestamp). ON: frozen to last_committed_mvcc_ts_ (< start_timestamp). OFF: == start_timestamp.
+    snapshot_ts = config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
+                                                             : start_timestamp;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
-    // Needed by snapshot to sync the durable and logical ts
-    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+    // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
+    // so a snapshot taken from this txn writes a mutually consistent pair (a concurrent commit can't inflate the
+    // count relative to the durable ts and produce a negative replication lag on recovering replicas).
+    commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
     active_indices = GetActiveIndices();
     active_constraints = GetActiveConstraints();
   }
@@ -2715,17 +3018,22 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  return {transaction_id,
-          start_timestamp,
-          isolation_level,
-          storage_mode,
-          false,
-          *std::move(point_index_context),
-          std::move(active_indices),
-          std::move(active_constraints),
-          std::move(async_index_helper),
-          last_durable_ts,
-          metric_handles_.unreleased_delta_objects};
+  auto transaction = Transaction{transaction_id,
+                                 start_timestamp,
+                                 isolation_level,
+                                 storage_mode,
+                                 false,
+                                 *std::move(point_index_context),
+                                 std::move(active_indices),
+                                 std::move(active_constraints),
+                                 std::move(async_index_helper),
+                                 commit_ts_info.ldt_,
+                                 commit_ts_info.num_committed_txns_,
+                                 metric_handles_.unreleased_delta_objects};
+  transaction.snapshot_ts = snapshot_ts;
+  transaction.commit_lock_narrowing =
+      config_.experimental_commit_lock_narrowing && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+  return transaction;
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2759,6 +3067,35 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
             "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
             "index creation to finish and retry.");
       }
+      // Analytical writes are never appended to the WAL, so a replica attached across the switch would
+      // silently miss the whole episode. Refuse and store the mode under the clients' own lock, which is
+      // the same lock replica registration inserts under: "analytical with a live client" is then
+      // unrepresentable rather than merely a narrow race.
+      repl_storage_state_.replication_storage_clients_.WithLock([this](auto const &clients) {
+        if (!clients.empty()) {
+          throw utils::BasicException(
+              "Cannot switch to IN_MEMORY_ANALYTICAL while {} replica(s) replicate from this database. Analytical "
+              "writes are not replicated; unregister every replica first.",
+              clients.size());
+        }
+        storage_mode_ = StorageMode::IN_MEMORY_ANALYTICAL;
+      });
+
+      // Finalize the WAL so the episode leaves a file-level signature: the pre-import file's [from, to]
+      // range then ends before the switch-back snapshot's timestamp, which is how GetRecoverySteps
+      // detects that no WAL can reproduce the imported data. Placed after every check that throws, so a
+      // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
+      // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
+      // the UNIQUE hold above is on main_lock_.
+      // Serialized against in-flight committers by main_lock_ UNIQUE (they hold it SHARED), not commit_mutex_.
+      {
+        std::unique_lock const engine_guard(engine_lock_);
+        if (wal_file_) {
+          wal_file_->FinalizeWal();
+          wal_file_.reset();
+          wal_unsynced_transactions_ = 0;
+        }
+      }
       snapshot_runner_.Pause();
     } else {
       // No need to resume async indexer, it is always running.
@@ -2769,6 +3106,10 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // contents and consumers would skip it as "not newer".
       auto *txn = unique_accessor->GetTransaction();
       txn->last_durable_ts_ = txn->start_timestamp;
+      auto [epoch_id, epoch_history] = std::invoke([this] {
+        auto const engine_guard = std::unique_lock{engine_lock_};
+        return std::pair{std::string{repl_storage_state_.epoch_.id()}, repl_storage_state_.history};
+      });
       const auto snapshot_path = durability::CreateSnapshot(this,
                                                             txn,
                                                             recovery_.snapshot_directory_,
@@ -2776,55 +3117,122 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &vertices_,
                                                             &edges_,
                                                             uuid(),
-                                                            repl_storage_state_.epoch_.id(),
-                                                            repl_storage_state_.history,
+                                                            std::move(epoch_id),
+                                                            std::move(epoch_history),
                                                             &file_retainer_,
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
                                                             "storage_mode_change");
+      if (!snapshot_path) {
+        // Analytical writes never reached a WAL, so this snapshot is the only durable record the episode
+        // will ever have. Completing the switch without it would leave the data live in memory but absent
+        // from durability, and the next recovery would silently drop it. Stay analytical instead: the
+        // mode, the cached ldt and every durability file are still untouched at this point, so the user
+        // can fix the cause and retry. CreateSnapshot has already removed whatever partial file it wrote.
+        throw utils::BasicException(
+            "Failed to create the snapshot required to leave IN_MEMORY_ANALYTICAL. The database is still in "
+            "analytical mode and its data is unchanged; check the logs for the cause and retry.");
+      }
+
+      // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
+      // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
+      // registered afterwards is judged up to date by the heartbeat comparison -- recovery would never
+      // run and the imported data would never reach it. num_committed_txns_ is deliberately left alone:
+      // the snapshot records the same unchanged counter, so main and a recovering replica stay
+      // consistent. Advance-only, since concurrent commits are barred by the UNIQUE main_lock_ hold but
+      // the field is shared with the replication clients.
+      atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_,
+                                         [ldt = *txn->last_durable_ts_](CommitTsInfo const &old_info) {
+                                           return CommitTsInfo{.ldt_ = std::max(old_info.ldt_, ldt),
+                                                               .num_committed_txns_ = old_info.num_committed_txns_};
+                                         });
+
+      // The switch-back snapshot is a new durability base, not an increment on the old one: an analytical
+      // episode leaves a timestamp hole no WAL can fill, so nothing written before it can be chained onto
+      // it. Archive the superseded files and restart the WAL numbering at 0 -- the two go together.
+      // Wiping alone would break recovery, since a chain whose first file has a non-zero sequence number
+      // is accepted only when some WAL predates the snapshot, and every such WAL is what was just wiped.
+      // Restarting alone would be worse: the surviving files carry this same UUID, so the new numbers
+      // would collide with theirs, and a duplicate sequence number is caught by no check anywhere.
+      DMG_ASSERT(!wal_file_, "Analytical mode must not leave an open WAL file.");
+      if (ArchiveSupersededDurabilityFiles(*snapshot_path)) {
+        wal_seq_num_ = 0;
+      } else {
+        spdlog::warn(
+            "Superseded WAL files could not be archived, so WAL sequence numbering continues from {} to stay "
+            "collision-free.",
+            wal_seq_num_);
+      }
       snapshot_runner_.Resume();
+      // Under the clients' lock for symmetry with the analytical store above, so replica registration's
+      // in-lock read of storage_mode_ is serialized against every mode change, not just one direction.
+      repl_storage_state_.replication_storage_clients_.WithLock(
+          [this](auto const & /*clients*/) { storage_mode_ = StorageMode::IN_MEMORY_TRANSACTIONAL; });
     }
-    storage_mode_ = new_storage_mode;
-    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
+    // Hand off the same lock unique_accessor already holds; adopting main_lock_ into a second
+    // lock would give the one hold two owners and release it twice.
+    FreeMemory(unique_accessor->ReleaseGuard(), false);
   }
 }
 
-void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  // NOTE: You do not need to consider cleanup of deleted object that occurred in
-  // different storage modes within the same CollectGarbage call. This is because
-  // SetStorageMode will ensure CollectGarbage is called before any new transactions
-  // with the new storage mode can start.
+void InMemoryStorage::SetTimestampQuiescent(uint64_t const next_timestamp) {
+  timestamp_ = next_timestamp;
+  // 0 is never a live commit ts (the first BEGIN consumes it) and is recovery's always-visible stamp,
+  // so the clamp is exact.
+  last_committed_mvcc_ts_.store(next_timestamp > kTimestampInitialId ? next_timestamp - 1 : kTimestampInitialId,
+                                std::memory_order_release);
+}
 
-  // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
-  // as reacquiring the lock would cause deadlock. Otherwise, we need to get our own
-  // lock.
-  if (!main_guard.owns_lock()) {
-    // If aggressive mode is enabled, try to get unique lock first.
-    // Perf note: Do not try to get unique lock if aggressive mode is disabled. GC maybe expensive,
-    // do not assume it is fast, unique lock will blocks all new storage transactions.
-    if (!flags::run_time::GetStorageGcAggressive() || !main_guard.try_lock()) {
-      // Because the garbage collector iterates through the indices and constraints
-      // to clean them up, it must take the main lock for reading to make sure that
-      // the indices and constraints aren't concurrently being modified.
-      main_lock_.lock_shared();
-    }
-  } else {
-    DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
-  }
+void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
+  // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
+  // runs GC before any transaction in the new mode can start.
 
-  utils::OnScopeExit lock_releaser{[&] {
+  using Guard = utils::ResourceLockGuard;
+  auto const main_lock_guard = [&] -> Guard {
+    // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
     if (main_guard.owns_lock()) {
-      main_guard.unlock();
-    } else {
-      main_lock_.unlock_shared();
+      // Adopted in place of choosing a mode below, so it has to be exclusive: analytical GC is not
+      // proven safe under a shared hold (see the WRITE choice further down).
+      DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_) && main_guard.is_exclusive(),
+                 "an adopted main_guard must be an exclusive hold on this storage's main_lock_");
+      return std::move(main_guard);
     }
-  }};
+
+    // Aggressive GC escalates to UNIQUE (blocks new txns); otherwise a shared hold, so slow GC does
+    // not block everyone.
+    if (flags::run_time::GetStorageGcAggressive()) {
+      auto unique_guard = Guard{main_lock_, Guard::UNIQUE, std::try_to_lock};
+      if (unique_guard.owns_lock()) return unique_guard;
+    }
+
+    // Transactional GC only reads the COW indices/constraints, so READ suffices and stays compatible
+    // with concurrent READ_ONLY DDL; analytical needs WRITE (GC vs snapshot not proven safe under
+    // READ). storage_mode_ must be read under a shared hold -- it blocks SetStorageMode's UNIQUE, so
+    // an unlocked read would both data-race the write (TSan) and risk acting on a stale mode (TOCTOU).
+    auto read_guard = Guard{main_lock_, Guard::READ};
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) return read_guard;
+
+    // Analytical. Release READ before requesting WRITE: acquiring a second shared hold while still
+    // holding one deadlocks against a UNIQUE acquirer that registers as pending in between, because
+    // lock_guard_condition<WRITE> is gated on unique_pending_ and that acquirer is in turn waiting
+    // on the READ we would still be holding.
+    read_guard.unlock();
+    auto write_guard = Guard{main_lock_, Guard::WRITE};
+    // The mode can flip in the gap, so re-read it under the hold we will actually use. Downgrading
+    // is non-blocking, unlike the escalation above.
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) write_guard.downgrade_to_read();
+    return write_guard;
+  }();
 
   // Only one gc run at a time
   auto gc_guard = std::unique_lock{gc_lock_, std::try_to_lock};
   if (!gc_guard.owns_lock()) {
     return;
   }
+
+  // Publish run-state for SHOW TRANSACTIONS; cleared on scope exit (see GcProgress).
+  gc_progress_.Start(periodic, main_lock_guard.is_exclusive());
+  const utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
 
   // Diagnostic trace
   const utils::Timer timer;
@@ -2846,7 +3254,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // in the second GC phase in this GC iteration or some of the following
   // ones.
 
+  // Read before commit_windows_ so a commit that publishes and finalizes in between cannot make us over-reclaim.
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+  uint64_t const raw_oldest_active = oldest_active_start_timestamp;
 
   // Also consider unprocessed schema updates as a safety horizon.
   // `pending_schema_updates_` contains raw pointers to vertices (in SchemaInfoEdge.from/.to
@@ -2855,12 +3265,26 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (config_.salient.items.enable_schema_info) {
     std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
     if (!pending_schema_updates_.empty()) {
-      // Establish earliest start time
-      uint64_t min_queued_start_ts = std::numeric_limits<uint64_t>::max();
+      // snapshot_bound is the earliest reconstruction boundary still queued: each update walks
+      // version chains down to ts < snapshot_bound, so no delta at or above that point may be unlinked.
+      uint64_t min_queued_bound = std::numeric_limits<uint64_t>::max();
       for (const auto &[commit_ts, update_data] : pending_schema_updates_) {
-        min_queued_start_ts = std::min(min_queued_start_ts, update_data.start_ts);
+        min_queued_bound = std::min(min_queued_bound, update_data.snapshot_bound);
       }
-      oldest_active_start_timestamp = std::min(min_queued_start_ts, oldest_active_start_timestamp);
+      oldest_active_start_timestamp = std::min(min_queued_bound, oldest_active_start_timestamp);
+    }
+  }
+
+  // Horizon for the unlink gate, chain trim and index/constraint sweeps. A txn that began inside the front
+  // commit window reads at that commit's ts, so the horizon must not pass it. OFF: identical to master.
+  uint64_t visibility_horizon = oldest_active_start_timestamp;
+  if (config_.experimental_commit_lock_narrowing) {
+    auto const engine_guard = std::scoped_lock{engine_lock_};
+    while (!commit_windows_.empty() && commit_windows_.front().end_ts <= raw_oldest_active) {
+      commit_windows_.pop_front();
+    }
+    if (!commit_windows_.empty() && commit_windows_.front().commit_ts < raw_oldest_active) {
+      visibility_horizon = std::min(visibility_horizon, commit_windows_.front().commit_ts);
     }
   }
 
@@ -2905,7 +3329,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
           // Track highest commit timestamp among all contributors. We can only
           // unlink when ALL contributors are inactive, so we must wait until
-          // highest_commit_ts < oldest_active_start_timestamp.
+          // highest_commit_ts < visibility_horizon.
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
@@ -2931,27 +3355,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         [&](auto &waiting_list) { waiting_list.splice(waiting_list.begin(), std::move(local_waiting)); });
   }
 
-  {
-    auto guard = std::unique_lock{engine_lock_};
-    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
-
-    // Deltas from previous GC runs or from aborts can be cleaned up here
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      guard.unlock();
-      if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
-        // We know no transaction is active, it is safe to simply delete all the garbage undos
-        // Nothing can be reading them
-        garbage_undo_buffers.clear();
-      } else {
-        // garbage_undo_buffers is ordered, pop until we can't
-        while (!garbage_undo_buffers.empty() &&
-               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-          garbage_undo_buffers.pop_front();
-        }
-      }
-    });
-  }
-
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
@@ -2960,8 +3363,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
-  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_edges{};
-  std::list<Gid, memory::DbAwareAllocator<Gid>> current_deleted_vertices{};
+  BatchedList<Edge *> current_deleted_edges{};
+  BatchedList<Gid> current_deleted_vertices{};
 
   deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
   deleted_edges_.WithLock([&](auto &deleted_edges) { current_deleted_edges.swap(deleted_edges); });
@@ -2976,7 +3379,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // This is to track if any of the unlinked deltas would have an impact on index performance, i.e. do they hint that
   // there are possible stale/duplicate entries that can be removed
-  auto index_impact = IndexPerformanceTracker{};
+  auto &cycle_arming = cycle_index_arming_;
+  cycle_arming.reset();
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
@@ -2986,7 +3390,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
 
     // only process those that are no longer active
-    if (unlinkable_timestamp >= oldest_active_start_timestamp) {
+    if (unlinkable_timestamp >= visibility_horizon) {
       ++linked_entry;  // can not process, skip
       continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
@@ -3022,8 +3426,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
+    auto const arming_scope = cycle_arming.for_deltas_of(linked_entry->wrote_properties_on_);
+
     for (Delta &delta : linked_entry->deltas_) {
-      index_impact.update(delta.action);
+      arming_scope.note(delta);
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -3055,7 +3461,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             edge->SetDelta(nullptr);
             if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              current_deleted_edges.push_back(edge->gid);
+              current_deleted_edges.push_back(edge);
             }
             break;
           }
@@ -3071,6 +3477,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             //            ▲
             //            │
             //  oldest_active_start_timestamp
+            // Under commit-lock narrowing the boundary used below is visibility_horizon, which may sit
+            // below oldest_active_start_timestamp (see CollectGarbage).
 
             if (prev.delta->commit_info == commit_info_ptr) {
               // The delta that is newer than this one is also a delta from this
@@ -3079,7 +3487,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               break;
             }
 
-            if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
+            if (prev.delta->commit_info->timestamp.load() < visibility_horizon) {
               if (IsDeltaNonSequential(*prev.delta)) {
                 // Non-sequential predecessor: readers follow next, so we must
                 // null it to stop traversal into freed memory. We can skip the
@@ -3144,6 +3552,27 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     });
   }
 
+  {
+    auto guard = std::unique_lock{engine_lock_};
+    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+
+    // Deltas from previous GC runs or from aborts can be cleaned up here
+    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+      guard.unlock();
+      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
+        // We know no transaction is active, it is safe to simply delete all the garbage undos
+        // Nothing can be reading them
+        garbage_undo_buffers.clear();
+      } else {
+        // garbage_undo_buffers is ordered, pop until we can't
+        while (!garbage_undo_buffers.empty() &&
+               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+          garbage_undo_buffers.pop_front();
+        }
+      }
+    });
+  }
+
   // Index cleanup runs can be expensive, we want to avoid high CPU usage when the GC doesn't have to clean up any
   // indexes.
   // - Correctness: we need to remove entries from indexes to avoid dangling raw pointers
@@ -3158,11 +3587,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
   const utils::Timer skiplist_cleanup_timer;
-  auto index_cleanup_vertex_performance =
-      gc_index_cleanup_vertex_performance_.exchange(false, std::memory_order_acq_rel) ||
-      index_impact.impacts_vertex_indexes();
-  auto index_cleanup_edge_performance = gc_index_cleanup_edge_performance_.exchange(false, std::memory_order_acq_rel) ||
-                                        index_impact.impacts_edge_indexes();
+  auto &sweep_arming = claimed_index_arming_;
+  sweep_arming.reset();
+  pending_index_arming_.WithLock([&](IndexArming &pending) { std::swap(pending, sweep_arming); });
+  sweep_arming |= cycle_arming;
+  if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
+  if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
+
+  auto index_cleanup_vertex_performance = sweep_arming.arms_vertex_indexes();
+  auto index_cleanup_edge_performance = sweep_arming.arms_edge_indexes();
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
@@ -3170,26 +3603,72 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // after the last currently active transaction is finished.
   // This operation is very expensive as it traverses through all of the items
   // in every index every time.
+  // Analytical deletes land in place, so what counts as collectable keeps growing while this pass
+  // runs. Fix the set here, before the sweeps: an object deleted after a sweep has walked past its
+  // index entries would otherwise be removed from storage by this same pass with those entries left
+  // behind, naming freed memory. Anything deleted after this point waits for the next pass, which is
+  // what the transactional path does by working from a list swapped out up front.
+  auto analytical_deleted_vertices = std::vector<Vertex *>{};
+  auto analytical_deleted_edges = std::vector<Edge *>{};
+  // Reads under the object's lock: `deleted` shares its word with the delta pointer, and a
+  // concurrent analytical delete writes both. Deciding collectability from an unsynchronised read
+  // is a data race, and the answer decides whether this pass removes the object from storage.
+  auto const is_collectable = [](auto const &object) {
+    auto guard = std::shared_lock{object.lock};
+    return object.delta() == nullptr && object.deleted();
+  };
+
+  // An object handed over by a transaction is collectable, so this scan would find it again. Both
+  // sets are retired by this pass, and retiring an object twice removes it twice, so the scan takes
+  // only what the handover has not already claimed. `current_deleted_*` is complete by now: the
+  // swap and the delta unlinking above are the only things that add to it.
+  auto const claimed_vertices = ClaimedObjects{current_deleted_vertices.elements()};
+  auto const claimed_edges = ClaimedObjects{current_deleted_edges.elements()};
+
+  if (need_full_scan_vertices) {
+    auto vertex_acc = vertices_.access();
+    for (auto &vertex : vertex_acc) {
+      if (!claimed_vertices.contains(vertex.gid) && is_collectable(vertex)) {
+        analytical_deleted_vertices.push_back(&vertex);
+      }
+    }
+  }
+  // Light edges are not scanned for. A deleted edge is erased from the adjacency of both its
+  // endpoints as it is deleted, and adjacency is the only thing that names a light edge, so a
+  // scan can no longer reach one. The delete hands them to `deleted_edges_` instead, which is why
+  // they arrive here in `current_deleted_edges` like transactional ones.
+  if (need_full_scan_edges && !config_.salient.items.storage_light_edge) {
+    auto edge_acc = edges_.access();
+    for (auto &edge : edge_acc) {
+      if (!claimed_edges.contains(&edge) && is_collectable(edge)) analytical_deleted_edges.push_back(&edge);
+    }
+  }
+
+  gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
+    uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteVertexEntries(this, visibility_horizon, token, sweep_arming);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      swept += mem_unique_constraints->RemoveObsoleteEntries(this, visibility_horizon, token, sweep_arming);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
+      swept += indices_.RemoveObsoleteEdgeEntries(this, visibility_horizon, token, sweep_arming);
     }
+    metric_handles_.gc_index_sweeps.Increment(static_cast<double>(swept));
   }
   {
     auto skiplist_elapsed = std::chrono::duration<double>(skiplist_cleanup_timer.Elapsed());
     metric_handles_.gc_skiplist_cleanup_latency_seconds.Observe(skiplist_elapsed.count());
   }
 
+  gc_progress_.SetPhase(GcPhase::DELETE);
+
   {
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+    if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them all now
@@ -3212,18 +3691,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // EDGES METADATA (has ptr to Vertices, must be before removing vertices)
+  // current_deleted_edges holds Edge* still owned by `edges_`; this single-threaded GC pass
+  // frees them only in the remove loop below (MG_ASSERT'd), so reading ->gid here is safe.
   if (!current_deleted_edges.empty()) {
     if (auto &idx = edges_metadata_index_) {
-      idx->OnEdgesDeleted(current_deleted_edges);
+      idx->OnEdgesDeleted(current_deleted_edges.elements() | std::ranges::views::transform(&Edge::gid));
     }
   }
 
   // VERTICES (has ptr to Edges, must be before removing edges)
   if (!current_deleted_vertices.empty()) {
-    auto vertex_acc = vertices_.access();
-
     if (!indices_.vector_index_.Empty()) {
-      auto const vertices_to_remove = current_deleted_vertices |
+      auto vertex_acc = vertices_.access();
+      auto const vertices_to_remove = current_deleted_vertices.elements() |
                                       std::ranges::views::transform([&vertex_acc](auto const gid) {
                                         auto it = vertex_acc.find(gid);
                                         DMG_ASSERT(it != vertex_acc.end(), "Invalid database state!");
@@ -3237,39 +3717,37 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
     // edge_endpoints_ stores Vertex* — freeing vertices first would leave dangling pointers.
     if (!current_deleted_edges.empty() && !indices_.vector_edge_index_.Empty()) {
-      auto edge_acc = edges_.access();
-      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
-                                     auto it = edge_acc.find(gid);
-                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
-                                     return &*it;
-                                   }) |
-                                   std::ranges::to<std::vector>();
-
+      // RemoveEdgesFromVectorEdgeIndices takes a contiguous std::span; current_deleted_edges
+      // is a std::list (kept so the under-lock handover stays an O(1) splice), so materialize
+      // a temp vector here. This runs off the deleted_edges_ lock, during GC.
+      auto const edges_to_remove = current_deleted_edges.elements() | std::ranges::to<std::vector>();
       indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
     }
 
-    for (auto vertex : current_deleted_vertices) {
-      MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
-    }
+    RetireVertices(current_deleted_vertices.elements());
   }
 
-  // EDGES
+  // EDGES / LIGHT EDGES
   if (!current_deleted_edges.empty()) {
-    auto edge_acc = edges_.access();
+    if (config_.salient.items.storage_light_edge) {
+      // Light edges are not skiplist nodes; route them to the graveyard for
+      // deferred free. Clean the vector edge index first (unconditionally —
+      // unlike the heavy arm below which only does so when no vertices were
+      // deleted — because the light Edge* and their Vertex* outlive the push).
+      if (!indices_.vector_edge_index_.Empty()) {
+        // std::list -> contiguous temp vector for the std::span API (off-lock).
+        auto const edges_to_remove = current_deleted_edges.elements() | std::ranges::to<std::vector>();
+        indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+      }
+      RetireLightEdges(std::move(current_deleted_edges));
+    } else {
+      if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
+        // std::list -> contiguous temp vector for the std::span API (off-lock; see above).
+        auto const edges_to_remove = current_deleted_edges.elements() | std::ranges::to<std::vector>();
+        indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
+      }
 
-    if (current_deleted_vertices.empty() && !indices_.vector_edge_index_.Empty()) {
-      auto const edges_to_remove = current_deleted_edges | std::ranges::views::transform([&edge_acc](auto const gid) {
-                                     auto it = edge_acc.find(gid);
-                                     DMG_ASSERT(it != edge_acc.end(), "Invalid database state!");
-                                     return &*it;
-                                   }) |
-                                   std::ranges::to<std::vector>();
-
-      indices_.RemoveEdgesFromVectorEdgeIndices(edges_to_remove);
-    }
-
-    for (auto edge : current_deleted_edges) {
-      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+      RetireEdges(current_deleted_edges.elements() | std::ranges::views::transform(&Edge::gid));
     }
   }
 
@@ -3279,58 +3757,72 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   //  alternatively, an auxiliary data structure within skip_list to track these, hence a full scan wouldn't be needed
   //  we will wait for evidence that this is needed before doing so.
   if (need_full_scan_vertices) {
-    auto vertex_acc = vertices_.access();
-
-    if (!indices_.vector_index_.Empty()) {
-      auto const analytical_deleted_vertices =
-          vertex_acc | std::ranges::views::filter([](auto const &v) { return v.delta() == nullptr && v.deleted(); }) |
-          std::ranges::views::transform([](auto &v) { return &v; }) | std::ranges::to<std::vector>();
-
-      if (!analytical_deleted_vertices.empty()) {
-        indices_.RemoveVerticesFromVectorIndices(analytical_deleted_vertices);
-      }
+    if (!indices_.vector_index_.Empty() && !analytical_deleted_vertices.empty()) {
+      indices_.RemoveVerticesFromVectorIndices(analytical_deleted_vertices);
     }
 
     // Remove edges from vector edge index BEFORE vertex skip-list removal.
-    if (!indices_.vector_edge_index_.Empty()) {
-      auto edge_acc = edges_.access();
-      auto const analytical_deleted_edges =
-          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
-          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
-
-      if (!analytical_deleted_edges.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
-      }
+    if (!indices_.vector_edge_index_.Empty() && !analytical_deleted_edges.empty()) {
+      indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
     }
 
-    for (auto &vertex : vertex_acc) {
-      if (vertex.delta() == nullptr && vertex.deleted()) {
-        vertex_acc.remove(vertex);
-      }
-    }
+    RetireVertices(analytical_deleted_vertices | std::ranges::views::transform(&Vertex::gid));
   }
 
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
   if (need_full_scan_edges) {
-    auto edge_acc = edges_.access();
-
-    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty()) {
-      auto const analytical_deleted_edges =
-          edge_acc | std::ranges::views::filter([](auto const &e) { return e.delta() == nullptr && e.deleted(); }) |
-          std::ranges::views::transform([](auto &e) { return &e; }) | std::ranges::to<std::vector>();
-
-      if (!analytical_deleted_edges.empty()) {
-        indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
-      }
+    if (!need_full_scan_vertices && !indices_.vector_edge_index_.Empty() && !analytical_deleted_edges.empty()) {
+      indices_.RemoveEdgesFromVectorEdgeIndices(analytical_deleted_edges);
     }
 
-    auto *idx = edges_metadata_index_ ? &*edges_metadata_index_ : nullptr;
-    for (auto &edge : edge_acc) {
-      if (edge.delta() == nullptr && edge.deleted()) {
-        if (idx) idx->OnEdgeDeleted(edge.gid);
-        edge_acc.remove(edge);
-      }
+    if (auto &idx = edges_metadata_index_) {
+      for (auto *edge : analytical_deleted_edges) idx->OnEdgeDeleted(edge->gid);
     }
+    RetireEdges(analytical_deleted_edges | std::ranges::views::transform(&Edge::gid));
+  }
+}
+
+void InMemoryStorage::DrainLightEdgeGraveyard() {
+  if (!config_.salient.items.storage_light_edge) return;
+  // Light edges may be pinned by edge-index iterables (MakeEdgePin now returns a
+  // LightEdgeIterableGuard that Acquires an epoch). A graveyard entry recorded
+  // guard_epoch = CurrentEpoch() at delete time; we may only free its edges once
+  // IsSafeToFree(guard_epoch) confirms every reader that existed before the delete
+  // has Released. Swap the graveyard out under the lock, free the safe entries
+  // lock-free, and splice the not-yet-safe survivors back for a later drain.
+  //
+  // Pushes happen ONLY at GC-collection time (CollectGarbage transactional arm and
+  // the analytical arm) — commit (FastDiscard) and abort route deleted Edge*
+  // through deleted_edges_ first, so guard_epoch is snapped AFTER index cleanup and
+  // after all pre-existing readers are ordered.
+  std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> local_graveyard;
+  light_edge_graveyard_.WithLock([&](auto &graveyard) { local_graveyard.swap(graveyard); });
+  if (local_graveyard.empty()) return;
+
+  // GC-collection time (CollectGarbage transactional arm OnEdgesDeleted, and the
+  // analytical arm OnEdgeDeleted) BEFORE the Edge* was routed here. The graveyard
+  // exists solely to defer the *memory free* until live edge-index iterables have
+  // drained; it must NOT touch edges_metadata_index_ again, otherwise it would
+  // double-remove the entry and trip the `acc.remove` assert in OnEdgeDeleted.
+  // Snapshot the dead-prefix watermark once for the whole sweep: the dead prefix
+  // is monotonic, so a single O(blocks) scan plus an O(1) check per entry beats
+  // re-scanning the tracker for every entry. An entry not yet freeable under this
+  // snapshot is simply spliced back and retried on the next drain, never freed early.
+  const uint64_t watermark = light_edge_iterable_tracker_.DeadPrefixWatermark();
+  for (auto it = local_graveyard.begin(); it != local_graveyard.end();) {
+    if (utils::EpochTracker::IsSafeToFree(it->guard_epoch, watermark)) {
+      for (auto *edge : it->edges.elements()) {
+        InMemoryStorage::LightEdgePool::Destroy(edge);
+      }
+      it = local_graveyard.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  // Splice the not-yet-safe survivors back for a future drain (skip the lock
+  // acquisition entirely when all entries were freed this pass).
+  if (!local_graveyard.empty()) {
+    light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.splice(graveyard.end(), local_graveyard); });
   }
 }
 
@@ -3433,6 +3925,294 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
+bool InMemoryStorage::ArchiveSupersededDurabilityFiles(std::filesystem::path const &keep_snapshot) {
+  auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
+
+  // A leftover .old from an earlier archival describes a state even older than the one being archived
+  // now, so it is dropped rather than merged; keeping both would let the directory grow without bound.
+  auto const prepare_old_dir = [](std::filesystem::path const &parent) -> bool {
+    auto const target = parent / kOldDurabilityDir;
+    std::error_code ec;
+    std::filesystem::remove_all(target, ec);
+    if (ec) {
+      spdlog::warn("Failed to clear backup directory {}. Err: {}", target, ec.message());
+      return false;
+    }
+    std::filesystem::create_directory(target, ec);
+    if (ec) {
+      spdlog::warn("Failed to create backup directory {}. Err: {}", target, ec.message());
+      return false;
+    }
+    return true;
+  };
+
+  // Archival is best-effort: it is housekeeping, not part of making the new snapshot durable. A failure
+  // degrades to "superseded files stay where they are", which the return value reports.
+  auto const archive_dir = [&](std::filesystem::path const &dir, std::filesystem::path const *keep) {
+    if (!utils::DirExists(dir)) return;  // durability off entirely; nothing was ever written here
+
+    // With backups enabled, a backup directory that cannot be created means the files stay where they
+    // are. Falling back to deleting them would turn a filesystem hiccup into unrecoverable data loss.
+    std::optional<std::filesystem::path> backup_dir;
+    if (use_old_dir) {
+      if (!prepare_old_dir(dir)) return;
+      backup_dir = dir / kOldDurabilityDir;
+    }
+
+    for (auto const &path : utils::GetFilesFromDir(dir)) {  // already skips the .old sub-directory
+      if (keep && path.filename() == keep->filename()) continue;
+      if (!backup_dir) {
+        file_retainer_.DeleteFile(path);
+        continue;
+      }
+      auto const new_path = *backup_dir / path.filename();
+      spdlog::trace("Archiving durability file {} to {}", path, new_path);
+      file_retainer_.RenameFile(path, new_path);
+    }
+
+    if (backup_dir) {
+      std::error_code ec;
+      std::filesystem::remove(*backup_dir, ec);  // no-op unless nothing needed archiving
+    }
+  };
+
+  archive_dir(recovery_.snapshot_directory_, &keep_snapshot);
+  archive_dir(recovery_.wal_directory_, nullptr);
+
+  // Deletions and renames are deferred while a file is locked (SHOW SNAPSHOTS, a replica recovery), so
+  // the directory is re-read rather than assumed empty.
+  return !utils::DirExists(recovery_.wal_directory_) || utils::GetFilesFromDir(recovery_.wal_directory_).empty();
+}
+
+namespace {
+
+// One MVCC delta resolved by the commit thread's traversal: the delta, the object it belongs to
+// (exactly one of vertex/edge set), and the edge lookup data workers cannot pull from the transaction.
+struct TxnDataCommand {
+  Delta const *delta;
+  Vertex *vertex;
+  Edge *edge;
+  Gid in_vertex_gid;
+  EdgeTypeId edge_type_id;
+};
+
+// Everything a transaction writes, in encode order. Built once on the commit thread; the WAL worker
+// and every replica worker encode from it concurrently, so it must outlive all of their tasks.
+struct TxnCommands {
+  std::vector<MetadataDelta const *> metadata;
+  std::vector<TxnDataCommand> data;
+};
+
+void EncodeMetadataDelta(durability::BaseEncoder &encoder, MetadataDelta const &md_delta, Storage *mem_storage,
+                         uint64_t durability_commit_timestamp) {
+  auto const apply_encode = [&](durability::StorageMetadataOperation const op, auto &&encode_operation) {
+    EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
+    encode_operation(encoder);
+  };
+
+  auto const op = ActionToStorageOperation(md_delta.action);
+  switch (md_delta.action) {
+    case MetadataDelta::Action::LABEL_INDEX_CREATE:
+    case MetadataDelta::Action::LABEL_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelPropertyStats(encoder,
+                                 *mem_storage->name_id_mapper_,
+                                 md_delta.label_property_stats.label,
+                                 md_delta.label_property_stats.properties,
+                                 md_delta.label_property_stats.stats);
+      });
+      break;
+    }
+    case MetadataDelta::Action::EDGE_INDEX_CREATE:
+    case MetadataDelta::Action::EDGE_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEdgeTypeIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
+      });
+      break;
+    }
+    case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
+    case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEdgeTypePropertyIndex(encoder,
+                                    *mem_storage->name_id_mapper_,
+                                    md_delta.edge_type_property.edge_type,
+                                    md_delta.edge_type_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+    case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+    case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
+    case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelProperties(encoder,
+                              *mem_storage->name_id_mapper_,
+                              md_delta.label_ordered_properties.label,
+                              md_delta.label_ordered_properties.properties);
+        encoder.WriteUint(static_cast<uint64_t>(md_delta.label_ordered_properties.order));
+      });
+      break;
+    }
+    case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
+    case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
+    case MetadataDelta::Action::POINT_INDEX_CREATE:
+    case MetadataDelta::Action::POINT_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelProperty(
+            encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label, md_delta.label_property.property);
+      });
+      break;
+    }
+    case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelStats(
+            encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeTextIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeTextEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_edge_index);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TEXT_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
+      break;
+    }
+    case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeVectorIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_index_spec);
+      });
+      break;
+    }
+    case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeVectorEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_edge_index_spec);
+      });
+      break;
+    }
+    case MetadataDelta::Action::VECTOR_INDEX_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
+      break;
+    }
+    case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
+    case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeLabelProperties(encoder,
+                              *mem_storage->name_id_mapper_,
+                              md_delta.label_unordered_properties.label,
+                              md_delta.label_unordered_properties.properties);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+    case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeTypeConstraint(encoder,
+                             *mem_storage->name_id_mapper_,
+                             md_delta.label_property_type.label,
+                             md_delta.label_property_type.property,
+                             md_delta.label_property_type.type);
+      });
+      break;
+    }
+    case MetadataDelta::Action::ENUM_CREATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEnumCreate(encoder, mem_storage->enum_store_, md_delta.enum_create_info.etype);
+      });
+      break;
+    }
+    case MetadataDelta::Action::ENUM_ALTER_ADD: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEnumAlterAdd(encoder, mem_storage->enum_store_, md_delta.enum_alter_add_info.value);
+      });
+      break;
+    }
+    case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        EncodeEnumAlterUpdate(encoder,
+                              mem_storage->enum_store_,
+                              md_delta.enum_alter_update_info.value,
+                              md_delta.enum_alter_update_info.old_value);
+      });
+      break;
+    }
+    case MetadataDelta::Action::TTL_OPERATION: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        durability::EncodeTtlOperation(encoder,
+                                       md_delta.ttl_operation_info.operation_type,
+                                       md_delta.ttl_operation_info.period,
+                                       md_delta.ttl_operation_info.start_time,
+                                       md_delta.ttl_operation_info.should_run_edge_ttl);
+      });
+      break;
+    }
+    case MetadataDelta::Action::DESCRIPTION_SET: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        durability::EncodeDescriptionSet(encoder,
+                                         *mem_storage->name_id_mapper_,
+                                         md_delta.description_op.kind,
+                                         md_delta.description_op.labels,
+                                         md_delta.description_op.edge_type,
+                                         md_delta.description_op.property,
+                                         md_delta.description_op.description,
+                                         md_delta.description_op.from_labels,
+                                         md_delta.description_op.to_labels,
+                                         md_delta.description_op.value);
+      });
+      break;
+    }
+    case MetadataDelta::Action::DESCRIPTION_DELETE: {
+      apply_encode(op, [&](durability::BaseEncoder &encoder) {
+        durability::EncodeDescriptionDelete(encoder,
+                                            *mem_storage->name_id_mapper_,
+                                            md_delta.description_op.kind,
+                                            md_delta.description_op.labels,
+                                            md_delta.description_op.edge_type,
+                                            md_delta.description_op.property,
+                                            md_delta.description_op.from_labels,
+                                            md_delta.description_op.to_labels,
+                                            md_delta.description_op.value);
+      });
+      break;
+    }
+  }
+}
+
+}  // namespace
+
 auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      TransactionReplication &replicating_txn,
                                                                      CommitArgs const &commit_args) -> bool {
@@ -3446,234 +4226,19 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // else:
   //   All SYNC/ASYNC replicas -> commit immediately
   bool const two_phase_commit = commit_args.two_phase_commit(replicating_txn);
-
-  // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
-  // saved.
-  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
-      durability_commit_timestamp, !two_phase_commit, original_access_type_);
-  // Send transaction start to replicas with the correct access type
-  // It does not matter what we send in the `commit` argument as it always gets ignored
-  // EXCEPT when loading from a WAL file which will use whatever the line above wrote
-  replicating_txn.AppendTransactionStart(durability_commit_timestamp, !two_phase_commit, original_access_type_);
   // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = two_phase_commit;
-
-  auto timer = utils::Timer{};
-  constexpr auto delta_cb_timeout = std::chrono::seconds{10};
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
   //            unique transaction to apply the index creation safely.
-  auto const apply_encode = [&](durability::StorageMetadataOperation const op, auto &&encode_operation) {
-    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
-      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
-      encode_operation(encoder);
-    };
-
-    full_encode_operation(mem_storage->wal_file_->encoder());
-    mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
-    replicating_txn.EncodeToReplicas(full_encode_operation);
-    // We send in progress msg every 10s. RPC timeout on main is configured with 30s
-    if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
-      timer.ResetStartTime();
-      commit_args.apply_cb_if_replica_write();
-    }
-  };
-
-  // Handle metadata deltas
-  for (const auto &md_delta : transaction_.md_deltas) {
-    auto const op = ActionToStorageOperation(md_delta.action);
-    switch (md_delta.action) {
-      case MetadataDelta::Action::LABEL_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder,
-                                   *mem_storage->name_id_mapper_,
-                                   md_delta.label_property_stats.label,
-                                   md_delta.label_property_stats.properties,
-                                   md_delta.label_property_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder,
-                                      *mem_storage->name_id_mapper_,
-                                      md_delta.edge_type_property.edge_type,
-                                      md_delta.edge_type_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder,
-                                *mem_storage->name_id_mapper_,
-                                md_delta.label_ordered_properties.label,
-                                md_delta.label_ordered_properties.properties);
-          encoder.WriteUint(static_cast<uint64_t>(md_delta.label_ordered_properties.order));
-        });
-        break;
-      }
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
-      case MetadataDelta::Action::POINT_INDEX_CREATE:
-      case MetadataDelta::Action::POINT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(
-              encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label, md_delta.label_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelStats(
-              encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_edge_index);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
-        break;
-      }
-      case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_index_spec);
-        });
-        break;
-      }
-      case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_edge_index_spec);
-        });
-        break;
-      }
-      case MetadataDelta::Action::VECTOR_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
-        break;
-      }
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder,
-                                *mem_storage->name_id_mapper_,
-                                md_delta.label_unordered_properties.label,
-                                md_delta.label_unordered_properties.properties);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTypeConstraint(encoder,
-                               *mem_storage->name_id_mapper_,
-                               md_delta.label_property_type.label,
-                               md_delta.label_property_type.property,
-                               md_delta.label_property_type.type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumCreate(encoder, mem_storage->enum_store_, md_delta.enum_create_info.etype);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_ADD: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterAdd(encoder, mem_storage->enum_store_, md_delta.enum_alter_add_info.value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterUpdate(encoder,
-                                mem_storage->enum_store_,
-                                md_delta.enum_alter_update_info.value,
-                                md_delta.enum_alter_update_info.old_value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TTL_OPERATION: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeTtlOperation(encoder,
-                                         md_delta.ttl_operation_info.operation_type,
-                                         md_delta.ttl_operation_info.period,
-                                         md_delta.ttl_operation_info.start_time,
-                                         md_delta.ttl_operation_info.should_run_edge_ttl);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionSet(encoder,
-                                           *mem_storage->name_id_mapper_,
-                                           md_delta.description_op.kind,
-                                           md_delta.description_op.labels,
-                                           md_delta.description_op.edge_type,
-                                           md_delta.description_op.property,
-                                           md_delta.description_op.description,
-                                           md_delta.description_op.from_labels,
-                                           md_delta.description_op.to_labels);
-        });
-        break;
-      }
-      case MetadataDelta::Action::DESCRIPTION_DELETE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeDescriptionDelete(encoder,
-                                              *mem_storage->name_id_mapper_,
-                                              md_delta.description_op.kind,
-                                              md_delta.description_op.labels,
-                                              md_delta.description_op.edge_type,
-                                              md_delta.description_op.property,
-                                              md_delta.description_op.from_labels,
-                                              md_delta.description_op.to_labels);
-        });
-        break;
-      }
-    }
+  TxnCommands commands;
+  commands.metadata.reserve(transaction_.md_deltas.size());
+  for (auto const &md_delta : transaction_.md_deltas) {
+    commands.metadata.push_back(&md_delta);
   }
+
   // A single transaction will always be fully-contained in a single WAL file.
   auto current_commit_timestamp = transaction_.commit_info->timestamp.load(std::memory_order_acquire);
   DeltaVertexCache vertex_cache(current_commit_timestamp);
@@ -3926,52 +4491,120 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
-    append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
+    // Upper bound: append_deltas skips deltas whose action carries no durability record.
+    commands.data.reserve(transaction_.deltas.size());
+    append_deltas([&](const Delta &delta, auto *parent, uint64_t /*durability_commit_timestamp_arg*/) {
       if constexpr (std::is_same_v<decltype(parent), Edge *>) {
         // Connect the edge to the in-vertex and edge type for faster lookup.
         // NOTE: Invalid values will be sent in case the edge was created in this transaction.
         // In that case, we will cache the edge accessor in WalEdgeCreate, so no need for the overhead.
         auto edge_set_property_info = transaction_.GetEdgeSetPropertyInfo(static_cast<Edge *>(parent)->gid);
-        mem_storage->wal_file_->AppendDelta(delta,
-                                            parent,
-                                            durability_commit_timestamp_arg,
-                                            mem_storage,
-                                            edge_set_property_info.in_vertex_gid,
-                                            edge_set_property_info.edge_type_id);
-        replicating_txn.AppendDelta(delta,
-                                    parent,
-                                    durability_commit_timestamp_arg,
-                                    mem_storage,
-                                    edge_set_property_info.in_vertex_gid,
-                                    edge_set_property_info.edge_type_id);
+        commands.data.push_back({.delta = &delta,
+                                 .vertex = nullptr,
+                                 .edge = parent,
+                                 .in_vertex_gid = edge_set_property_info.in_vertex_gid,
+                                 .edge_type_id = edge_set_property_info.edge_type_id});
       } else {
-        mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
-        replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+        commands.data.push_back({.delta = &delta, .vertex = parent, .edge = nullptr});
       }
-      // We send in progress msg every 10s. RPC timeout on main is configured with 30s
-      if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
-        timer.ResetStartTime();
-        commit_args.apply_cb_if_replica_write();
-      }
+      commit_args.apply_cb_if_replica_write();
     });
   }
 
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+  // Every fused task borrows this frame (commands, streams), so if anything below throws before
+  // ShipDeltas collected them, collect them here; on the normal path this is a no-op. Declared before
+  // wal_promise on purpose: during unwind the promise must be destroyed first, so tasks blocked on
+  // the gate observe the broken promise and finish before this guard joins them.
+  auto const collect_workers = utils::OnScopeExit{[&]() noexcept { replicating_txn.DrainShipFutures(); }};
 
-  // If main executes this and committing immediately we need to finalize wal file before sending deltas to replicas
-  // If replica executes this and committing immediately, it is OK to finalize wal here
-  if (!two_phase_commit) {
-    mem_storage->FinalizeWalFile();
+  // Durability gates the replicas' transaction ends: every fused task waits on this future between
+  // encoding and shipping. If the WAL write below throws, the abandoned promise surfaces as a broken
+  // promise in each fused task, whose containment drops the stream instead of shipping — no replica
+  // can commit a transaction main did not make durable.
+  std::promise<void> wal_promise;
+  std::shared_future<void> const wal_result = wal_promise.get_future().share();
+
+  // One fused task per streaming replica encodes concurrently with the WAL write below and the other
+  // replicas, waits on the durability gate, and ships the transaction end. It does not matter what
+  // gets sent in the `commit` argument of the transaction start as it always gets ignored EXCEPT when
+  // loading from a WAL file, which uses what the WAL write below produces.
+  replicating_txn.ScheduleEncodeAndShip(
+      [mem_storage, &commands, durability_commit_timestamp, two_phase_commit, access_type = original_access_type_](
+          ReplicaStream &stream) {
+        const memory::DbArenaScope db_arena_scope{mem_storage->DbArenaPool()};
+        stream.AppendTransactionStart(durability_commit_timestamp, !two_phase_commit, access_type);
+        for (auto const *md_delta : commands.metadata) {
+          auto encoder = stream.encoder();
+          EncodeMetadataDelta(encoder, *md_delta, mem_storage, durability_commit_timestamp);
+        }
+        for (auto const &cmd : commands.data) {
+          if (cmd.edge != nullptr) {
+            stream.AppendDelta(
+                *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
+          } else {
+            stream.AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+          }
+        }
+      },
+      wal_result,
+      durability_commit_timestamp,
+      commit_args.replication_allowed() ? &commit_args.database_protector() : nullptr);
+
+  // The WAL write runs inline: the commit thread would otherwise only sleep on the fused futures, and
+  // it still has the just-traversed deltas hot in cache. WAL commit order follows from whichever lock
+  // the caller serialised on, engine_lock_ or commit_mutex_ when narrowing.
+  {
+    durability::WalTxnDataPos positions;
+    // Append txn start delta and remember the position in the WAL file in which this delta is saved.
+    positions.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
+        durability_commit_timestamp, !two_phase_commit, original_access_type_);
+    for (auto const *md_delta : commands.metadata) {
+      EncodeMetadataDelta(mem_storage->wal_file_->encoder(), *md_delta, mem_storage, durability_commit_timestamp);
+      mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
+      commit_args.apply_cb_if_replica_write();
+    }
+    for (auto const &cmd : commands.data) {
+      if (cmd.edge != nullptr) {
+        mem_storage->wal_file_->AppendDelta(
+            *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
+      } else {
+        mem_storage->wal_file_->AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+      }
+      commit_args.apply_cb_if_replica_write();
+    }
+    // Add a delta that indicates that the transaction is fully written to the WAL
+    auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+    positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
+    positions.stored_crc_ = txn_end_positions.stored_crc_;
+    // When committing immediately the WAL file must be finalized before transaction ends ship to replicas.
+    if (!two_phase_commit) {
+      mem_storage->FinalizeWalFile();
+    }
+    wal_txn_positions_ = positions;
   }
+  // Durability achieved: open the gate so the fused tasks may ship their transaction ends.
+  wal_promise.set_value();
 
-  // Ships deltas to instances and waits for the reply
+  // Collects every fused task, so no worker is left borrowing this frame, and folds their results
+  // into the replication failures (the collect_workers guard backstops the unwind paths). Encoding
+  // must finish before the commit timestamp is published: EncodeDelta reads live vertex and edge
+  // state, which other transactions may overwrite in place the moment this transaction becomes
+  // visible. A replica-side failure is contained inside its task (the replica drops to recovery):
+  // main and the healthy replicas still commit, consistent with the WAL.
+  bool const replicas_ok = replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
+
   // Returns only the status of SYNC and STRICT_SYNC replicas.
-  return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
+  return replicas_ok;
 }
 
 std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     bool force, std::string_view trigger) {
+  // A broken storage (failed recovery) is empty and must never overwrite the
+  // operator's untouched corrupt durability files with an empty snapshot.
+  if (IsBroken()) {
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
+
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -3989,35 +4622,55 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   }
   snapshot_progress_.Start();
   auto const clear_snapshot_running_on_exit = utils::OnScopeExit{[&] {
-    snapshot_progress_.Reset();
+    // Clear `running` first so readers stop trusting the fields before they are wiped.
     snapshot_running_.store(false, std::memory_order_release);
+    snapshot_progress_.Reset();
   }};
 
   // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication
   // stuff are mutually exclusive from each other
   auto const snapshot_guard = std::unique_lock(snapshot_lock_);
 
-  auto accessor = std::invoke([&]() {
+  auto const make_accessor = [&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(StorageAccessType::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
-  });
+  };
+  // Read under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
+  // can happen while the snapshot is being written.
+  auto const read_epoch_state = [this] {
+    auto const engine_guard = std::unique_lock{engine_lock_};
+    return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
+  };
+
+  // The accessor takes its start timestamp in its own engine_lock_ hold, so an epoch switch can land between
+  // that and the read below. The snapshot would then tag data from before the switch with the epoch after
+  // it, and a main that never saw that epoch would reject the recovered replica as diverged. Reading the epoch
+  // on both sides of the accessor detects the switch; a further pass needs a further main promotion.
+  auto epoch_before = read_epoch_state().first;
+  auto accessor = make_accessor();
+  auto epoch_state = read_epoch_state();
+  while (epoch_state.first != epoch_before) {
+    epoch_before = epoch_state.first;
+    accessor.reset();
+    accessor = make_accessor();
+    epoch_state = read_epoch_state();
+  }
+  auto &[epoch, epoch_history] = epoch_state;
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
 
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
-  auto const &epoch = repl_storage_state_.epoch_;
-  auto const &epochHistory = repl_storage_state_.history;
   auto const &storage_uuid = uuid();
 
   SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     current_digest = SnapshotDigest{.epoch_ = epoch,
-                                    .history_ = epochHistory,
+                                    .history_ = epoch_history,
                                     .storage_uuid_ = storage_uuid,
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
@@ -4025,7 +4678,6 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
   }
 
-  // At the moment, the only way in which create snapshot can fail is if it got aborted
   const auto snapshot_path = durability::CreateSnapshot(this,
                                                         transaction,
                                                         recovery_.snapshot_directory_,
@@ -4033,14 +4685,16 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &vertices_,
                                                         &edges_,
                                                         storage_uuid,
-                                                        epoch.id(),
-                                                        epochHistory,
+                                                        std::string{epoch.id()},
+                                                        std::move(epoch_history),
                                                         &file_retainer_,
                                                         &abort_snapshot_,
                                                         &snapshot_progress_,
                                                         trigger);
   if (!snapshot_path) {
-    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+    return std::unexpected{snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft
+                               ? CreateSnapshotError::NoSpaceLeft
+                               : CreateSnapshotError::AbortSnapshot};
   }
 
   // Update digest only after the file has been created. Only in transaction because digests are used only in
@@ -4146,6 +4800,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   // When creating a snapshot, we first lock the snapshot, then create the accessor, so no need for the snapshot lock
   // GC could be running without the main lock, so lock it
   // Engine lock is needed because of PrepareForNewEpoch
+  // Runs straight off a query with no exclusive hold on main_lock_, so a commit can be appending to
+  // wal_file_ and the reset below would free the file under it.
+  auto commit_serializer = LockCommitMutexIfNarrowing();
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
@@ -4175,12 +4832,13 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     const auto &recovery_info = recovered_snapshot.recovery_info;
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
-    timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    SetTimestampQuiescent(std::max(timestamp_, recovery_info.next_timestamp));
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
-    auto const update_func =
-        [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
-      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = old_info.num_committed_txns_};
+    auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
+                              new_num_committed_txns = recovered_snapshot.snapshot_info.num_committed_txns](
+                                 CommitTsInfo const & /*old_info*/) -> CommitTsInfo {
+      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = new_num_committed_txns};
     };
     atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, update_func);
 
@@ -4204,8 +4862,14 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     // Destroying current wal file
     wal_file_.reset();
 
+    // The tenant is now functionally healthy: the snapshot data is fully in memory and derived
+    // state is rebuilt. Clear broken here rather than after the .old backup housekeeping below,
+    // so a cosmetic filesystem failure (unable to archive superseded files, or overwrite the
+    // UUID) does not leave a tenant that holds valid data query-locked with durability suppressed.
+    SetBroken(false);
+
     auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
-    constexpr std::string_view old_dir = ".old";
+    auto const &old_dir = kOldDurabilityDir;
 
     // Move all previous snapshots and WAL files to .old dir
     if (use_old_dir) {
@@ -4222,6 +4886,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
         spdlog::warn(
             "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
             ec.message());
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
       auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
@@ -4234,6 +4899,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
       if (ec) {
         spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
                      ec.message());
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
     }
@@ -4261,6 +4927,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
               "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
               "manually. Err: {}",
               ec.message());
+          handler_error();
           return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
         }
       }
@@ -4284,6 +4951,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
       if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
       }
     }
@@ -4353,13 +5021,15 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   return res;
 }
 
-void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) {
   std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
+  // Committer lock order: keeps this WAL reset from racing a committer's WAL append.
+  auto commit_serializer = LockCommitMutexIfNarrowing();
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
@@ -4396,30 +5066,28 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_type,
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                rw_type,
-                                                                timeout});
+  DMG_ASSERT(rw_type != StorageAccessType::UNIQUE, "UNIQUE access must go through UniqueAccess()");
+  return std::unique_ptr<InMemoryAccessor>(
+      new InMemoryAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                timeout});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
     std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                timeout});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
+                                                              std::optional<IsolationLevel> override_isolation_level) {
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
+  if (!guard.owns_lock()) return nullptr;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
@@ -4433,6 +5101,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::AbortSnapshot:
           spdlog::warn("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
+          break;
+        case CreateSnapshotError::NoSpaceLeft:
+          spdlog::error("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
         case CreateSnapshotError::NothingNewToWrite:
@@ -4449,7 +5120,10 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
-    if (!token.stop_requested()) {
+    // Skip broken databases: they are empty and writing a snapshot would overwrite
+    // the operator's untouched corrupt durability files. Skipped silently to avoid
+    // per-tick log spam (CreateSnapshot also guards defensively).
+    if (!token.stop_requested() && !IsBroken()) {
       this->create_snapshot_handler("periodic");
     }
   });
@@ -4466,7 +5140,61 @@ EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
   return std::nullopt;
 }
 
-EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
+// Scan from_vertex->out_edges for the light edge with the given GID.
+// Acquires from_vertex->lock (shared) for the scan, mirroring ExtractEdgeInfo.
+namespace {
+EdgeInfo ScanOutEdgesForGid(Vertex *from_vertex, Gid edge_gid) {
+  std::shared_lock const guard{from_vertex->lock};
+  for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+    if (edge_ref.ptr->gid == edge_gid) {
+      return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+    }
+  }
+  return std::nullopt;
+}
+
+// Plural, either-direction form of ScanOutEdgesForGid: resolves a whole set of GIDs in one pass over one
+// vertex's adjacency rather than one pass each. An edge is linked from both of its endpoints, so a caller that
+// knows both can scan whichever list is shorter — see CheaperScanSide. Found GIDs are erased from `wanted`, so
+// whatever remains on return is the set this vertex does not have on this side. Kept separate from the singular
+// form rather than sharing an implementation with it: that one is called per vertex by the full-scan light-edge
+// path, which must not pay for a set allocation.
+std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ScanEdgesForGids(Vertex *vertex,
+                                                                                  EdgeDirection direction,
+                                                                                  std::unordered_set<Gid> &wanted) {
+  std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> found;
+  found.reserve(wanted.size());
+
+  auto const scanning_out = direction == EdgeDirection::OUT;
+  std::shared_lock const guard{vertex->lock};
+  // The Vertex* in an adjacency entry is always the opposing endpoint, so which end `vertex` is depends on the
+  // list being walked.
+  for (const auto &[edge_type, opposing_vertex, edge_ref] : scanning_out ? vertex->out_edges : vertex->in_edges) {
+    if (wanted.erase(edge_ref.ptr->gid) == 0) continue;
+    found.emplace_back(
+        edge_ref, edge_type, scanning_out ? vertex : opposing_vertex, scanning_out ? opposing_vertex : vertex);
+    if (wanted.empty()) break;
+  }
+  return found;
+}
+
+// Which endpoint's adjacency is cheaper to scan for an edge between these two vertices. Sizes are read one lock
+// at a time: only ever holding one means no lock-ordering rule is needed and a self-loop needs no special case,
+// unlike FindEdges which holds both at once.
+EdgeDirection CheaperScanSide(Vertex *from_vertex, Vertex *to_vertex) {
+  auto const out_n = std::invoke([&] {
+    std::shared_lock const guard{from_vertex->lock};
+    return from_vertex->out_edges.size();
+  });
+  auto const in_n = std::invoke([&] {
+    std::shared_lock const guard{to_vertex->lock};
+    return to_vertex->in_edges.size();
+  });
+  return out_n <= in_n ? EdgeDirection::OUT : EdgeDirection::IN;
+}
+}  // namespace
+
+EdgeInfo InMemoryStorage::FindHeavyEdge(Gid edge_gid) {
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
@@ -4491,7 +5219,53 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
   return std::nullopt;
 }
 
+EdgeInfo InMemoryStorage::FindLightEdgeFromMetadata(Gid edge_gid) {
+  // Light edges are not in edges_; resolve from_vertex via the metadata index
+  // (soft-miss: a deleted light edge has no entry) then rescan its out_edges.
+  if (!edges_metadata_index_) return std::nullopt;
+  // Pin vertices_ BEFORE calling TryFromVertexOf so that GC cannot reclaim the
+  // Vertex node between the index lookup and the point we lock/scan it. This
+  // mirrors FindHeavyEdge, which also pins before the index consultation.
+  auto vertices_acc = vertices_.access();
+  auto *from_vertex = edges_metadata_index_->TryFromVertexOf(edge_gid);
+  if (from_vertex == nullptr) return std::nullopt;
+  return ScanOutEdgesForGid(from_vertex, edge_gid);
+}
+
+EdgeInfo InMemoryStorage::FindLightEdgeByScan(Gid edge_gid) {
+  // No metadata index: scan all vertices' out_edges for the gid.
+  auto vertices_acc = vertices_.access();
+  for (auto &from_vertex : vertices_acc) {
+    if (auto maybe_info = ScanOutEdgesForGid(&from_vertex, edge_gid)) {
+      return maybe_info;
+    }
+  }
+  return std::nullopt;
+}
+
+EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
+  if (config_.salient.items.storage_light_edge) {  // GATE
+    if (edges_metadata_index_) return FindLightEdgeFromMetadata(edge_gid);
+    return FindLightEdgeByScan(edge_gid);
+  }
+  return FindHeavyEdge(edge_gid);
+}
+
 EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+  if (config_.salient.items.storage_light_edge) {  // GATE — light edges not in edges_
+    auto vertices_acc = vertices_.access();
+    auto vertex_it = vertices_acc.find(from_vertex_gid);
+    // Soft-miss on an absent from_vertex: the heavy arm (and the public
+    // optional-returning FindEdge wrapper) return nullopt for a not-found edge,
+    // and callers (e.g. the mgp C-API edge lookup) treat that as "no such edge"
+    // rather than an error. A stale/deleted from_vertex_gid means the edge is
+    // gone, so return nullopt instead of throwing across the query boundary.
+    if (vertex_it == vertices_acc.end()) {
+      return std::nullopt;
+    }
+    auto *from_vertex = &(*vertex_it);
+    return ScanOutEdgesForGid(from_vertex, edge_gid);
+  }
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
@@ -4513,7 +5287,203 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
-void InMemoryStorage::Clear() {
+Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {
+  if (edges.empty()) return size_t{0};
+
+  // Deliberately not routed through InMemoryStorage::FindEdge: that has to recover the edge type and the
+  // to-vertex from adjacency (via ExtractEdgeInfo / ScanOutEdgesForGid) because its callers know only a GID,
+  // which costs an O(degree) scan per edge. Every spec here already names both, so the only open question is
+  // the EdgeRef — and only the light config needs to touch adjacency to answer it.
+  std::vector<EdgeAccessor> accessors;
+  accessors.reserve(edges.size());
+
+  // Memoized because a batch is typically many edges around few vertices — a hub's whole fan-out resolves to
+  // the same Vertex*, and without this each edge would repeat the skip-list lookup. Safe for the length of the
+  // batch: vertices are only ever deleted after their edges, so nothing here can be removed mid-resolution.
+  std::unordered_map<Gid, Vertex *> resolved_vertices;
+  auto resolve_vertex = [&](Gid gid) -> Vertex * {
+    auto [it, inserted] = resolved_vertices.try_emplace(gid, nullptr);
+    if (inserted) {
+      auto vertex = FindVertex(gid, View::NEW);
+      it->second = vertex ? vertex->vertex_ : nullptr;
+    }
+    return it->second;
+  };
+
+  // A spec already names the edge type and both endpoints, so the configs differ only in how they answer the
+  // one remaining question — which EdgeRef the GID denotes.
+  auto emplace_from_spec = [&](EdgeDeleteSpec const &spec, EdgeRef edge_ref) {
+    auto *from_vertex = resolve_vertex(spec.from_gid);
+    auto *to_vertex = resolve_vertex(spec.to_gid);
+    if (!from_vertex || !to_vertex) return false;
+    accessors.emplace_back(edge_ref, spec.edge_type, from_vertex, to_vertex, storage_, &transaction_);
+    return true;
+  };
+
+  // Held until after DetachDelete so an Edge* taken out of the skip list cannot be reclaimed underneath the
+  // batch. Engaged only when there is a skip list to read, i.e. heavy edges.
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+
+  if (!config_.properties_on_edges) {
+    // No Edge object is ever allocated, so the EdgeRef carries the GID itself and there is nothing to look up.
+    // Mirrors the same split in CreateEdgeInternal. Light edges cannot reach this arm: they imply properties.
+    for (auto const &spec : edges) {
+      if (!emplace_from_spec(spec, EdgeRef{spec.edge_gid})) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  } else if (!config_.storage_light_edge) {
+    // Heavy edges are in the edges_ skip list, keyed by GID.
+    edge_acc = static_cast<InMemoryStorage *>(storage_)->edges_.access();
+    for (auto const &spec : edges) {
+      auto edge_it = edge_acc->find(spec.edge_gid);
+      if (edge_it == edge_acc->end()) return std::unexpected{Error::NONEXISTENT_OBJECT};
+      if (!emplace_from_spec(spec, EdgeRef{&*edge_it})) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  } else {
+    // Light edges are in no skip list, so adjacency is the only way to reach the Edge*.
+    //
+    // Each edge is linked from both endpoints, so it is resolved from whichever side is cheaper, and edges that
+    // pick the same vertex are bucketed to share one scan. Both halves matter: the side choice is what makes
+    // deleting a handful of a supernode's edges cost O(1) each instead of a full scan of the supernode, and the
+    // bucketing is what makes deleting all of them cost one scan rather than one per edge.
+    std::unordered_map<Vertex *, std::unordered_set<Gid>> wanted_by_out_vertex;
+    std::unordered_map<Vertex *, std::unordered_set<Gid>> wanted_by_in_vertex;
+
+    for (auto const &spec : edges) {
+      auto *from_vertex = resolve_vertex(spec.from_gid);
+      auto *to_vertex = resolve_vertex(spec.to_gid);
+      if (!from_vertex || !to_vertex) return std::unexpected{Error::NONEXISTENT_OBJECT};
+
+      if (CheaperScanSide(from_vertex, to_vertex) == EdgeDirection::OUT) {
+        wanted_by_out_vertex[from_vertex].insert(spec.edge_gid);
+      } else {
+        wanted_by_in_vertex[to_vertex].insert(spec.edge_gid);
+      }
+    }
+
+    // Returns false if this vertex turned out not to have some of the edges asked of it.
+    auto drain_bucket = [&](Vertex *vertex, EdgeDirection direction, std::unordered_set<Gid> &wanted) {
+      for (auto const &[edge_ref, edge_type, from_v, to_v] : ScanEdgesForGids(vertex, direction, wanted)) {
+        accessors.emplace_back(edge_ref, edge_type, from_v, to_v, storage_, &transaction_);
+      }
+      return wanted.empty();
+    };
+
+    // The two maps partition the batch — the loop above put each edge in exactly one of them — so these are two
+    // halves of a single pass over the edges, not one pass per direction. No edge is looked at twice.
+    for (auto &[vertex, wanted] : wanted_by_out_vertex) {
+      if (!drain_bucket(vertex, EdgeDirection::OUT, wanted)) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+    for (auto &[vertex, wanted] : wanted_by_in_vertex) {
+      if (!drain_bucket(vertex, EdgeDirection::IN, wanted)) return std::unexpected{Error::NONEXISTENT_OBJECT};
+    }
+  }
+
+  auto edge_ptrs = accessors | rv::transform([](EdgeAccessor &edge) { return &edge; }) | r::to_vector;
+  auto res = DetachDelete({}, std::move(edge_ptrs), false);
+  if (!res) return std::unexpected{res.error()};
+  if (!*res) return size_t{0};
+  return (*res)->second.size();
+}
+
+Edge *InMemoryStorage::LightEdgePool::Create(Gid gid, Delta *delta) {
+  // Allocation failure is propagated, NOT swallowed: an over-limit allocation
+  // throws utils::OutOfMemoryException (derived from BasicException, NOT
+  // std::bad_alloc) and a genuine OOM throws std::bad_alloc. Both must reach the
+  // query layer so the transaction aborts with an error — exactly as the heavy
+  // path does when edges_.insert() allocates a skip-list node. Catching only
+  // std::bad_alloc here (in a noexcept function) would let OutOfMemoryException
+  // cross the noexcept boundary -> std::terminate, turning a recoverable
+  // memory-limit hit into a server crash. Edge(Gid, Delta*) is nothrow (asserted
+  // below), so only the allocation can throw; it does so before any edge is
+  // constructed or linked, so propagation is exception-safe — the caller's delta
+  // is unwound by the transaction abort, identical to the heavy OOM path.
+  static_assert(std::is_nothrow_constructible_v<Edge, Gid, Delta *>,
+                "Edge(Gid, Delta*) must be nothrow; otherwise a throwing "
+                "construct_at would leak the allocation made just above it.");
+  memory::DbAwareAllocator<Edge> alloc;
+  Edge *edge_ptr = std::allocator_traits<decltype(alloc)>::allocate(alloc, 1);
+  std::construct_at(edge_ptr, gid, delta);
+  return edge_ptr;
+}
+
+void InMemoryStorage::LightEdgePool::Destroy(Edge *p) noexcept {
+  if (p == nullptr) return;
+  memory::DbAwareAllocator<Edge> alloc;
+  std::destroy_at(p);
+  std::allocator_traits<decltype(alloc)>::deallocate(alloc, p, 1);
+}
+
+void InMemoryStorage::HarvestDeltaChainOnlyLightEdges() noexcept {
+  // Walk both containers under their respective locks. All background tasks are
+  // stopped before this runs (single-threaded dtor path), so no concurrency on
+  // the delta chains — atomic reads of prev/delta/deleted suffice; no edge lock
+  // needed. The edge->delta()==&delta guard is the chain-head dedup used by the
+  // GC loop and UnlinkDeltasAndCollectDeleted: it ensures each deleted light Edge* is
+  // freed EXACTLY ONCE across the whole walk.
+  auto harvest = [](auto &transactions) noexcept {
+    for (auto &entry : transactions) {
+      for (Delta &delta : entry.deltas_) {
+        auto prev = delta.prev.Get();
+        if (prev.type != PreviousPtr::Type::EDGE) continue;
+        Edge *edge = prev.edge;
+        if (!edge->deleted()) continue;
+        if (edge->delta() != &delta) continue;
+        InMemoryStorage::LightEdgePool::Destroy(edge);
+      }
+    }
+  };
+  committed_transactions_.WithLock(harvest);
+  waiting_gc_deltas_.WithLock(harvest);
+}
+
+void InMemoryStorage::ClearLightEdges(std::function<void()> const &on_progress) noexcept {
+  // Free ONLY live light edges held in vertex adjacency. Each edge appears
+  // exactly once across all out_edges (a self-loop has a single source-vertex
+  // entry), so no deduplication is needed. Deleted light edges still queued in
+  // the graveyard are freed by the loop below.
+  auto vertex_acc = vertices_.access();
+  uint64_t visited = 0;
+  for (auto &vertex : vertex_acc) {
+    for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+      InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+    }
+    // Mask first so the common path is an increment and a predicted-not-taken branch.
+    if (((++visited & utils::kClearProgressMask) == 0) && on_progress) on_progress();
+  }
+
+  // Also free any deleted light edges still queued in the graveyard. Swap out
+  // under lock, then free without holding the SpinLock (mirrors
+  // DrainLightEdgeGraveyard's swap-out-then-free pattern).
+  std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>> pending_graveyard;
+  light_edge_graveyard_.WithLock([&](auto &graveyard) { pending_graveyard.swap(graveyard); });
+  for (auto &entry : pending_graveyard) {
+    for (auto *edge : entry.edges.elements()) {
+      InMemoryStorage::LightEdgePool::Destroy(edge);
+    }
+  }
+
+  // Free any deleted light edges still queued in deleted_edges_ that never
+  // reached the graveyard (i.e. were deleted but GC has not yet collected them —
+  // the commit (FastDiscard) / abort paths route them into deleted_edges_, and
+  // the CollectGarbage swap later drains them into the graveyard). These
+  // pool-allocated Edge* are owned by no skip-list, so without this drain they
+  // leak at teardown/Clear/DropGraph. The three sets (live adjacency,
+  // deleted_edges_, graveyard) are disjoint: CollectGarbage swaps deleted_edges_
+  // empty BEFORE moving the edges into a graveyard entry, and an edge is removed
+  // from vertex adjacency in the same delta-processing step that later routes its
+  // Edge* into deleted_edges_ — so no Edge* freed here is double-freed by the
+  // loops above. Heavy mode never reaches this function (all callers gate on
+  // storage_light_edge); heavy deleted_edges_ Edge* live in the edges_ skip-list
+  // and are freed by it, so they must NOT be freed as light edges.
+  deleted_edges_.WithLock([&](auto &deleted_edges) {
+    for (auto *edge : deleted_edges.elements()) {
+      InMemoryStorage::LightEdgePool::Destroy(edge);
+    }
+    deleted_edges.clear();
+  });
+}
+
+void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
   // When creating a snapshot, we first lock the snapshot, then create the accessor
   // GC could be running without the main lock
@@ -4529,18 +5499,38 @@ void InMemoryStorage::Clear() {
     last_processed_commit_ts_ = kTimestampInitialId;
   }
   schema_info_.Clear();
+  // Leak fix (mirrors dtor ordering): a deleted light edge whose delta chain was
+  // never GC-unlinked is referenced ONLY by a RECREATE_OBJECT delta in
+  // committed_transactions_/waiting_gc_deltas_. The clear() below frees those
+  // deltas but NOT the pool-allocated Edge*, and ClearLightEdges only drains
+  // {adjacency, graveyard, deleted_edges_} -> the Edge* would leak. Harvest BEFORE
+  // ClearLightEdges (and before committed_transactions_ is cleared) so the delta
+  // chains are still reachable. Gated: heavy Edge* live in edges_ and are freed by
+  // the skip-list, not here.
+  if (config_.salient.items.storage_light_edge) {
+    HarvestDeltaChainOnlyLightEdges();
+  }
+  // Free live light edges before clearing vertices (their adjacency lists are
+  // the only handle to the pool-allocated Edge*).
+  if (config_.salient.items.storage_light_edge) {
+    ClearLightEdges(on_progress);
+  }
 
   // Clear main memory
-  vertices_.clear();
+  vertices_.clear(on_progress);
   vertices_.run_gc();
   vertex_id_.store(0, std::memory_order_release);
 
-  edges_.clear();
+  edges_.clear(on_progress);
   edges_.run_gc();
   edge_id_.store(0, std::memory_order_release);
   edge_count_.store(0, std::memory_order_release);
 
-  timestamp_ = kTimestampInitialId;
+  SetTimestampQuiescent(kTimestampInitialId);
+  if (config_.experimental_commit_lock_narrowing) {
+    // Windows hold pre-rewind ids; recovery is single-threaded, so no concurrent GC or committer.
+    commit_windows_.clear();
+  }
   transaction_id_ = kTransactionInitialId;
 
   // Reset WALs
@@ -4597,6 +5587,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
+      .vertex_property = transaction_.active_indices_->vertex_property_->ListIndices(transaction_.start_timestamp),
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
       .point_label_property = transaction_.active_indices_->point_->ListIndices(),
@@ -4633,6 +5624,10 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
 
   for (const auto &property_id : indices_info.edge_property) {
     [[maybe_unused]] auto maybe_error = DropGlobalEdgeIndex(property_id);
+  }
+
+  for (const auto &property_id : indices_info.vertex_property) {
+    [[maybe_unused]] auto maybe_error = DropGlobalVertexIndex(property_id);
   }
 
   for (const auto &[label_id, property_id] : indices_info.point_label_property) {
@@ -4704,6 +5699,14 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   // we take the control from the GC to clear any deltas
   auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+  // Free deleted light Edge* referenced only by un-GC'd RECREATE_OBJECT
+  // deltas before clearing committed_transactions_/waiting_gc_deltas_ (which hold
+  // those delta chains). Mirrors Clear()'s harvest call; ClearLightEdges below
+  // only drains {adjacency, graveyard, deleted_edges_} — delta-chain-only edges
+  // are disjoint from those three sets and would leak without this harvest.
+  if (mem_storage->config_.salient.items.storage_light_edge) {
+    mem_storage->HarvestDeltaChainOnlyLightEdges();
+  }
   mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
 
   mem_storage->async_indexer_.Clear();
@@ -4713,6 +5716,10 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->constraints_.DropGraphClearConstraints();
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
+  // Free live light edges before clearing vertices (analytical DROP GRAPH).
+  if (mem_storage->config_.salient.items.storage_light_edge) {
+    mem_storage->ClearLightEdges();
+  }
 
   mem_storage->vertices_.clear();
   mem_storage->waiting_gc_deltas_->clear();

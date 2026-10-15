@@ -1,0 +1,6 @@
+query: >
+  WITH collections.duplicates([1, 1, 2, 3, 3, 3, 4]) AS result UNWIND result AS element RETURN element ORDER BY element ASC;
+
+output:
+  - element: 1
+  - element: 3

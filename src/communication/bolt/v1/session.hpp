@@ -164,6 +164,13 @@ class Session {
         ClientFailureInvalidData();
       }
     }
+    // Drain: flush every response deferred while processing this input in one write. If that send fails
+    // (dead socket), tear the session down here — mirroring the immediate-write failure path — instead of
+    // silently dropping the responses and waiting for the next read to notice.
+    if (!encoder_buffer_.FlushFinalized()) {
+      state_ = State::Close;
+      throw SessionException("Failed to send buffered Bolt responses to the client!");
+    }
     return false;  // no more data
   }
 
@@ -199,13 +206,17 @@ class Session {
 
   std::string GetLoginTimestamp() const { return login_timestamp_; }
 
+  // Resets login_timestamp_ to now; called at the start of every auth attempt so
+  // LOGON / re-auth on an existing connection stamps the real login time, not TCP-connect time.
+  void RefreshLoginTimestamp() { login_timestamp_ = utils::Timestamp::Now().ToString(kTimestampFormat); }
+
  protected:
   void ClientFailureInvalidData() {
     // Set the state to Close.
     state_ = State::Close;
-    // We don't care about the return status because this is called when we
-    // are about to close the connection to the client.
-    encoder_buffer_.Clear();
+    // Best-effort deliver any responses deferred earlier in this burst before the FAILURE; the send
+    // result is irrelevant because we are closing the connection regardless.
+    static_cast<void>(encoder_buffer_.FlushFinalized());
     encoder_.MessageFailure({{"code", "Memgraph.ExecutionException"},
                              {"message",
                               "Something went wrong while executing the query! "
@@ -218,7 +229,7 @@ class Session {
  private:
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
-  const std::string login_timestamp_;
+  std::string login_timestamp_;
 };
 
 }  // namespace memgraph::communication::bolt

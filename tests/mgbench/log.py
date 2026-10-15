@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import logging
+from datetime import datetime
 from typing import Dict
 
 from constants import (
@@ -45,12 +46,21 @@ file_handler.setFormatter(file_format)
 logger.addHandler(file_handler)
 
 
+def _timestamp():
+    """
+    Prefixes console output with the wall-clock time. A benchmark run spends minutes at a time
+    importing a dataset or waiting for a cluster to converge, and without this there is no way to tell
+    from the output which phase took how long, or whether a quiet stretch is progress or a stall.
+    """
+    return datetime.now().strftime("%H:%M:%S")
+
+
 def _log(color, *args):
-    print("\033[1;3{}m~~".format(color), *args, "~~\033[0m")
+    print("{} \033[1;3{}m~~".format(_timestamp(), color), *args, "~~\033[0m")
 
 
 def log(msg):
-    print(str(msg))
+    print("{} {}".format(_timestamp(), msg))
     logger.info(msg=msg)
 
 

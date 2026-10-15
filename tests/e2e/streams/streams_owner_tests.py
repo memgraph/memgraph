@@ -10,10 +10,12 @@
 # licenses/APL.txt.
 
 import sys
-import pytest
 import time
-import mgclient
+
 import common
+import mgclient
+import pytest
+
 
 def get_cursor_with_user(username):
     connection = common.connect(username=username, password="")
@@ -22,23 +24,21 @@ def get_cursor_with_user(username):
 
 def create_admin_user(cursor, admin_user):
     common.execute_and_fetch_all(cursor, f"CREATE USER {admin_user}")
-    common.execute_and_fetch_all(
-        cursor, f"GRANT ALL PRIVILEGES TO {admin_user}")
+    common.execute_and_fetch_all(cursor, f"GRANT ALL PRIVILEGES TO {admin_user}")
 
 
 def create_stream_user(cursor, stream_user):
     common.execute_and_fetch_all(cursor, f"CREATE USER {stream_user}")
-    common.execute_and_fetch_all(
-        cursor, f"GRANT STREAM TO {stream_user}")
+    common.execute_and_fetch_all(cursor, f"GRANT STREAM TO {stream_user}")
 
 
 def test_ownerless_stream(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
     userless_cursor = connection.cursor()
-    common.execute_and_fetch_all(userless_cursor,
-                                 "CREATE KAFKA STREAM ownerless "
-                                 f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM kafka_transform.simple")
+    common.execute_and_fetch_all(
+        userless_cursor,
+        "CREATE KAFKA STREAM ownerless " f"TOPICS {kafka_topics[0]} " f"TRANSFORM kafka_transform.simple",
+    )
     common.start_stream(userless_cursor, "ownerless")
     time.sleep(1)
 
@@ -46,11 +46,9 @@ def test_ownerless_stream(kafka_producer, kafka_topics, connection):
     create_admin_user(userless_cursor, admin_user)
 
     kafka_producer.send(kafka_topics[0], b"first message").get(timeout=60)
-    assert common.timed_wait(
-        lambda: not common.get_is_running(userless_cursor, "ownerless"))
+    assert common.timed_wait(lambda: not common.get_is_running(userless_cursor, "ownerless"))
 
-    assert len(common.execute_and_fetch_all(
-        userless_cursor, "MATCH (n) RETURN n")) == 0
+    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 0
 
     common.execute_and_fetch_all(userless_cursor, f"DROP USER {admin_user}")
     common.start_stream(userless_cursor, "ownerless")
@@ -58,11 +56,9 @@ def test_ownerless_stream(kafka_producer, kafka_topics, connection):
 
     second_message = b"second message"
     kafka_producer.send(kafka_topics[0], second_message).get(timeout=60)
-    common.kafka_check_vertex_exists_with_topic_and_payload(
-        userless_cursor, kafka_topics[0], second_message)
+    common.kafka_check_vertex_exists_with_topic_and_payload(userless_cursor, kafka_topics[0], second_message)
 
-    assert len(common.execute_and_fetch_all(
-        userless_cursor, "MATCH (n) RETURN n")) == 1
+    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 1
 
 
 def test_owner_is_shown(kafka_topics, connection):
@@ -73,12 +69,13 @@ def test_owner_is_shown(kafka_topics, connection):
     create_stream_user(userless_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
 
-    common.execute_and_fetch_all(stream_cursor, "CREATE KAFKA STREAM test "
-                                 f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM kafka_transform.simple")
+    common.execute_and_fetch_all(
+        stream_cursor, "CREATE KAFKA STREAM test " f"TOPICS {kafka_topics[0]} " f"TRANSFORM kafka_transform.simple"
+    )
 
-    common.check_stream_info(userless_cursor, "test", ("test", "kafka", 100, 1000,
-        "kafka_transform.simple", stream_user, False))
+    common.check_stream_info(
+        userless_cursor, "test", ("test", "kafka", 100, 1000, "kafka_transform.simple", stream_user, False)
+    )
 
 
 def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
@@ -93,10 +90,10 @@ def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
     create_stream_user(userless_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
 
-    common.execute_and_fetch_all(stream_cursor,
-                                 "CREATE KAFKA STREAM insufficient_test "
-                                 f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM kafka_transform.simple")
+    common.execute_and_fetch_all(
+        stream_cursor,
+        "CREATE KAFKA STREAM insufficient_test " f"TOPICS {kafka_topics[0]} " f"TRANSFORM kafka_transform.simple",
+    )
 
     # the stream is started by admin, but should check against the owner
     # privileges
@@ -104,24 +101,19 @@ def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
     time.sleep(1)
 
     kafka_producer.send(kafka_topics[0], b"first message").get(timeout=60)
-    assert common.timed_wait(
-        lambda: not common.get_is_running(userless_cursor, "insufficient_test"))
+    assert common.timed_wait(lambda: not common.get_is_running(userless_cursor, "insufficient_test"))
 
-    assert len(common.execute_and_fetch_all(
-        userless_cursor, "MATCH (n) RETURN n")) == 0
+    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 0
 
-    common.execute_and_fetch_all(
-        admin_cursor, f"GRANT CREATE TO {stream_user}")
+    common.execute_and_fetch_all(admin_cursor, f"GRANT CREATE TO {stream_user}")
     common.start_stream(userless_cursor, "insufficient_test")
     time.sleep(1)
 
     second_message = b"second message"
     kafka_producer.send(kafka_topics[0], second_message).get(timeout=60)
-    common.kafka_check_vertex_exists_with_topic_and_payload(
-        userless_cursor, kafka_topics[0], second_message)
+    common.kafka_check_vertex_exists_with_topic_and_payload(userless_cursor, kafka_topics[0], second_message)
 
-    assert len(common.execute_and_fetch_all(
-        userless_cursor, "MATCH (n) RETURN n")) == 1
+    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 1
 
 
 def test_happy_case(kafka_producer, kafka_topics, connection):
@@ -135,13 +127,12 @@ def test_happy_case(kafka_producer, kafka_topics, connection):
     stream_user = "stream_user"
     create_stream_user(userless_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
-    common.execute_and_fetch_all(
-        admin_cursor, f"GRANT CREATE TO {stream_user}")
+    common.execute_and_fetch_all(admin_cursor, f"GRANT CREATE TO {stream_user}")
 
-    common.execute_and_fetch_all(stream_cursor,
-                                 "CREATE KAFKA STREAM insufficient_test "
-                                 f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM kafka_transform.simple")
+    common.execute_and_fetch_all(
+        stream_cursor,
+        "CREATE KAFKA STREAM insufficient_test " f"TOPICS {kafka_topics[0]} " f"TRANSFORM kafka_transform.simple",
+    )
 
     common.start_stream(stream_cursor, "insufficient_test")
     time.sleep(1)
@@ -149,11 +140,70 @@ def test_happy_case(kafka_producer, kafka_topics, connection):
     first_message = b"first message"
     kafka_producer.send(kafka_topics[0], first_message).get(timeout=60)
 
-    common.kafka_check_vertex_exists_with_topic_and_payload(
-        userless_cursor, kafka_topics[0], first_message)
+    common.kafka_check_vertex_exists_with_topic_and_payload(userless_cursor, kafka_topics[0], first_message)
 
-    assert len(common.execute_and_fetch_all(
-        userless_cursor, "MATCH (n) RETURN n")) == 1
+    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 1
+
+
+def usernames(cursor):
+    return {username for (username,) in common.execute_and_fetch_all(cursor, "SHOW USERS")}
+
+
+def test_a_stream_runs_auth_statements_its_owner_may_run(kafka_producer, kafka_topics, connection):
+    cursor = connection.cursor()
+    create_admin_user(cursor, "admin_user")
+    common.execute_and_fetch_all(cursor, "CREATE USER owner")
+    common.execute_and_fetch_all(cursor, "GRANT STREAM, AUTH TO owner")
+    owner_cursor = get_cursor_with_user("owner")
+
+    common.execute_and_fetch_all(
+        owner_cursor, f"CREATE KAFKA STREAM auth_stream TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.create_user"
+    )
+    common.start_stream(owner_cursor, "auth_stream")
+
+    kafka_producer.send(kafka_topics[0], b"streamed").get(timeout=60)
+    assert common.timed_wait(lambda: "streamed" in usernames(cursor))
+
+
+def test_a_stream_checks_auth_statements_against_the_system_database(kafka_producer, kafka_topics, connection):
+    # The owner holds AUTH on the stream's database only. An auth statement needs it on the system database, as it
+    # does from a session, whichever database the stream runs in.
+    cursor = connection.cursor()
+    create_admin_user(cursor, "admin_user")
+    for query in [
+        "CREATE DATABASE tenant",
+        "CREATE ROLE tenant_auth",
+        "GRANT STREAM, AUTH TO tenant_auth",
+        "GRANT DATABASE tenant TO tenant_auth",
+        "CREATE USER owner",
+        "GRANT DATABASE tenant TO owner",
+        "SET ROLE FOR owner TO tenant_auth ON tenant",
+        "SET MAIN DATABASE tenant FOR owner",
+    ]:
+        common.execute_and_fetch_all(cursor, query)
+    owner = common.connect(username="owner", password="")
+    try:
+        owner_cursor = owner.cursor()
+        common.execute_and_fetch_all(
+            owner_cursor,
+            f"CREATE KAFKA STREAM tenant_stream TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.create_user",
+        )
+        common.start_stream(owner_cursor, "tenant_stream")
+
+        kafka_producer.send(kafka_topics[0], b"streamed").get(timeout=60)
+        assert common.timed_wait(lambda: not common.get_is_running(owner_cursor, "tenant_stream"))
+        assert "streamed" not in usernames(cursor)
+    finally:
+        owner.close()
+        for query in [
+            "USE DATABASE tenant",
+            "DROP STREAM tenant_stream",
+            "USE DATABASE memgraph",
+            "DROP DATABASE tenant",
+            "DROP USER owner",
+            "DROP ROLE tenant_auth",
+        ]:
+            common.execute_and_fetch_all(cursor, query)
 
 
 if __name__ == "__main__":

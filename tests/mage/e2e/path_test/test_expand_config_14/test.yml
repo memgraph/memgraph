@@ -1,0 +1,8 @@
+# minLevel/maxLevel are accepted as aliases of minHops/maxHops on this procedure too.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: ['R>'], minLevel: 2, maxLevel: 2})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+output:
+  - names: ["A", "B", "C"]

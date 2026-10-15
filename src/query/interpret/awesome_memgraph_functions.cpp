@@ -12,26 +12,34 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <iterator>
+#include <limits>
+#include <optional>
 #include <random>
+#include <ranges>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 
+#include "query/auth_checker.hpp"
+#include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
+#include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -95,6 +103,8 @@ namespace {
 // message.
 ////////////////////////////////////////////////////////////////////////////////
 
+struct Any {};
+
 struct Null {};
 
 struct Bool {};
@@ -143,7 +153,9 @@ struct Point3d {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
-  if constexpr (std::is_same_v<ArgType, Null>) {
+  if constexpr (std::is_same_v<ArgType, Any> || std::is_same_v<ArgType, void>) {
+    return true;
+  } else if constexpr (std::is_same_v<ArgType, Null>) {
     return arg.IsNull();
   } else if constexpr (std::is_same_v<ArgType, Bool>) {
     return arg.IsBool();
@@ -182,15 +194,13 @@ bool ArgIsType(const TypedValue &arg) {
   } else if constexpr (std::is_same_v<ArgType, ZonedDateTime>) {
     return arg.IsZonedDateTime();
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
-    return arg.IsGraph();
+    return arg.IsGraph() || arg.IsVirtualGraph();
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return arg.IsEnum();
   } else if constexpr (std::is_same_v<ArgType, Point2d>) {
     return arg.IsPoint2d();
   } else if constexpr (std::is_same_v<ArgType, Point3d>) {
     return arg.IsPoint3d();
-  } else if constexpr (std::is_same_v<ArgType, void>) {
-    return true;
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -201,7 +211,9 @@ template <class ArgType>
 constexpr const char *ArgTypeName() {
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
-  if constexpr (std::is_same_v<ArgType, Null>) {
+  if constexpr (std::is_same_v<ArgType, Any>) {
+    return "any";
+  } else if constexpr (std::is_same_v<ArgType, Null>) {
     return "null";
   } else if constexpr (std::is_same_v<ArgType, Bool>) {
     return "boolean";
@@ -442,14 +454,15 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
-const auto &VirtualProperties(const TypedValue &value) {
-  return value.IsVirtualNode() ? value.ValueVirtualNode().Properties() : value.ValueVirtualEdge().Properties();
-}
+constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
 
+// NOTE: Denied properties appear as keys with null values. This differs from
+// keys() and values(), which omit denied properties entirely. This divergence
+// is by design.
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_properties = [&](const auto &record_accessor) {
+  auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -465,27 +478,55 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      auto typed_value =
-          TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
+      auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
+      if (is_allowed(property.first)) {
+        auto typed_value =
+            TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+        properties.emplace(std::move(key), std::move(typed_value));
+      } else {
+        properties.emplace(std::move(key), TypedValue(ctx.memory));
+      }
     }
     return TypedValue(std::move(properties));
   };
+  auto const *checker = ctx.auth_checker;
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVirtualNode() || value.IsVirtualEdge()) {
+  } else if (value.IsVirtualNode()) {
+    auto const &vn = value.ValueVirtualNode();
     TypedValue::TMap properties(ctx.memory);
-    for (const auto &[prop_id, prop_value] : VirtualProperties(value)) {
+    for (auto const &[prop_id, prop_value] : vn.Properties()) {
       properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
                          TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
     }
     return TypedValue(std::move(properties));
-  } else if (value.IsVertex()) {
-    return get_properties(value.ValueVertex());
-  } else {
-    return get_properties(value.ValueEdge());
+  } else if (value.IsVirtualEdge()) {
+    auto const &ve = value.ValueVirtualEdge();
+    TypedValue::TMap properties(ctx.memory);
+    for (auto const &[prop_id, prop_value] : ve.Properties()) {
+      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
+                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(properties));
   }
+  if (value.IsVertex()) {
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_properties(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_properties(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+  auto const &edge = value.ValueEdge();
+  if (!checker) return get_properties(edge, allow_all_properties);
+  return get_properties(edge, [&](storage::PropertyId prop) {
+    return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+  });
 }
 
 TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
@@ -500,7 +541,7 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   } else if (value.IsList()) {
     return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
   } else if (value.IsString()) {
-    return TypedValue(static_cast<int64_t>(value.ValueString().size()), ctx.memory);
+    return TypedValue(static_cast<int64_t>(utils::CountUtf8CodePoints(value.ValueString())), ctx.memory);
   } else if (value.IsMap()) {
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.
@@ -538,6 +579,22 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().From(), ctx.memory);
   return TypedValue(args[0].ValueEdge().From(), ctx.memory);
+}
+
+TypedValue NullIf(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Any, Any>("nullIf", args, nargs);
+  // Equality, the three-valued relation `=` reads, and not equivalence: a comparison turning on a Null
+  // decides nothing, so nullIf(1, null) answers 1 and nullIf([null], [null]) answers [null].
+  try {
+    auto const equal = args[0] == args[1];
+    if (equal.IsBool() && equal.ValueBool()) return TypedValue(ctx.memory);
+  } catch (const TypedValueException &) {
+    // A pair `=` defines no equality over reaches the client as the query error `=` itself raises.
+    // Letting the TypedValueException escape would instead reach it as a transient error, which a
+    // driver is entitled to replay even though the query can never answer.
+    throw QueryRuntimeException("Invalid types: {} and {} for 'nullIf'.", args[0].type(), args[1].type());
+  }
+  return {args[0], ctx.memory};
 }
 
 namespace {
@@ -602,8 +659,15 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
+// Type-set shared by each strict to* and its *OrNull variant: strict throws on a rejected type, *OrNull
+// returns null; a parse failure on an accepted type returns null in both.
+using ToBooleanTypes = Or<Null, Bool, Integer, String>;  // Integer, not Number: toBoolean rejects floats.
+using ToNumericTypes = Or<Null, Bool, Number, String>;   // shared by toFloat and toInteger.
+using ToStringTypes =
+    Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum, Point2d, Point3d>;
+
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
+  FType<ToBooleanTypes>("toBoolean", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -622,7 +686,7 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Number, String>>("toFloat", args, nargs);
+  FType<ToNumericTypes>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -641,8 +705,61 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
   }
 }
 
+// int64's maximum is not representable as a double, so the bound is the
+// smallest double above the range, 2^63, and it is exclusive.
+constexpr double kInt64UpperBoundExclusive = 9223372036854775808.0;
+constexpr auto kInt64LowerBoundInclusive = static_cast<double>(std::numeric_limits<int64_t>::min());
+
+// False for NaN, which compares false against both bounds.
+bool IsWithinInt64Range(const double value) {
+  return value >= kInt64LowerBoundInclusive && value < kInt64UpperBoundExclusive;
+}
+
+// Truncates toward zero, saturating at either end of the range and taking NaN
+// to zero. This is how a floating point argument converts: the C++ cast is
+// undefined outside the range, so the bounds are applied before it.
+int64_t TruncateToInteger(const double value) {
+  if (std::isnan(value)) return 0;
+  if (value >= kInt64UpperBoundExclusive) return std::numeric_limits<int64_t>::max();
+  if (value < kInt64LowerBoundInclusive) return std::numeric_limits<int64_t>::min();
+  return static_cast<int64_t>(value);
+}
+
+// A string can fail to yield an integer in two ways that are reported
+// differently: one naming no number at all is null, while one naming a number
+// too large for the type is an error in toInteger and null in toIntegerOrNull.
+enum class StringToInteger : std::uint8_t { kOk, kNotANumber, kOutOfRange };
+
+std::pair<StringToInteger, int64_t> ParseInteger(std::string_view text) {
+  const auto trimmed = utils::Trim(text);
+  // A whole-number string is parsed as an integer directly. A double holds
+  // fewer significant digits than int64, so going through one would round large
+  // values onto a neighbouring integer or off the end of the range.
+  int64_t parsed{};
+  const auto *const begin = trimmed.data();
+  const auto *const end = begin + trimmed.size();
+  if (const auto [stopped_at, ec] = std::from_chars(begin, end, parsed); stopped_at == end) {
+    if (ec == std::errc{}) return {StringToInteger::kOk, parsed};
+    if (ec == std::errc::result_out_of_range) return {StringToInteger::kOutOfRange, 0};
+    // Empty text consumes nothing, which leaves the cursor at the end as well,
+    // so reaching it is not on its own a sign that a number was read.
+  }
+
+  // Anything else is only meaningful as a floating point number, and is
+  // truncated toward zero. Unlike a floating point argument it does not
+  // saturate: the text named an exact value, and no integer stands for it.
+  double as_double{};
+  try {
+    as_double = utils::ParseDouble(trimmed);
+  } catch (const utils::BasicException &) {
+    return {StringToInteger::kNotANumber, 0};
+  }
+  if (!IsWithinInt64Range(as_double)) return {StringToInteger::kOutOfRange, 0};
+  return {StringToInteger::kOk, static_cast<int64_t>(as_double)};
+}
+
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
+  FType<ToNumericTypes>("toInteger", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -651,16 +768,46 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   } else if (value.IsInt()) {
     return TypedValue(value, ctx.memory);
   } else if (value.IsDouble()) {
-    return TypedValue(static_cast<int64_t>(value.ValueDouble()), ctx.memory);
+    return TypedValue(TruncateToInteger(value.ValueDouble()), ctx.memory);
   } else {
-    try {
-      // Yup, this is correct. String is valid if it has floating point
-      // number, then it is parsed and converted to int.
-      return TypedValue(static_cast<int64_t>(utils::ParseDouble(utils::Trim(value.ValueString()))), ctx.memory);
-    } catch (const utils::BasicException &) {
-      return TypedValue(ctx.memory);
+    const auto [status, parsed] = ParseInteger(value.ValueString());
+    switch (status) {
+      case StringToInteger::kOk:
+        return TypedValue(parsed, ctx.memory);
+      case StringToInteger::kNotANumber:
+        return TypedValue(ctx.memory);
+      case StringToInteger::kOutOfRange:
+        throw QueryRuntimeException("'{}' is outside the range of an integer.", value.ValueString());
     }
   }
+}
+
+// Null-on-rejected-type wrapper: accepted types delegate to the strict fn (still null on parse failure), rest -> null.
+template <typename Types, TypedValue (*StrictFn)(const TypedValue *, int64_t, const FunctionContext &)>
+TypedValue ConvertOrNull(const char *name, const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'{}' requires exactly 1 argument.", name);
+  if (!Types::Check(args[0])) return TypedValue(ctx.memory);
+  return StrictFn(args, nargs, ctx);
+}
+
+TypedValue ToBooleanOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return ConvertOrNull<ToBooleanTypes, ToBoolean>("toBooleanOrNull", args, nargs, ctx);
+}
+
+TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return ConvertOrNull<ToNumericTypes, ToFloat>("toFloatOrNull", args, nargs, ctx);
+}
+
+TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'{}' requires exactly 1 argument.", "toIntegerOrNull");
+  if (!ToNumericTypes::Check(args[0])) return TypedValue(ctx.memory);
+  // A string naming a value out of range is an error in the strict form but
+  // null here, so the string case cannot delegate the way the rest can.
+  if (args[0].IsString()) {
+    const auto [status, parsed] = ParseInteger(args[0].ValueString());
+    return status == StringToInteger::kOk ? TypedValue(parsed, ctx.memory) : TypedValue(ctx.memory);
+  }
+  return ToInteger(args, nargs, ctx);
 }
 
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -672,7 +819,7 @@ TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionCo
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToBoolean(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToBooleanOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -685,7 +832,7 @@ TypedValue ToFloatList(const TypedValue *args, int64_t nargs, const FunctionCont
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToFloat(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToFloatOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -698,7 +845,7 @@ TypedValue ToIntegerList(const TypedValue *args, int64_t nargs, const FunctionCo
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToInteger(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToIntegerOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -785,7 +932,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
+  auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -801,27 +948,46 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
       }
     }
     for (const auto &property : *maybe_props) {
-      keys.emplace_back(dba->PropertyToName(property.first));
+      if (is_allowed(property.first)) keys.emplace_back(dba->PropertyToName(property.first));
     }
     return TypedValue(std::move(keys));
   };
+  auto const *checker = ctx.auth_checker;
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_keys(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_keys(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_keys(value.ValueEdge());
-  }
-  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
-    const auto &props = VirtualProperties(value);
-    TypedValue::TVector keys(ctx.memory);
-    keys.reserve(props.size());
-    std::ranges::transform(props, std::back_inserter(keys), [&](const auto &kv) {
-      return TypedValue(dba->PropertyToName(kv.first), ctx.memory);
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_keys(edge, allow_all_properties);
+    return get_keys(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
+  }
+  if (value.IsVirtualNode()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
+    return TypedValue(std::move(keys));
+  }
+  if (value.IsVirtualEdge()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
     return TypedValue(std::move(keys));
   }
 
@@ -834,9 +1000,9 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+  FType<Or<Null, Vertex, Edge, Map>>("values", args, nargs);
 
-  auto get_values = [&](const auto &record_accessor) {
+  auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -852,29 +1018,51 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       }
     }
     for (const auto &[key, value] : *maybe_props) {
-      auto typed_value = TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+      if (is_allowed(key)) {
+        values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      }
     }
     return TypedValue(std::move(values));
   };
+
+  auto const *checker = ctx.auth_checker;
 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_values(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_values(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_values(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_values(value.ValueEdge());
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_values(edge, allow_all_properties);
+    return get_values(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
-  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
-    const auto &props = VirtualProperties(value);
+  auto *dba = ctx.db_accessor;
+  if (value.IsVirtualNode()) {
     TypedValue::TVector values(ctx.memory);
-    values.reserve(props.size());
-    for (const auto &[prop_id, prop_value] : props) {
-      auto typed_value = TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(values));
+  }
+  if (value.IsVirtualEdge()) {
+    TypedValue::TVector values(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
     }
     return TypedValue(std::move(values));
   }
@@ -903,16 +1091,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case storage::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when getting labels.");
-    }
+    ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
   for (const auto &label : *maybe_labels) {
     labels.emplace_back(dba->LabelToName(label));
@@ -1096,8 +1275,15 @@ TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 template <class TPredicate>
 TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
-  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  // A non-string on either side compares to Null rather than raising. An index scan narrows the
+  // subject to the string type segment before any filter runs, so raising would let the presence
+  // of an index decide whether the query errors at all: it would raise on a property that holds a
+  // string and stay silent on one that holds none. Null keeps the answer the same either way, and
+  // makes the whole predicate answerable from the index alone.
+  if (nargs != 2) {
+    throw QueryRuntimeException("'{}' requires exactly 2 arguments.", TPredicate::name);
+  }
+  if (!args[0].IsString() || !args[1].IsString()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return TypedValue(TPredicate{}(s1, s2), ctx.memory);
@@ -1167,9 +1353,7 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
   return TypedValue(value, context.memory);
 }
 
-TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
-  const auto &arg = args[0];
+TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (arg.IsVirtualNode()) {
@@ -1183,10 +1367,21 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   }
 }
 
-TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>(
-      "toString", args, nargs);
-  const auto &arg = args[0];
+TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
+  return IdOf(args[0], ctx);
+}
+
+// Returns the id as a string for compatibility with external integrations.
+TypedValue ElementId(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("elementId", args, nargs);
+  auto id = IdOf(args[0], ctx);
+  if (id.IsNull()) return id;
+  return TypedValue(std::to_string(id.ValueInt()), ctx.memory);
+}
+
+// Conversion core shared by toString and toStringOrNull; nullopt iff the enum can't be resolved to a name.
+std::optional<TypedValue> TryToString(const TypedValue &arg, const FunctionContext &ctx) {
   using enum TypedValue::Type;
   switch (arg.type()) {
     case Null: {
@@ -1194,7 +1389,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     }
 
     case String: {
-      return {arg, ctx.memory};
+      return TypedValue(arg, ctx.memory);
     }
 
     case Int: {
@@ -1229,12 +1424,20 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) return std::nullopt;
       return TypedValue(*opt_str, ctx.memory);
     }
 
     case Bool: {
       return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    }
+
+    case Point2d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint2d()), ctx.memory);
+    }
+
+    case Point3d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint3d()), ctx.memory);
     }
 
     case List:
@@ -1246,81 +1449,41 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     case Path:
     case Graph:
     case VirtualGraph:
-    case Function:
-    case Point2d:
-    case Point3d: {
+    case Function: {
       MG_ASSERT(false, "unexpected TypedValue::Type");
     }
   }
+}
+
+TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<ToStringTypes>("toString", args, nargs);
+  auto converted = TryToString(args[0], ctx);
+  if (!converted) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+  return *std::move(converted);
 }
 
 TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toStringOrNull' requires exactly 1 argument.");
   }
+  // Rejected type or unconvertible value -> null.
+  if (!ToStringTypes::Check(args[0])) return TypedValue(ctx.memory);
+  auto converted = TryToString(args[0], ctx);
+  return converted ? *std::move(converted) : TypedValue(ctx.memory);
+}
 
-  const auto &arg = args[0];
-  using enum TypedValue::Type;
-  switch (arg.type()) {
-    case String: {
-      return {arg, ctx.memory};
-    }
-
-    case Int: {
-      // TODO: This is making a pointless copy of std::string, we may want to
-      // use a different conversion to string
-      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-    }
-
-    case Double: {
-      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
-    }
-
-    case Date: {
-      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
-    }
-
-    case LocalTime: {
-      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
-    }
-
-    case LocalDateTime: {
-      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
-    }
-
-    case Duration: {
-      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
-    }
-    case ZonedDateTime: {
-      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
-    }
-
-    case Enum: {
-      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
-      return TypedValue(*opt_str, ctx.memory);
-    }
-
-    case Bool: {
-      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
-    }
-
-    case Null:
-    case List:
-    case Map:
-    case Vertex:
-    case Edge:
-    case VirtualEdge:
-    case VirtualNode:
-    case Path:
-    case Graph:
-    case VirtualGraph:
-    case Function:
-    case Point2d:
-    case Point3d: {
-      return TypedValue(ctx.memory);
-    }
+TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toStringList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
   }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  // Per-element via ToStringOrNull (not ToString): non-stringifiable elements become null.
+  for (const auto &element : list) values.emplace_back(ToStringOrNull(&element, 1, ctx));
+  return TypedValue(std::move(values));
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1353,7 +1516,7 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("left", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
+  return TypedValue(utils::SubstrUtf8(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
 }
 
 TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1361,8 +1524,7 @@ TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto len = args[1].ValueInt();
-  return len <= str.size() ? TypedValue(utils::Substr(str, str.size() - len, len), ctx.memory)
-                           : TypedValue(str, ctx.memory);
+  return TypedValue(std::string_view{str}.substr(utils::Utf8OffsetOfLastCodePoints(str, len)), ctx.memory);
 }
 
 TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::MemoryResource *memory, const char *name,
@@ -1391,8 +1553,11 @@ TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(
-      args, nargs, ctx.memory, "reverse", [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "reverse", [&](const auto &str) {
+    TypedValue::TString res(ctx.memory);
+    utils::ReverseUtf8(&res, str);
+    return res;
+  });
 }
 
 TypedValue ToLower(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1426,8 +1591,15 @@ TypedValue Split(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue(ctx.memory);
   }
+  const auto &input = args[0].ValueString();
   TypedValue::TVector result(ctx.memory);
-  utils::Split(&result, args[0].ValueString(), args[1].ValueString());
+  if (input.empty()) {
+    // utils::Split yields no fields at all for an empty input, but splitting a
+    // non-null string must always produce at least one field.
+    result.emplace_back("");
+  } else {
+    utils::Split(&result, input, args[1].ValueString());
+  }
   return TypedValue(std::move(result));
 }
 
@@ -1436,9 +1608,9 @@ TypedValue Substring(const TypedValue *args, int64_t nargs, const FunctionContex
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto start = args[1].ValueInt();
-  if (nargs == 2) return TypedValue(utils::Substr(str, start), ctx.memory);
+  if (nargs == 2) return TypedValue(utils::SubstrUtf8(str, start), ctx.memory);
   auto len = args[2].ValueInt();
-  return TypedValue(utils::Substr(str, start, len), ctx.memory);
+  return TypedValue(utils::SubstrUtf8(str, start, len), ctx.memory);
 }
 
 TypedValue ToByteString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1687,7 +1859,7 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
   }
   const auto &value = input_parameters.at(timezone);
   if (value.IsString()) {
-    return utils::Timezone(value.ValueString());
+    return utils::ParseTimezoneFromUserString(value.ValueString());
   }
   if (value.IsInt()) {
     return utils::Timezone(std::chrono::minutes{value.ValueInt()});
@@ -1985,9 +2157,21 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
+TypedValue Description(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Or<Null, Bool, Integer, Double, String, List, Map>>("description", args, nargs);
+  if (args[1].IsNull()) return TypedValue(ctx.memory);
+  auto const desc = ctx.db_accessor->GetPropertyValueDescription(args[0].ValueString(),
+                                                                 static_cast<storage::ExternalPropertyValue>(args[1]));
+  if (!desc) return TypedValue(ctx.memory);
+  return TypedValue(TypedValue::TString(*desc, ctx.memory));
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
+
+    // Reads mutable catalog state (server-side descriptions) -> not cacheable.
+    {"DESCRIPTION", func_info{.func_ = Description, .is_pure_ = false}},
 
     // Scalar functions
     {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
@@ -1996,7 +2180,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
     {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
     {kId, func_info{.func_ = Id, .is_pure_ = true}},
+    {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
     {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
+    {"NULLIF", func_info{.func_ = NullIf, .is_pure_ = true}},
     {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
     {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
     {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
@@ -2007,6 +2193,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
     {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
     {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+    {"TOBOOLEANORNULL", func_info{.func_ = ToBooleanOrNull, .is_pure_ = true}},
+    {"TOFLOATORNULL", func_info{.func_ = ToFloatOrNull, .is_pure_ = true}},
+    {"TOINTEGERORNULL", func_info{.func_ = ToIntegerOrNull, .is_pure_ = true}},
     {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
     {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
     {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
@@ -2064,6 +2253,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOLOWER", func_info{.func_ = ToLower, .is_pure_ = true}},
     {"TOSTRING", func_info{.func_ = ToString, .is_pure_ = true}},
     {"TOSTRINGORNULL", func_info{.func_ = ToStringOrNull, .is_pure_ = true}},
+    {"TOSTRINGLIST", func_info{.func_ = ToStringList, .is_pure_ = true}},
     {"TOUPPER", func_info{.func_ = ToUpper, .is_pure_ = true}},
     {"TRIM", func_info{.func_ = Trim, .is_pure_ = true}},
 
@@ -2096,7 +2286,6 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    // Lock on the module is already acquired in the AST construction
     procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
@@ -2106,7 +2295,10 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
     auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
     auto maybe_res = mgp_func_result{};
     auto memory = mgp_memory{ctx.memory};
-    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    {
+      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+      func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    }
     if (maybe_res.error_msg) [[unlikely]] {
       throw QueryRuntimeException(*maybe_res.error_msg);
     }
@@ -2120,6 +2312,16 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
 
     return {*std::move(maybe_res.value), ctx.memory};
   };
+}
+
+std::optional<user_func> TryResolveUserFunction(const std::string &name) {
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, name);
+  if (!maybe_found) {
+    return std::nullopt;
+  }
+  auto module_ptr = std::move(maybe_found->first);
+  const auto *func = maybe_found->second;
+  return user_func{UserFunction(*func, name), std::move(module_ptr)};
 }
 
 }  // namespace
@@ -2139,16 +2341,33 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
     return buildin_it->second.func_;
   }
 
-  // Next lookip for user-defined function from a module
-  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
-  if (maybe_found) {
-    auto module_ptr = std::move((*maybe_found).first);
-    const auto *func = (*maybe_found).second;
-    return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
+  // Next lookup for user-defined function from a module
+  if (auto user_function = TryResolveUserFunction(function_name)) {
+    return std::move(*user_function);
   }
 
   // Does not exist
   return std::monostate{};
+}
+
+auto ResolveUserFunction(const std::string &name) -> user_func {
+  auto user_function = TryResolveUserFunction(name);
+  if (!user_function) {
+    throw QueryRuntimeException("Function '{}' doesn't exist.", name);
+  }
+  return std::move(*user_function);
+}
+
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions> {
+  if (names.empty()) {
+    return nullptr;
+  }
+  auto resolved = std::make_shared<ResolvedUserFunctions>();
+  resolved->functions.reserve(names.size());
+  for (const auto &name : names) {
+    resolved->functions.push_back(ResolveUserFunction(name));
+  }
+  return resolved;
 }
 
 bool IsFunctionPure(std::string_view function_name) {

@@ -53,9 +53,8 @@ class OrderByEliminator {
     [[nodiscard]] bool may_overlap(storage::PropertyId prop) const { return !has_path() || resolved[0] == prop; }
   };
 
-  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
-                                    const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
-                                    const ScanAllByEdgePropertyValue *>;
+  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypeProperty *,
+                                    const ScanAllByEdgeProperty *, const ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -192,10 +191,8 @@ class OrderByEliminator {
            type_info == ScanAllByLabelProperties::kType || type_info == ScanAllById::kType ||
            type_info == ScanAllByPointDistance::kType || type_info == ScanAllByPointWithinbbox::kType ||
            type_info == ScanAllByEdge::kType || type_info == ScanAllByEdgeType::kType ||
-           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
-           type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
-           type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
-           type_info == ScanAllByEdgeId::kType;
+           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeProperty::kType ||
+           type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType;
   }
 
   /// Check if a mutation operator (SetProperty, RemoveProperty) modifies a property
@@ -287,6 +284,13 @@ class OrderByEliminator {
             size_t ob_ptr = 0;
             for (size_t i = 0; i < s->properties_.size() && ob_ptr < group_size; ++i) {
               if (s->properties_[i] == entries[group_start + ob_ptr].resolved) {
+                // A composite index stores a missing property as NULL and sorts
+                // NULL first, but ORDER BY places NULL last, so the index order
+                // only matches ORDER BY when the sort column cannot be NULL. A
+                // column is guaranteed non-null when it carries a filter (every
+                // filter type -- EQUAL/RANGE/REGEX/IN/IS_NOT_NULL/STARTS_WITH/CONTAINS/ENDS_WITH -- excludes
+                // NULL); an unconstrained column (no range entry) may be NULL.
+                if (i >= s->expression_ranges_.size()) return false;
                 ++ob_ptr;
               } else if (i < s->expression_ranges_.size() &&
                          s->expression_ranges_[i].type_ == PropertyFilter::Type::EQUAL) {

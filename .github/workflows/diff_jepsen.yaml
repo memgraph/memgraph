@@ -11,6 +11,10 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      profile_build:
+        type: boolean
+        description: "Profile the memgraph build"
+        default: false
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -25,12 +29,15 @@ env:
   MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
   MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-  OS: 'debian-12'
-  TOOLCHAIN: 'v7'
+  OS: 'ubuntu-24.04'
+  TOOLCHAIN: 'v8'
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-jepsen"
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   core:
@@ -44,6 +51,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -65,6 +78,14 @@ jobs:
           --no-conan-cache \
           run
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
@@ -72,10 +93,23 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --threads 12 \
           build-memgraph \
+          --memory-per-compile-job-mb 3500 \
+          --memory-per-link-job-mb 500 \
+          ${{ inputs.profile_build && '--profile' || '' }} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
+
+      - name: Save build profile
+        if: ${{ always() && inputs.profile_build }}
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "build_profile_Jepsen-core${{ env.RUN_ID }}"
+          path: build_profile_results/
+          if-no-files-found: warn
 
       - name: Copy memgraph binary
         run: |
@@ -107,7 +141,7 @@ jobs:
           cd tests/jepsen
           ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
+          --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 5 \
@@ -156,25 +190,18 @@ jobs:
           cd tests/jepsen
           ./run.sh process-results
 
-      - name: Upload Jepsen core dumps to S3
+      - name: Analyze Jepsen core dumps
         if: always()
         continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-west-1
         run: |
-          cores_dir="tests/jepsen/cores"
-          if [ ! -d "$cores_dir" ] || [ -z "$(ls -A "$cores_dir" 2>/dev/null)" ]; then
-            echo "No core dumps collected — skipping S3 upload."
-            exit 0
-          fi
-          cp build/memgraph "$cores_dir/memgraph"
-          ts="$(date -u +%Y%m%dT%H%M%SZ)"
-          s3_prefix="s3://deps.memgraph.io/jepsen_core_dumps/${ts}_run${{ github.run_id }}-attempt${{ github.run_attempt }}/"
-          echo "Uploading $(ls "$cores_dir" | wc -l) file(s) to $s3_prefix"
-          aws s3 sync "$cores_dir" "$s3_prefix"
-          rm -rf "$cores_dir"
+          ./tools/ci/core-dumps/collect_jepsen_cores.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Save Jepsen report
         continue-on-error: true
@@ -200,6 +227,14 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+  core_fail_fast:
+    name: "Fail fast (Core tests)"
+    needs: core
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue

@@ -11,13 +11,17 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::storage::durability {
@@ -32,20 +36,32 @@ class BaseEncoder {
   virtual void WriteMarker(Marker marker) = 0;
   virtual void WriteBool(bool value) = 0;
   virtual void WriteUint(uint64_t value) = 0;
+  virtual uint32_t WriteCrc() = 0;
   virtual void WriteDouble(double value) = 0;
   virtual void WriteString(std::string_view value) = 0;
   virtual void WriteEnum(storage::Enum value) = 0;
   virtual void WritePoint2d(storage::Point2d value) = 0;
   virtual void WritePoint3d(storage::Point3d value) = 0;
   virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
+  virtual auto GetPosition() -> uint64_t = 0;
+
+  virtual void ResetCrcAcc() = 0;
+
+  virtual auto CrcAccValue() const -> uint32_t = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
 template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
-  bool Initialize(const std::filesystem::path &path);
-  bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
+  Encoder() = default;
+
+  explicit Encoder(utils::OnNoSpace on_no_space) noexcept : file_{on_no_space} {}
+
+  /// Opens the file. If it couldn't be opened, running out of space is reported as `kNoSpace`.
+  std::expected<void, utils::FileWriteError> Initialize(const std::filesystem::path &path);
+  std::expected<void, utils::FileWriteError> Initialize(const std::filesystem::path &path, std::string_view magic,
+                                                        uint64_t version);
 
   bool OpenExisting(const std::filesystem::path &path);
 
@@ -54,9 +70,15 @@ class Encoder final : public BaseEncoder {
   // directly.
   void Write(const uint8_t *data, uint64_t size);
 
+  /// See NonConcurrentOutputFile::AppendFrom.
+  [[nodiscard]] std::expected<uint64_t, utils::FileWriteError> AppendFrom(int src_fd, uint64_t size)
+    requires std::same_as<FileType, utils::NonConcurrentOutputFile>;
+
   void WriteMarker(Marker marker) override;
   void WriteBool(bool value) override;
   void WriteUint(uint64_t value) override;
+  uint32_t WriteCrc() override;
+  void WriteCrcAt(uint64_t position, uint32_t crc);
   void WriteDouble(double value) override;
   void WriteString(std::string_view value) override;
   void WriteEnum(storage::Enum value) override;
@@ -64,12 +86,27 @@ class Encoder final : public BaseEncoder {
   void WritePoint3d(storage::Point3d value) override;
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  uint64_t GetPosition();
+  uint64_t GetPosition() override;
   void SetPosition(uint64_t position);
 
-  void Sync();
+  /// Running out of space in an earlier write is reported here, see `utils::OnNoSpace`.
+  std::expected<void, utils::FileWriteError> Sync();
 
-  void Finalize();
+  /// See OutputFile::WriteFailed.
+  bool WriteFailed() const { return file_.WriteFailed(); }
+
+  /// See NonConcurrentOutputFile::EnableWritebackPacing.
+  void EnableWritebackPacing(size_t window_bytes,
+                             utils::PageCachePolicy completed_window = utils::PageCachePolicy::kDrop)
+    requires std::same_as<FileType, utils::NonConcurrentOutputFile>
+  {
+    file_.EnableWritebackPacing(window_bytes, completed_window);
+  }
+
+  /// Syncs and closes the file, disposing of its pages as `page_cache` says. If the file ran out of
+  /// space, now or in an earlier write, it is left open and the error is returned instead.
+  std::expected<void, utils::FileWriteError> Finalize(
+      utils::PageCachePolicy page_cache = utils::PageCachePolicy::kKeep);
 
   // Disable flushing of the internal buffer.
   void DisableFlushing()
@@ -88,16 +125,35 @@ class Encoder final : public BaseEncoder {
 
   auto GetPath() const { return file_.path(); }
 
-  auto native_handle() const { return file_.fd(); }
+  void ResetCrcAcc() override { crc_acc.Reset(); }
+
+  auto CrcAccValue() const -> uint32_t override { return crc_acc.Value(); }
 
  private:
   FileType file_;
+  utils::CrcAccumulator crc_acc;
+  // Logical write position: the file offset plus the bytes still sitting in file_'s buffer. Tracked
+  // here so GetPosition never has to flush the buffer and seek — two syscalls per query which, on the
+  // WAL hot path (every transaction records its start and end positions), defeat write batching.
+  uint64_t logical_position_{0};
+  // High-water mark of logical_position_: the size of everything this encoder wrote, so GetSize
+  // never has to seek to the end of the file. Encoders write files from scratch or from their end
+  // (Initialize/OpenExisting), so the watermark is the file size.
+  uint64_t logical_size_{0};
 };
 
 /// Decoder interface class. Used to implement streams from different sources
 /// (e.g. file and network).
 class BaseDecoder {
  protected:
+  // An interface base with a protected destructor still has to say what its special members are, or
+  // a derived class that owns a move-only handle silently loses its move constructor to the
+  // deprecated implicit copy.
+  BaseDecoder() = default;
+  BaseDecoder(const BaseDecoder &) = default;
+  BaseDecoder(BaseDecoder &&) = default;
+  BaseDecoder &operator=(const BaseDecoder &) = default;
+  BaseDecoder &operator=(BaseDecoder &&) = default;
   ~BaseDecoder() = default;
 
  public:
@@ -113,6 +169,9 @@ class BaseDecoder {
 
   virtual bool SkipString() = 0;
   virtual bool SkipExternalPropertyValue() = 0;
+
+  virtual void ResetCrcAcc() = 0;
+  virtual auto CrcAccValue() -> uint32_t = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -124,6 +183,9 @@ class Decoder final : public BaseDecoder {
   // directly.
   bool Read(uint8_t *data, size_t size);
   bool Peek(uint8_t *data, size_t size);
+
+  /// See InputFile::DropCachedPages.
+  void DropCachedPages() const { file_.DropCachedPages(); }
 
   std::optional<Marker> PeekMarker();
 
@@ -139,9 +201,13 @@ class Decoder final : public BaseDecoder {
   bool SkipString() override;
   bool SkipExternalPropertyValue() override;
 
-  std::optional<uint64_t> GetSize();
-  std::optional<uint64_t> GetPosition();
+  uint64_t GetSize();
+  uint64_t GetPosition();
   bool SetPosition(uint64_t position);
+
+  void ResetCrcAcc() override { file_.ResetCrc(); }
+
+  auto CrcAccValue() -> uint32_t override { return file_.CrcValue(); }
 
  private:
   utils::InputFile file_;

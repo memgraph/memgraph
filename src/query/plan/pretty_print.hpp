@@ -14,12 +14,11 @@
 
 #include <iosfwd>
 
-#include <nlohmann/json_fwd.hpp>
-
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query {
 class DbAccessor;
+struct Parameters;
 
 namespace plan {
 class LogicalOperator;
@@ -28,18 +27,21 @@ class LogicalOperator;
 /// DbAccessor is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
+/// `parameters`, where an execution supplies them, let an operator whose shape
+/// is settled during execution name what it will do rather than what it may.
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters = nullptr);
 
-/// Convert a `LogicalOperator` plan to a JSON representation.
-/// DbAccessor is needed for resolving label and property names.
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);
+// Pointer overload tolerating a null accessor, for a plan that runs without one.
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters = nullptr);
 
 struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const DbAccessor *dba, std::ostream *out);
+  PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters = nullptr);
 
   bool DefaultPreVisit() override;
 
@@ -61,14 +63,11 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdge & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeType & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeTypeProperty & /*unused*/) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyValue & /*unused*/) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeProperty & /*unused*/) override;
-  bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override;
-  bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByPointDistance & /*unused*/) override;
   bool PreVisit(ScanAllByPointWithinbbox & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+  bool PreVisit(ScanAllByVertexProperty & /*unused*/) override;
   bool PreVisit(ScanChunk & /*unused*/) override;
   bool PreVisit(ScanChunkByEdge & /*unused*/) override;
   bool PreVisit(ScanParallel & /*unused*/) override;
@@ -77,11 +76,8 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdge & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeType & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override;
-  bool PreVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override;
-  bool PreVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
-  bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
-  bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanParallelByVertexProperty & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
 
   bool PreVisit(Expand & /*unused*/) override;
@@ -110,6 +106,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Distinct & /*unused*/) override;
   bool PreVisit(Union & /*unused*/) override;
   bool PreVisit(RollUpApply & /*unused*/) override;
+  bool PreVisit(Conditional & /*unused*/) override;
   bool PreVisit(PeriodicCommit & /*unused*/) override;
   bool PreVisit(PeriodicSubquery & /*unused*/) override;
   bool PreVisit(SetNestedProperty & /*unused*/) override;
@@ -147,6 +144,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   int64_t depth_{0};
   const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
+  Parameters const *parameters_{nullptr};
   bool is_parallel_{false};
 };
 

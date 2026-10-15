@@ -11,73 +11,103 @@
 
 #pragma once
 
+#include <cstddef>
 #include <list>
 #include <optional>
-#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace memgraph::utils {
 
 /// A simple LRU cache implementation.
 /// It is not thread-safe.
-
+///
+/// The list owns each entry (key and value, both const) and carries the LRU
+/// order. The index is a set of list iterators, hashed and compared by the key
+/// they point at, so a lookup locates the node in O(1) with no second copy of
+/// the key and no linear scan. Lookups pass the bare key through transparent
+/// hashing and allocate nothing.
+///
+/// An entry is immutable once inserted: a put for a key already present keeps
+/// the stored value and only refreshes its recency.
 template <class TKey, class TVal, class TAlloc = std::allocator<std::pair<const TKey, TVal>>>
 class LRUCache {
+  using Entry = std::pair<const TKey, const TVal>;
+  using ListType = std::list<Entry, typename std::allocator_traits<TAlloc>::template rebind_alloc<Entry>>;
+  using ListIt = typename ListType::iterator;
+
  public:
   explicit LRUCache(std::size_t cache_size_) : cache_size(cache_size_) {};
 
   void put(const TKey &key, const TVal &val) {
-    auto it = item_map.find(key);
-    if (it != item_map.end()) {
-      item_list.erase(it->second);
-      item_map.erase(it);
+    if (auto it = index.find(key); it != index.end()) {
+      item_list.splice(item_list.begin(), item_list, *it);
+      return;
     }
     item_list.emplace_front(key, val);
-    item_map.insert(std::make_pair(key, item_list.begin()));
+    index.insert(item_list.begin());
     try_clean();
   };
 
   std::optional<TVal> get(const TKey &key) {
-    auto const it = item_map.find(key);
-    if (it == item_map.end()) {
+    auto const it = index.find(key);
+    if (it == index.end()) {
       return std::nullopt;
     }
-    item_list.splice(item_list.begin(), item_list, it->second);
-    return it->second->second;
+    item_list.splice(item_list.begin(), item_list, *it);
+    return (*it)->second;
   }
 
   void invalidate(const TKey &key) {
-    auto const it = item_map.find(key);
-    if (it != item_map.end()) {
-      item_list.erase(it->second);
-      item_map.erase(it);
+    auto const it = index.find(key);
+    if (it != index.end()) {
+      ListIt const node = *it;
+      index.erase(it);
+      item_list.erase(node);
     }
   }
 
   void reset() {
+    index.clear();
     item_list.clear();
-    item_map.clear();
   };
 
-  std::size_t size() const { return item_map.size(); }
+  std::size_t size() const { return index.size(); }
 
  private:
+  struct IterHash {
+    using is_transparent = void;
+
+    std::size_t operator()(ListIt it) const noexcept { return std::hash<TKey>{}(it->first); }
+
+    std::size_t operator()(const TKey &key) const noexcept { return std::hash<TKey>{}(key); }
+  };
+
+  struct IterEqual {
+    using is_transparent = void;
+
+    bool operator()(ListIt lhs, ListIt rhs) const { return lhs->first == rhs->first; }
+
+    bool operator()(ListIt lhs, const TKey &rhs) const { return lhs->first == rhs; }
+
+    bool operator()(const TKey &lhs, ListIt rhs) const { return lhs == rhs->first; }
+  };
+
   void try_clean() {
-    while (item_map.size() > cache_size) {
+    while (index.size() > cache_size) {
       auto last = std::prev(item_list.end());
-      item_map.erase(last->first);
+      // Erase the index entry before freeing the node: erasing hashes the key,
+      // which the node still owns.
+      index.erase(last);
       item_list.pop_back();
     }
   };
 
-  using ListType = std::list<std::pair<TKey, TVal>,
-                             typename std::allocator_traits<TAlloc>::template rebind_alloc<std::pair<TKey, TVal>>>;
   ListType item_list;
 
-  using MapType = std::unordered_map<TKey, typename ListType::iterator, std::hash<TKey>, std::equal_to<TKey>,
-                                     typename std::allocator_traits<TAlloc>::template rebind_alloc<
-                                         std::pair<const TKey, typename ListType::iterator>>>;
-  MapType item_map;
+  using IndexType = std::unordered_set<ListIt, IterHash, IterEqual,
+                                       typename std::allocator_traits<TAlloc>::template rebind_alloc<ListIt>>;
+  IndexType index;
 
   std::size_t cache_size;
 };

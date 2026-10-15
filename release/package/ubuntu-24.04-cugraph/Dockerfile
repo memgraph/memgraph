@@ -23,10 +23,10 @@ RUN apt update && apt install -y \
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 
-RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz \
-    -O toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz \
-    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz -C /opt \
-    && rm toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz
+RUN wget -q --https-only https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz \
+    -O toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz \
+    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz -C /opt \
+    && rm toolchain-${TOOLCHAIN_VERSION}-binaries-x86_64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
 ARG GIT_REF
@@ -35,6 +35,8 @@ RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_TEST_DEPS \
+    && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_RUN_DEPS \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default
@@ -48,13 +50,13 @@ ENV CUDAFLAGS="-DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE"
 
 # Install rust
 ARG RUST_VERSION
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+RUN curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && . "$HOME/.cargo/env" \
     && rustup default ${RUST_VERSION}
 
 # Fix node
 ARG NODE_VERSION
-RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+RUN curl --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
     && . ~/.nvm/nvm.sh \
     && nvm install ${NODE_VERSION} \
     && nvm use ${NODE_VERSION}

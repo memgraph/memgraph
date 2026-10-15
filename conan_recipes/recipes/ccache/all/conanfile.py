@@ -60,7 +60,11 @@ class CcacheConan(ConanFile):
                 self.requires("hiredis/1.2.0")
 
         if Version(self.version) >= "4.10":
-            self.requires("fmt/[>=10.2.1 <=11.1.1]") # Explicitly tested with all versions in this range
+            # The upper bound is the fmt memgraph itself links, so one fmt serves the
+            # whole graph. Below 12, fmt's format.h calls malloc and free without
+            # declaring them, which a C++ library that keeps its headers to itself
+            # refuses to compile.
+            self.requires("fmt/[>=10.2.1 <=12.2.0]")
             self.requires("xxhash/[~0.8]")
 
 

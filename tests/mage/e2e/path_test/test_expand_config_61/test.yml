@@ -1,0 +1,13 @@
+# A step is read with its surrounding whitespace stripped, so a filter written with spaces names the
+# label it looks like it names rather than one no node carries.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 2, labelFilter: '  Reply  '})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1"]
+  - names: ["P1", "R1"]
+  - names: ["P1", "RB"]

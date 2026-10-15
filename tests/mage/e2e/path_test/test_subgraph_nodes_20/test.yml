@@ -1,0 +1,13 @@
+# Node filters accept integer IDs as well as nodes.
+query: >
+  MATCH (n) WHERE n.name IN ['B', 'C']
+  WITH collect(id(n)) AS allow
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {allowlistNodes: allow, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C

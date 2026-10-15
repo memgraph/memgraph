@@ -20,10 +20,17 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/bound.hpp"
 
+#include <array>
+#include <concepts>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/transform.hpp>
 #include <ranges>
+#include <span>
+#include <type_traits>
+#include <utility>
 
 namespace memgraph::storage {
 
@@ -36,9 +43,9 @@ struct LabelPropertyIndexAbortProcessor;
  *            both bounds to the same inclusive value, BOUNDED can also be used
  *            to check for exact property equality.
  * - IS_NOT_NULL: including every non-null value.
- * - INVALID: a range no property value can ever match, caused by different
- *            types for lower and upper bounds. For example:
- *            n.a > 42 and n.a < "hello".
+ * - INVALID: a range no property value can ever match. Bounds of different types
+ *            describe one, for example n.a > 42 and n.a < "hello", and so does a
+ *            predicate that is already known to hold for nothing.
  */
 enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
 
@@ -49,6 +56,9 @@ struct PropertyValueRange {
     return {Type::INVALID, std::move(lower), std::move(upper)};
   };
 
+  /// A range for a predicate that no value satisfies, where no pair of bounds expresses it.
+  static auto Empty() -> PropertyValueRange { return {Type::INVALID, std::nullopt, std::nullopt}; }
+
   static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
                       std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
     return {Type::BOUNDED, std::move(lower), std::move(upper)};
@@ -56,7 +66,19 @@ struct PropertyValueRange {
 
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
+  using ValuePredicateFn = std::function<bool(PropertyValue const &)>;
+  /// Held by pointer: a scan hands the same predicate to every iterator it makes, and one carrying
+  /// a compiled pattern is expensive to copy.
+  using ValuePredicate = std::shared_ptr<ValuePredicateFn const>;
+
+  void SetValuePredicate(ValuePredicate predicate) { value_predicate_ = std::move(predicate); }
+
+  ValuePredicate const &GetValuePredicate() const { return value_predicate_; }
+
   bool IsValueInRange(PropertyValue const &value) const {
+    // A range nothing can match admits nothing, whatever its bounds happen to be: an empty one
+    // carries none at all, and reading those as unbounded would admit every value.
+    if (type_ == Type::INVALID) return false;
     if (lower_) {
       if (lower_->IsInclusive()) {
         if (value < lower_->value()) return false;
@@ -88,15 +110,117 @@ struct PropertyValueRange {
   PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
                      std::optional<utils::Bound<PropertyValue>> upper)
       : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
+
+  ValuePredicate value_predicate_;
 };
 
-struct IndexOrderedPropertyValues {
-  IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
+/** A non-owning view over property values known to be in *index* order (the
+ * order dictated by the index definition), as opposed to the monotonic
+ * `PropertyId` order in which they are laid out in a `PropertyStore`. The match
+ * and comparison helpers accept only this type, so storage-ordered values
+ * cannot be passed where index-ordered values are required. Only the owning
+ * index value types (which hold their values in index order by construction)
+ * can produce one. */
+class IndexOrderedValuesView {
+ public:
+  auto operator[](std::size_t pos) const -> PropertyValue const & { return values_[pos]; }
 
-  friend auto operator<=>(IndexOrderedPropertyValues const &, IndexOrderedPropertyValues const &) = default;
+  auto size() const -> std::size_t { return values_.size(); }
+
+  /// The first @p n values. find_greater on them skips every entry sharing that prefix.
+  auto prefix(std::size_t n) const -> std::span<PropertyValue const> { return values_.first(n); }
+
+  auto begin() const { return values_.begin(); }
+
+  auto end() const { return values_.end(); }
+
+  friend bool operator==(IndexOrderedValuesView lhs, IndexOrderedValuesView rhs) {
+    return std::ranges::equal(lhs.values_, rhs.values_);
+  }
+
+ private:
+  friend struct IndexOrderedValuesVector;
+  template <std::size_t>
+  friend struct IndexOrderedValuesArray;
+
+  explicit IndexOrderedValuesView(std::span<PropertyValue const> values) : values_{values} {}
+
+  std::span<PropertyValue const> values_;
+};
+
+struct IndexOrderedValuesVector {
+  IndexOrderedValuesVector(std::vector<PropertyValue> value) : values_{std::move(value)} {}
+
+  friend auto operator<=>(IndexOrderedValuesVector const &, IndexOrderedValuesVector const &) = default;
+
+  auto as_view() const -> IndexOrderedValuesView { return IndexOrderedValuesView{values_}; }
+
+  // NOLINTNEXTLINE(google-explicit-constructor): widening an owner to its own view is safe.
+  operator IndexOrderedValuesView() const { return as_view(); }
+
+  auto begin() const { return values_.begin(); }
+
+  auto end() const { return values_.end(); }
+
+  auto size() const { return values_.size(); }
+
+  auto operator[](std::size_t pos) const -> PropertyValue const & { return values_[pos]; }
 
   std::vector<PropertyValue> values_;
 };
+
+/** Array-backed index value storage for a fixed composite arity `N`. Inlines
+ * the values directly into the skiplist node (no heap indirection), unlike the
+ * dynamic `IndexOrderedValuesVector`. Constructed from the index-ordered
+ * values produced by `PropertiesPermutationHelper::ApplyPermutation`. */
+template <std::size_t N>
+struct IndexOrderedValuesArray {
+  IndexOrderedValuesArray() = default;
+
+  // Take ownership of an already index-ordered buffer (the producing path fills
+  // and permutes a stack array, then moves it in).
+  explicit IndexOrderedValuesArray(std::array<PropertyValue, N> vals) : values_{std::move(vals)} {}
+
+  // Construct from the index-ordered values produced by ApplyPermutation.
+  // Forwards each value's value category: a producing rvalue moves its
+  // PropertyValues into the array (no deep copy on the insert path), a const
+  // lvalue (the abort path) copies. Entries are never reordered once stored, so
+  // this is the only point at which values enter the array.
+  template <typename Src>
+    requires std::same_as<std::remove_cvref_t<Src>, IndexOrderedValuesVector>
+  // NOLINTNEXTLINE(google-explicit-constructor): same value, denser storage.
+  IndexOrderedValuesArray(Src &&src) {
+    for (std::size_t i = 0; i != N; ++i) {
+      values_[i] = std::forward_like<Src>(src.values_[i]);
+    }
+  }
+
+  friend auto operator<=>(IndexOrderedValuesArray const &, IndexOrderedValuesArray const &) = default;
+
+  auto as_view() const -> IndexOrderedValuesView {
+    return IndexOrderedValuesView{std::span<PropertyValue const>{values_}};
+  }
+
+  // NOLINTNEXTLINE(google-explicit-constructor): widening an owner to its own view is safe.
+  operator IndexOrderedValuesView() const { return as_view(); }
+
+  auto begin() const { return values_.begin(); }
+
+  auto end() const { return values_.end(); }
+
+  auto size() const { return values_.size(); }
+
+  auto operator[](std::size_t pos) const -> PropertyValue const & { return values_[pos]; }
+
+  std::array<PropertyValue, N> values_;
+};
+
+/** Entry value storage chosen by composite arity: a fixed `std::array` for
+ * small arities (inlined), the dynamic `IndexOrderedValuesVector` (vector)
+ * for `dynamic_extent`. */
+template <std::size_t N>
+using IndexOrderedValues =
+    std::conditional_t<N == std::dynamic_extent, IndexOrderedValuesVector, IndexOrderedValuesArray<N>>;
 
 /**
  * Due to the monotonic ordering of properties within the `PropertyStore`, we
@@ -116,10 +240,15 @@ struct PropertiesPermutationHelper {
    */
   explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
 
-  /** Rearranges a vector of monotonically ordered properties (as returned
-   * by `Extract`) into the index order.
+  /** Rearranges monotonically ordered properties (as returned by `Extract` /
+   * written by `ExtractInto`) into the index order, in place.
    */
-  auto ApplyPermutation(std::vector<PropertyValue> values) const -> IndexOrderedPropertyValues;
+  void ApplyPermutationInPlace(std::span<PropertyValue> values) const;
+
+  /** Permutes the given vector into the index order and wraps it as the
+   * index-ordered values for the dynamic (vector-backed) storage.
+   */
+  auto ApplyPermutation(std::vector<PropertyValue> values) const -> IndexOrderedValuesVector;
 
   /* Extract one or more values from the given property store, returned in
    * increasing `PropertyId` order. Use `ApplyPermutation` to arrange the
@@ -127,6 +256,13 @@ struct PropertiesPermutationHelper {
    * @sa ApplyPermutation
    */
   auto Extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
+
+  /** As `Extract`, but writes into the caller-provided `out` (one slot per
+   * index property, monotonic `PropertyId` order) without allocating, so a
+   * fixed-arity entry can be built into a stack buffer. `out.size()` must equal
+   * the index arity.
+   */
+  void ExtractInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
   /**
    * Inplace update the `extracted_values` with the current value if relevant
@@ -142,22 +278,24 @@ struct PropertiesPermutationHelper {
    * (in monotonic property id order), and a boolean indicating whether the
    * property matches.
    */
-  auto MatchesValue(PropertyId outer_prop_id, PropertyValue const &value,
-                    IndexOrderedPropertyValues const &cmp_values) const -> std::vector<std::pair<std::ptrdiff_t, bool>>;
+  auto MatchesValue(PropertyId outer_prop_id, PropertyValue const &value, IndexOrderedValuesView cmp_values) const
+      -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
-   * values. This returns a vector of boolean flags indicating per-element
-   * equality (in monotonic property id order.)
+   * values. Fills `out` with per-element equality flags, in monotonic property id order.
+   *
+   * `out` is supplied by the caller rather than returned, because both callers walk index
+   * entries in a loop and so pay for the storage once instead of once per entry. Its previous
+   * contents are discarded.
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
-      -> std::vector<bool>;
+  void MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).
    */
-  auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | ranges::views::transform([&](auto &&p) {
-             return std::tuple{p.first, std::cref(p.second), std::cref(values.values_[position_lookup_[p.first]])};
+  auto WithPropertyId(IndexOrderedValuesView values) const {
+    return ranges::views::enumerate(sorted_properties_) | ranges::views::transform([&, values](auto &&p) {
+             return std::tuple{p.first, std::cref(p.second), std::cref(values[position_lookup_[p.first]])};
            });
   }
 
@@ -169,7 +307,7 @@ struct PropertiesPermutationHelper {
 };
 
 using LabelPropertyIndexAbortableInfo =
-    std::map<LabelId, std::map<PropertiesPaths const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+    std::map<LabelId, std::map<PropertiesPaths const *, std::vector<std::pair<IndexOrderedValuesVector, Vertex *>>>>;
 
 class LabelPropertyIndex {
  public:
@@ -204,11 +342,20 @@ class LabelPropertyIndex {
   virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
 };
 
-struct LabelPropertyIndexAbortProcessor {
-  // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
-  //       + via constructor
+/// Which indexes a label or a property appears in, so that an aborting transaction can find the
+/// entries it has to undo without looking through every index. It points into the set of indexes
+/// it was built from and is owned by that set, so it is built once and shared by every abort that
+/// runs against the same set.
+struct LabelPropertyIndexAbortLookup {
   std::map<LabelId, std::map<PropertyId, std::vector<LabelPropertyIndex::IndexInfo>>> l2p;
   std::map<PropertyId, std::map<LabelId, std::vector<LabelPropertyIndex::IndexInfo>>> p2l;
+};
+
+struct LabelPropertyIndexAbortProcessor {
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life. A raw
+  /// pointer rather than a shared_ptr, because a reference count touched by every abort would be
+  /// contention in place of the work this saves.
+  LabelPropertyIndexAbortLookup const *lookup{nullptr};
 
   void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
   void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);

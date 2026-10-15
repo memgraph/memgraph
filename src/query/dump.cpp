@@ -10,7 +10,10 @@
 // licenses/APL.txt.
 
 #include "query/dump.hpp"
+
 #include <range/v3/all.hpp>
+#include "query/auth_checker.hpp"
+#include "query/common.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -259,22 +262,12 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   *os << "}";
 }
 
-void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
+void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex,
+                FineGrainedAuthChecker const *auth_checker) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
-  if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException("Unexpected error when getting labels.");
-    }
-  }
+  if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
   for (const auto &label : *maybe_labels) {
     *os << ":" << EscapeName(dba->LabelToName(label));
   }
@@ -301,11 +294,18 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
     prop_value.ValueVectorIndexList() = std::move(vector);
   }
 
+  if (auth_checker) {
+    std::erase_if(*maybe_props, [&](auto const &kv) {
+      return !auth_checker->HasPropertyPermission(*maybe_labels, kv.first, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }
 
-void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge) {
+void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge,
+              FineGrainedAuthChecker const *auth_checker) {
   *os << "MATCH ";
   *os << "(u:" << kInternalVertexLabel << "), ";
   *os << "(v:" << kInternalVertexLabel << ")";
@@ -327,6 +327,11 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
       case storage::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
+  }
+  if (auth_checker) {
+    std::erase_if(*maybe_props, [&](auto const &kv) {
+      return !auth_checker->HasPropertyPermission(edge.EdgeType(), kv.first, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (!maybe_props->empty()) {
     *os << " ";
@@ -351,6 +356,10 @@ void DumpEdgeTypePropertyIndex(std::ostream *os, query::DbAccessor *dba, const s
 
 void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::PropertyId property) {
   *os << "CREATE GLOBAL EDGE INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
+void DumpVertexPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::PropertyId property) {
+  *os << "CREATE GLOBAL INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
@@ -460,9 +469,10 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
+PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
     : dba_(dba),
-      db_acc_(db_acc),
+      auth_checker_(auth_checker),
+      db_acc_(std::move(db_acc)),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
       pull_chunks_{/*
                     * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
@@ -500,6 +510,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateVectorIndicesPullChunk(),
                    // Dump all vector edge indices
                    CreateVectorEdgeIndicesPullChunk(),
+                   // Dump all global vertex property indices
+                   CreateVertexPropertyIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -685,6 +697,31 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
     }
 
     if (global_index == edge_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVertexPropertyIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vertex_property = indices_info_->vertex_property;
+
+    size_t local_counter = 0;
+    while (global_index < vertex_property.size() && (!n || std::cmp_less(local_counter, *n))) {
+      std::ostringstream os;
+      DumpVertexPropertyIndex(&os, dba_, vertex_property[global_index]);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vertex_property.size()) {
       return local_counter;
     }
 
@@ -993,7 +1030,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
     size_t local_counter = 0;
     while (current_iter != vertices_iterable_.end() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      DumpVertex(&os, dba_, *current_iter);
+      DumpVertex(&os, dba_, *current_iter, auth_checker_);
       stream->Result({TypedValue(os.str())});
       ++local_counter;
       ++current_iter;
@@ -1036,7 +1073,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
       auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->edges.begin();
       for (; current_edge_iter != maybe_edges->edges.end() && (!n || local_counter < *n); ++current_edge_iter) {
         std::ostringstream os;
-        DumpEdge(&os, dba_, *current_edge_iter);
+        DumpEdge(&os, dba_, *current_edge_iter, auth_checker_);
         stream->Result({TypedValue(os.str())});
 
         ++local_counter;
@@ -1170,6 +1207,10 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
         os << ")(" << EscapeName(dba_->PropertyToName(entry.property)) << ")";
         break;
       }
+      case storage::DescriptionTargetKind::PROPERTY_VALUE:
+        os << "PROPERTY " << EscapeName(dba_->PropertyToName(entry.property)) << " VALUE ";
+        DumpPropertyValue(&os, entry.value, dba_);
+        break;
     }
 
     os << " " << utils::Escape(entry.description) << ";";
@@ -1193,8 +1234,9 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc) {
-  PullPlanDump(dba, db_acc).Pull(stream, {});
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
+                                 FineGrainedAuthChecker const *auth_checker) {
+  PullPlanDump(dba, std::move(db_acc), auth_checker).Pull(stream, {});
 }
 
 }  // namespace memgraph::query

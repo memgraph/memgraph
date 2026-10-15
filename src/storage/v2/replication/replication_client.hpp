@@ -26,6 +26,7 @@
 
 #include <concepts>
 #include <expected>
+#include <future>
 #include <optional>
 #include <string>
 
@@ -124,7 +125,7 @@ class ReplicationStorageClient {
 
   void AbortRpcClient() const { client_.rpc_client_.Shutdown(); }
 
-  void SetMaybeBehind() {
+  void SetMaybeBehind() const {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
   }
 
@@ -186,12 +187,22 @@ class ReplicationStorageClient {
     }
   }
 
+  // Runs `task` on this client's background worker and returns its result through a future.
+  // The single worker executes tasks in schedule order, which keeps per-replica transactions FIFO.
+  template <std::invocable F>
+  auto ScheduleTask(F task) const -> std::future<std::invoke_result_t<F>> {
+    std::packaged_task<std::invoke_result_t<F>()> wrapped{std::move(task)};
+    auto future = wrapped.get_future();
+    client_.thread_pool_.AddTask(std::move(wrapped));
+    return future;
+  }
+
   [[nodiscard]] auto FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
                                                 uint64_t durability_commit_timestamp) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
   auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp) const
+                                      uint64_t durability_commit_timestamp, uint64_t commit_num_committed_txns) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
@@ -223,7 +234,8 @@ class ReplicationStorageClient {
    * @param main_storage pointer to the storage associated with the client
    * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
    */
-  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, bool reset_needed = false) const;
+  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
+                      bool reset_needed = false) const;
 
   /**
    * @brief Check replica state
@@ -238,6 +250,11 @@ class ReplicationStorageClient {
    *
    */
   void LogRpcFailure() const;
+
+  // Retires the RPC connection for a tenant that is being dropped: resets the stream so ~StreamHandler
+  // does not leave the socket mid-read, aborts the RPC client to close the socket (framing correctness),
+  // and marks the replica MAYBE_BEHIND. Each call site still returns its own std::unexpected.
+  void RetireForSealedTenant(std::optional<ReplicaStream> &stream) const;
 
   /**
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary

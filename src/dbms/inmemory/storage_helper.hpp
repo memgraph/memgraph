@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"

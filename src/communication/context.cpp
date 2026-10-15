@@ -20,9 +20,20 @@
 #include <utility>
 
 #include "communication/cluster_tls.hpp"
+#include "communication/init.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication {
+
+bool ApplyTlsVersionPolicy(SSL_CTX *ctx) {
+  if (!utils::FipsEnabled()) return true;
+
+  // Raise the floor, never lower it.
+  if (SSL_CTX_get_min_proto_version(ctx) >= kFipsMinTlsVersion) return true;
+
+  return SSL_CTX_set_min_proto_version(ctx, kFipsMinTlsVersion) == 1;
+}
 
 ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl) {
   if (use_ssl_) {
@@ -36,6 +47,8 @@ ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl) {
     // Disable legacy SSL support. Other options can be seen here:
     // https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_options.html
     SSL_CTX_set_options(raw, SSL_OP_NO_SSLv3 | SSL_OP_NO_SSLv2);
+
+    MG_ASSERT(ApplyTlsVersionPolicy(raw), "Couldn't apply the TLS version policy to the client SSL_CTX!");
 
     // boost::asio::ssl::context takes ownership of the raw SSL_CTX and calls
     // SSL_CTX_free on destruction — the shared_ptr is now the sole owner.
@@ -131,6 +144,12 @@ auto ServerContext::reload() -> std::expected<void, utils::SSL_CTX_Error> {
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
   new_ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                        ssl::context::single_dh_use);
+
+  if (!ApplyTlsVersionPolicy(new_ctx->native_handle())) {
+    static constexpr auto kErrMsg = "Unable to apply the TLS version policy to the server SSL context.";
+    spdlog::error(kErrMsg);
+    return std::unexpected{utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = kErrMsg}};
+  }
 
   // We deliberately do NOT call `set_default_verify_paths()` here. The trust
   // store is consulted only when `verify_peer_` is true (i.e. on the

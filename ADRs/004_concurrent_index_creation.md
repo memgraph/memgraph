@@ -194,6 +194,60 @@ auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
 - **Rationale**: Allows concurrent writes during expensive population phase
 - **Constraint**: Only one downgrade per transaction (affects TTL)
 
+## Amendment: the two phases of an index drop
+
+**Date** September 4, 2026
+
+The three phases above give a creation its vocabulary, and each phase states what
+it may touch. A drop had no such vocabulary, and successive attempts to place its
+effect all read as plausible because there was no language in which to say where
+the effect belongs. It has two phases.
+
+### Phase 1: Decide (statement time)
+
+- Reads the catalogue and settles two things: that the index is there at all, and,
+  for a label-property index, which orders will go
+- Writes the metadata deltas that describe exactly that decision
+- Changes nothing else. The catalogue still holds the index, and the published
+  `ActiveIndices` snapshot still offers it
+
+The decision is fixed here and never revisited, because the log records are
+written here. Asking the catalogue again in phase 2 would let an index created in
+between be evicted with no record, and recovery would then bring back an index
+that had been dropped.
+
+### Phase 2: Evict (commit time)
+
+- Evicts the catalogue entry and publishes the new `ActiveIndices` snapshot,
+  together, under the index's own lock
+- Runs from a commit callback, so a transaction that aborts has nothing to undo
+
+Both halves have to wait, and this is the part that is not obvious. Publishing
+means publishing the catalogue, so an entry evicted in phase 1 is an entry that
+any *other* publisher hands out on the dropper's behalf, and a creation publishes
+during its own Register phase because that is what makes concurrent writers
+maintain what it registered. A writer admitted after such a publication captures
+an index set without the index and maintains nothing for it, so a drop that then
+rolls back restores the entry short of that writer's rows, with no error anywhere.
+
+### Why not exclude writers instead
+
+Holding writers off for the drop's whole transaction gives the same guarantee.
+It costs too much: READ_ONLY access requires the write count to be zero, and a
+data query is counted as a write even when it only reads, so a drop would fail
+whenever any transaction was open.
+
+### What separating the phases admits
+
+A drop evicts whatever the catalogue holds when it commits, which need not be the
+entry its statement decided about. Two drops can both decide, the first can commit
+and evict, the index can be re-created, and the second then evicts the new entry.
+This is a widening of what a drop can affect, not a safety defect: the snapshot
+never withholds a live index from a transaction that is beginning, the catalogue
+and the published snapshot never disagree, and the durable order replays to the
+same end state. It also means two transactions can both record a drop of one
+index, which is why replaying a drop tolerates the index being absent already.
+
 ## Future Improvements
 
 1. **Replica READ_ONLY Support**: Resolve delta ordering to enable `kReadOnlyAccess` in replication

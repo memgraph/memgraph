@@ -33,7 +33,7 @@
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-using Bound = ScanAllByEdgeTypePropertyRange::Bound;
+using Bound = memgraph::utils::Bound<memgraph::query::Expression *>;
 
 inline memgraph::metrics::DatabaseMetricHandles &TestMetricHandles() {
   static memgraph::metrics::DatabaseMetricHandles h;
@@ -59,7 +59,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
-  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
+  context.auth_checker = auth_checker;
   context.metric_handles = &TestMetricHandles();
   return context;
 }

@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.max([1, null, 3]) AS result;
+
+output:
+  - result: 3

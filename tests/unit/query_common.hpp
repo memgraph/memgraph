@@ -46,7 +46,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
-#include "query/frontend/ast/query/exists.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "utils/string.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
@@ -279,22 +279,57 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
              const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
-  if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
+  if (label) node->label_term_ = LabelTerm{LabelTerm::Label{storage.GetLabelIx(*label)}};
   return node;
 }
 
 /// Create a NodeAtom with given name and labels.
 ///
-/// Name is used to create the Identifier which is assigned to the node.
+/// Name is used to create the Identifier which is assigned to the node. `disjunction` picks how the
+/// labels combine: a disjunction ('A|B', the default) or a conjunction (':A:B').
 auto GetNodeWithMultipleLabels(AstStorage &storage, const std::string &name, std::vector<std::string> labels,
-                               bool label_expression = true, const bool user_declared = true) {
+                               bool disjunction = true, const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  std::vector<LabelTerm> leaves;
   for (const auto &label : labels) {
-    node->labels_.emplace_back(storage.GetLabelIx(label));
+    leaves.push_back(LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}});
   }
-  node->label_expression_ = label_expression;
+  // As the parser builds them: no label leaves the term unset, and one label is a bare leaf.
+  if (leaves.empty()) return node;
+  if (leaves.size() == 1U) {
+    node->label_term_ = std::move(leaves.front());
+  } else if (disjunction) {
+    node->label_term_ = LabelTerm{LabelTerm::Or{std::move(leaves)}};
+  } else {
+    node->label_term_ = LabelTerm{LabelTerm::And{std::move(leaves)}};
+  }
   return node;
 }
+
+/// Create a NodeAtom whose labels are the given label term.
+auto GetNodeWithLabelTerm(AstStorage &storage, const std::string &name, LabelTerm term,
+                          const bool user_declared = true) {
+  auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  node->label_term_ = std::move(term);
+  return node;
+}
+
+/// Leaf/operator builders for LabelTerm, so a test states the shape it means.
+inline LabelTerm LabelTermLeaf(AstStorage &storage, const std::string &label) {
+  return LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}};
+}
+
+inline LabelTerm LabelTermWildcard() { return LabelTerm{LabelTerm::Wildcard{}}; }
+
+inline LabelTerm LabelTermDynamic(Expression *expression) { return LabelTerm{LabelTerm::Dynamic{expression}}; }
+
+inline LabelTerm LabelTermNot(LabelTerm operand) { return LabelTerm{LabelTerm::Not{std::move(operand)}}; }
+
+inline LabelTerm LabelTermAnd(std::vector<LabelTerm> operands) {
+  return LabelTerm{LabelTerm::And{std::move(operands)}};
+}
+
+inline LabelTerm LabelTermOr(std::vector<LabelTerm> operands) { return LabelTerm{LabelTerm::Or{std::move(operands)}}; }
 
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
@@ -640,6 +675,49 @@ auto GetCallSubquery(AstStorage &storage, CypherQuery *subquery) {
   return call_subquery;
 }
 
+// `CALL (v1, v2, ...) { ... }`. Each import builds as `NEXPR(name, IDENT(name))`, which is what
+// SymbolGenerator::PreVisit(CallSubquery) expects. There is no aliased form: the grammar's
+// scopeClause is `ASTERISK | variable (',' variable)*`, so `CALL (v AS w)` does not parse.
+template <typename TSubquery>
+auto GetCallSubqueryScoped(AstStorage &storage, TSubquery *subquery, const std::vector<std::string> &imports) {
+  auto *call_subquery = GetCallSubquery(storage, subquery);
+  call_subquery->has_variable_scope_ = true;
+  for (const auto &name : imports) {
+    call_subquery->scoped_variables_.push_back(storage.Create<NamedExpression>(name, storage.Create<Identifier>(name)));
+  }
+  return call_subquery;
+}
+
+// `CALL (*) { ... }`: imports every user-declared outer variable.
+template <typename TSubquery>
+auto GetCallSubqueryScopedAll(AstStorage &storage, TSubquery *subquery) {
+  auto *call_subquery = GetCallSubquery(storage, subquery);
+  call_subquery->has_variable_scope_ = true;
+  call_subquery->all_variables_scoped_ = true;
+  return call_subquery;
+}
+
+// `WHEN p0 THEN b0 ... [ELSE b]`, the whole body of a scoped `CALL`; a null predicate is `ELSE`.
+auto GetConditionalBranches(AstStorage &storage, const std::vector<std::pair<Expression *, SingleQuery *>> &branches) {
+  auto *conditional = storage.Create<memgraph::query::ConditionalBranches>();
+  for (auto [predicate, body] : branches) {
+    auto *query = storage.Create<CypherQuery>();
+    query->single_query_ = body;
+    conditional->branches_.push_back(
+        {.predicate = predicate ? storage.Create<memgraph::query::Where>(predicate) : nullptr, .body = query});
+  }
+  auto *single_query = storage.Create<SingleQuery>();
+  single_query->clauses_.push_back(conditional);
+  return single_query;
+}
+
+// `OPTIONAL CALL ... { ... }`. Composes with every `CALL` helper above, since the flag is orthogonal to the
+// scope clause.
+auto AsOptionalCall(memgraph::query::CallSubquery *call_subquery) {
+  call_subquery->optional_ = true;
+  return call_subquery;
+}
+
 auto GetCallPeriodicSubquery(AstStorage &storage, SingleQuery *subquery, CommitFrequency commit_frequency) {
   auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
 
@@ -666,10 +744,34 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 }
 
 auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
-  auto *exists_subquery = storage.Create<query::Exists>();
+  auto *exists_subquery = storage.Create<query::SubqueryExpression>();
   exists_subquery->content_ = std::move(subquery);
 
   return exists_subquery;
+}
+
+/// `COUNT { subquery }` - the same node as EXISTS_SUBQUERY, carrying the count fold instead of the bool one.
+auto GetCountSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *count_subquery = GetExistsSubquery(storage, subquery);
+  count_subquery->fold_ = query::SubqueryExpression::Fold::kCount;
+
+  return count_subquery;
+}
+
+/// `COLLECT { subquery }` - the same node again, carrying the list fold.
+auto GetCollectSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *collect_subquery = GetExistsSubquery(storage, subquery);
+  collect_subquery->fold_ = query::SubqueryExpression::Fold::kList;
+
+  return collect_subquery;
+}
+
+/// `COUNT { pattern }` - the pattern form of the count fold, the COUNT counterpart of the EXISTS macro.
+auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
+  auto *count_pattern = storage.Create<query::SubqueryExpression>(pattern);
+  count_pattern->fold_ = query::SubqueryExpression::Fold::kCount;
+
+  return count_pattern;
 }
 
 }  // namespace memgraph::query::test_common
@@ -686,6 +788,13 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 ///                      RETURN(NEXPR("new_name"), IDENT("m")));
 #define NODE(...) memgraph::query::test_common::GetNode(this->storage, __VA_ARGS__)
 #define NODE_WITH_LABELS(...) memgraph::query::test_common::GetNodeWithMultipleLabels(this->storage, __VA_ARGS__)
+#define NODE_WITH_TERM(...) memgraph::query::test_common::GetNodeWithLabelTerm(this->storage, __VA_ARGS__)
+#define LABEL_TERM_LEAF(label) memgraph::query::test_common::LabelTermLeaf(this->storage, label)
+#define LABEL_TERM_WILDCARD() memgraph::query::test_common::LabelTermWildcard()
+#define LABEL_TERM_DYNAMIC(expression) memgraph::query::test_common::LabelTermDynamic(expression)
+#define LABEL_TERM_NOT(child) memgraph::query::test_common::LabelTermNot(child)
+#define LABEL_TERM_AND(...) memgraph::query::test_common::LabelTermAnd({__VA_ARGS__})
+#define LABEL_TERM_OR(...) memgraph::query::test_common::LabelTermOr({__VA_ARGS__})
 #define EDGE(...) memgraph::query::test_common::GetEdge(this->storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) memgraph::query::test_common::GetEdgeVariable(this->storage, __VA_ARGS__)
 #define PATTERN(...) memgraph::query::test_common::GetPattern(this->storage, {__VA_ARGS__})
@@ -825,8 +934,11 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define EXTRACT(variable, list, expr)                      \
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
-#define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
+#define EXISTS(pattern) this->storage.template Create<memgraph::query::SubqueryExpression>(pattern)
 #define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
+#define COUNT_SUBQUERY(...) memgraph::query::test_common::GetCountSubquery(this->storage, __VA_ARGS__)
+#define COUNT_PATTERN(pattern) memgraph::query::test_common::GetCountPattern(this->storage, pattern)
+#define COLLECT_SUBQUERY(...) memgraph::query::test_common::GetCollectSubquery(this->storage, __VA_ARGS__)
 #define AUTH_QUERY(action,                                           \
                    user,                                             \
                    role,                                             \
@@ -855,6 +967,10 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
 #define CALL_PERIODIC_SUBQUERY(...) memgraph::query::test_common::GetCallPeriodicSubquery(this->storage, __VA_ARGS__)
+#define CALL_SUBQUERY_SCOPED(...) memgraph::query::test_common::GetCallSubqueryScoped(this->storage, __VA_ARGS__)
+#define CALL_SUBQUERY_SCOPED_ALL(...) memgraph::query::test_common::GetCallSubqueryScopedAll(this->storage, __VA_ARGS__)
+#define OPTIONAL_CALL(...) memgraph::query::test_common::AsOptionalCall(__VA_ARGS__)
+#define WHEN_BRANCHES(...) memgraph::query::test_common::GetConditionalBranches(this->storage, {__VA_ARGS__})
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)

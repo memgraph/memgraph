@@ -32,6 +32,7 @@
 
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/base64.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -101,6 +102,9 @@ std::string LicenseTypeToString(const LicenseType license_type) {
     case LicenseType::OEM: {
       return std::string{kLicenseTypeOem};
     }
+    case LicenseType::MEMGQL: {
+      return std::string{kLicenseTypeMemgql};
+    }
   }
   std::unreachable();
 }
@@ -169,8 +173,11 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   };
 
   if (enterprise_enabled_) [[unlikely]] {
-    is_valid_.store(true, std::memory_order_release);
-    set_memory_limit(0, license_type_);
+    atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
+      s.valid = true;
+      return s;
+    });
+    set_memory_limit(0, state_.load(std::memory_order_acquire).type);
     return;
   }
 
@@ -218,7 +225,10 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       spdlog::warn("No valid license found. Running in community mode.");
       locked->reset();
     }
-    is_valid_.store(false, std::memory_order_relaxed);
+    atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
+      s.valid = false;
+      return s;
+    });
     set_memory_limit(0);
     return;
   }
@@ -250,22 +260,18 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     }
   }
 
-  // Write license_type_ before the release store so the acquire load in IsEnterpriseValidFast()
-  // establishes a happens-before and reads the correct type.
-  license_type_ = winner.license.type;
-  is_valid_.store(true, std::memory_order_release);
+  state_.store(LicenseState{.valid = true, .type = winner.license.type}, std::memory_order_release);
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
-  license_type_ = license_type;
   {
     auto locked = previous_license_info_.Lock();
     locked->emplace("test-key", "test-org");
     (*locked)->is_valid = true;
     (*locked)->license.type = license_type;
   }
-  is_valid_.store(true, std::memory_order_release);
+  state_.store(LicenseState{.valid = true, .type = license_type}, std::memory_order_release);
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
@@ -275,7 +281,10 @@ void LicenseChecker::DisableTesting() {
     auto locked = previous_license_info_.Lock();
     locked->reset();
   }
-  is_valid_.store(false, std::memory_order_relaxed);
+  atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
+    s.valid = false;
+    return s;
+  });
   spdlog::info("The license is disabled for testing.");
 }
 
@@ -445,16 +454,15 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
       info.status = "You are running a valid Memgraph OEM License.";
       break;
     case LicenseType::OEM_COMMUNITY:
+    case LicenseType::MEMGQL:
       std::unreachable();
   }
   return info;
 }
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
-  // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
-  // This ensures we see the license_type_ write that precedes those release stores,
-  // avoiding a data race on the non-atomic license_type_.
-  return is_valid_.load(std::memory_order_acquire) && IsEnterpriseTier(license_type_);
+  const auto s = state_.load(std::memory_order_acquire);
+  return s.valid && IsEnterpriseTier(s.type);
 }
 
 std::string Encode(const License &license) {
@@ -469,6 +477,7 @@ std::string Encode(const License &license) {
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
   slk::Save(license.type, &builder);
+  slk::Save(license.core_limit, &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
@@ -503,13 +512,20 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
+    int64_t core_limit{0};
+    try {
+      slk::Load(&core_limit, &reader);
+    } catch (const slk::SlkReaderException & /*exception*/) {  // NOLINT(bugprone-empty-catch)
+    }
     const auto typed = static_cast<LicenseType>(license_type);
     switch (typed) {
       case LicenseType::ENTERPRISE:
       case LicenseType::OEM_COMMUNITY:
       case LicenseType::AI_PLATFORM:
       case LicenseType::OEM:
-        return License{organization_name, valid_until, memory_limit, typed};
+        return License{std::move(organization_name), valid_until, memory_limit, typed, core_limit};
+      case LicenseType::MEMGQL:
+        return std::nullopt;
     }
     return std::nullopt;
   } catch (const slk::SlkReaderException &e) {

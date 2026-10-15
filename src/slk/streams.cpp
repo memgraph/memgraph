@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::slk {
 
@@ -24,15 +25,17 @@ Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) 
 bool Builder::IsEmpty() const { return pos_ == 0; }
 
 void Builder::Save(const uint8_t *data, uint64_t size) {
+  // A moved-from builder has no segment: discard the write, matching its defunct write_func.
+  if (!segment_) return;
   size_t offset = 0;
   while (size > 0) {
     FlushSegment(false);
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
     if (file_data_) {
-      memcpy(segment_.data() + pos_, data + offset, to_write);
+      memcpy(segment_.get() + pos_, data + offset, to_write);
     } else {
-      memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
+      memcpy(segment_.get() + sizeof(SegmentSize) + pos_, data + offset, to_write);
     }
 
     size -= to_write;
@@ -44,11 +47,13 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 
 // Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
 void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
+  // A moved-from builder has no segment: discard the write, matching its defunct write_func.
+  if (!segment_) return;
   size_t offset = 0;
   while (size > 0) {
     FlushFileSegment();
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
-    memcpy(segment_.data() + pos_, data + offset, to_write);
+    memcpy(segment_.get() + pos_, data + offset, to_write);
     size -= to_write;
     pos_ += to_write;
     offset += to_write;
@@ -57,7 +62,9 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
-  memcpy(segment_.data() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
+  // A moved-from builder has no segment: discard the write, matching its defunct write_func.
+  if (!segment_) return;
+  memcpy(segment_.get() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
   file_data_ = true;
 }
@@ -65,8 +72,11 @@ void Builder::PrepareForFileSending() {
 void Builder::Finalize() { FlushSegment(true); }
 
 void Builder::FlushInternal(size_t const size, bool const has_more) {
-  write_func_(segment_.data(), size, has_more);
-  pos_ = 0;
+  // Reset the write position even if write_func_ throws, so a failed flush leaves the builder empty and reusable.
+  // Callers that retry (e.g. recovery progress heartbeats) then start from a clean segment instead of tripping the
+  // "buffer must be empty" guard.
+  utils::OnScopeExit const reset_pos{[this] { pos_ = 0; }};
+  write_func_(segment_.get(), size, has_more);
 }
 
 // Flushes data and resets position
@@ -77,7 +87,7 @@ void Builder::FlushFileSegment() {
 }
 
 void Builder::SaveFooter(uint64_t const total_size) {
-  memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
+  memcpy(segment_.get() + total_size, &kFooter, sizeof(SegmentSize));
 }
 
 void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
@@ -93,7 +103,7 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
 
   if (!file_data_) {
     SegmentSize const data_size = pos_;
-    memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
+    memcpy(segment_.get(), &data_size, sizeof(SegmentSize));
   }
 
   if (final_segment) {
@@ -217,12 +227,10 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
-      // When transitioning between files (remaining_file_size was set), verify sufficient data exists after the mask
-      // for the next file's metadata (filename + filesize). TCP can split the sender's segment such that the mask
-      // arrives but the metadata doesn't. Without this check, OpenFile would fail with "Size data missing in SLK
-      // stream!" because the Reader runs out of data.
-      // File metadata format: [string_marker(1)][string_length(8)][string_data(N)][uint_marker(1)][uint_value(8)]
-      if (remaining_file_size) {
+      // A file mask must be followed by its metadata before OpenFile can read it; wait
+      // (PARTIAL) if a read split the mask from its metadata.
+      // File metadata: [string_marker(1)][string_length(8)][string_data(N)][uint_marker(1)][uint_value(8)]
+      {
         constexpr size_t kStringPrefixSize = 1 + sizeof(uint64_t);  // marker + string length
         size_t const remaining_after_mask = size - pos;
 

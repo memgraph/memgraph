@@ -32,8 +32,10 @@
 #include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/variant_helpers.hpp"
@@ -116,6 +118,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
                              ResultsMetadata{signature_params_it->second.first, signature_params_it->second.second, 1});
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
     trans.cb(&mgp_messages, &graph, &result, &memory);
   }
   if (result.error_msg.has_value()) {
@@ -186,6 +189,12 @@ Streams::Streams(std::filesystem::path directory, memory::ArenaPool *arena_pool)
 }
 
 void Streams::RegisterProcedures() {
+  // Registering goes through the C procedure API, which reports a refused allocation as an error
+  // return. This caller has no way to act on one: it registers the fixed set of procedures that
+  // makes a database's streams usable at all, and a database registers them whenever it is created
+  // or resumed, which an instance at its memory limit still has to be able to do. The bytes stay
+  // tracked and still count towards the limit; they just cannot be refused.
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
   RegisterKafkaProcedures();
   RegisterPulsarProcedures();
 }
@@ -533,7 +542,6 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
     auto accessor = interpreter->current_db_.db_acc_->get()->Access(memgraph::storage::WRITE);
-    const auto &db_name = interpreter->current_db_.db_acc_->get()->name();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
     utils::OnScopeExit interpreter_cleanup{
@@ -566,7 +574,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
               query,
               [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
               {});
-          if (!owner->IsAuthorized(prepare_result.privileges, db_name, &up_to_date_policy)) {
+          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db, &up_to_date_policy)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
@@ -577,7 +585,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         }
 
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
-        interpreter->CommitTransaction();
+        if (auto const commit_notification = interpreter->CommitTransaction()) {
+          spdlog::warn("Commit in stream '{}': {}", stream_name, commit_notification->title);
+        }
         result.rows.clear();
         break;
       } catch (const query::TransactionSerializationException &e) {
@@ -596,14 +606,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     }
   };
 
-  auto insert_result =
-      map.try_emplace(stream_name,
-                      StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
-                                          std::move(ownername),
-                                          std::move(rolenames),
-                                          std::make_unique<SynchronizedStreamSource<TStream>>(
-                                              stream_name, std::move(stream_info), std::move(consumer_function),
-                                              arena_pool_)});
+  auto insert_result = map.try_emplace(
+      stream_name,
+      StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
+                          std::move(ownername),
+                          std::move(rolenames),
+                          std::make_unique<SynchronizedStreamSource<TStream>>(
+                              stream_name, std::move(stream_info), std::move(consumer_function), arena_pool_)});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return insert_result.first;
 }
@@ -654,7 +663,13 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
         }
         spdlog::info("Stream '{}' is loaded", stream_name);
       } catch (const utils::BasicException &exception) {
-        spdlog::warn(get_failed_message("unexpected error", exception.what()));
+        auto message = get_failed_message("unexpected error", exception.what());
+        if (utils::FipsEnabled()) {
+          message +=
+              " FIPS mode is enabled: approved mode restricts the TLS versions and ciphers available to the stream's "
+              "client library, so a broker requiring TLS below 1.2 or a non-approved cipher will no longer connect.";
+        }
+        spdlog::warn(message);
       }
     };
 

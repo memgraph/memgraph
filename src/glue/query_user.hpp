@@ -45,9 +45,14 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
  private:
   friend class AuthChecker;
+  void RefreshPrincipal(const auth::Auth &auth) const;
+
   auth::SynchedAuth *auth_;
+  // user_/roles_/auth_epoch_ are a lazily refreshed cache; IsAuthorized and CanImpersonate write them.
+  // Do not share one instance across threads — give each thread its own clone().
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
+  mutable bool dropped_{false};
   mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
 };
 

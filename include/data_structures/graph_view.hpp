@@ -42,6 +42,12 @@ class GraphView {
   /// Destroys the object.
   virtual ~GraphView() = 0;
 
+  GraphView() = default;
+  GraphView(const GraphView &) = default;
+  GraphView &operator=(const GraphView &) = default;
+  GraphView(GraphView &&) noexcept = default;
+  GraphView &operator=(GraphView &&) noexcept = default;
+
   /// Gets all graph nodes.
   ///
   /// @return Vector of nodes
@@ -167,6 +173,7 @@ class GraphView {
   ///
   virtual bool IsWeighted() const = 0;
 };
+
 // NOLINTEND(portability-template-virtual-member-function)
 
 template <typename TSize>

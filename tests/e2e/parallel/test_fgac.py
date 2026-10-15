@@ -41,6 +41,8 @@ def setup_fgac_user(memgraph: MemgraphWrapper):
     # Grant basic read on one label, but not another
     memgraph.execute_query("GRANT ALL PRIVILEGES TO parallel_user")
     memgraph.execute_query("GRANT READ ON NODES CONTAINING LABELS :A TO parallel_user")
+    memgraph.execute_query("GRANT READ {*} ON NODES CONTAINING LABELS * TO parallel_user")
+    memgraph.execute_query("GRANT READ {*} ON EDGES OF TYPE * TO parallel_user")
     # We will purposefully NOT grant READ on :B to test filtering
 
 

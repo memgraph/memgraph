@@ -11,32 +11,31 @@ public class Transactions {
         GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None,
                              (builder) => builder.WithEncryptionLevel(EncryptionLevel.None));
     ClearDatabase(driver);
-        // Explicit transaction query.
-        using (var session = driver.Session()) {
-          Console.WriteLine("Checking explicit transaction metadata...");
-          var txMetadata = new Dictionary<string, object> {
-            { "ver", "transaction" }, { "str", "oho" }, { "num", 456 }
-          };
-          using (var tx = session.BeginTransaction(txConfig => txConfig.WithMetadata(txMetadata))) {
-            tx.Run("MATCH (n) RETURN n LIMIT 1").Consume();
-            // Check transaction info from another thread
-            Thread show_tx = new Thread(() => ShowTx(ref driver));
-            show_tx.Start();
-            show_tx.Join();
-            // End current transaction
-            tx.Commit();
-          }
-        }
-        // Implicit transaction query
-        using (var session = driver.Session()) {
-          Console.WriteLine("Checking implicit transaction metadata...");
-          var txMetadata = new Dictionary<string, object> {
-            { "ver", "session" }, { "str", "aha" }, { "num", 123 }
-          };
-          CheckMD(session.Run("SHOW TRANSACTIONS", txConfig => txConfig.WithMetadata(txMetadata)));
-        }
+    // Explicit transaction query.
+    using (var session = driver.Session()) {
+      Console.WriteLine("Checking explicit transaction metadata...");
+      var txMetadata = new Dictionary<string, object> {
+        { "ver", "transaction" }, { "str", "oho" }, { "num", 456 }
+      };
+      using (var tx = session.BeginTransaction(txConfig => txConfig.WithMetadata(txMetadata))) {
+        tx.Run("MATCH (n) RETURN n LIMIT 1").Consume();
+        // Check transaction info from another thread
+        Thread show_tx = new Thread(() => ShowTx(ref driver));
+        show_tx.Start();
+        show_tx.Join();
+        // End current transaction
+        tx.Commit();
+      }
+    }
+    // Implicit transaction query
+    using (var session = driver.Session()) {
+      Console.WriteLine("Checking implicit transaction metadata...");
+      var txMetadata =
+          new Dictionary<string, object> { { "ver", "session" }, { "str", "aha" }, { "num", 123 } };
+      CheckMD(session.Run("SHOW TRANSACTIONS", txConfig => txConfig.WithMetadata(txMetadata)));
+    }
 
-        Console.WriteLine("All ok!");
+    Console.WriteLine("All ok!");
   }
 
   private static void ClearDatabase(IDriver driver) {
@@ -54,7 +53,9 @@ public class Transactions {
     try {
       foreach (var res in tx_md) {
         var md = res["metadata"].As<Dictionary<string, object>>();
-        if (md.Count != 0) {
+        // Background-task rows (GC, snapshot) also appear in SHOW TRANSACTIONS with
+        // their own metadata keys; skip any row missing the keys we care about.
+        if (md.ContainsKey("ver") && md.ContainsKey("str") && md.ContainsKey("num")) {
           if (md["ver"].As<string>() == "transaction" && md["str"].As<string>() == "oho" &&
               md["num"].As<int>() == 456) {
             n = n + 1;

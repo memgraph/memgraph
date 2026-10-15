@@ -11,9 +11,18 @@
 
 module;
 
+#include <algorithm>
+#include <cstddef>
+#include <cstring>
+#include <exception>
+#include <fstream>
 #include <functional>
+#include <memory>
+#include <streambuf>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "ctre.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -21,10 +30,11 @@ module;
 #include "simdjson.h"
 #include "spdlog/spdlog.h"
 
+#include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
+#include "utils/byte_source.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
-#include "utils/likely.hpp"
+#include "utils/queued_byte_source.hpp"
 
 module memgraph.query.jsonl.reader;
 
@@ -105,7 +115,9 @@ void IterateObject(simdjson::ondemand::object &obj, auto &out, memgraph::utils::
   for (auto &&field : obj) {
     std::string_view key_view;
     // Check for error
-    if (UNLIKELY(field.unescaped_key().get(key_view))) continue;
+    if (field.unescaped_key().get(key_view)) [[unlikely]] {
+      continue;
+    }
     // NOLINTNEXTLINE
     TypedValue::TString key{key_view, resource};
 
@@ -115,6 +127,10 @@ void IterateObject(simdjson::ondemand::object &obj, auto &out, memgraph::utils::
   }
 }
 
+// With blocks of a known size this is a read-ahead in bytes: enough to keep a transfer working while
+// a chunk is parsed, and small beside the source itself.
+constexpr std::size_t kQueuedBlocks = 4;
+
 }  // namespace
 
 namespace memgraph::query {
@@ -122,15 +138,12 @@ namespace memgraph::query {
 struct JsonlReader::impl {
  public:
   impl(std::string uri, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
-       std::function<void()> abort_check)
-      : uri_{std::move(uri)}, resource_{resource} {
-    InitSimdjsonContent(std::move(s3_cfg), std::move(abort_check));
-
-    if (UNLIKELY(parser_.iterate_many(content_).get(docs_))) {
-      throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
-    }
-
-    it_ = docs_.begin();
+       std::function<void()> abort_check, std::size_t chunk_size)
+      : uri_{std::move(uri)},
+        resource_{resource},
+        chunk_size_{std::max<std::size_t>(chunk_size, 1)},
+        buffer_{chunk_size_} {
+    source_ = OpenSource(std::move(s3_cfg), std::move(abort_check));
   }
 
   impl(impl const &) = delete;
@@ -140,70 +153,135 @@ struct JsonlReader::impl {
 
   ~impl() = default;
 
-  // Performs file download if necessary before loading the file from disk
-  void InitSimdjsonContent(std::optional<utils::S3Config> s3_cfg, std::function<void()> abort_check) {
+  auto GetNextRow(Row &out) -> bool {
+    while (true) {
+      if (parsed_ && it_ != docs_.end()) [[likely]] {
+        out.clear();
+        auto obj = (*it_)->get_object().value();
+        IterateObject(obj, out, resource_);
+        ++it_;
+        return true;
+      }
+      if (!Refill()) return false;
+    }
+  }
+
+ private:
+  auto OpenSource(std::optional<utils::S3Config> s3_cfg, std::function<void()> abort_check)
+      -> std::unique_ptr<memgraph::utils::ByteSource> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
-    auto const build_base_path = [&]() -> std::filesystem::path {
-      return std::filesystem::path{"/tmp"} / std::filesystem::path{uri_}.filename();
-    };
-
     if (url_matcher(uri_)) {
-      auto [new_path, file] = utils::CreateUniqueDownloadFile(build_base_path());
+      return std::make_unique<memgraph::utils::QueuedByteSource>(
+          kQueuedBlocks,
+          [uri = uri_,
+           abort_check = std::move(abort_check)](memgraph::utils::QueuedByteSource::Push const &push) mutable {
+            auto const sink = [&push](char const *data, std::size_t size) -> std::size_t {
+              return push(data, size) ? size : 0;
+            };
+            if (auto const downloaded = requests::DownloadToSink(
+                    uri, sink, memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(), std::move(abort_check));
+                !downloaded) {
+              ThrowDownloadFailed(downloaded.error().Retryable(),
+                                  fmt::format("Failed to download file {}: {}", uri, downloaded.error().message));
+            }
+          });
+    }
 
-      if (!requests::CreateAndDownloadFile(uri_,
-                                           std::move(file),
-                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
-                                           std::move(abort_check))) {
-        utils::DeleteFile(new_path);
-        throw utils::BasicException("Failed to download file {}", uri_);
-      }
-      // .value() can throw ac exception hence and we don't want to leak new_path
-      auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
-      content_ = simdjson::padded_string::load(new_path.string()).value();
-    } else if (s3_matcher(uri_)) {
+    if (s3_matcher(uri_)) {
       DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
       if (auto const res = s3_cfg->Validate(); res.has_value()) {
         throw utils::BasicException(utils::AwsValidationErrorToStr(*res));
       }
-      auto const new_path = utils::CreateUniqueDownloadFile(build_base_path()).first;
-      // .value() can throw ac exception hence and we don't want to leak new_path
-      auto const on_exit = utils::OnScopeExit([&new_path]() { utils::DeleteFile(new_path); });
-      if (auto const res = utils::GetS3Object(uri_, *s3_cfg, new_path.string()); !res.has_value()) {
-        throw utils::BasicException(res.error().message);
-      }
-      content_ = simdjson::padded_string::load(new_path.string()).value();
-    } else {
-      content_ = simdjson::padded_string::load(uri_).value();
+      return std::make_unique<memgraph::utils::QueuedByteSource>(
+          kQueuedBlocks,
+          [uri = uri_, config = *s3_cfg, abort_check = std::move(abort_check)](
+              memgraph::utils::QueuedByteSource::Push const &push) {
+            memgraph::utils::PushStreambuf sink{push, abort_check};
+            auto const res = utils::GetS3ObjectStreaming(uri, config, sink);
+            sink.RethrowIfStopped();
+            if (!res.has_value()) {
+              throw utils::BasicException(res.error().message);
+            }
+          });
     }
+
+    return std::make_unique<memgraph::utils::FileByteSource>(uri_);
   }
 
-  auto GetNextRow(Row &out) -> bool {
-    if (UNLIKELY(it_ == docs_.end())) return false;
+  void Resize(std::size_t size, std::size_t keep) {
+    simdjson::padded_string resized{size};
+    std::memcpy(resized.data(), buffer_.data(), keep);
+    buffer_ = std::move(resized);
+  }
 
-    out.clear();
-    auto obj = (*it_)->get_object().value();
-    IterateObject(obj, out, resource_);
-    ++it_;
+  // Carries the trailing partial document to the front of the buffer, tops the buffer up from the
+  // source and parses again. Returns false once nothing parseable is left.
+  auto Refill() -> bool {
+    auto const carry = parsed_ ? std::min(docs_.truncated_bytes(), filled_) : std::size_t{0};
 
+    // Release the stream's reference to the buffer before that buffer is moved or reallocated.
+    docs_ = simdjson::ondemand::document_stream{};
+    parsed_ = false;
+
+    if (carry > 0 && carry < filled_) {
+      std::memmove(buffer_.data(), buffer_.data() + (filled_ - carry), carry);
+    }
+    filled_ = carry;
+
+    // A document larger than the buffer fills it without completing, leaving nowhere to read the
+    // rest of it into. Growing is what lets the parser make progress again.
+    if (filled_ == buffer_.size()) {
+      Resize(std::max<std::size_t>(buffer_.size() * 2, 64), carry);
+    } else if (buffer_.size() > chunk_size_ && carry * 2 <= chunk_size_) {
+      // One oversized document would otherwise leave the buffer grown for the rest of the source.
+      // Only give the space back once what is being carried fits well inside the configured size, so
+      // a run of large documents does not thrash between the two.
+      Resize(chunk_size_, carry);
+    }
+
+    // One read, then parse whatever turned up. Waiting for a full buffer would hold back every row
+    // in it until the slowest byte arrived.
+    auto const read = source_->Read(buffer_.data() + filled_, buffer_.size() - filled_);
+    filled_ += read;
+    auto const read_any = read > 0;
+
+    // Either the source is spent, or what remains is a fragment it will never complete. A trailing
+    // fragment is dropped rather than reported.
+    if (filled_ == 0 || (!read_any && carry == filled_)) {
+      return false;
+    }
+
+    // The batch size is the buffer rather than what is in it: the parser reallocates its working
+    // buffers whenever this differs from the previous call, and what a read returns varies. It is at
+    // least what is in the buffer either way, which is what keeps the whole of it parsed as final.
+    if (parser_.iterate_many(buffer_.data(), filled_, buffer_.size()).get(docs_)) [[unlikely]] {
+      throw utils::BasicException("Failed to create iterator over documents for file {}", uri_);
+    }
+    it_ = docs_.begin();
+    parsed_ = true;
     return true;
   }
 
- private:
   std::string uri_;
   std::pmr::memory_resource *resource_;
+  std::size_t chunk_size_;
   simdjson::ondemand::parser parser_;
-  simdjson::padded_string content_;
+  simdjson::padded_string buffer_;
+  std::size_t filled_{0};
+  bool parsed_{false};
   simdjson::ondemand::document_stream docs_;
   simdjson::ondemand::document_stream::iterator it_;
+  // Declared last so a source that runs a thread is shut down before the parse state it feeds.
+  std::unique_ptr<memgraph::utils::ByteSource> source_;
 };
 
 JsonlReader::JsonlReader(std::string file, std::optional<utils::S3Config> s3_cfg, std::pmr::memory_resource *resource,
-                         std::function<void()> abort_check)
-    : pimpl_{
-          // NOLINTNEXTLINE
-          std::make_unique<JsonlReader::impl>(std::move(file), std::move(s3_cfg), resource, std::move(abort_check))} {}
+                         std::function<void()> abort_check, std::size_t chunk_size)
+    : pimpl_{// NOLINTNEXTLINE
+             std::make_unique<JsonlReader::impl>(std::move(file), std::move(s3_cfg), resource, std::move(abort_check),
+                                                 chunk_size)} {}
 
 JsonlReader::~JsonlReader() {}
 

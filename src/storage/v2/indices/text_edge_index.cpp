@@ -11,9 +11,10 @@
 
 #include "storage/v2/indices/text_edge_index.hpp"
 #include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
 #include "mgcxx_text_search.hpp"
-#include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -48,8 +49,7 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
     mappings["properties"][kToVertexGidField] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
 
     if (index_->contains(index_info.index_name)) {
-      throw query::TextSearchException(
-          "Text edge index {} already exists at path: {}.", index_info.index_name, index_path);
+      throw TextSearchException("Text edge index {} already exists at path: {}.", index_info.index_name, index_path);
     }
 
     // If index already exists on disk, it will be loaded and reused.
@@ -65,7 +65,7 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
   } catch (const std::exception &e) {
     spdlog::error(
         "Failed to create text edge index {} at path: {}. Error: {}", index_info.index_name, index_path, e.what());
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+    throw TextSearchException("Tantivy error: {}", e.what());
   }
 }
 
@@ -87,7 +87,7 @@ void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_
                                               document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
         kDoSkipCommit);
   } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+    throw TextSearchException("Tantivy error: {}", e.what());
   }
 }
 
@@ -96,11 +96,14 @@ void TextEdgeIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) {
 }
 
 void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices,
-                                NameIdMapper *name_id_mapper) {
+                                NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
   CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
 
   auto &index_data = *index_->at(index_info.index_name);
   for (const auto &vertex : vertices) {
+    // Reported per vertex examined, not per edge indexed: a long run of vertices with no matching edge is
+    // still progress.
+    if (on_progress) on_progress();
     const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
       // If properties are specified, we serialize only those properties; otherwise, all properties of the edge.
@@ -118,18 +121,18 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   try {
     mgcxx::text_search::commit(index_data.context);
   } catch (const std::exception &e) {
-    throw query::TextSearchException("Text index commit error: {}", e.what());
+    throw TextSearchException("Text index commit error: {}", e.what());
   }
 }
 
 void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
                                  NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                 ProgressCallback const &on_progress) {
   const auto index_path = MakeIndexPath(text_index_storage_dir_, index_info.index_name);
   auto needs_rebuild = !std::filesystem::exists(index_path);
   try {
     CreateTantivyIndex(index_path, index_info);
-  } catch (const query::TextSearchException &) {
+  } catch (const TextSearchException &) {
     if (needs_rebuild) throw;
     // It's possible that index on disk has incompatible schema if, for example, new required properties were added to
     // the index spec in new versions
@@ -137,8 +140,7 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
     std::error_code ec;
     std::filesystem::remove_all(index_path, ec);
     if (ec)
-      throw query::TextSearchException(
-          "Failed to remove stale text edge index {}: {}", index_info.index_name, ec.message());
+      throw TextSearchException("Failed to remove stale text edge index {}: {}", index_info.index_name, ec.message());
     needs_rebuild = true;
     CreateTantivyIndex(index_path, index_info);
   }
@@ -167,13 +169,11 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
     try {
       mgcxx::text_search::commit(context);
     } catch (const std::exception &e) {
-      throw query::TextSearchException("Text index commit error: {}", e.what());
+      throw TextSearchException("Text index commit error: {}", e.what());
     }
   }
 
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::TEXT_IDX);
-  }
+  if (on_progress) on_progress();
 
   PublishActiveIndices(updater);
 }
@@ -181,7 +181,7 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
 std::shared_ptr<TextEdgeIndexData> TextEdgeIndex::DropIndex(const std::string &index_name) {
   auto it = index_->find(index_name);
   if (it == index_->end()) {
-    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+    throw TextSearchException("Text index {} doesn't exist.", index_name);
   }
   auto evicted = it->second;  // Keep alive until the caller's commit callback.
 
@@ -288,7 +288,7 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::ActiveIndices::Search(const std
                                                                        const Transaction &tx) {
   auto it = index_container_->find(index_name);
   if (it == index_container_->end()) {
-    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+    throw TextSearchException("Text index {} doesn't exist.", index_name);
   }
   auto &index_data = *it->second;
   auto &context = index_data.context;
@@ -332,13 +332,24 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::ActiveIndices::Search(const std
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
                                             .fuzzy_field = kAllField});
         break;
+      case text_search_mode::FUZZY_PHRASE:
+        search_results = mgcxx::text_search::fuzzy_phrase_search_edge_gids_pinned(
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_query = lowered_query,
+                                            .limit = config.limit,
+                                            .fuzzy_distance = config.fuzzy_distance,
+                                            .fuzzy_prefix = config.fuzzy_prefix,
+                                            .fuzzy_transpositions = config.fuzzy_transpositions,
+                                            .fuzzy_field = kDataField});
+        break;
       default:
-        throw query::TextSearchException(
-            "Unsupported search mode: please use one of text_search.search_edges, text_search.search_all_edges, or "
-            "text_search.regex_search_edges.");
+        throw TextSearchException(
+            "Unsupported search mode: please use one of text_search.search_edges, text_search.search_all_edges, "
+            "text_search.fuzzy_phrase_search_edges, or text_search.regex_search_edges.");
     }
   } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+    throw TextSearchException("Tantivy error: {}", e.what());
   }
 
   return search_results.docs | rv::transform([](const auto &doc) -> TextEdgeSearchResult {
@@ -356,7 +367,7 @@ std::string TextEdgeIndex::ActiveIndices::Aggregate(const std::string &index_nam
     if (const auto it = index_container_->find(index_name); it != index_container_->end()) {
       return it->second->context;
     }
-    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+    throw TextSearchException("Text index {} doesn't exist.", index_name);
   });
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
@@ -366,7 +377,7 @@ std::string TextEdgeIndex::ActiveIndices::Aggregate(const std::string &index_nam
             .search_fields = {kDataField}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+    throw TextSearchException("Tantivy error: {}", e.what());
   }
   // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
   // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
@@ -441,7 +452,7 @@ void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMa
       }
       mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {
-      throw query::TextSearchException("Text search error: {}", e.what());
+      throw TextSearchException("Text search error: {}", e.what());
     }
   }
 }

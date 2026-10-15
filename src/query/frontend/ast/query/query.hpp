@@ -14,6 +14,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 
 #include "query/frontend/ast/ast_storage.hpp"
+#include "query/frontend/ast/query/query_traits.hpp"
 
 namespace memgraph::query {
 class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor<void>> {
@@ -27,6 +28,13 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
   Query() = default;
 
   Query *Clone(AstStorage *storage) const override = 0;
+
+  /// What this query states about itself. Pure, so a new query has to answer rather than inherit a
+  /// set of answers that happens to compile.
+  ///
+  /// An answer may read the query's own members, so a member one reads holds an initial value
+  /// rather than waiting for a parse to supply it.
+  virtual QueryTraits Traits() const = 0;
 
  private:
   friend class AstStorage;

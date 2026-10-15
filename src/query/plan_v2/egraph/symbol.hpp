@@ -61,6 +61,42 @@ constexpr bool is_binary_op_v = false;
   inline constexpr bool is_binary_op_v<symbol::Name> = true;
 EGRAPH_BINARY_SYMBOLS(MG_DEFN_PRED)
 #undef MG_DEFN_PRED
+
+// E-class kind predicates: every symbol is an Operator, an Expression, or a
+// Symbol. The kind selects the analysis arm.
+template <symbol S>
+constexpr bool is_operator_kind_v = false;
+#define MG_DEFN_PRED(Name) \
+  template <>              \
+  inline constexpr bool is_operator_kind_v<symbol::Name> = true;
+EGRAPH_OPERATOR_SYMBOLS(MG_DEFN_PRED)
+#undef MG_DEFN_PRED
+
+template <symbol S>
+constexpr bool is_expression_kind_v = false;
+#define MG_DEFN_PRED(Name) \
+  template <>              \
+  inline constexpr bool is_expression_kind_v<symbol::Name> = true;
+EGRAPH_EXPRESSION_SYMBOLS(MG_DEFN_PRED)
+#undef MG_DEFN_PRED
+
+template <symbol S>
+constexpr bool is_symbol_kind_v = false;
+#define MG_DEFN_PRED(Name) \
+  template <>              \
+  inline constexpr bool is_symbol_kind_v<symbol::Name> = true;
+EGRAPH_SYMBOL_KIND_SYMBOLS(MG_DEFN_PRED)
+#undef MG_DEFN_PRED
+
+// The three kinds partition every symbol exactly once: a symbol left out of all
+// three kind lists (or placed in two) fails here rather than silently taking a
+// wrong analysis arm.
+#define MG_ASSERT_ONE_KIND(Name)                                                                                   \
+  static_assert(                                                                                                   \
+      is_operator_kind_v<symbol::Name> + is_expression_kind_v<symbol::Name> + is_symbol_kind_v<symbol::Name> == 1, \
+      "symbol::" #Name " must belong to exactly one e-class kind list in symbol_lists.hpp");
+EGRAPH_ALL_SYMBOLS(MG_ASSERT_ONE_KIND)
+#undef MG_ASSERT_ONE_KIND
 // NOLINTEND(cppcoreguidelines-macro-usage)
 
 /// Canonical enumeration of all symbols. Consumed by `TypedEGraph` (via

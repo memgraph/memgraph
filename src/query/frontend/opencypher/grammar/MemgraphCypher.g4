@@ -54,6 +54,8 @@ memgraphCypherKeyword : cypherKeyword
                       | CONSUMER_GROUP
                       | CONTAINING
                       | COORDINATOR
+                      | COORDINATOR_READ
+                      | COORDINATOR_WRITE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -122,6 +124,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LAG
                       | LEADERSHIP
                       | LEVEL
+                      | FIPS
                       | LICENSE
                       | LIST
                       | LOAD
@@ -164,6 +167,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PROFILES
                       | PULSAR
                       | QUOTE
+                      | RANGE
                       | READ
                       | READ_FILE
                       | RECOVER
@@ -178,9 +182,11 @@ memgraphCypherKeyword : cypherKeyword
                       | REQUIRE
                       | RESET
                       | RESOURCE
+                      | RESUME
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROUTING
                       | ROWS
                       | RUNNING
                       | SCHEMA
@@ -189,6 +195,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SERVER_SIDE_PARAMETERS
                       | SERVICE_URL
                       | SESSION
+                      | SESSIONS
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
@@ -207,6 +214,8 @@ memgraphCypherKeyword : cypherKeyword
                       | STRICT_SYNC
                       | STRING
                       | SYNC
+                      | SUSPEND
+                      | TABLE
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
@@ -281,6 +290,7 @@ query : cypherQuery
       | showConfigQuery
       | showQueryCallableMappingsQuery
       | transactionQueueQuery
+      | sessionQuery
       | multiDatabaseQuery
       | useDatabase
       | showDatabase
@@ -299,6 +309,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | sessionSettingQuery
       | userProfileQuery
       | tenantProfileQuery
       | descriptionQuery
@@ -335,6 +346,9 @@ authQuery : createRole
           | setMainDatabase
           | grantImpersonateUser
           | denyImpersonateUser
+          | grantPropertyPermission
+          | denyPropertyPermission
+          | revokePropertyPermission
           ;
 
 replicationQuery : setReplicationRole
@@ -359,6 +373,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setCoordinatorSetting
                  | showCoordinatorSettings
                  | showReplicationLag
+                 | showRoutingTable
                  | updateConfig
                  ;
 
@@ -402,7 +417,9 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName nestedPropertyKeyList? ;
+indexHint: ':' labelName nestedPropertyKeyList?
+         | ':' '(' propertyKeyName ')'
+         ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -412,7 +429,7 @@ periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
 scopeClause : ASTERISK | variable ( ',' variable )* ;
 
-callSubquery : CALL ( '(' scopeClause? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
+callSubquery : OPTIONAL? CALL ( '(' scopeClause? ')' )? '{' ( conditionalQuery | cypherQuery ) '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -443,6 +460,10 @@ transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
 
+sessionQuery : terminateSessions
+             | showSessions
+             ;
+
 showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
 
 transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
@@ -450,6 +471,10 @@ transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
 transactionStatus : RUNNING | COMMITTING | ABORTING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
+
+terminateSessions : TERMINATE SESSIONS sessionIdList ;
+
+showSessions : SHOW SESSIONS ;
 
 loadCsv : LOAD CSV FROM csvFile
          ( WITH CONFIG configsMap=configMap ) ?
@@ -527,6 +552,18 @@ grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicName
 
 denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
+propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
+
+propertyPermissionType : READ | SET PROPERTY ;
+
+propertyPermissionTypeList : propertyPermissionType ( ',' propertyPermissionType )* ;
+
+grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+denyPropertyPermission : DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
+
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
 denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
@@ -538,6 +575,14 @@ showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR target=userOrRole ;
 setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
 
 setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
+
+sessionSettingQuery : setSessionSetting
+                    | resetSessionSetting
+                    ;
+
+setSessionSetting : SET SESSION SETTING settingName TO settingValue ;
+
+resetSessionSetting : RESET SESSION SETTING settingName ;
 
 privilege : CREATE
           | DELETE
@@ -564,12 +609,13 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
-          | COORDINATOR
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | COORDINATOR_READ
+          | COORDINATOR_WRITE
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -647,6 +693,8 @@ setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
 showReplicationLag: SHOW REPLICATION LAG ;
+
+showRoutingTable: SHOW ROUTING TABLE ;
 
 coordinatorServerId : literal ;
 
@@ -778,9 +826,15 @@ transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
 
+sessionIdList : sessionId ( ',' sessionId )* ;
+
+sessionId : literal ;
+
 multiDatabaseQuery : createDatabase
                    | dropDatabase
                    | renameDatabase
+                   | suspendDatabase
+                   | resumeDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -788,6 +842,10 @@ createDatabase : CREATE DATABASE databaseName ;
 dropDatabase: DROP DATABASE databaseName ( FORCE)?;
 
 renameDatabase : RENAME DATABASE databaseName TO databaseName ;
+
+suspendDatabase : SUSPEND DATABASE databaseName ;
+
+resumeDatabase : RESUME DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
@@ -799,17 +857,21 @@ showMemoryInfo : SHOW MEMORY INFO ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-indexQuery : createIndex | dropIndex;
+indexQuery : createIndex | dropIndex | createGlobalVertexIndex | dropGlobalVertexIndex;
 
 nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
 
 alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
 
 createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
-            | CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            | CREATE RANGE? INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
             ;
 
 dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+createGlobalVertexIndex : CREATE GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
+
+dropGlobalVertexIndex : DROP GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
 
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
@@ -821,7 +883,7 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-createEdgeIndexAlternativeSyntax : CREATE INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+createEdgeIndexAlternativeSyntax : CREATE RANGE? INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
 
 edgeIndexQuery : createEdgeIndex
                | dropEdgeIndex
@@ -997,7 +1059,9 @@ showDescriptions
 
 // Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' or 'ON CURRENT DATABASE' clause.
 // systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
-systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
+fipsInfo : FIPS INFO ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo | fipsInfo ) ;
 storageInfo : STORAGE INFO ( ON ( DATABASE db=symbolicName | CURRENT DATABASE ) )? ;
 
 edgeTypePatternNode
@@ -1015,6 +1079,7 @@ descriptionTarget
     | EDGE TYPE ':' labelName
     | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
     | EDGE TYPE PROPERTY ':' labelName propertyKeyList
+    | PROPERTY propertyKeyName VALUE literal
     | PROPERTY propertyKeyName
     | DATABASE symbolicName
     ;

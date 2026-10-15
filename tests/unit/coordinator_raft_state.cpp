@@ -49,7 +49,7 @@ class RaftStateTest : public ::testing::Test {
 
   int32_t const coordinator_id = 21;
   uint16_t const bolt_port = 6687;
-  uint16_t const coordinator_port = 40'112;
+  uint16_t const coordinator_port = 22'345;
   uint16_t const management_port = 21'345;
 };
 

@@ -1,0 +1,13 @@
+# An empty allowlistNodes still falls back to the deprecated key, which is then resolved and used.
+query: >
+  MATCH (n) WHERE n.name IN ['B', 'C']
+  WITH collect(n) AS deprecated
+  MATCH (a:A)
+  CALL path.subgraph_nodes(a, {allowlistNodes: [], whitelistNodes: deprecated, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C

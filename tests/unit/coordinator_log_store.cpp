@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_log_store.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
@@ -568,5 +569,60 @@ TEST_F(CoordinatorLogStoreTests, TestLogsAfterSnapshotWithNewConfEntries) {
     EXPECT_EQ(entries[0].second->get_val_type(), nuraft::log_val_type::conf);
     EXPECT_EQ(entries[1].first, 3);
     EXPECT_EQ(entries[1].second->get_val_type(), nuraft::log_val_type::app_log);
+  }
+}
+
+// A lagging follower installs a snapshot from the leader, which compacts past its last entry.
+TEST_F(CoordinatorLogStoreTests, TestCompactPastLastEntrySurvivesRestart) {
+  auto const path = test_folder_ / "TestCompactPastLastEntry";
+
+  {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability durability{kv};
+    CoordinatorLogStore log_store{CoordinatorLogStoreTests::GetLogger(), durability};
+
+    for (int i = 1; i <= 5; ++i) {
+      auto entry = nuraft::cs_new<log_entry>(1, MakeAppLogBuffer("data"), nuraft::log_val_type::app_log);
+      log_store.append(entry);
+    }
+
+    log_store.compact(10);
+    ASSERT_EQ(log_store.start_index(), 11);
+    ASSERT_EQ(log_store.next_slot(), 11);
+    ASSERT_EQ(kv->Get(memgraph::coordination::kLastLogEntry), "10");
+    ASSERT_EQ(kv->Get(memgraph::coordination::kStartIdx), "11");
+  }
+
+  {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability durability{kv};
+    CoordinatorLogStore log_store{CoordinatorLogStoreTests::GetLogger(), durability};
+
+    ASSERT_EQ(log_store.start_index(), 11);
+    ASSERT_EQ(log_store.next_slot(), 11);
+
+    auto entry = nuraft::cs_new<log_entry>(2, MakeAppLogBuffer("after_snapshot"), nuraft::log_val_type::app_log);
+    ASSERT_EQ(log_store.append(entry), 11);
+  }
+}
+
+// Stores written by older versions can have the start index beyond the last log entry.
+TEST_F(CoordinatorLogStoreTests, TestStartIndexBeyondLastEntryRecovers) {
+  auto const path = test_folder_ / "TestStartIndexBeyondLastEntry";
+
+  {
+    memgraph::kvstore::KVStore kv{path};
+    ASSERT_TRUE(kv.PutMultiple({{std::string{memgraph::coordination::kStartIdx}, "11"},
+                                {std::string{memgraph::coordination::kLastLogEntry}, "5"}}));
+  }
+
+  for (int restart = 0; restart < 2; ++restart) {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability durability{kv};
+    CoordinatorLogStore log_store{CoordinatorLogStoreTests::GetLogger(), durability};
+
+    ASSERT_EQ(log_store.start_index(), 11);
+    ASSERT_EQ(log_store.next_slot(), 11);
+    ASSERT_EQ(kv->Get(memgraph::coordination::kLastLogEntry), "10");
   }
 }

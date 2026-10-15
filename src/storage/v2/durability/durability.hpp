@@ -110,8 +110,7 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<
                          NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
                          RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
                          RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
-                         bool properties_on_edges,
-                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                         bool properties_on_edges, ProgressCallback const &on_progress = {});
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config,

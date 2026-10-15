@@ -1,0 +1,16 @@
+# With the sequence starting one node out, the start node has no step to be tested against, so the
+# label filter does not apply to it however `filterStartNode` is set. Here that is what lets the walk
+# past A: filtered, its terminator label would end the walk at depth 0 and return just ["A"], which is
+# what the same call with `beginSequenceAtStart` left at its default returns.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {labelFilter: '/Term', filterStartNode: true, maxHops: 2,
+                              beginSequenceAtStart: false}) YIELD result
+  WITH [n IN nodes(result) | n.name] AS with_false
+  MATCH (b:Node {name: "A"})
+  CALL path.expand_config(b, {labelFilter: '/Term', filterStartNode: true, maxHops: 2}) YIELD result
+  RETURN with_false, [n IN nodes(result) | n.name] AS with_default;
+
+output:
+  - with_false: ["A", "B", "C"]
+    with_default: ["A"]

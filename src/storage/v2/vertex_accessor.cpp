@@ -11,14 +11,14 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 #include <range/v3/all.hpp>
-#include "query/exceptions.hpp"
-#include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/exceptions.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -43,15 +43,19 @@ namespace memgraph::storage {
 
 namespace {
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
-  throw query::QueryException("IS TYPED {} violation on {}({})",
-                              TypeConstraintKindToString(*violation.constraint_kind),
-                              storage->LabelToName(violation.label),
-                              storage->PropertyToName(*violation.properties.begin()));
+  throw TypeConstraintViolationException("IS TYPED {} violation on {}({})",
+                                         TypeConstraintKindToString(*violation.constraint_kind),
+                                         storage->LabelToName(violation.label),
+                                         storage->PropertyToName(*violation.properties.begin()));
 }
 
 std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
                                                              const PropertyValue &value) {
+  // An older main sends [] as a tag with no vector; store it as the plain list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) return PropertyValue(std::vector<double>{});
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  // An empty list has no vector to index; keep it as a plain list so the vertex leaves the index.
+  if (value.ListSize() == 0) return std::nullopt;
   auto vector_index_ids = storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property);
   if (vector_index_ids.empty()) return std::nullopt;
   return PropertyValue(
@@ -174,7 +178,7 @@ bool VertexAccessor::IsVisible(View view) const {
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
@@ -229,7 +233,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_->unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
-  if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
+  if (transaction_->constraint_verification_info)
+    transaction_->constraint_verification_info->AddedLabel(label, vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
@@ -249,7 +254,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 // TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
   // 1. do an optimistic shared lock
@@ -356,6 +361,30 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
+Result<bool> VertexAccessor::HasAnyLabel(View view) const {
+  bool deleted = false;
+  bool has_any_label = false;
+  Delta const *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
+  {
+    auto const guard = read_lock.AcquireLock();
+    deleted = vertex_->deleted();
+    has_any_label = !vertex_->labels.empty();
+    delta = vertex_->delta();
+  }
+
+  // A delta adds or removes one named label, so which labels survive it decides whether any does: there is
+  // no answer short of the set itself.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    auto labels = Labels(view);
+    if (!labels) return std::unexpected{labels.error()};
+    return !labels->empty();
+  }
+
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return has_any_label;
+}
+
 Result<VertexKey> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
@@ -406,7 +435,7 @@ Result<VertexKey> VertexAccessor::Labels(View view) const {
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) const {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -478,9 +507,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (transaction_->constraint_verification_info) {
     if (!new_value.IsNull()) {
-      transaction_->constraint_verification_info->AddedProperty(vertex_);
+      transaction_->constraint_verification_info->AddedProperty(property, vertex_);
     } else {
-      transaction_->constraint_verification_info->RemovedProperty(vertex_);
+      transaction_->constraint_verification_info->RemovedProperty(property, vertex_);
     }
   }
   storage_->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex_, *transaction_);
@@ -491,7 +520,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
 Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -525,9 +554,9 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
-              transaction->constraint_verification_info->AddedProperty(vertex);
+              transaction->constraint_verification_info->AddedProperty(property, vertex);
             } else {
-              transaction->constraint_verification_info->RemovedProperty(vertex);
+              transaction->constraint_verification_info->RemovedProperty(property, vertex);
             }
           }
           if (schema_acc) {
@@ -559,7 +588,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -591,7 +620,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
                             &id_old_new_change,
                             skip_duplicate_update,
                             &schema_acc]() {
-    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+    // Decoded old values: undo must restore the floats, which live only in the vector index.
+    id_old_new_change.emplace(vertex->properties.UpdateProperties(
+        properties,
+        IndexedPropertyDecoder<Vertex>{
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
     if (!id_old_new_change) {
       return;
     }
@@ -602,9 +635,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
+          transaction->constraint_verification_info->AddedProperty(id, vertex);
         } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+          transaction->constraint_verification_info->RemovedProperty(id, vertex);
         }
       }
       if (schema_acc) {
@@ -630,7 +663,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (transaction_->edge_import_mode_active) {
-    throw query::WriteVertexOperationInEdgeImportModeException();
+    throw WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
@@ -644,7 +677,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock(
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
-        properties.emplace(vertex->properties.Properties());
+        properties.emplace(vertex->properties.Properties(IndexedPropertyDecoder<Vertex>{
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
         if (!properties) {
           return;
         }
@@ -653,6 +687,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
           storage->indices_.UpdateOnSetProperty(property, old_value, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            transaction->constraint_verification_info->RemovedProperty(property, vertex);
+          }
           if (schema_acc) {
             std::visit(utils::Overloaded{
                            [&](SchemaInfo::VertexModifyingAccessor &acc) {
@@ -661,9 +698,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                        *schema_acc);
           }
-        }
-        if (transaction->constraint_verification_info) {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
         }
         vertex->properties.ClearProperties();
       });
@@ -793,6 +827,10 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
+std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelId const> labels) const {
+  return transaction_->active_indices_->vector_->IndexedProperties(labels);
+}
+
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
     std::span<PropertyId const> properties, View view) const {
   bool exists = true;
@@ -903,7 +941,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination,
-                                                          query::HopsLimit *hops_limit) const {
+                                                          HopsLimit *hops_limit) const {
   DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -992,7 +1030,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination,
-                                                           query::HopsLimit *hops_limit) const {
+                                                           HopsLimit *hops_limit) const {
   DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -1192,7 +1230,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
+int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, HopsLimit *hops_limit,
                                                          EdgeDirection direction) const {
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
@@ -1212,7 +1250,7 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
 
 int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
                                                       const std::vector<EdgeTypeId> &edge_types,
-                                                      const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                                      const VertexAccessor *destination, HopsLimit *hops_limit,
                                                       EdgeDirection direction) const {
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;

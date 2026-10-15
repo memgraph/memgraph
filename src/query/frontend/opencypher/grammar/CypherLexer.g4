@@ -50,6 +50,7 @@ LTE       : '<=' ;
 GTE       : '>=' ;
 NEQ1      : '<>' ;
 NEQ2      : '!=' ;
+EXCLAMATION : '!' ;
 SIM       : '=~' ;
 
 PLUS      : '+' ;
@@ -82,6 +83,7 @@ BY             : B Y ;
 CALL           : C A L L ;
 CASE           : C A S E ;
 COALESCE       : C O A L E S C E ;
+COLLECT        : C O L L E C T ;
 CONSTRAINT     : C O N S T R A I N T ;
 CONTAINS       : C O N T A I N S ;
 COUNT          : C O U N T ;

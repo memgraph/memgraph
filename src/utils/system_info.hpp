@@ -12,7 +12,6 @@
 #pragma once
 
 #include <cstdint>
-#include <format>
 #include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <unordered_set>

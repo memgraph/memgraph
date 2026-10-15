@@ -13,6 +13,11 @@
 
 namespace memgraph::memory {
 
+// Purges every arena's dirty and muzzy pages. Stops jemalloc's background threads first, so none is
+// mid-decay on an arena when it is purged, and restarts them afterwards; if they cannot be stopped it
+// logs a warning and purges anyway, and if they cannot be restarted they stay off, leaving decay to
+// application threads. Calls are serialised with each other but not with a purge of a
+// single arena, and an arena that such a purge is still working on is skipped.
 void PurgeUnusedMemory();
 // Forces jemalloc to perform lazy per-thread state setup (TSD/tcache) while
 // OutOfMemoryExceptionBlocker is active.

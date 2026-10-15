@@ -11,9 +11,18 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "kvstore/kvstore.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::parameters {
 
@@ -83,8 +92,20 @@ struct Parameters {
   bool DeleteAllParameters(system::Transaction *txn = nullptr);
 
   /**
+   * @brief Delete every parameter in one scope, leaving all other scopes untouched.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
+   */
+  bool DeleteScope(std::string_view scope);
+
+  /**
+   * @brief Delete every parameter belonging to one database, leaving all other scopes untouched.
+   */
+  bool DeleteScope(utils::UUID const &database_uuid);
+
+  /**
    * @brief Apply parameter recovery snapshot from main (used by SystemRecoveryHandler).
-   * Applied atomically: either all parameters are written or none.
+   * Replaces local state: parameters absent from the snapshot are dropped. The write is a single
+   * batch, so a storage failure leaves the store untouched.
    * @return true on success, false on storage error.
    */
   bool ApplyRecovery(const std::vector<ParameterInfo> &params);

@@ -19,12 +19,12 @@ target_sources(mg-storage-v2
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_property_index.cpp
+        disk/vertex_property_index.cpp
         disk/edge_type_index.cpp
         disk/edge_type_property_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
-        disk/rocksdb_utils.cpp
         disk/storage.cpp
         disk/unique_constraints.cpp
         durability/durability.cpp
@@ -53,11 +53,13 @@ target_sources(mg-storage-v2
         indices/text_index_utils.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp
+        indices/vertex_property_index.cpp
         inmemory/edge_property_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
+        inmemory/vertex_property_index.cpp
         inmemory/replication/recovery.cpp
         inmemory/storage.cpp
         inmemory/unique_constraints.cpp
@@ -70,7 +72,9 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
+        gc_status.cpp
         schema_info.cpp
+        schema_info_types.cpp
         snapshot_progress.cpp
         storage.cpp
         storage_error.cpp
@@ -160,7 +164,9 @@ find_package(range-v3 REQUIRED)
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
     PUBLIC
+    mg::value-order
     mg::replication
+    mg::kvstore
     Threads::Threads
     mg-utils
     mg-aws

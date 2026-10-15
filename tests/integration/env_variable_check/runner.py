@@ -23,6 +23,10 @@ from typing import List
 SCRIPT_DIR = Path(__file__).absolute()
 PROJECT_DIR = SCRIPT_DIR.parents[3]
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port, delay=0.1):
@@ -41,7 +45,7 @@ def execute_tester(
     password: str = "",
     check_failure: bool = True,
 ) -> None:
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -56,7 +60,7 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     return memgraph
 
@@ -74,7 +78,7 @@ def cleanup(memgraph):
             os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False
-        time.sleep(1)
+        memgraph.wait(timeout=30)
 
 
 def execute_without_user(queries, should_fail=False, failure_message="", check_failure=True):
@@ -112,12 +116,18 @@ def test_with_passfile_env_variable(storage_directory: tempfile.TemporaryDirecto
 
 def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     return_to_prev_state = {}
     if "MEMGRAPH_USER" in os.environ:
         return_to_prev_state["MEMGRAPH_USER"] = os.environ["MEMGRAPH_USER"]
-        del os.environ["MG_USER"]
+        del os.environ["MEMGRAPH_USER"]
     if "MEMGRAPH_PASSWORD" in os.environ:
         return_to_prev_state["MEMGRAPH_PASSWORD"] = os.environ["MEMGRAPH_PASSWORD"]
         del os.environ["MEMGRAPH_PASSWORD"]

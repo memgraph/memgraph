@@ -1,0 +1,11 @@
+# Neither key is read here, so a value of the wrong type is ignored along with the value itself -- the
+# walk has one behaviour and both keys can only describe it.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_all(a, {maxHops: 2, bfs: 'ignored', uniqueness: 42})
+  YIELD nodes, rels
+  RETURN [n IN nodes | n.name] AS names, size(rels) AS rel_count;
+
+output:
+  - names: ["A", "B", "C"]
+    rel_count: 2

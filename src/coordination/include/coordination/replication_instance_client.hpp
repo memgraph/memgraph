@@ -13,6 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <expected>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/replication_lag_info.hpp"
@@ -60,7 +62,8 @@ class ReplicationInstanceClient {
   auto InstanceName() const -> std::string const &;
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
-  auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;
+  // The error tells the caller whether the main didn't answer at all or answered that it isn't main.
+  auto SendGetReplicationLagRpc() const -> std::expected<ReplicationLagInfo, ReplicationLagStatus>;
 
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
@@ -75,7 +78,7 @@ class ReplicationInstanceClient {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().arg_) {
-        spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
+        spdlog::warn("Received unsuccessful response to {}.", T::Request::kType.name);
         RpcInfo<T>::fail_counter()->Increment();
         return false;
       }
@@ -83,7 +86,7 @@ class ReplicationInstanceClient {
       RpcInfo<T>::succ_counter()->Increment();
       return true;
     } catch (rpc::RpcFailedException const &e) {
-      spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
+      spdlog::warn("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
       RpcInfo<T>::fail_counter()->Increment();
       return false;
     }

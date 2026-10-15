@@ -10,9 +10,10 @@
 # licenses/APL.txt.
 
 
-import os  # To be removed
+import os
 import sys
 
+import mgclient
 import pytest
 from common import connect, create_multi_db, execute_and_fetch_all, switch_db
 
@@ -42,6 +43,37 @@ FUNC4_PATH = os.path.join(
     COMMON_PATH_PREFIX_TEST2,
     "new_test_functions_dir/new_test_subfunctions.py",
 )
+
+RELOAD_FUNC_MODULE_PATH = os.path.join(os.path.dirname(__file__), "procedures", "reload_func_module.py")
+RELOAD_PROC_MODULE_PATH = os.path.join(os.path.dirname(__file__), "procedures", "reload_proc_module.py")
+
+BASELINE_PROC = """@mgp.read_proc
+def compute(ctx: mgp.ProcCtx, a: mgp.Number, b: mgp.Number) -> mgp.Record(result=mgp.Number):
+    return mgp.Record(result=a + b)
+"""
+
+WRITE_PROC = """@mgp.write_proc
+def compute(ctx: mgp.ProcCtx, a: mgp.Number, b: mgp.Number) -> mgp.Record(result=mgp.Number):
+    return mgp.Record(result=a + b)
+"""
+
+
+def write_proc_module(body: str):
+    with open(RELOAD_PROC_MODULE_PATH, "w") as proc_file:
+        proc_file.write("import mgp\n\n\n" + body)
+
+
+def write_combine_function(op: str):
+    with open(RELOAD_FUNC_MODULE_PATH, "w") as func_file:
+        func_file.write(
+            f"""import mgp
+
+
+@mgp.function
+def combine(ctx: mgp.FuncCtx, a: mgp.Number, b: mgp.Number):
+    return a {op} b
+"""
+        )
 
 
 def preprocess_functions(path1: str, path2: str):
@@ -190,6 +222,218 @@ def test_mg_load_all_reload_submodule(switch):
         # Revert to the original state for the consistency
         postprocess_functions(FUNC1_PATH, FUNC2_PATH)
     execute_and_fetch_all(cursor, "CALL mg.load_all();")
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_mg_load_reload_magic_function(switch):
+    cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
+    write_combine_function("+")
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
+        write_combine_function("*")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 6
+    finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+def test_mg_load_removing_used_magic_function_errors():
+    cursor = connect().cursor()
+    write_combine_function("+")
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
+        with open(RELOAD_FUNC_MODULE_PATH, "w") as func_file:
+            func_file.write("import mgp\n")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")
+    finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+def test_multiple_magic_functions_in_one_query():
+    cursor = connect().cursor()
+    with open(RELOAD_FUNC_MODULE_PATH, "w") as func_file:
+        func_file.write(
+            "import mgp\n\n\n"
+            "@mgp.function\n"
+            "def combine(ctx: mgp.FuncCtx, a: mgp.Number, b: mgp.Number):\n"
+            "    return a + b\n\n\n"
+            "@mgp.function\n"
+            "def diff(ctx: mgp.FuncCtx, a: mgp.Number, b: mgp.Number):\n"
+            "    return a - b\n"
+        )
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        row = execute_and_fetch_all(
+            cursor, "RETURN reload_func_module.combine(5, 3) AS c, reload_func_module.diff(5, 3) AS d;"
+        )[0]
+        assert row[0] == 8
+        assert row[1] == 2
+    finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_trigger_using_magic_function_reload(switch):
+    cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
+    write_combine_function("+")
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE TRIGGER combine_trigger ON () CREATE BEFORE COMMIT "
+            "EXECUTE UNWIND createdVertices AS v SET v.r = reload_func_module.combine(2, 3);",
+        )
+        execute_and_fetch_all(cursor, "CREATE (:A);")
+        assert execute_and_fetch_all(cursor, "MATCH (n:A) RETURN n.r;")[0][0] == 5
+        write_combine_function("*")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+        execute_and_fetch_all(cursor, "CREATE (:B);")
+        assert execute_and_fetch_all(cursor, "MATCH (n:B) RETURN n.r;")[0][0] == 6
+    finally:
+        try:
+            execute_and_fetch_all(cursor, "DROP TRIGGER combine_trigger;")
+        except mgclient.DatabaseError:
+            pass
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+def test_mg_load_reload_procedure_impl():
+    cursor = connect().cursor()
+    write_proc_module(BASELINE_PROC)
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+    q = "CALL reload_proc_module.compute(2, 3) YIELD result RETURN result;"
+    try:
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+        write_proc_module(
+            "@mgp.read_proc\n"
+            "def compute(ctx: mgp.ProcCtx, a: mgp.Number, b: mgp.Number) -> mgp.Record(result=mgp.Number):\n"
+            "    return mgp.Record(result=a * b)\n"
+        )
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+        assert execute_and_fetch_all(cursor, q)[0][0] == 6
+    finally:
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+
+
+def test_mg_load_reload_procedure_yield_star_reexpands():
+    cursor = connect().cursor()
+    write_proc_module(BASELINE_PROC)
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+    q = "CALL reload_proc_module.compute(2, 3) YIELD * RETURN *;"
+    try:
+        row = execute_and_fetch_all(cursor, q)[0]
+        assert len(row) == 1 and row[0] == 5
+        write_proc_module(
+            "@mgp.read_proc\n"
+            "def compute(ctx: mgp.ProcCtx, a: mgp.Number, b: mgp.Number) -> "
+            "mgp.Record(result=mgp.Number, doubled=mgp.Number):\n"
+            "    return mgp.Record(result=a + b, doubled=2 * (a + b))\n"
+        )
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+        row = execute_and_fetch_all(cursor, q)[0]
+        assert len(row) == 2 and 10 in row
+    finally:
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+
+
+def test_mg_load_reload_procedure_read_to_write_self_heals():
+    cursor = connect().cursor()
+    write_proc_module(BASELINE_PROC)
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+    q = "CALL reload_proc_module.compute(2, 3) YIELD result RETURN result;"
+    try:
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+        write_proc_module(WRITE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+    finally:
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+
+
+def test_mg_load_reload_procedure_write_to_read_self_heals():
+    cursor = connect().cursor()
+    write_proc_module(WRITE_PROC)
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+    q = "CALL reload_proc_module.compute(2, 3) YIELD result RETURN result;"
+    try:
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+    finally:
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+
+
+def test_mg_load_reload_procedure_removed_field_errors():
+    cursor = connect().cursor()
+    write_proc_module(BASELINE_PROC)
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+    q = "CALL reload_proc_module.compute(2, 3) YIELD result RETURN result;"
+    try:
+        assert execute_and_fetch_all(cursor, q)[0][0] == 5
+        write_proc_module(
+            "@mgp.read_proc\n"
+            "def compute(ctx: mgp.ProcCtx, a: mgp.Number, b: mgp.Number) -> mgp.Record(total=mgp.Number):\n"
+            "    return mgp.Record(total=a + b)\n"
+        )
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, q)
+    finally:
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+
+
+def test_mg_load_reload_procedure_trigger():
+    cursor = connect().cursor()
+    write_proc_module(BASELINE_PROC)
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+    try:
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE TRIGGER proc_trigger ON () CREATE BEFORE COMMIT "
+            "EXECUTE UNWIND createdVertices AS v "
+            "CALL reload_proc_module.compute(2, 3) YIELD result SET v.r = result;",
+        )
+        execute_and_fetch_all(cursor, "CREATE (:A);")
+        assert execute_and_fetch_all(cursor, "MATCH (n:A) RETURN n.r;")[0][0] == 5
+        write_proc_module(
+            "@mgp.read_proc\n"
+            "def compute(ctx: mgp.ProcCtx, a: mgp.Number, b: mgp.Number) -> mgp.Record(result=mgp.Number):\n"
+            "    return mgp.Record(result=a * b)\n"
+        )
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
+        execute_and_fetch_all(cursor, "CREATE (:B);")
+        assert execute_and_fetch_all(cursor, "MATCH (n:B) RETURN n.r;")[0][0] == 6
+    finally:
+        try:
+            execute_and_fetch_all(cursor, "DROP TRIGGER proc_trigger;")
+        except mgclient.DatabaseError:
+            pass
+        write_proc_module(BASELINE_PROC)
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_proc_module');")
 
 
 if __name__ == "__main__":

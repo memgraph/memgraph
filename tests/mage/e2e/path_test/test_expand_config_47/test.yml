@@ -1,0 +1,11 @@
+# The wildcard reads the same under every prefix, so a denylisted '*' denies every node and the walk
+# returns only the start node it was never asked to filter.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 2, labelFilter: '-*'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1"]

@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
@@ -41,6 +41,12 @@ class DiskUniqueConstraints : public UniqueConstraints {
     void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
+
+    // On-disk storage validates while flushing vertices rather than through the commit-time
+    // verification set, so it never gathers the ids it is keyed on and cannot narrow by them.
+    auto ConstrainedProperties() const -> InterestingProperties override { return InterestingProperties::Everything(); }
+
+    auto ConstrainedLabels() const -> InterestingLabels override { return InterestingLabels::Everything(); }
 
     void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                              uint64_t transaction_start_timestamp) override;

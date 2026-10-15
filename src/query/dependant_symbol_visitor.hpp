@@ -15,11 +15,11 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
-#include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 
 namespace memgraph::query {
 
@@ -39,6 +39,8 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   explicit DependantSymbolVisitor(std::set<Symbol::Position_t> &dependencies) : dependencies_(dependencies) {}
 
   void Visit(Identifier &identifier) override {
+    // Symbol generation reaches every identifier the tree holds, and the parser drops the subtrees it stops the tree
+    // from reaching, so one carrying no symbol means a reachable identifier was missed rather than an orphan left.
     MG_ASSERT(identifier.symbol_pos_ != -1);
     dependencies_.insert(identifier.symbol_pos_);
   }
@@ -224,7 +226,7 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
     is_cacheable_ = false;  // Not cacheable due to pattern matching
   }
 
-  void Visit(Exists & /*exists*/) override {
+  void Visit(SubqueryExpression & /*subquery*/) override {
     is_cacheable_ = false;  // Not cacheable due to pattern/subquery
   }
 

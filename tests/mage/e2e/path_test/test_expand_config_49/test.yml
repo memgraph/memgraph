@@ -1,0 +1,10 @@
+# A list entry is one alternative, which is what the list form has always meant, so a ',' inside one is
+# not a sequence -- and would otherwise be read as a type no relationship carries.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {maxHops: 2, relationshipFilter: ['NEXT>,<FROM']})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  give the whole filter as a string to spell a sequence of steps

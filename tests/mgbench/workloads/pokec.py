@@ -34,6 +34,12 @@ class Pokec(Workload):
         "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_medium_import.sql",
     }
 
+    # Durability snapshot of the same dataset, loaded through RECOVER SNAPSHOT by a runner that
+    # supports it. Only medium has one published; the other variants take the import-query path.
+    URL_SNAPSHOT_FILE = {
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/snapshots/medium/pokec_medium_snapshot",
+    }
+
     SIZES = {
         "small": {"vertices": 10000, "edges": 121716},
         "medium": {"vertices": 100000, "edges": 1768515},

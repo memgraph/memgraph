@@ -12,7 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <climits>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -117,12 +120,9 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelProperties);
   PRE_VISIT(ScanAllByEdgeType);
   PRE_VISIT(ScanAllByEdgeTypeProperty);
-  PRE_VISIT(ScanAllByEdgeTypePropertyValue);
-  PRE_VISIT(ScanAllByEdgeTypePropertyRange);
   PRE_VISIT(ScanAllByEdgeProperty);
-  PRE_VISIT(ScanAllByEdgePropertyValue);
-  PRE_VISIT(ScanAllByEdgePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
+  PRE_VISIT(ScanAllByVertexProperty);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -201,6 +201,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Conditional &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
   PRE_VISIT(CallProcedure);
 
   bool PreVisit(RollUpApply &op) override {
@@ -221,11 +227,8 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanParallelByEdge);
   PRE_VISIT(ScanParallelByEdgeType);
   PRE_VISIT(ScanParallelByEdgeTypeProperty);
-  PRE_VISIT(ScanParallelByEdgeTypePropertyValue);
-  PRE_VISIT(ScanParallelByEdgeTypePropertyRange);
   PRE_VISIT(ScanParallelByEdgeProperty);
-  PRE_VISIT(ScanParallelByEdgePropertyValue);
-  PRE_VISIT(ScanParallelByEdgePropertyRange);
+  PRE_VISIT(ScanParallelByVertexProperty);
   PRE_VISIT(ScanChunk);
   PRE_VISIT(ScanChunkByEdge);
 
@@ -266,11 +269,101 @@ using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
-using ExpectScanAllByEdgeId = OpChecker<ScanAllByEdgeId>;
-using ExpectScanAllById = OpChecker<ScanAllById>;
+
+/// `ExpectScanAll` accepts any derived scan, `ScanAllByLabel` included, so it cannot tell a full scan
+/// from an index scan. Use this where the point of the test is that no index was used.
+class ExpectScanAllAndNoIndex : public OpChecker<ScanAll> {
+ public:
+  void ExpectOp(ScanAll &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.GetTypeInfo().name, std::string_view{ScanAll::kType.name})
+        << "expected a plain ScanAll, got '" << scan_all.GetTypeInfo().name << "'";
+  }
+};
+
+/// `ExpectFilter` checks none of what a filter tests. This checks its OR label groups, each as a set of
+/// label names, for tests about which groups survive planning.
+class ExpectFilterOrLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterOrLabels(std::vector<std::set<std::string>> groups) : groups_(std::move(groups)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::vector<std::set<std::string>> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &group : filter_info.or_labels) {
+        auto &names = actual.emplace_back();
+        for (const auto &label : group) names.insert(label.name);
+      }
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(groups_));
+  }
+
+ private:
+  std::vector<std::set<std::string>> groups_;
+};
+
+/// Checks the labels a filter demands of every row, as a set of label names.
+class ExpectFilterLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterLabels(std::set<std::string> labels) : labels_(std::move(labels)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::set<std::string> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &label : filter_info.labels) actual.insert(label.name);
+    }
+    EXPECT_EQ(actual, labels_);
+  }
+
+ private:
+  std::set<std::string> labels_;
+};
+
+class ExpectScanAllByEdgeId : public OpChecker<ScanAllByEdgeId> {
+ public:
+  explicit ExpectScanAllByEdgeId(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
+
+  void ExpectOp(ScanAllByEdgeId &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.expects_string_id_, expects_string_id_);
+  }
+
+ private:
+  bool expects_string_id_;
+};
+
+class ExpectScanAllById : public OpChecker<ScanAllById> {
+ public:
+  explicit ExpectScanAllById(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
+
+  void ExpectOp(ScanAllById &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.expects_string_id_, expects_string_id_);
+  }
+
+ private:
+  bool expects_string_id_;
+};
+
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
+
+// Asserts which columns a Produce projects, where plan shape alone does not discriminate.
+class ExpectProduceColumns : public OpChecker<Produce> {
+ public:
+  explicit ExpectProduceColumns(std::vector<std::string> names) : names_(std::move(names)) {}
+
+  void ExpectOp(Produce &produce, const SymbolTable &) override {
+    std::vector<std::string> actual;
+    actual.reserve(produce.named_expressions_.size());
+    for (auto *named_expr : produce.named_expressions_) {
+      actual.emplace_back(named_expr->name_);
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(names_));
+  }
+
+ private:
+  std::vector<std::string> names_;
+};
+
 using ExpectEmptyResult = OpChecker<EmptyResult>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;
@@ -283,7 +376,19 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+/// The deferred fold. @p Fold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilter> {
+ public:
+  void ExpectOp(EvaluatePatternFilter &op, const SymbolTable & /*symbol_table*/) override {
+    EXPECT_EQ(op.fold_, TFold) << "unexpected EvaluatePatternFilter fold";
+  }
+};
+
+using ExpectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kList>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
 using ExpectLoadParquet = OpChecker<LoadParquet>;
@@ -299,11 +404,8 @@ using ExpectScanParallelByLabelProperties = OpChecker<ScanParallelByLabelPropert
 using ExpectScanParallelByEdge = OpChecker<ScanParallelByEdge>;
 using ExpectScanParallelByEdgeType = OpChecker<ScanParallelByEdgeType>;
 using ExpectScanParallelByEdgeTypeProperty = OpChecker<ScanParallelByEdgeTypeProperty>;
-using ExpectScanParallelByEdgeTypePropertyValue = OpChecker<ScanParallelByEdgeTypePropertyValue>;
-using ExpectScanParallelByEdgeTypePropertyRange = OpChecker<ScanParallelByEdgeTypePropertyRange>;
 using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
-using ExpectScanParallelByEdgePropertyValue = OpChecker<ScanParallelByEdgePropertyValue>;
-using ExpectScanParallelByEdgePropertyRange = OpChecker<ScanParallelByEdgePropertyRange>;
+using ExpectScanParallelByVertexProperty = OpChecker<ScanParallelByVertexProperty>;
 using ExpectScanChunk = OpChecker<ScanChunk>;
 using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
 
@@ -372,14 +474,14 @@ class ExpectFilter : public OpChecker<Filter> {
 
     auto it = filter_expressions.begin();
     for (; it != filter_expressions.end(); it++) {
-      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+      if ((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name) {
         break;
       }
     }
     while (it != filter_expressions.end()) {
-      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
-          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
-          << "'!";
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '"
+          << query::SubqueryExpression::kType.name << "'!";
       it++;
     }
   }
@@ -439,6 +541,23 @@ class ExpectUnion : public OpChecker<Union> {
  private:
   std::list<BaseOpChecker *> left_;
   std::list<BaseOpChecker *> right_;
+};
+
+/// One checker list per branch, in source order; predicates' pattern filters are not checked.
+class ExpectConditional : public OpChecker<Conditional> {
+ public:
+  explicit ExpectConditional(std::vector<std::list<BaseOpChecker *>> branches) : branches_(std::move(branches)) {}
+
+  void ExpectOp(Conditional &op, const SymbolTable &symbol_table) override {
+    ASSERT_EQ(op.branches_.size(), branches_.size());
+    for (size_t i = 0; i < branches_.size(); ++i) {
+      PlanChecker check_branch(branches_[i], symbol_table);
+      op.branches_[i].plan->Accept(check_branch);
+    }
+  }
+
+ private:
+  std::vector<std::list<BaseOpChecker *>> branches_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
@@ -565,6 +684,27 @@ class ExpectScanAllByLabel : public OpChecker<ScanAllByLabel> {
   std::optional<memgraph::storage::LabelId> label_;
 };
 
+inline bool ExpressionRangesMatch(ExpressionRange const &lhs, ExpressionRange const &rhs) {
+  auto const compare_bound_expression = [](std::optional<utils::Bound<Expression *>> const &lhs,
+                                           std::optional<utils::Bound<Expression *>> const &rhs) {
+    if (!lhs && !rhs) return true;
+    if (!lhs || !rhs) return false;
+    if (lhs->type() != rhs->type()) return false;
+    // In keeping with the other tests, we are comparing expressions by
+    // hash code of their types, rather than performing a full expression
+    // comparison.
+    // Note: value() is a const method returning const ref, so no side effects
+    auto const &lhs_expr = *lhs->value();
+    auto const &rhs_expr = *rhs->value();
+    if (typeid(lhs_expr).hash_code() != typeid(rhs_expr).hash_code()) return false;
+    return true;
+  };
+
+  if (lhs.type_ != rhs.type_) return false;
+  if ((lhs.membership_list_ == nullptr) != (rhs.membership_list_ == nullptr)) return false;
+  return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
+}
+
 class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties> {
  public:
   ExpectScanAllByLabelProperties(memgraph::storage::LabelId label,
@@ -576,28 +716,7 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
     EXPECT_EQ(scan.label_, label_);
     EXPECT_EQ(scan.properties_, properties_);
     ASSERT_EQ(scan.expression_ranges_.size(), expression_ranges_.size());
-
-    auto const compare_bound_expression = [](std::optional<utils::Bound<Expression *>> const &lhs,
-                                             std::optional<utils::Bound<Expression *>> const &rhs) {
-      if (!lhs && !rhs) return true;
-      if (!lhs || !rhs) return false;
-      if (lhs->type() != rhs->type()) return false;
-      // In keeping with the other tests, we are comparing expressions by
-      // hash code of their types, rather than performing a full expression
-      // comparison.
-      // Note: value() is a const method returning const ref, so no side effects
-      auto const &lhs_expr = *lhs->value();
-      auto const &rhs_expr = *rhs->value();
-      if (typeid(lhs_expr).hash_code() != typeid(rhs_expr).hash_code()) return false;
-      return true;
-    };
-
-    auto const compare_expression_range = [&](auto &&lhs, auto &&rhs) {
-      if (lhs.type_ != rhs.type_) return false;
-      return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
-    };
-
-    EXPECT_TRUE(ranges::equal(scan.expression_ranges_, expression_ranges_, compare_expression_range));
+    EXPECT_TRUE(ranges::equal(scan.expression_ranges_, expression_ranges_, ExpressionRangesMatch));
   }
 
  private:
@@ -606,88 +725,84 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
   std::vector<ExpressionRange> expression_ranges_;
 };
 
-class ExpectScanAllByEdgeTypePropertyValue : public OpChecker<ScanAllByEdgeTypePropertyValue> {
- public:
-  ExpectScanAllByEdgeTypePropertyValue(memgraph::storage::EdgeTypeId edge_type,
-                                       const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                       memgraph::query::Expression *expression)
-      : edge_type_(edge_type), property_(prop_pair.second), expression_(expression) {}
-
-  void ExpectOp(ScanAllByEdgeTypePropertyValue &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
-    EXPECT_EQ(scan_all.property_, property_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
-  }
-
- private:
-  memgraph::storage::EdgeTypeId edge_type_;
-  memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
-};
-
-class ExpectScanAllByEdgeTypePropertyRange : public OpChecker<ScanAllByEdgeTypePropertyRange> {
- public:
-  ExpectScanAllByEdgeTypePropertyRange(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property,
-                                       std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound,
-                                       std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound)
-      : edge_type_(edge_type), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
-
-  void ExpectOp(ScanAllByEdgeTypePropertyRange &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
-    EXPECT_EQ(scan_all.property_, property_);
-    if (lower_bound_) {
-      ASSERT_TRUE(scan_all.lower_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
-    }
-    if (upper_bound_) {
-      ASSERT_TRUE(scan_all.upper_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
-    }
-  }
-
- private:
-  memgraph::storage::EdgeTypeId edge_type_;
-  memgraph::storage::PropertyId property_;
-  std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound_;
-  std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound_;
-};
-
 class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProperty> {
  public:
   ExpectScanAllByEdgeTypeProperty(memgraph::storage::EdgeTypeId edge_type,
-                                  const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
-      : edge_type_(edge_type), property_(prop_pair.second) {}
+                                  const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                  std::optional<ExpressionRange> expression_range = std::nullopt)
+      : edge_type_(edge_type), property_(prop_pair.second), expression_range_(std::move(expression_range)) {}
 
   void ExpectOp(ScanAllByEdgeTypeProperty &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
     EXPECT_EQ(scan_all.property_, property_);
+    if (expression_range_) {
+      EXPECT_TRUE(ExpressionRangesMatch(scan_all.expression_range_, *expression_range_));
+    }
   }
 
  private:
   memgraph::storage::EdgeTypeId edge_type_;
   memgraph::storage::PropertyId property_;
+  std::optional<ExpressionRange> expression_range_;
 };
 
-class ExpectScanAllByEdgePropertyValue : public OpChecker<ScanAllByEdgePropertyValue> {
+class ExpectScanAllByEdgeProperty : public OpChecker<ScanAllByEdgeProperty> {
  public:
-  ExpectScanAllByEdgePropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                   memgraph::query::Expression *expression)
-      : property_(prop_pair.second), expression_(expression) {}
+  explicit ExpectScanAllByEdgeProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                       std::optional<ExpressionRange> expression_range = std::nullopt)
+      : property_(prop_pair.second), expression_range_(std::move(expression_range)) {}
 
-  void ExpectOp(ScanAllByEdgePropertyValue &scan_all, const SymbolTable &) override {
+  void ExpectOp(ScanAllByEdgeProperty &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.property_, property_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+    if (expression_range_) {
+      EXPECT_TRUE(ExpressionRangesMatch(scan_all.expression_range_, *expression_range_));
+    }
   }
 
  private:
   memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
+  std::optional<ExpressionRange> expression_range_;
+};
+
+class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::EQUAL);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyRange : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyRange(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::RANGE);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
 };
 
 class ExpectCartesian : public OpChecker<Cartesian> {
@@ -794,12 +909,16 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   }
 
   void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
+    EXPECT_EQ(op.fold_, expected_fold_) << "unexpected RollUpApply fold";
     PlanChecker input_checker(input_ptrs_, symbol_table);
     op.input_->Accept(input_checker);
     ASSERT_TRUE(op.list_collection_branch_);
     PlanChecker list_collection_branch_checker(list_collection_branch_ptrs_, symbol_table);
     op.list_collection_branch_->Accept(list_collection_branch_checker);
   }
+
+ protected:
+  RollUpApply::Fold expected_fold_{RollUpApply::Fold::kList};
 
  private:
   // Owned storage (when using Checkers constructor)
@@ -809,6 +928,23 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   std::list<BaseOpChecker *> input_ptrs_;
   std::list<BaseOpChecker *> list_collection_branch_ptrs_;
 };
+
+/// A RollUpApply carrying one of the column-less folds - what an EXISTS or a COUNT in a projection, an ORDER BY or a
+/// WITH's WHERE is planned as. @p TFold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectRollUpApplyWithFold : public ExpectRollUpApply {
+ public:
+  /// Constrained so the pack cannot hijack this type's own copy/move construction.
+  template <typename... TArgs>
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectRollUpApplyWithFold> || ...))
+  explicit ExpectRollUpApplyWithFold(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = TFold;
+  }
+};
+
+using ExpectExistsRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kList>;
 
 class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
  public:
@@ -986,6 +1122,28 @@ class FakeDbAccessor {
     return edge_property_index_.find(property) != edge_property_index_.end();
   }
 
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId property) const {
+    return vertex_property_index_.contains(property);
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId property) const {
+    auto found = vertex_property_index_.find(property);
+    if (found != vertex_property_index_.end()) return found->second;
+    return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property*/,
+                        const memgraph::storage::PropertyValue & /*value*/) const {
+    return 0;
+  }
+
+  int64_t VerticesCount(
+      memgraph::storage::PropertyId /*property*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*lower*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*upper*/) const {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
@@ -1036,6 +1194,10 @@ class FakeDbAccessor {
   }
 
   void SetIndexCount(memgraph::storage::PropertyId property, int64_t count) { edge_property_index_[property] = count; }
+
+  void SetVertexPropertyIndexCount(memgraph::storage::PropertyId property, int64_t count) {
+    vertex_property_index_[property] = count;
+  }
 
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
@@ -1110,6 +1272,42 @@ class FakeDbAccessor {
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
       edge_type_property_index_;
   std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
+  std::unordered_map<memgraph::storage::PropertyId, int64_t> vertex_property_index_;
 };
+
+/// Every operator type in the plan, through every branch, fold and subquery.
+inline std::vector<std::string> OpNames(LogicalOperator *root) {
+  std::vector<std::string> names;
+  std::vector<LogicalOperator *> stack{root};
+  while (!stack.empty()) {
+    auto *op = stack.back();
+    stack.pop_back();
+    if (!op) continue;
+    names.emplace_back(op->GetTypeInfo().name);
+    if (auto *conditional = dynamic_cast<Conditional *>(op)) {
+      for (const auto &branch : conditional->branches_) {
+        for (const auto &fold : branch.pattern_filters) stack.push_back(fold.get());
+        stack.push_back(branch.plan.get());
+      }
+    } else if (auto *apply = dynamic_cast<Apply *>(op)) {
+      stack.push_back(apply->subquery_.get());
+    } else if (auto *filter = dynamic_cast<Filter *>(op)) {
+      for (const auto &fold : filter->pattern_filters_) stack.push_back(fold.get());
+    } else if (auto *union_op = dynamic_cast<Union *>(op)) {
+      stack.push_back(union_op->left_op_.get());
+      stack.push_back(union_op->right_op_.get());
+    } else if (auto *rollup = dynamic_cast<RollUpApply *>(op)) {
+      stack.push_back(rollup->list_collection_branch_.get());
+    } else if (auto *join = dynamic_cast<HashJoin *>(op)) {
+      stack.push_back(join->left_op_.get());
+      stack.push_back(join->right_op_.get());
+    } else if (auto *cartesian = dynamic_cast<Cartesian *>(op)) {
+      stack.push_back(cartesian->left_op_.get());
+      stack.push_back(cartesian->right_op_.get());
+    }
+    if (op->HasSingleInput()) stack.push_back(op->input().get());
+  }
+  return names;
+}
 
 }  // namespace memgraph::query::plan

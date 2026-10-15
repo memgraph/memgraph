@@ -43,17 +43,28 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
     return [result[:-1] for result in results]
 
 
-def execute_and_ignore_dead_replica(cursor, query):
-    """
-    Ignores SYNC replica replication failure error
-    :param cursor: Cursor to the instance where you want to execute the query
-    :param query: Query to be executed
-    :return: nothing
-    """
-    try:
-        execute_and_fetch_all(cursor, query)
-    except Exception as e:
-        assert "Failed to replicate to SYNC replica" in str(e)
+def corrupt_snapshots(tenant_directory):
+    """Corrupt the data (vertex/edge/index) region of every snapshot under `tenant_directory`
+    while preserving the offsets block at the start and the metadata section at the end. This keeps
+    the file readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
+    fail, which is the path that yields a broken database. Mirrors the helper in
+    tests/e2e/durability/common.py."""
+    snapshot_dir = os.path.join(tenant_directory, "snapshots")
+    files = [
+        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
+    ]
+    assert files, f"Expected at least one snapshot to corrupt under {snapshot_dir}"
+    head_keep = 1024  # magic + version + SECTION_OFFSETS
+    tail_keep = 4096  # SECTION_METADATA (uuid/epoch/counts) lives near the end
+    for path in files:
+        size = os.path.getsize(path)
+        start = min(head_keep, size)
+        end = max(start, size - tail_keep)
+        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
+        with open(path, "r+b") as fh:
+            fh.seek(start)
+            fh.write(b"\xff" * (end - start))
+    return files
 
 
 def count_files(directory):
@@ -70,6 +81,9 @@ def wait_until_main_writeable(cursor, query):
     to execute the query and if succeeded, we return immediately. If an exception occurs, there are 3 possible situations.
     If the error message is that write query is forbidden on the main, then we will try once again execute the query.
     If not, we assert false and crash the program.
+
+    A SYNC replica that cannot be reached does not fail the query: the transaction commits on the main and the
+    failure is reported as a notification instead.
     """
     while True:
         try:
@@ -80,25 +94,6 @@ def wait_until_main_writeable(cursor, query):
                 continue
             print(f"Unexpected error occurred: {str(e)}")
             assert False
-
-
-def wait_until_main_writeable_assert_replica_down(cursor, query):
-    """
-    After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try
-    to execute the query and if succeed, we return immediately. If an exception occurs, there are 3 possible situations.
-    If the error message is that write query is forbidden on the main, then we will try once again execute the query.
-    If not, then the only allowed option is that one of SYNC replicas are down. Otherwise, we assert false and crash the
-    program.
-    """
-    while True:
-        try:
-            execute_and_fetch_all(cursor, query)
-            break
-        except Exception as e:
-            if "Write queries currently forbidden on the main instance" in str(e):
-                continue
-            assert "Failed to replicate to SYNC replica" in str(e)
-            break
 
 
 def show_instances(cursor):
@@ -120,6 +115,14 @@ def get_vertex_count(cursor):
     Accepts a cursor and returns a count of vertices.
     """
     return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+
+def show_routing_table(cursor):
+    """
+    Accepts a cursor to a coordinator and returns the routing table as a {role: servers} dict using the
+    `SHOW ROUTING TABLE` query. Servers are sorted because their order inside a role is not part of the contract.
+    """
+    return {role: sorted(servers) for role, servers in execute_and_fetch_all(cursor, "SHOW ROUTING TABLE;")}
 
 
 def show_replication_role(cursor):

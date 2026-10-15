@@ -9,15 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include <fmt/format.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
@@ -32,15 +35,19 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
+#include "utils/exceptions.hpp"
 
+using testing::IsEmpty;
 using testing::UnorderedElementsAre;
 
 using memgraph::io::network::Endpoint;
@@ -86,7 +93,11 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
-        .register_metrics = false,
+        // Keep metrics on. This fixture runs a main and two replicas all named "memgraph" in one
+        // process, which is the shape that used to leave one storage holding handles into another's
+        // destroyed metrics. Registering them is what makes that a crash rather than a silent pass,
+        // so this suite is the regression test for it and needs no metric assertion of its own.
+        .register_metrics = true,
     };
     UpdatePaths(config, storage_directory);
     return config;
@@ -100,7 +111,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
-        .register_metrics = false,
+        .register_metrics = true,
     };
     UpdatePaths(config, repl_storage_directory);
     return config;
@@ -114,7 +125,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
-        .register_metrics = false,
+        .register_metrics = true,
     };
     UpdatePaths(config, repl2_storage_directory);
     return config;
@@ -1547,6 +1558,204 @@ TEST_F(ReplicationTest, RecoverySteps) {
   }
 }
 
+// A WAL whose [from, to] range contains the snapshot's timestamp proves the chain can reproduce the
+// snapshot's contents. The pair below pins both verdicts, because a false positive costs a full
+// snapshot transfer on every lagging replica.
+TEST(SnapshotWalCoverage, CoveredAndUncovered) {
+  using memgraph::storage::SnapshotTsCoveredByAnyWal;
+  auto const wal = [](uint64_t const seq_num, uint64_t const from, uint64_t const to) {
+    return memgraph::storage::durability::WalDurabilityInfo{seq_num, from, to, "uuid", "epoch", "path"};
+  };
+  std::vector const finalized{wal(0, 1, 100), wal(1, 101, 200)};
+
+  // Ordinary periodic snapshot: its timestamp sits inside the still-open WAL's range.
+  EXPECT_TRUE(SnapshotTsCoveredByAnyWal(finalized, 201, 300, 250));
+  // ... or inside a finalized one, if the snapshot predates the current WAL.
+  EXPECT_TRUE(SnapshotTsCoveredByAnyWal(finalized, 201, 300, 150));
+  // Range ends are inclusive: a snapshot stamped exactly at a WAL boundary is covered.
+  EXPECT_TRUE(SnapshotTsCoveredByAnyWal(finalized, std::nullopt, std::nullopt, 100));
+
+  // After an analytical episode: the pre-import WAL was finalized at 200 and the post-import WAL
+  // starts after the snapshot, so nothing holds the imported data.
+  EXPECT_FALSE(SnapshotTsCoveredByAnyWal(finalized, 5001, 5100, 5000));
+  // No open WAL at all, snapshot past the end of the chain.
+  EXPECT_FALSE(SnapshotTsCoveredByAnyWal(finalized, std::nullopt, std::nullopt, 5000));
+}
+
+// Decision 9 of specs/ha-analytical-import.md. Entering analytical finalizes the WAL and the import
+// writes none, so the switch-back snapshot holds data no WAL can reproduce. A replica sitting strictly
+// behind the end of the finalized chain would otherwise be recovered from WALs alone and declared in
+// sync while silently missing the whole import.
+TEST_F(ReplicationTest, RecoveryStepsAfterAnalyticalEpisode) {
+  auto config = main_conf;
+  config.durability.wal_file_size_kibibytes = 1;  // Easy way to control when a new WAL is created
+  MinMemgraph main(config);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto const p = in_mem->NameToProperty("p1");
+  const auto large_property = PropertyValue{PropertyValue::list_t{1024 / sizeof(int64_t), PropertyValue{int64_t{}}}};
+
+  auto large_write_to_finalize_wal = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  auto create_vertices_and_commit = [&](int const n) {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < n; ++i) acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  // A finalized chain of two files, the newest of which spans several commits so a replica can sit
+  // strictly inside it.
+  large_write_to_finalize_wal();
+  create_vertices_and_commit(1);
+  create_vertices_and_commit(1);
+  large_write_to_finalize_wal();
+
+  auto const wal_dir = in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+  auto const chain = memgraph::storage::durability::GetWalFiles(wal_dir, std::string{in_mem->uuid()});
+  ASSERT_TRUE(chain.has_value());
+  ASSERT_FALSE(chain->empty());
+  ASSERT_GT(chain->back().to_timestamp, chain->back().from_timestamp);
+  // Strictly behind the end of the chain, but inside the newest file's range: exactly the layout in
+  // which the pre-fix code takes the WAL-only path.
+  auto const replica_commit = chain->back().to_timestamp - 1;
+
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  create_vertices_and_commit(10);
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  // First post-switch commit opens a fresh WAL, so the current WAL starts after the snapshot.
+  create_vertices_and_commit(1);
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto const steps = GetRecoverySteps(replica_commit, &file_locker, in_mem);
+    ASSERT_TRUE(steps.has_value());
+    EXPECT_TRUE(std::ranges::any_of(*steps, [](auto const &step) {
+      return std::holds_alternative<memgraph::storage::RecoverySnapshot>(step);
+    })) << "the mode-change snapshot is the only source of the imported data";
+  }
+}
+
+// The negative half of the pair: an ordinary periodic snapshot must not force a snapshot transfer for
+// a lagging replica, since its timestamp lies inside the open WAL's range.
+TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
+  auto config = main_conf;
+  config.durability.wal_file_size_kibibytes = 1;
+  MinMemgraph main(config);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto const p = in_mem->NameToProperty("p1");
+  const auto large_property = PropertyValue{PropertyValue::list_t{1024 / sizeof(int64_t), PropertyValue{int64_t{}}}};
+
+  auto large_write_to_finalize_wal = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p, large_property).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  auto create_vertex_and_commit = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  large_write_to_finalize_wal();
+  create_vertex_and_commit();
+  create_vertex_and_commit();
+  large_write_to_finalize_wal();
+
+  auto const wal_dir = in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+  auto const chain = memgraph::storage::durability::GetWalFiles(wal_dir, std::string{in_mem->uuid()});
+  ASSERT_TRUE(chain.has_value());
+  ASSERT_FALSE(chain->empty());
+  ASSERT_GT(chain->back().to_timestamp, chain->back().from_timestamp);
+  auto const replica_commit = chain->back().to_timestamp - 1;
+
+  create_vertex_and_commit();  // opens the current WAL the snapshot's timestamp will fall inside
+  ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto const steps = GetRecoverySteps(replica_commit, &file_locker, in_mem);
+    ASSERT_TRUE(steps.has_value());
+    EXPECT_FALSE(std::ranges::any_of(*steps, [](auto const &step) {
+      return std::holds_alternative<memgraph::storage::RecoverySnapshot>(step);
+    })) << "the WAL chain reproduces everything, so shipping the snapshot is pure waste";
+  }
+}
+
+// Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
+// enter analytical mode; registration in the other order must be refused too.
+TEST_F(ReplicationTest, AnalyticalModeAndReplicationAreMutuallyExclusive) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  auto replica_store_handler = replica.repl_handler;
+  replica_store_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  auto const reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << static_cast<int>(reg.error());
+
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+  ASSERT_THROW(in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL),
+               memgraph::utils::BasicException);
+  ASSERT_EQ(in_mem->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  ASSERT_EQ(main.repl_handler.UnregisterReplica("REPLICA"), UnregisterReplicaResult::SUCCESS);
+  ASSERT_NO_THROW(in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL));
+
+  // Now the other direction: registering while analytical is rejected before any state is mutated, so
+  // it does not leave a persisted instance-level client that every retry then trips over.
+  auto const reg_while_analytical = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_FALSE(reg_while_analytical.has_value());
+  ASSERT_EQ(reg_while_analytical.error(), RegisterReplicaError::ANALYTICAL_MODE);
+
+  // Rejected up-front means the name is still free once the instance is transactional again.
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA",
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+}
+
+// Unregistering while analytical would erase the persisted client while leaving the per-database
+// clients untouched, so it is refused up-front too -- before the name is even looked up.
+TEST_F(ReplicationTest, UnregisterReplicaRefusedWhileAnalytical) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  ASSERT_EQ(main.repl_handler.UnregisterReplica("REPLICA"), UnregisterReplicaResult::ANALYTICAL_MODE);
+
+  in_mem->SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(main.repl_handler.UnregisterReplica("REPLICA"), UnregisterReplicaResult::CANNOT_UNREGISTER);
+}
+
 TEST_F(ReplicationTest, SchemaReplication) {
   memgraph::storage::Config conf{
       .durability =
@@ -1563,7 +1772,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
               .properties_on_edges = true,
               .enable_schema_info = true,
           },
-      .register_metrics = false,
+      .register_metrics = true,
   };
 
   auto repl_conf = conf;
@@ -1754,6 +1963,181 @@ TEST_F(ReplicationTest, SchemaReplication) {
   main.emplace(conf);  // Important to have a snapshot to recover from
   start_replica();
   EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+}
+
+// Schema info is reconstructed after a transaction commits, and the reconstruction has to tell the
+// transaction's own deltas apart from another transaction's. It compares the timestamp it was
+// queued under against the one each delta carries, which is the local mint. A main mints the
+// timestamp it makes durable, so the two agree there; a replica is handed its main's and mints its
+// own, so they do not, and the replica reads its own writes as another transaction's.
+//
+// This asserts that a replica reconstructs its main's schema across a transaction that writes both
+// endpoints of one edge, with the replica's counter moved off the main's first so the comparison is
+// made on numbers that differ. It does not fail if the queue is changed back to passing the durable
+// timestamp: the reconstruction then runs the four-way edge reconciliation instead of skipping it,
+// and with both endpoints in the same state that reconciliation adds and subtracts the same two
+// shape buckets and nets to zero. Only endpoints in differing states part the two, and a replica
+// does not reach that, applying transactions one at a time and draining the queue at each commit.
+TEST_F(ReplicationTest, SchemaReplicationBothEndpointsModifiedSameTransaction) {
+  memgraph::storage::Config conf{
+      .durability =
+          {
+              .root_data_directory = storage_directory,
+              .recover_on_startup = false,
+              .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+              .snapshot_retention_count = 1,
+              .restore_replication_state_on_startup = true,
+          },
+      .salient.items =
+          {
+              .properties_on_edges = true,
+              .enable_schema_info = true,
+          },
+      .register_metrics = false,
+  };
+
+  auto repl_conf = conf;
+  UpdatePaths(conf, storage_directory);
+  std::optional<MinMemgraph> main(conf);
+
+  UpdatePaths(repl_conf, repl_storage_directory);
+  std::optional<MinMemgraph> replica(repl_conf);
+
+  replica->repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  auto get_schema = [](auto &instance) {
+    return instance.db.storage()->schema_info_.ToJson(*instance.db.storage()->name_id_mapper_,
+                                                      instance.db.storage()->enum_store_);
+  };
+
+  // Only a transaction begun on the replica advances the replica's own timestamp counter, and a
+  // read is enough. Without this the two counters tick in lockstep, the replica's local mint equals
+  // the main's durable timestamp, and the reconstruction's identity check is never put on the
+  // differing stamps this test is about.
+  {
+    const memgraph::memory::DbArenaScope replica_scope{&replica->db.Arena()};
+    for (int i = 0; i != 3; ++i) {
+      auto read = replica->db.Access(memgraph::storage::READ);
+    }
+  }
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main->db.Arena()};
+
+  auto l1 = main->db.storage()->NameToLabel("L1");
+  auto l2 = main->db.storage()->NameToLabel("L2");
+  auto e1 = main->db.storage()->NameToEdgeType("E1");
+
+  memgraph::storage::Gid v1_gid;
+  memgraph::storage::Gid v2_gid;
+
+  // Two vertices with an edge between them, all in one transaction.
+  {
+    auto acc = main->db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+  }
+
+  ASSERT_NE(main->db.storage()->timestamp_, replica->db.storage()->timestamp_)
+      << "the two counters have to differ for the transaction below to mint a local commit "
+         "timestamp that is not the main's durable one";
+
+  // Now label BOTH endpoints of that edge in a single transaction. This is the case where the
+  // reconstruction must recognise the deltas as its own.
+  {
+    auto acc = main->db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::NEW);
+    auto v2 = acc->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(v2->AddLabel(l2).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main->db_acc)).has_value());
+  }
+
+  const auto main_schema = get_schema(*main);
+  const auto replica_schema = get_schema(*replica);
+
+  // The main's own answer is the reference, and is asserted first so a change that broke both sides
+  // in the same direction could not pass as agreement.
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],)"
+      R"("nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(main_schema, expected))
+      << "the main's own schema is already wrong, so this test is not measuring replication. Actual: "
+      << main_schema.dump(2);
+
+  EXPECT_TRUE(ConfrontJSON(replica_schema, main_schema))
+      << "the replica's schema diverged from the main's. Main: " << main_schema.dump(2)
+      << " Replica: " << replica_schema.dump(2);
+}
+
+// Two transactions can each settle a drop's existence check and commit, because a drop evicts when
+// it commits, so the stream carries two drops of one index. The second reaches a replica that has
+// already evicted it, and applying it has to leave the stream running rather than fail the delta.
+TEST_F(ReplicationTest, ConcurrentDropsOfOneIndexKeepTheStreamRunning) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  std::optional<memgraph::memory::DbArenaScope> main_scope{std::in_place, &main.db.Arena()};
+  auto const label = main.db.storage()->NameToLabel("L");
+
+  {
+    auto unique_acc = main.db.UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto first = main.db.Access(memgraph::storage::READ);
+    auto second = main.db.Access(memgraph::storage::READ);
+    ASSERT_TRUE(first->DropIndex(label).has_value());
+    ASSERT_TRUE(second->DropIndex(label).has_value());
+    ASSERT_TRUE(first->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    ASSERT_TRUE(second->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // A refused delta stops the replica applying anything after it, so this vertex is what says the
+  // second drop was taken rather than merely leaving the index already gone.
+  memgraph::storage::Gid gid;
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value())
+        << "the main could not commit, which is what a replica that stopped acknowledging looks "
+           "like from here";
+  }
+
+  main_scope.reset();
+
+  {
+    const memgraph::memory::DbArenaScope replica_scope{&replica.db.Arena()};
+    auto racc = replica.db.Access(memgraph::storage::WRITE);
+    EXPECT_TRUE(racc->FindVertex(gid, View::OLD).has_value())
+        << "the replica stopped applying the stream, which is what refusing the second drop does";
+    EXPECT_THAT(racc->ListAllIndices().label, IsEmpty());
+  }
 }
 
 TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
@@ -1973,5 +2357,225 @@ TEST_F(ReplicationTest, EdgeMetadataRecoveredOnReplicaSnapshotTransfer) {
     auto acc = replica.db.Access(memgraph::storage::READ);
     ASSERT_FALSE(acc->FindEdge(e0_gid, View::OLD).has_value());
     ASSERT_TRUE(acc->FindEdge(e1_gid, View::OLD).has_value());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Light-edge replication tests
+// ---------------------------------------------------------------------------
+
+class ReplicationTestLightEdge : public ::testing::Test {
+ protected:
+  std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
+                                          "MG_test_unit_storage_v2_replication_light_edge"};
+  std::filesystem::path repl_storage_directory{std::filesystem::temp_directory_path() /
+                                               "MG_test_unit_storage_v2_replication_light_edge_repl"};
+
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+  Config MakeLightEdgeConfig(const std::filesystem::path &dir) const {
+    Config config{
+        .durability =
+            {
+                .root_data_directory = dir,
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true, .storage_light_edge = true},
+    };
+    UpdatePaths(config, dir);
+    return config;
+  }
+
+  const std::string local_host = "127.0.0.1";
+  const uint16_t port = 10'100;
+  const std::string replica_name = "LIGHT_REPLICA";
+
+ private:
+  void Clear() {
+    if (std::filesystem::exists(storage_directory)) std::filesystem::remove_all(storage_directory);
+    if (std::filesystem::exists(repl_storage_directory)) std::filesystem::remove_all(repl_storage_directory);
+  }
+};
+
+/// Verify that edge create, edge set-property, and edge delete are all
+/// replicated correctly when storage_light_edge=true on both main and replica.
+TEST_F(ReplicationTestLightEdge, EdgeCrudReplicatedSynchronously) {
+  MinMemgraph main(MakeLightEdgeConfig(storage_directory));
+  MinMemgraph replica(MakeLightEdgeConfig(repl_storage_directory));
+
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{.repl_server = Endpoint(local_host, port)});
+
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replica_name,
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, port),
+                  })
+                  .has_value());
+
+  const auto *edge_type_name = "light_et";
+  const auto *edge_prop_name = "eprop";
+  const auto *edge_prop_value = "hello_light";
+
+  Gid v1_gid, v2_gid;
+  Gid edge_gid;
+
+  // Create two vertices + one edge with a property.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, main.db.storage()->NameToEdgeType(edge_type_name));
+    ASSERT_TRUE(edge_res.has_value());
+    auto edge = edge_res.value();
+    edge_gid = edge.Gid();
+    ASSERT_TRUE(edge.SetProperty(main.db.storage()->NameToProperty(edge_prop_name), PropertyValue(edge_prop_value))
+                    .has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Replica should see the edge and its property.
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    const auto out_edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    const auto &edge = out_edges->edges[0];
+    ASSERT_EQ(edge.Gid(), edge_gid);
+    ASSERT_EQ(edge.EdgeType(), replica.db.storage()->NameToEdgeType(edge_type_name));
+    const auto props = edge.Properties(View::OLD);
+    ASSERT_TRUE(props.has_value());
+    ASSERT_EQ(props->size(), 1U);
+    ASSERT_EQ(props->at(replica.db.storage()->NameToProperty(edge_prop_name)), PropertyValue(edge_prop_value));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Update edge property in a separate transaction (exercises WAL SET_PROPERTY for light edges).
+  const auto *updated_value = "updated_light";
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    auto edge = out_edges->edges[0];
+    ASSERT_TRUE(
+        edge.SetProperty(main.db.storage()->NameToProperty(edge_prop_name), PropertyValue(updated_value)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    const auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    const auto &edge = out_edges->edges[0];
+    const auto props = edge.Properties(View::OLD);
+    ASSERT_TRUE(props.has_value());
+    ASSERT_EQ(props->at(replica.db.storage()->NameToProperty(edge_prop_name)), PropertyValue(updated_value));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Delete the edge.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    auto edge = out_edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    const auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_TRUE(out_edges->edges.empty());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+/// Verify that a replica recovers from snapshot+WAL written with light edges
+/// and then accepts live replication of further changes.
+TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
+  Gid v1_gid, v2_gid, edge_gid;
+
+  // Phase 1: write data and snapshot to disk.
+  {
+    auto conf = MakeLightEdgeConfig(storage_directory);
+    conf.durability.snapshot_on_exit = true;
+    MinMemgraph main(conf);
+
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, main.db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge_res.has_value());
+    edge_gid = edge_res->Gid();
+    ASSERT_TRUE(edge_res->SetProperty(main.db.storage()->NameToProperty("p"), PropertyValue(42)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Phase 2: recover from snapshot, add a label, then register replica.
+  auto conf = MakeLightEdgeConfig(storage_directory);
+  conf.durability.recover_on_startup = true;
+  MinMemgraph main(conf);
+
+  // Verify recovery from snapshot restored the edge.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto out_edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    ASSERT_EQ(out_edges->edges[0].Gid(), edge_gid);
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Register replica (it will receive the snapshot for catch-up).
+  MinMemgraph replica(MakeLightEdgeConfig(repl_storage_directory));
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{.repl_server = Endpoint(local_host, port)});
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replica_name,
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, port),
+                  })
+                  .has_value());
+
+  while (main.db.storage()->GetReplicaState(replica_name) != ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Send one more live transaction; replica must apply it.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    ASSERT_TRUE(v1.AddLabel(main.db.storage()->NameToLabel("recovered")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    const auto labels = v1->Labels(View::OLD);
+    ASSERT_TRUE(labels.has_value());
+    ASSERT_THAT(*labels, ::testing::Contains(replica.db.storage()->NameToLabel("recovered")));
+    // Edge must also be present on replica after recovery.
+    const auto out_edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }

@@ -1,0 +1,10 @@
+# `sequence` alternates label and relationship filters, so one with a single step names a label filter
+# and no way to expand at all.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {maxHops: 3, sequence: 'Post'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  needs at least one label step and one relationship step

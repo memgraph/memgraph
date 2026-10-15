@@ -6,7 +6,7 @@ import os
 import sys
 
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-MAGE_PYTHON_PATH = os.path.join(PROJECT_ROOT, "mage", "python")
+MAGE_PYTHON_PATH = os.path.join(PROJECT_ROOT, "src", "mage", "python")
 if MAGE_PYTHON_PATH not in sys.path:
     sys.path.insert(0, MAGE_PYTHON_PATH)
 
@@ -34,5 +34,9 @@ if __name__ == "__main__":
 
     cmd = ["python3", "-m", "pytest"] + unit_test_files + ["-v"]
 
-    result = subprocess.run(cmd, cwd=script_dir)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [MAGE_PYTHON_PATH, QUERY_MODULES_PATH] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
+    result = subprocess.run(cmd, cwd=script_dir, env=env)
     sys.exit(result.returncode)

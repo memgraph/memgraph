@@ -29,6 +29,10 @@ TESTS_DIR = os.path.join(SCRIPT_DIR, "tests")
 TRIGGERS_DIR_NAME = "triggers"
 EXPECTED_DUMP_FILE_NAME = "expected_dump.cypher"
 
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -85,10 +89,14 @@ def execute_test(memgraph_binary: Path, test_directory, write_expected):
             shutil.rmtree(triggers_dest_dir)
         shutil.copytree(triggers_source_dir, triggers_dest_dir)
 
-    extra_args = ["--data-recovery-on-startup"]
-    with memgraph_server(memgraph_binary, Path(working_data_directory.name), 7687, logger, extra_args):
+    extra_args = [
+        "--data-recovery-on-startup",
+        f"--monitoring-port={MONITORING_PORT}",
+        f"--metrics-port={METRICS_PORT}",
+    ]
+    with memgraph_server(memgraph_binary, Path(working_data_directory.name), BOLT_PORT, logger, extra_args):
         # Execute `DUMP DATABASE`
-        connection = mgclient.connect(host="localhost", port=7687, sslmode=mgclient.MG_SSLMODE_DISABLE)
+        connection = mgclient.connect(host="localhost", port=BOLT_PORT, sslmode=mgclient.MG_SSLMODE_DISABLE)
         dump_triggers_got = get_dump_triggers(connection)
         connection.close()
 

@@ -157,7 +157,9 @@ void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
   info_.period = actual_period;
   info_.start_time = start_time;
 
-  ttl_.SetInterval(actual_period, start_time);
+  // TTL's schedule is set after the worker thread is already running (Configure() starts it first),
+  // so without waking it here the worker could stay parked and TTL would silently never fire.
+  ttl_.SetIntervalAndWake(actual_period, start_time);
 }
 
 void TTL::Configure(bool should_run_edge_ttl) {
@@ -280,7 +282,9 @@ void TTL::Configure(bool should_run_edge_ttl) {
           // Use edge property index with range to efficiently find edges where ttl < now
           // This is much more efficient than using property index + checking each edge for the value
           auto edges = batch_accessor->Edges(
-              ttl_property, std::nullopt, utils::MakeBoundExclusive(PropertyValue(now_us.count())), View::NEW);
+              ttl_property,
+              PropertyValueRange::Bounded(std::nullopt, utils::MakeBoundExclusive(PropertyValue(now_us.count()))),
+              View::NEW);
           std::vector<EdgeAccessor> edges_to_delete;
           edges_to_delete.reserve(batch_size);
 

@@ -15,10 +15,12 @@ module;
 #include <map>
 #include <optional>
 #include <ostream>
+#include <streambuf>
 #include <string>
 
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/transfer/TransferManager.h>
@@ -162,6 +164,12 @@ auto BuildClientConfiguration(std::string const &aws_region, std::optional<std::
   if (aws_endpoint_url.has_value()) {
     client_config.endpointOverride = *aws_endpoint_url;
   }
+  // How long the transfer may stay below lowSpeedLimit before it is given up on, which the default
+  // of zero disables entirely. A body that stops arriving part way through would otherwise leave the
+  // thread reading it blocked with nothing to time it out, and a reader waiting on that thread has
+  // no way to stop it. The limit is one byte a second, so a slow transfer that is still making
+  // progress is not affected however long it takes.
+  client_config.requestTimeoutMs = 30'000;
   return client_config;
 }
 
@@ -202,41 +210,68 @@ auto ExtractBucketAndObjectKey(std::string_view uri)
   return std::make_pair(uri.substr(0, slash_pos), uri.substr(slash_pos + 1));
 }
 
-auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
-    -> std::expected<Aws::S3::Model::GetObjectOutcome, S3Error> {
-  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
-  // Use path-style for S3-compatible services (4th param = false)
-  Aws::S3::S3Client const s3_client(credentials,
-                                    BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
-                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                                    false);
+constexpr auto kStreamingGetTag = "MemgraphS3StreamingGet";
 
-  return ExtractBucketAndObjectKey(uri).transform(
-      [&s3_client](
-          std::pair<std::string_view, std::string_view> const &bucket_info) -> Aws::S3::Model::GetObjectOutcome {
-        return s3_client.GetObject(BuildGetObjectRequest(bucket_info.first, bucket_info.second));
-      });
+// Writes the object at `uri` into `sink` as the body arrives, so neither this function nor the SDK
+// ever holds the whole object. The SDK's default response stream would collect it in full first.
+auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::streambuf &sink)
+    -> std::expected<void, S3Error> {
+  GlobalS3APIManager::GetInstance();
+
+  auto bucket_info = ExtractBucketAndObjectKey(uri);
+  if (!bucket_info.has_value()) {
+    return std::unexpected{bucket_info.error()};
+  }
+
+  auto client_config = BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url);
+  // Every attempt writes the body it receives from the start into this same sink, which has no
+  // position to rewind. A retry after a partial response would therefore hand the caller that
+  // partial body followed by a whole one and still report success, so a failure has to surface
+  // instead of being retried under the sink.
+  client_config.retryStrategy = Aws::MakeShared<Aws::Client::DefaultRetryStrategy>(kStreamingGetTag, 0);
+
+  Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
+  Aws::S3::S3Client const s3_client(
+      credentials, client_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+
+  auto request = BuildGetObjectRequest(bucket_info->first, bucket_info->second);
+  request.SetResponseStreamFactory([&sink]() { return Aws::New<Aws::IOStream>(kStreamingGetTag, &sink); });
+
+  auto const outcome = s3_client.GetObject(request);
+  if (!outcome.IsSuccess()) {
+    // The SDK names a failure by reading back the body it just wrote, which a sink that only accepts
+    // writes cannot supply. The status always survives, because it comes from the headers.
+    auto const &error = outcome.GetError();
+    auto const status = static_cast<int>(error.GetResponseCode());
+    auto const &name = error.GetExceptionName();
+
+    auto message = std::string{};
+    if (status == 0) {
+      message = fmt::format("Failed to get object from S3 {}. {}", uri, error.GetMessage());
+    } else if (name.empty()) {
+      message = fmt::format("Failed to get object from S3 {}. The server replied {}", uri, status);
+    } else {
+      message = fmt::format("Failed to get object from S3 {}. The server replied {}: {}", uri, status, name);
+    }
+
+    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = std::move(message)}};
+  }
+
+  return {};
 }
 
 // Writes the content of the S3 object from the uri into ostream
 // returns nullopt is all good, value of the error if something wrong
+// On failure the stream may already hold part of the object, so a caller must discard it rather than
+// use what is there.
 auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) -> std::expected<void, S3Error> {
-  GlobalS3APIManager::GetInstance();
-  auto const outcome = GetS3ObjectOutcome(uri, s3_config);
-
-  if (!outcome.has_value()) {
-    return std::unexpected{outcome.error()};
+  auto *sink = ostream.rdbuf();
+  if (sink == nullptr) {
+    return std::unexpected{
+        S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = "Output stream has no buffer to write into"}};
   }
 
-  if (!outcome.value().IsSuccess()) {
-    return std::unexpected{S3Error{
-        .status_code = S3ErrorCode::S3_API_ERROR,
-        .message =
-            fmt::format("Failed to get object from S3 {}. Error: {}", uri, outcome.value().GetError().GetMessage())}};
-  }
-
-  ostream << outcome.value().GetResult().GetBody().rdbuf();
-  return {};
+  return GetS3ObjectStreaming(uri, s3_config, *sink);
 }
 
 // Writes the content of the S3 object from the uri into a file on the local disk

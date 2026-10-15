@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_values(["a", 1, "b"]) AS map;
+
+exception: >
+  List needs to have an even number of elements

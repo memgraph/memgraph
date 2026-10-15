@@ -24,7 +24,7 @@ on:
         default: true
       run_stress_large:
         type: boolean
-        description: "Run stress test large."
+        description: "Run stress test large (dispatched as a separate Stress Test Large RC run)."
         default: true
       run_stress_tests:
         type: boolean
@@ -41,6 +41,10 @@ on:
       build_mage:
         type: boolean
         description: "Build MAGE."
+        default: true
+      run_cve_scan:
+        type: boolean
+        description: "Run CVE scan on the RC Memgraph and MAGE docker images."
         default: true
       mock:
         type: boolean
@@ -126,25 +130,32 @@ jobs:
     with:
       os: ubuntu-24.04
       arch: amd
-      threads: 24
       build_type: RelWithDebInfo
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
-  StressTestLarge:
+  # Dispatched as a separate run so the ~8h stress test doesn't block
+  # re-running other (flaky) jobs in this workflow.
+  TriggerStressTestLarge:
     if: ${{ inputs.run_stress_large }}
-    name: Stress Test Large
+    name: Trigger Stress Test Large
     needs: PrepareReleaseBranch
-    uses: ./.github/workflows/reusable_release_tests.yaml
-    with:
-      os: ubuntu-24.04
-      arch: "amd"
-      threads: 24
-      build_type: RelWithDebInfo
-      run_stress_large: 'true'
-      run_release_tests: 'false'
-      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-    secrets: inherit
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Stress Test Large RC workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+        run: |
+          gh workflow run stress_test_large_rc.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            -f tag="$TAG"
+          runs_url="${{ github.server_url }}/${{ github.repository }}/actions/workflows/stress_test_large_rc.yml"
+          echo "Dispatched Stress Test Large for $TAG: $runs_url"
+          echo "Stress Test Large for \`$TAG\` was dispatched as a separate run: [Stress Test Large RC]($runs_url)" >> "$GITHUB_STEP_SUMMARY"
 
   PackageArtifact:
     if: ${{ inputs.build_memgraph }}
@@ -153,48 +164,32 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
-        arch: [amd]
-        additional_build_args: ['']
+        arch: [amd, arm]
+        additional_build_args: ['', '--disable-jemalloc']
+        fips: [false]
         include:
-          - os: debian-12
-            arch: arm
+          - arch: amd
             additional_build_args: ''
-          - os: debian-13
-            arch: arm
+            fips: true
+          - arch: arm
             additional_build_args: ''
-          - os: fedora-42
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            arch: amd
-            additional_build_args: ''
-            build_docker_image: both
-          - os: ubuntu-24.04
-            arch: arm
-            additional_build_args: ''
-            build_docker_image: both
-          - os: ubuntu-24.04
-            arch: amd
-            additional_build_args: '--disable-jemalloc'
-            build_docker_image: debug
-          - os: ubuntu-24.04
-            arch: arm
-            additional_build_args: '--disable-jemalloc'
-            build_docker_image: debug
+            fips: true
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: ${{ matrix.os }}
+      os: "ubuntu-24.04"
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
-      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
+      build_docker_image: ${{ matrix.fips && 'prod' || (matrix.additional_build_args == '' && 'both' || 'debug') }}
+      fips: ${{ matrix.fips }}
       push_to_github: 'false'
       push_to_s3: 'true'
+      print_output_url: true
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
+      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '' && !matrix.fips) && true || false }}
       run_smoke_tests: true
+      package_smoke_os: "all"
       upload_debug_symbols: true
     secrets: inherit
 
@@ -241,24 +236,40 @@ jobs:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
+      os: ubuntu-24.04
       memgraph_download_link: >-
-        ${{ format(
-          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
-          inputs.mock && '-mock-rc' || '',
-          needs.PrepareReleaseBranch.outputs.tag_name,
-          matrix.malloc && '-malloc' || '',
-          matrix.build_arch == 'arm' && '-aarch64' || '',
-          inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64'
-        ) }}
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-deb{3}/memgraph_{4}-1_{5}.deb',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          )
+        }}
+      memgraph_rpm_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-rpm{3}/memgraph-{4}_1-1.{5}.rpm',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64'
+          )
+        }}
       memgraph_debuginfo_download_link: >-
         ${{
           (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
           format(
-            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-deb{3}/memgraph-debuginfo_{4}-1_{5}.deb',
             inputs.mock && '-mock-rc' || '',
             needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
             matrix.malloc && '-malloc' || '',
-            matrix.build_arch == 'arm' && '-aarch64' || '',
             inputs.version,
             matrix.build_arch == 'arm' && 'arm64' || 'amd64'
           ) || ''
@@ -267,11 +278,12 @@ jobs:
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
+      print_output_url: true
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph }}
       upload_debug_symbols: true
       run_tests: true
-      package_deb: "default"
+      package_mage: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
       build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
@@ -301,7 +313,7 @@ jobs:
           VERSION: "${{ inputs.version }}"
         run: |
           echo "Setting next image URLs"
-          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${VERSION}-docker.tar.gz"
+          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-x86_64/memgraph-${VERSION}-docker.tar.gz"
           arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
@@ -336,7 +348,7 @@ jobs:
           VERSION: "${{ inputs.version }}"
         run: |
           echo "Setting next image URLs"
-          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/mage-${VERSION}.tar.gz"
+          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-x86_64/mage-${VERSION}.tar.gz"
           echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
           echo "AMD MAGE Image URL: $amd_mage_image_url"
 
@@ -403,4 +415,15 @@ jobs:
       memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
       workload: ../workloads/publications/workload.yaml
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  TriggerCVEScan:
+    name: Trigger CVE Scan
+    needs: [PackageArtifact, BuildAndTestMAGE]
+    if: ${{ inputs.run_cve_scan && inputs.build_memgraph && inputs.build_mage }}
+    uses: ./.github/workflows/cve_scan.yml
+    with:
+      version: ${{ inputs.version }}
+      rc_number: ${{ inputs.rc_number }}
+      mock: ${{ inputs.mock }}
     secrets: inherit

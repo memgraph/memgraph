@@ -381,6 +381,21 @@ class InteractiveDbAccessor {
 
   bool EdgePropertyIndexReady(memgraph::storage::PropertyId property_id) { return false; }
 
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId /*property_id*/) { return false; }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property_id*/) { return 0; }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property_id*/,
+                        const memgraph::storage::PropertyValue & /*value*/) {
+    return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property_id*/,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> /*lower*/,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> /*upper*/) {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);
   }

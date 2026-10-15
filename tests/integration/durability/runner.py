@@ -36,6 +36,9 @@ DUMP_SNAPSHOT_FILE_NAME = "expected_snapshot.cypher"
 DUMP_WAL_FILE_NAME = "expected_wal.cypher"
 
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -55,7 +58,7 @@ def list_to_string(data):
 
 
 def dump_database(output_file):
-    connection = mgclient.connect(host="localhost", port=7687, sslmode=mgclient.MG_SSLMODE_DISABLE)
+    connection = mgclient.connect(host="localhost", port=BOLT_PORT, sslmode=mgclient.MG_SSLMODE_DISABLE)
     cursor = connection.cursor()
     cursor.execute("DUMP DATABASE")
     rows = cursor.fetchall()
@@ -66,9 +69,14 @@ def dump_database(output_file):
         f.write("\n".join(row[0] for row in rows) + "\n")
 
 
-def execute_test(memgraph_binary: Path, test_directory, test_type, write_expected):
+def execute_test(memgraph_binary: Path, test_directory, test_type, write_expected, light_edge=False):
     assert test_type in ["SNAPSHOT", "WAL"], "Test type should be either 'SNAPSHOT' or 'WAL'."
-    print("\033[1;36m~~ Executing test {} ({}) ~~\033[0m".format(os.path.relpath(test_directory, TESTS_DIR), test_type))
+    mode_label = " [light-edge]" if light_edge else ""
+    print(
+        "\033[1;36m~~ Executing test {} ({}){} ~~\033[0m".format(
+            os.path.relpath(test_directory, TESTS_DIR), test_type, mode_label
+        )
+    )
 
     working_data_directory = tempfile.TemporaryDirectory()
     if test_type == "SNAPSHOT":
@@ -80,8 +88,18 @@ def execute_test(memgraph_binary: Path, test_directory, test_type, write_expecte
         os.makedirs(wal_dir)
         shutil.copy(os.path.join(test_directory, WAL_FILE_NAME), wal_dir)
 
-    extra_args = ["--data-recovery-on-startup"]
-    with memgraph_server(memgraph_binary, Path(working_data_directory.name), 7687, logger, extra_args):
+    extra_args = [
+        "--data-recovery-on-startup",
+        f"--monitoring-port={MONITORING_PORT}",
+        f"--metrics-port={METRICS_PORT}",
+    ]
+    if light_edge:
+        # Recover heavy-written durability fixtures into a light-edge instance
+        # (the heavy->light interop regression, e.g. the v34 "Invalid edge with
+        # gid N!" bug). Light edges require properties-on-edges, which
+        # memgraph_server already passes by default.
+        extra_args.append("--storage-light-edge")
+    with memgraph_server(memgraph_binary, Path(working_data_directory.name), BOLT_PORT, logger, extra_args):
         # Execute `database dump`
         dump_output_file = tempfile.NamedTemporaryFile()
         dump_database(dump_output_file.name)
@@ -145,7 +163,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--write-expected", action="store_true", help="Overwrite the expected cypher with results from current run"
     )
+    parser.add_argument(
+        "--light-edge",
+        action="store_true",
+        help="Recover the (heavy-written) durability fixtures into a light-edge instance "
+        "(--storage-light-edge) and assert identical dump output. Heavy->light interop regression.",
+    )
     args = parser.parse_args()
+
+    # The expected dumps are authored from a heavy instance; a light-edge run can
+    # only validate that heavy->light recovery produces identical output, never
+    # (re)author the expected files.
+    assert not (args.light_edge and args.write_expected), "--light-edge cannot be combined with --write-expected"
 
     test_directories = find_test_directories(TESTS_DIR, args.write_expected)
     assert len(test_directories) > 0, "No tests have been found!"
@@ -154,7 +183,7 @@ if __name__ == "__main__":
     test_directories.sort()
 
     for test_directory in test_directories:
-        execute_test(Path(args.memgraph), test_directory, "SNAPSHOT", args.write_expected)
-        execute_test(Path(args.memgraph), test_directory, "WAL", args.write_expected)
+        execute_test(Path(args.memgraph), test_directory, "SNAPSHOT", args.write_expected, args.light_edge)
+        execute_test(Path(args.memgraph), test_directory, "WAL", args.write_expected, args.light_edge)
 
     sys.exit(0)

@@ -18,6 +18,8 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
+#include "auth/repository.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "nlohmann/json.hpp"
@@ -67,6 +69,7 @@ constexpr auto full_json_str = R"({
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727},
+  "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
   "user_imp":{
     "user_imp_denied":[
       {"user_imp_id":[90,135,181,89,151,124,74,168,175,106,33,91,219,3,104,168],"user_imp_name":"b"}
@@ -77,7 +80,8 @@ constexpr auto full_json_str = R"({
     ]
   },
   "username":"a",
-  "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226]
+  "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226],
+  "version":4
   })";
 
 constexpr auto mg_enterprise_no_license_json_str = R"({
@@ -105,9 +109,11 @@ constexpr auto community_saved_with_license_json_str = R"({
           },
           "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
           "permissions":{"denies":0,"grants":134217727},
+          "property_access_permissions":{"edge_type_property_permissions":{"global":{"*":{"denies":0,"grants":3}}},"label_property_permissions":{"global":{"*":{"denies":0,"grants":3}}}},
           "user_imp":null,
           "username":"a",
-          "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226]
+          "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226],
+          "version":4
           })";
 
 const memgraph::utils::UUID::arr_t hash({4, 91, 245, 109, 241, 58, 74, 21, 180, 161, 26, 87, 18, 208, 220, 226});
@@ -987,9 +993,11 @@ TEST(AuthModule, UserSerialization) {
           },
           "password_hash":null,
           "permissions":{"denies":0,"grants":0},
+          "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "user_imp":null,
           "username":"",
-          "uuid":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+          "uuid":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
+          "version":4
           })");
 
   // Empty user
@@ -1177,9 +1185,11 @@ TEST(AuthModule, RoleSerialization) {
             "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
           },
           "permissions":{"denies":0,"grants":0},
+          "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "rolename":"",
           "user_imp":null,
-          "builtin":false
+          "builtin":false,
+          "version":4
           })");
 
   // Empty role
@@ -1275,7 +1285,8 @@ TEST(AuthModule, UserProfiles) {
   }
 
   memgraph::kvstore::KVStore kvstore{temp_dir};
-  memgraph::auth::UserProfiles user_profiles{kvstore};
+  memgraph::auth::Repository repository{kvstore};
+  memgraph::auth::UserProfiles user_profiles{repository};
 
   // Test profile creation
   ASSERT_TRUE(user_profiles.Create("profile", {}));
@@ -1335,7 +1346,11 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_EQ(*profile_for_user, "profile");
 
   // Test removing username
-  ASSERT_TRUE(user_profiles.RemoveUsername("profile", "user1"));
+  ASSERT_EQ(user_profiles.RemoveUsername("profile", "user1"), memgraph::auth::UserProfiles::MembershipResult::kChanged);
+  // Removing it again, and removing from a profile that is not there, both report absence rather than failure.
+  ASSERT_EQ(user_profiles.RemoveUsername("profile", "user1"), memgraph::auth::UserProfiles::MembershipResult::kAbsent);
+  ASSERT_EQ(user_profiles.RemoveUsername("no_such_profile", "user2"),
+            memgraph::auth::UserProfiles::MembershipResult::kAbsent);
   usernames = user_profiles.GetUsernames("profile");
   ASSERT_EQ(usernames.size(), 1);
   ASSERT_TRUE(usernames.find("user2") != usernames.end());
@@ -1348,7 +1363,7 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_EQ(profile->limits.size(), 1);
 
   // Test profile deletion
-  ASSERT_TRUE(user_profiles.Drop("profile"));
+  ASSERT_EQ(user_profiles.Drop("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   profile = user_profiles.Get("profile");
   ASSERT_FALSE(profile.has_value());
 

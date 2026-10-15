@@ -23,7 +23,7 @@ namespace memgraph::storage {
 struct Vertex;
 
 struct Edge {
-  Edge(Gid gid, Delta *delta) : gid(gid), delta_(delta) {
+  Edge(Gid gid, Delta *delta) noexcept : gid(gid), delta_(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Edge must be created with an initial DELETE_OBJECT delta!");

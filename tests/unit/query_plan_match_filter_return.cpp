@@ -35,7 +35,10 @@
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/plan/operator.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -129,6 +132,73 @@ TYPED_TEST(MatchReturnFixture, MatchReturnPath) {
   for (const auto &v : this->dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(v);
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
+}
+
+TYPED_TEST(MatchReturnFixture, ScanAllByIdString) {
+  // elementId(n) lookups use ScanAllById with expects_string_id, which must
+  // match only the canonical decimal string of the id.
+  auto vertex = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  const auto id_str = std::to_string(vertex.Gid().AsInt());
+
+  auto pull_count = [&](Expression *expression, bool expects_string_id) {
+    auto sym = this->symbol_table.CreateSymbol("n", true);
+    auto scan =
+        std::make_shared<ScanAllById>(nullptr, sym, expression, memgraph::storage::View::OLD, expects_string_id);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(sym))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(scan, output);
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+    return PullAll(*produce, &context);
+  };
+
+  EXPECT_EQ(1, pull_count(LITERAL(id_str), true));
+  EXPECT_EQ(0, pull_count(LITERAL("0" + id_str), true));           // non-canonical form
+  EXPECT_EQ(0, pull_count(LITERAL(id_str + "abc"), true));         // trailing garbage
+  EXPECT_EQ(0, pull_count(LITERAL("abc"), true));                  // not a number
+  EXPECT_EQ(0, pull_count(LITERAL(vertex.Gid().AsInt()), true));   // number where string expected
+  EXPECT_EQ(0, pull_count(LITERAL(id_str), false));                // string where number expected
+  EXPECT_EQ(1, pull_count(LITERAL(vertex.Gid().AsInt()), false));  // id() path still works
+  const auto id_dbl = static_cast<double>(vertex.Gid().AsInt());
+  EXPECT_EQ(1, pull_count(LITERAL(id_dbl), false));        // exact-integer double matches
+  EXPECT_EQ(0, pull_count(LITERAL(id_dbl + 0.5), false));  // non-integer double matches nothing
+}
+
+TYPED_TEST(MatchReturnFixture, ScanAllByEdgeIdString) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Id based edge lookup is not implemented for on-disk storage";
+  }
+  auto v1 = this->dba.InsertVertex();
+  auto v2 = this->dba.InsertVertex();
+  auto edge = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("Type"));
+  ASSERT_TRUE(edge.has_value());
+  this->dba.AdvanceCommand();
+  const auto id_str = std::to_string(edge->Gid().AsInt());
+
+  auto pull_count = [&](Expression *expression, bool expects_string_id) {
+    auto edge_sym = this->symbol_table.CreateSymbol("r", true);
+    auto node1_sym = this->symbol_table.CreateSymbol("n1", true);
+    auto node2_sym = this->symbol_table.CreateSymbol("n2", true);
+    auto scan = std::make_shared<ScanAllByEdgeId>(nullptr,
+                                                  edge_sym,
+                                                  node1_sym,
+                                                  node2_sym,
+                                                  EdgeAtom::Direction::OUT,
+                                                  expression,
+                                                  memgraph::storage::View::OLD,
+                                                  expects_string_id);
+    auto output =
+        NEXPR("r", IDENT("r")->MapTo(edge_sym))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(scan, output);
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+    return PullAll(*produce, &context);
+  };
+
+  // String matching itself is covered by ScanAllByIdString; this only checks
+  // the flag is honored by the edge operator and the lookup works.
+  EXPECT_EQ(1, pull_count(LITERAL(id_str), true));
+  EXPECT_EQ(0, pull_count(LITERAL(edge->Gid().AsInt()), true));
+  EXPECT_EQ(1, pull_count(LITERAL(edge->Gid().AsInt()), false));
 }
 
 #ifdef MG_ENTERPRISE
@@ -777,10 +847,13 @@ class QueryPlanExpandVariable : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     ExecutionContext context;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -797,10 +870,13 @@ class QueryPlanExpandVariable : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     ExecutionContext context;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -1904,6 +1980,13 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
+  static void GrantAllPropertyAccess([[maybe_unused]] memgraph::auth::User &user) {
+#ifdef MG_ENTERPRISE
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+#endif
+  }
+
   void SetUp() override {
     memgraph::license::global_license_checker.EnableTesting();
 
@@ -1978,10 +2061,13 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -2227,6 +2313,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2253,6 +2340,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied all labels
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2262,6 +2350,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied all edge types
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::kAllEdgeTypePermissions);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2271,6 +2360,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied first vertex label
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Deny({"l0"}, memgraph::auth::kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
@@ -2281,6 +2371,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied vertex label 2
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Grant({"l0"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
@@ -2309,6 +2400,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     this->dba.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2360,6 +2452,13 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   Symbol weight_node = symbol_table.CreateSymbol("w_node", true);
 
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
+
+  static void GrantAllPropertyAccess([[maybe_unused]] memgraph::auth::User &user) {
+#ifdef MG_ENTERPRISE
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+#endif
+  }
 
   void SetUp() override {
     memgraph::license::global_license_checker.EnableTesting();
@@ -2434,11 +2533,14 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     std::vector<ResultType> results;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -2722,6 +2824,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
@@ -2736,6 +2839,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied all labels
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::kAllEdgeTypePermissions);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2745,6 +2849,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied first vertex label
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Deny({"l0"}, memgraph::auth::kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2755,6 +2860,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied vertex label 2
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Grant({"l0"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
@@ -2783,6 +2889,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     this->dba.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -3269,6 +3376,14 @@ TYPED_TEST(QueryPlan, Distinct) {
        TypedValue()},
       {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(true), TypedValue(false), TypedValue("TWO")},
       false);
+
+  // A container holding a Null is the same value as itself, so one of each
+  // survives. Equality cannot decide this and answers Null; DISTINCT reads
+  // equivalence, which decides.
+  auto const list_of_null = [] { return TypedValue(std::vector<TypedValue>{TypedValue()}); };
+  auto const map_of_null = [] { return TypedValue(std::map<std::string, TypedValue>{{"k", TypedValue()}}); };
+  check_distinct(
+      {list_of_null(), list_of_null(), map_of_null(), map_of_null()}, {list_of_null(), map_of_null()}, false);
 }
 
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
@@ -3299,6 +3414,68 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   ASSERT_EQ(result_row.size(), 1);
   auto result_vertex = result_row[0].ValueVertex();
   EXPECT_EQ(result_vertex.Gid(), labeled_vertex.Gid());
+}
+
+TYPED_TEST(QueryPlan, EqualityAgainstAListHoldingNullKeepsNoRowWithOrWithoutAnIndex) {
+  // Equality against a value holding a Null answers Null, so no row passes the
+  // filter. The index has to keep none of them either, or the same query gives
+  // a different answer once the index exists.
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
+
+  {
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    for (auto const &stored :
+         {std::vector{memgraph::storage::PropertyValue()}, std::vector{memgraph::storage::PropertyValue(1)}}) {
+      auto vertex = dba.InsertVertex();
+      ASSERT_TRUE(vertex.AddLabel(label).has_value());
+      ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(stored)).has_value());
+    }
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto count_without_the_index = [&](memgraph::query::DbAccessor &dba) {
+    SymbolTable symbol_table;
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+    auto *sought = LIST(LITERAL(TypedValue()));
+    auto *filter_expression = EQ(PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop), sought);
+    auto filter =
+        std::make_shared<Filter>(scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expression);
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+    auto produce = MakeProduce(filter, output);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    return CollectProduce(*produce, &context).size();
+  };
+
+  auto count_with_the_index = [&](memgraph::query::DbAccessor &dba) {
+    SymbolTable symbol_table;
+    auto scan_all =
+        MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, LIST(LITERAL(TypedValue())));
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+    auto produce = MakeProduce(scan_all.op_, output);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    return CollectProduce(*produce, &context).size();
+  };
+
+  {
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    EXPECT_EQ(0, count_without_the_index(dba));
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    EXPECT_EQ(0, count_with_the_index(dba));
+    EXPECT_EQ(0, count_without_the_index(dba));
+  }
 }
 
 TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
@@ -3470,7 +3647,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }
 
-TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueOverASoughtValueThatIsNotAPropertyValue) {
+  // Nothing stored equals a graph element, so the filter this scan stands in for
+  // keeps no row and never needs the value as a property. The scan keeps none as
+  // well, rather than raising over a conversion it did not have to make.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
@@ -3500,10 +3680,14 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto scan_index =
       MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, ident_m, scan_all.op_);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+  EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
 }
 
-TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeOverABoundThatIsNotAPropertyValue) {
+  // A graph element is not a value comparability places against a stored
+  // property, so the comparison is Null for every row and the filter this scan
+  // stands in for keeps none. The scan has to keep none as well, rather than
+  // raising over a value it would never have had to store.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
@@ -3541,7 +3725,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
                                                       std::nullopt,
                                                       scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+    EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
   }
   {
     // Upper bound isn't property value
@@ -3554,7 +3738,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
                                                       Bound{ident_m, Bound::Type::INCLUSIVE},
                                                       scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+    EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
   }
   {
     // Both bounds aren't property value
@@ -3567,7 +3751,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
                                                       Bound{ident_m, Bound::Type::INCLUSIVE},
                                                       scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+    EXPECT_EQ(PullAll(*scan_index.op_, &context), 0);
   }
 }
 
@@ -3838,7 +4022,7 @@ class ExistsFixture : public testing::Test {
 
       if (destination_label.has_value()) {
         auto labelIx = storage.GetLabelIx(destination_label.value());
-        destination_node->labels_.emplace_back(labelIx);
+        destination_node->label_term_ = LabelTerm{LabelTerm::Label{labelIx}};
 
         auto label_expr = static_cast<Expression *>(
             storage.Create<LabelsTest>(destination_node->identifier_, std::vector<memgraph::query::LabelIx>{labelIx}));
@@ -3863,7 +4047,8 @@ class ExistsFixture : public testing::Test {
     }
 
     last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+    last_op = std::make_shared<EvaluatePatternFilter>(
+        std::move(last_op), symbol_table.at(*exists_expression), RollUpApply::Fold::kBool);
 
     auto *total_expression = AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, labels), exists_expression);
 
@@ -3923,12 +4108,14 @@ class ExistsFixture : public testing::Test {
     std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
         nullptr, scan_all.sym_, dest_sym, edge_sym, direction, first_edge_type, false, memgraph::storage::View::OLD);
     last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+    last_op = std::make_shared<EvaluatePatternFilter>(
+        std::move(last_op), symbol_table.at(*exists_expression), RollUpApply::Fold::kBool);
 
     std::shared_ptr<LogicalOperator> last_op2 = std::make_shared<Expand>(
         nullptr, scan_all.sym_, dest_sym2, edge_sym2, direction, second_edge_type, false, memgraph::storage::View::OLD);
     last_op2 = std::make_shared<Limit>(std::move(last_op2), storage.Create<PrimitiveLiteral>(1));
-    last_op2 = std::make_shared<EvaluatePatternFilter>(std::move(last_op2), symbol_table.at(*exists_expression2));
+    last_op2 = std::make_shared<EvaluatePatternFilter>(
+        std::move(last_op2), symbol_table.at(*exists_expression2), RollUpApply::Fold::kBool);
 
     Expression *total_expression = storage.Create<LabelsTest>(scan_all.node_->identifier_, labels);
 
@@ -4020,6 +4207,53 @@ class SubqueriesFeature : public testing::Test {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
+
+  struct WhenBranch {
+    Expression *predicate;  // nullptr = ELSE
+    std::shared_ptr<LogicalOperator> plan;
+    Symbol column;
+  };
+
+  /// `[input] RETURN column AS x`.
+  WhenBranch When(Expression *predicate, Expression *column, std::shared_ptr<LogicalOperator> input = nullptr) {
+    auto sym = this->symbol_table.CreateSymbol("x", true);
+    return {predicate, MakeProduce(std::move(input), NEXPR("x", column)->MapTo(sym)), sym};
+  }
+
+  /// `UNWIND values AS i CALL (i) { WHEN ... }`; each branch's `x` maps to the conditional's `x`.
+  std::shared_ptr<Conditional> MakeConditional(const Symbol &i, Expression *values,
+                                               const std::vector<WhenBranch> &whens,
+                                               std::vector<std::vector<std::shared_ptr<LogicalOperator>>> folds = {}) {
+    auto x = this->symbol_table.CreateSymbol("x", true);
+    folds.resize(whens.size());
+    std::vector<Conditional::Branch> branches;
+    for (size_t b = 0; b < whens.size(); ++b) {
+      branches.push_back({.predicate = whens[b].predicate,
+                          .pattern_filters = std::move(folds[b]),
+                          .plan = whens[b].plan,
+                          .columns = {{.from = whens[b].column, .to = x}}});
+    }
+    return std::make_shared<Conditional>(
+        std::make_shared<plan::Unwind>(nullptr, values, i), std::move(branches), std::vector<Symbol>{x});
+  }
+
+  /// `RETURN i, x` over the conditional.
+  std::shared_ptr<Produce> ReturnIX(const Symbol &i, const std::shared_ptr<Conditional> &conditional) {
+    auto return_i = NEXPR("i", IDENT("i")->MapTo(i))->MapTo(this->symbol_table.CreateSymbol("i", true));
+    auto const &x = conditional->output_symbols_[0];
+    auto return_x = NEXPR("x", IDENT("x")->MapTo(x))->MapTo(this->symbol_table.CreateSymbol("x", true));
+    return MakeProduce(conditional, return_i, return_x);
+  }
+
+  std::vector<std::vector<int64_t>> ConditionalRows(const std::shared_ptr<Produce> &produce) {
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+    std::vector<std::vector<int64_t>> rows;
+    for (const auto &row : CollectProduce(*produce, &context)) {
+      auto &ints = rows.emplace_back();
+      for (const auto &value : row) ints.push_back(value.ValueInt());
+    }
+    return rows;
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -4037,7 +4271,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesian) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, OnEmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4051,7 +4285,8 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilter) {
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   std::vector<memgraph::query::LabelIx> labels;
-  for (const auto &label : n.node_->labels_) {
+  const auto conjunction = n.node_->LabelConjunction().value();
+  for (const auto &label : conjunction) {
     labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
   }
   auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
@@ -4066,7 +4301,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilter) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, OnEmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4080,7 +4315,8 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   std::vector<memgraph::query::LabelIx> labels;
-  for (const auto &label : n.node_->labels_) {
+  const auto conjunction = n.node_->LabelConjunction().value();
+  for (const auto &label : conjunction) {
     labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
   }
   auto return_n =
@@ -4095,7 +4331,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(filter, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, OnEmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4109,7 +4345,8 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   std::vector<memgraph::query::LabelIx> labels;
-  for (const auto &label : n.node_->labels_) {
+  const auto conjunction = n.node_->LabelConjunction().value();
+  for (const auto &label : conjunction) {
     labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
   }
   auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
@@ -4124,7 +4361,7 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, OnEmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4149,10 +4386,10 @@ TYPED_TEST(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
       NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_nested_subquery = MakeProduce(o.op_, return_o);
 
-  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, true);
+  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, OnEmptyBranch::kDropRow);
   auto produce_subquery = MakeProduce(inner_apply, return_o, return_m);
 
-  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, OnEmptyBranch::kDropRow);
   auto produce = MakeProduce(outer_apply, return_n, return_m, return_o);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -4171,7 +4408,7 @@ TYPED_TEST(SubqueriesFeature, UnitSubquery) {
       NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(o.op_, return_o);
 
-  auto apply = std::make_shared<Apply>(once, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(once, produce_subquery, OnEmptyBranch::kDropRow);
   auto produce = MakeProduce(apply, return_o);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -4203,7 +4440,7 @@ TYPED_TEST(SubqueriesFeature, SubqueryWithBoundedSymbol) {
                       ->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(expand.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, OnEmptyBranch::kDropRow);
   auto produce = MakeProduce(apply, return_n, return_m);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -4233,7 +4470,7 @@ TYPED_TEST(SubqueriesFeature, SubqueryWithUnionAll) {
                                                 produce_left_union_subquery->OutputSymbols(this->symbol_table),
                                                 produce_right_union_subquery->OutputSymbols(this->symbol_table));
 
-  auto apply = std::make_shared<Apply>(n.op_, union_operator, true);
+  auto apply = std::make_shared<Apply>(n.op_, union_operator, OnEmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -4268,7 +4505,7 @@ TYPED_TEST(SubqueriesFeature, SubqueryWithUnion) {
   auto union_output_symbols = union_operator->OutputSymbols(this->symbol_table);
   auto distinct = std::make_shared<Distinct>(union_operator, std::vector<Symbol>{union_output_symbols});
 
-  auto apply = std::make_shared<Apply>(n.op_, distinct, true);
+  auto apply = std::make_shared<Apply>(n.op_, distinct, OnEmptyBranch::kDropRow);
 
   auto produce = MakeProduce(apply, return_n);
 
@@ -4295,7 +4532,7 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   auto foreach = std::make_shared<plan::Foreach>(once_foreach, create, iterating_list, iteration_symbol);
   auto empty_result = std::make_shared<EmptyResult>(foreach);
 
-  auto apply = std::make_shared<Apply>(n.op_, empty_result, false);
+  auto apply = std::make_shared<Apply>(n.op_, empty_result, OnEmptyBranch::kPassRow);
 
   auto produce = MakeProduce(apply, return_n);
 
@@ -4303,3 +4540,207 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
+
+using Rows = std::vector<std::vector<int64_t>>;
+
+TYPED_TEST(SubqueriesFeature, ConditionalResetsBranchPerRow) {
+  // UNWIND [1, 2, 3] AS i CALL (i) { WHEN true THEN UNWIND [i, 0] AS y RETURN y AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto y = this->symbol_table.CreateSymbol("y", true);
+  auto rows = std::make_shared<plan::Unwind>(nullptr, LIST(IDENT("i")->MapTo(i), LITERAL(0)), y);
+  auto conditional = this->MakeConditional(
+      i, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), {this->When(LITERAL(true), IDENT("y")->MapTo(y), rows)});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)),
+            (Rows{{1, 1}, {1, 0}, {2, 2}, {2, 0}, {3, 3}, {3, 0}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalResetAfterAbandon) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN UNWIND [i, 0] AS y RETURN y AS x } RETURN i, x: Reset in the middle
+  // of a branch's rows, then the first input row's first branch row again.
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto y = this->symbol_table.CreateSymbol("y", true);
+  auto rows = std::make_shared<plan::Unwind>(nullptr, LIST(IDENT("i")->MapTo(i), LITERAL(0)), y);
+  auto conditional =
+      this->MakeConditional(i, LIST(LITERAL(1), LITERAL(2)), {this->When(LITERAL(true), IDENT("y")->MapTo(y), rows)});
+  auto const &x = conditional->output_symbols_[0];
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = conditional->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  EXPECT_EQ(frame[x].ValueInt(), 1);
+  cursor->Reset();
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  EXPECT_EQ(frame[i].ValueInt(), 1);
+  EXPECT_EQ(frame[x].ValueInt(), 1);
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalSkipsLaterFolds) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN RETURN i AS x WHEN EXISTS {...} AND [...] IS NULL THEN RETURN 0 AS x }
+  // Predicate 1's folds both read `UNWIND [1 / 0]`. Pulling the EXISTS fold only writes a closure; pulling the list
+  // fold (RollUpApply) or evaluating predicate 1 raises.
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto *exists = EXISTS(PATTERN(NODE("n")));
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  exists->MapTo(exists_sym);
+  auto list_sym = this->symbol_table.CreateAnonymousSymbol();
+
+  auto divide_by_zero = [&] {
+    auto y = this->symbol_table.CreateSymbol("y", true);
+    auto *one_over_zero = this->storage.template Create<DivisionOperator>(LITERAL(1), LITERAL(0));
+    return std::pair{std::make_shared<plan::Unwind>(nullptr, LIST(one_over_zero), y), y};
+  };
+  auto [exists_branch, exists_y] = divide_by_zero();
+  auto exists_fold = std::make_shared<EvaluatePatternFilter>(exists_branch, exists_sym, Fold::kBool);
+  auto [list_branch, list_y] = divide_by_zero();
+  auto collected = this->symbol_table.CreateSymbol("c", true);
+  std::shared_ptr<LogicalOperator> list_produce =
+      MakeProduce(list_branch, NEXPR("c", IDENT("y")->MapTo(list_y))->MapTo(collected));
+  auto list_fold = std::make_shared<RollUpApply>(
+      std::make_shared<Once>(), std::move(list_produce), std::vector<Symbol>{collected}, list_sym, true);
+
+  auto conditional = this->MakeConditional(i,
+                                           LIST(LITERAL(1), LITERAL(2)),
+                                           {this->When(LITERAL(true), IDENT("i")->MapTo(i)),
+                                            this->When(AND(exists, IS_NULL(IDENT("c")->MapTo(list_sym))), LITERAL(0))},
+                                           {{}, {exists_fold, list_fold}});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{1, 1}, {2, 2}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalNonBoolPredicateRaises) {
+  // UNWIND [1] AS i CALL (i) { WHEN i THEN RETURN 10 AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto conditional = this->MakeConditional(i, LIST(LITERAL(1)), {this->When(IDENT("i")->MapTo(i), LITERAL(10))});
+  try {
+    this->ConditionalRows(this->ReturnIX(i, conditional));
+    FAIL() << "expected a QueryRuntimeException";
+  } catch (const QueryRuntimeException &e) {
+    EXPECT_STREQ(e.what(), "WHEN expected boolean expression, got int.");
+  }
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalClone) {
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  auto fold = std::make_shared<EvaluatePatternFilter>(nullptr, exists_sym, Fold::kBool);
+  auto conditional = this->MakeConditional(
+      i,
+      LIST(LITERAL(1)),
+      {this->When(EQ(IDENT("i")->MapTo(i), LITERAL(1)), LITERAL(10)), this->When(nullptr, LITERAL(20))},
+      {{fold}, {}});
+
+  AstStorage clone_storage;
+  auto clone = conditional->Clone(&clone_storage);
+  auto *cloned = dynamic_cast<Conditional *>(clone.get());
+  ASSERT_NE(cloned, nullptr);
+  EXPECT_NE(cloned->input(), conditional->input());
+  ASSERT_EQ(cloned->branches_.size(), 2);
+  ASSERT_NE(cloned->branches_[0].predicate, nullptr);
+  EXPECT_NE(cloned->branches_[0].predicate, conditional->branches_[0].predicate);
+  EXPECT_EQ(cloned->branches_[1].predicate, nullptr);
+  ASSERT_EQ(cloned->branches_[0].pattern_filters.size(), 1);
+  EXPECT_NE(cloned->branches_[0].pattern_filters[0], fold);
+  EXPECT_EQ(cloned->branches_[0].pattern_filters[0]->GetTypeInfo(), EvaluatePatternFilter::kType);
+  EXPECT_TRUE(cloned->branches_[1].pattern_filters.empty());
+  EXPECT_NE(cloned->branches_[0].plan, conditional->branches_[0].plan);
+  EXPECT_EQ(cloned->branches_[1].plan->GetTypeInfo(), Produce::kType);
+  for (size_t b = 0; b < 2; ++b) EXPECT_EQ(cloned->branches_[b].columns, conditional->branches_[b].columns);
+  EXPECT_EQ(cloned->output_symbols_, conditional->output_symbols_);
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalModifiedSymbols) {
+  // The input's symbols and the conditional's columns; never a branch's own column or a fold's closure.
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  auto fold = std::make_shared<EvaluatePatternFilter>(nullptr, exists_sym, Fold::kBool);
+  auto conditional = this->MakeConditional(i, LIST(LITERAL(1)), {this->When(LITERAL(true), LITERAL(10))}, {{fold}});
+  EXPECT_THAT(conditional->ModifiedSymbols(this->symbol_table),
+              testing::UnorderedElementsAre(i, conditional->output_symbols_[0]));
+}
+
+#ifdef MG_ENTERPRISE
+TYPED_TEST(SubqueriesFeature, ConditionalPredicateReadsNullForADeniedProperty) {
+  // MATCH (n) CALL (n) { WHEN n.secret = 1 THEN RETURN 10 AS x ELSE RETURN 20 AS x } RETURN x
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("secret"), memgraph::storage::PropertyValue(1)).has_value());
+  this->dba.AdvanceCommand();
+
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *predicate = EQ(PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(n.sym_), "secret"), LITERAL(1));
+  auto taken = this->When(predicate, LITERAL(10));
+  auto other = this->When(nullptr, LITERAL(20));
+  auto x = this->symbol_table.CreateSymbol("x", true);
+  auto conditional = std::make_shared<Conditional>(
+      n.op_,
+      std::vector<Conditional::Branch>{{.predicate = predicate, .plan = taken.plan, .columns = {{taken.column, x}}},
+                                       {.plan = other.plan, .columns = {{other.column, x}}}},
+      std::vector<Symbol>{x});
+  auto produce =
+      MakeProduce(conditional, NEXPR("x", IDENT("x")->MapTo(x))->MapTo(this->symbol_table.CreateSymbol("x", true)));
+  auto xs = [&](ExecutionContext &context) {
+    std::vector<int64_t> values;
+    for (const auto &row : CollectProduce(*produce, &context)) values.push_back(row[0].ValueInt());
+    return values;
+  };
+
+  auto unchecked = MakeContext(this->storage, this->symbol_table, &this->dba);
+  EXPECT_THAT(xs(unchecked), testing::Contains(10));
+  // Label access without property rules: the predicate reads null and takes ELSE.
+  auto user = memgraph::auth::User{"reader"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto checked = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+  EXPECT_THAT(xs(checked), testing::Each(20));
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+TYPED_TEST(MatchReturnFixture, PropertyFGANoPropertyRulesMeansAccessDenied) {
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
+  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
+  this->dba.AdvanceCommand();
+
+  // User has LBAC read access but no PBAC rules at all — property should be denied
+  auto user = memgraph::auth::User{"test_user"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+
+  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "name");
+  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
+  auto produce = MakeProduce(scan_all.op_, output);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+  auto results = CollectProduce(*produce, &context);
+
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_TRUE(results[0][0].IsNull());
+}
+
+TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
+  memgraph::license::global_license_checker.DisableTesting();
+
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
+  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123")).has_value());
+  this->dba.AdvanceCommand();
+
+  auto user = memgraph::auth::User{"test_user"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().label_properties().Deny(
+      {"Employee"}, "ssn", memgraph::auth::PropertyPermissionType::READ);
+
+  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
+  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
+  auto produce = MakeProduce(scan_all.op_, output);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+  auto results = CollectProduce(*produce, &context);
+
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0][0].ValueString(), "123");
+}
+
+#endif

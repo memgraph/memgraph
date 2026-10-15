@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.pairs([1, null, 3]) AS result;
+
+output:
+  - result: [[1, null], [null, 3], [3, null]]

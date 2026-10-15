@@ -56,17 +56,17 @@ LARGE_DATASET_SIZE = 100000
 # The key pattern is: MATCH(n) WITH n UNWIND range(...) which creates a
 # large cross product that takes significant time to process.
 #
-# With 100k nodes and UNWIND range(1, 1000), we get 100M intermediate rows.
+# With 100k nodes and UNWIND range(1, 30000), we get 3B intermediate rows.
 # =============================================================================
 
 # Query with aggregation - creates cross product of all nodes with unwind range
-# 100k nodes × 1000 range = 100M intermediate rows
+# 100k nodes × 30000 range = 3B intermediate rows
 # Uses P ScanAll and P Aggregate operators
 LONG_RUNNING_AGGREGATION_QUERY = """
 USING PARALLEL EXECUTION
 MATCH (n:TestNode)
 WITH n
-UNWIND range(1, 1000) AS i
+UNWIND range(1, 30000) AS i
 RETURN i, count(n) AS cnt
 """
 

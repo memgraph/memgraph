@@ -19,13 +19,14 @@
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 
+#include "absl/container/flat_hash_map.h"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
 #include "utils/memory_tracker.hpp"
@@ -65,7 +66,9 @@ struct VectorMembershipFilter {
 
   bool Matches(IdT entity_id) const { return Matches(std::span<const IdT>(&entity_id, 1)); }
 
-  bool IsAffectedBy(IdT id) const {
+  /// Whether a change to `id` can have changed what this filter admits. A wildcard admits every
+  /// id, so no change to one alters its membership.
+  bool IsInteresting(IdT id) const {
     if (mode == VectorMatchMode::WILDCARD) return false;
     return std::ranges::contains(ids, id);
   }
@@ -133,66 +136,24 @@ struct VectorIndexSpec {
 
 struct VectorIndexRecoveryInfo {
   VectorIndexSpec spec;
-  absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
 };
 
-/// @struct VectorIndexRecovery
-/// @brief Handles recovery operations for vector indices during WAL replay and snapshot recovery.
-///
-/// This struct encapsulates all recovery-related operations for vector indices,
-/// separating recovery logic from the main VectorIndex class for better
-/// separation of concerns and testability.
+/// Invariant R: for every vertex v and every property p with at least one vector spec, if v's stored
+/// p is a tag (VectorIndexId), then vertex_vectors[p][v.gid] holds its float vector. A plain list in
+/// the property store is its own vector and wins over any map entry. Tag IDs are not trusted during recovery.
 struct VectorIndexRecovery {
-  /// @brief Updates recovery info when an index is dropped.
-  /// @param index_name The name of the index being dropped.
-  /// @param name_id_mapper Mapper for name/ID conversions.
-  /// @param recovery_info_vec The vector of recovery info to update.
-  /// @param vertices Accessor to the vertices skip list.
-  static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
-                                std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipListDb<Vertex>::Accessor &vertices);
+  using VertexVectors = absl::flat_hash_map<PropertyId, absl::flat_hash_map<Gid, utils::small_vector<float>>>;
 
-  /// @brief Updates recovery info when a label is added to a vertex.
-  /// @param label The label being added.
-  /// @param vertex The vertex receiving the label.
-  /// @param name_id_mapper Mapper for name/ID conversions.
-  /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnLabelAddition(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
-                                    std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+  /// Called on WAL VertexSetProperty. Mutates value: an empty tag becomes plain []. With a spec on p, a tag is
+  /// captured into vertex_vectors[p][gid] and any other value erases it; without one, a stale tag becomes a list.
+  static void UpdateOnSetProperty(PropertyId property, PropertyValue &value, const Vertex *vertex,
+                                  std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+                                  VertexVectors &vertex_vectors);
 
-  /// @brief Updates recovery info when a label is removed from a vertex.
-  /// @param label The label being removed.
-  /// @param vertex The vertex losing the label.
-  /// @param name_id_mapper Mapper for name/ID conversions.
-  /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnLabelRemoval(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper,
-                                   std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
-
-  /// @brief Updates recovery info when a property changes on a vertex.
-  /// @param property The property that changed.
-  /// @param value The new property value.
-  /// @param vertex The vertex with the changed property.
-  /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
-                                  std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
-
- private:
-  /// @brief Finds all recovery info entries matching a given label.
-  /// @param label The label to match.
-  /// @param recovery_info_vec The vector of recovery info to search.
-  /// @return Vector of pointers to matching recovery info entries.
-  static std::vector<VectorIndexRecoveryInfo *> FindMatchingIndices(
-      LabelId label, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
-
-  /// @brief Extracts a vector from a property value, handling VectorIndexId cases.
-  /// @param value The property value to extract from.
-  /// @param vertex The vertex containing the property.
-  /// @param recovery_info_vec The recovery info vector to look up vectors in.
-  /// @param name_id_mapper Mapper for name/ID conversions.
-  /// @return The extracted vector of floats.
-  static utils::small_vector<float> ExtractVectorForRecovery(
-      const PropertyValue &value, Vertex *vertex, const std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
-      NameIdMapper *name_id_mapper);
+  /// Called on WAL VectorIndexDrop: removes the spec. If no other spec covers the same property, demotes stored
+  /// tags to plain lists (null if no vector captured), then erases the map entry.
+  static void UpdateOnIndexDrop(std::string_view index_name, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
+                                VertexVectors &vertex_vectors, utils::SkipListDb<Vertex>::Accessor &vertices);
 };
 
 /// Abstract interface for vector index metadata queries accessed through ActiveIndices snapshots.
@@ -201,6 +162,8 @@ struct VectorIndexActiveIndices {
   virtual std::vector<VectorIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorIndexInfo> ListVectorIndicesInfo() const = 0;
   virtual std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const = 0;
+  /// Properties of a vertex carrying `labels` that are covered by a vector index.
+  virtual std::vector<PropertyId> IndexedProperties(std::span<LabelId const> labels) const = 0;
 };
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -239,6 +202,8 @@ class VectorIndex {
     void CollectOnLabelAddition(LabelId label, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
 
+    bool IsInteresting(PropertyId property, Vertex const *vertex) const;
+
     AbortableInfo cleanup_collection;
   };
 
@@ -257,6 +222,7 @@ class VectorIndex {
     std::vector<VectorIndexSpec> ListIndices() const override;
     std::vector<VectorIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateNodesVectorCount(std::string_view index_name) const override;
+    std::vector<PropertyId> IndexedProperties(std::span<LabelId const> labels) const override;
 
    private:
     std::shared_ptr<VectorIndexContainer const> index_container_;
@@ -279,21 +245,17 @@ class VectorIndex {
   /// @param vertices vertices from which to create vector index
   /// @param indices Indices (for property decoding).
   /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @param snapshot_info
+  /// @param on_progress Invoked once per indexed item so a caller under a peer timeout can observe liveness.
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
-                   NameIdMapper *name_id_mapper,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                   NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {});
 
-  /// @brief Recovers an index based on the provided recovery information.
-  /// @param recovery_info The recovery information to use.
-  /// @param vertices vertices from which to recover the index.
-  /// @param indices Indices (for property decoding).
-  /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @param snapshot_info The snapshot information to use.
-  void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                    Indices *indices, NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  /// Recovers all vector indices in one pass. On failure, drops all indices in recovery_infos and rethrows.
+  /// vertex_vectors is cleared on success; on_progress fires once per vertex, not per insertion.
+  void RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &recovery_infos,
+                               VectorIndexRecovery::VertexVectors &vertex_vectors,
+                               utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
+                               ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Captured state from DropIndex. evicted_item keeps the usearch state alive;
   /// rewritten_vertices is the list whose properties were demoted to plain Vector
@@ -308,7 +270,12 @@ class VectorIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// `on_progress` is invoked once per indexed vertex while their properties are rewritten back from index ids to
+  /// vectors. That rewrite is O(indexed vertices) and runs on the calling thread, so a caller under a peer timeout
+  /// needs to see it advancing. It does NOT cover freeing the usearch index itself, which happens later when the
+  /// last reference to the captured item goes.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                               ProgressCallback const &on_progress = {});
 
   /// @brief Reinstalls an index previously evicted by DropIndex. Re-adds the
   /// captured index_id to each rewritten vertex's property and re-inserts the

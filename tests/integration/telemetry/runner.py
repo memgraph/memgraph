@@ -22,6 +22,10 @@ import time
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
+# Seconds allowed for the client to come up before it starts measuring, on top of the duration it
+# was asked to run for.
+STARTUP_ALLOWANCE = 30
+
 
 def execute_test(**kwargs):
     client_binary = kwargs.pop("client")
@@ -34,7 +38,10 @@ def execute_test(**kwargs):
     interval = kwargs.pop("interval", 1)
     duration = kwargs.pop("duration", 5)
 
-    timeout = duration * 2 if "hang" not in kwargs else duration * 2 + 60
+    # The client starts a coordinator before it begins measuring, and a leader election takes as
+    # long as it takes regardless of duration, so the allowance for it has to be added rather than
+    # scaled. This is a hang detector, not an assertion about how fast startup is.
+    timeout = duration + STARTUP_ALLOWANCE if "hang" not in kwargs else duration + STARTUP_ALLOWANCE + 60
     success = False
 
     server_args = [server_binary, "--interval", interval, "--duration", duration]

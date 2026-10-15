@@ -1,0 +1,14 @@
+# Without filterStartNode the start node is exempt from the node filters, so denying it changes nothing.
+query: >
+  MATCH (a:A)
+  WITH a, [a] AS deny
+  CALL path.subgraph_nodes(a, {denylistNodes: deny, maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B
+  - name: C
+  - name: D
+  - name: E

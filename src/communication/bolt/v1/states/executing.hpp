@@ -62,7 +62,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>();
+      return HandleGoodbye<TSession>(session);
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     case Signature::Noop: {
@@ -103,7 +103,7 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>();
+      return HandleGoodbye<TSession>(session);
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     case Signature::Noop:
@@ -139,7 +139,10 @@ State StateExecutingRun(TSession &session, State state) {
       return RunHandlerV1(signature, session, state, marker);
     case 4: {
       memgraph::metrics::Metrics().global.bolt_messages->Increment();
-      if (session.version_.minor >= 3) {
+      if (session.version_.minor == 4) {
+        return RunHandlerV4<TSession, 4>(signature, session, state, marker);
+      }
+      if (session.version_.minor == 3) {
         return RunHandlerV4<TSession, 3>(signature, session, state, marker);
       }
       if (session.version_.minor >= 1) {

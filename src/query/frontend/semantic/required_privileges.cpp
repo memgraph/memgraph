@@ -83,6 +83,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case SystemInfoQuery::InfoType::STORAGE:
       case SystemInfoQuery::InfoType::BUILD:
       case SystemInfoQuery::InfoType::ACTIVE_USERS:
+      case SystemInfoQuery::InfoType::FIPS:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
       case SystemInfoQuery::InfoType::LICENSE:
@@ -140,6 +141,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
+  void Visit(SessionQuery & /*session_query*/) override {}
+
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
 
   void Visit(DropAllIndexesQuery & /*drop_all_indexes_query*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
@@ -164,6 +167,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
           AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
         }
         break;
+      case MultiDatabaseQuery::Action::SUSPEND:
+      case MultiDatabaseQuery::Action::RESUME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        break;
     }
   }
 
@@ -179,7 +186,31 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
   }
 
-  void Visit(CoordinatorQuery & /*coordinator_query*/) override { AddPrivilege(AuthQuery::Privilege::COORDINATOR); }
+  void Visit(CoordinatorQuery &coordinator_query) override {
+    // Coordinator queries run only on coordinators, where they are gated by the coordinator READ/WRITE privilege model.
+    // Read-only introspection needs READ; every mutating/admin coordinator query needs WRITE (a superset of READ).
+    switch (coordinator_query.action_) {
+      case CoordinatorQuery::Action::SHOW_INSTANCE:
+      case CoordinatorQuery::Action::SHOW_INSTANCES:
+      case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
+      case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
+      case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
+        AddPrivilege(AuthQuery::Privilege::COORDINATOR_READ);
+        break;
+      case CoordinatorQuery::Action::REGISTER_INSTANCE:
+      case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
+      case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN:
+      case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE:
+      case CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE:
+      case CoordinatorQuery::Action::DEMOTE_INSTANCE:
+      case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE:
+      case CoordinatorQuery::Action::YIELD_LEADERSHIP:
+      case CoordinatorQuery::Action::SET_COORDINATOR_SETTING:
+      case CoordinatorQuery::Action::UPDATE_CONFIG:
+        AddPrivilege(AuthQuery::Privilege::COORDINATOR_WRITE);
+        break;
+    }
+  }
 
   void Visit(CreateEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
 
@@ -207,6 +238,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
+
+  void Visit(SessionSettingQuery & /*session_setting_query*/) override {}
 
   void Visit(DescriptionQuery & /*description_query*/) override {
     AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS);

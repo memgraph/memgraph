@@ -24,9 +24,11 @@ struct EdgeRef {
 
   explicit EdgeRef(Edge *ptr) : ptr(ptr) {}
 
-  friend bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
+  friend bool operator==(const EdgeRef &lhs, const EdgeRef &rhs) noexcept { return lhs.gid == rhs.gid; }
 
-  friend bool operator<(const EdgeRef &first, const EdgeRef &second) { return first.gid < second.gid; }
+  friend std::strong_ordering operator<=>(const EdgeRef &lhs, const EdgeRef &rhs) noexcept {
+    return lhs.gid <=> rhs.gid;
+  }
 
   union {
     Gid gid;

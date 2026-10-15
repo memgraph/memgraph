@@ -16,12 +16,16 @@ module;
 #include "query/typed_value.hpp"
 #include "requests/requests.hpp"
 #include "utils/data_queue.hpp"
+#include "utils/download_temp_file.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
 #include "utils/pmr/string.hpp"
+#include "utils/prefetched.hpp"
 #include "utils/temporal.hpp"
 
 #include <chrono>
+#include <exception>
+#include <memory>
+#include <stdexcept>
 #include <string_view>
 #include <thread>
 
@@ -138,17 +142,9 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S
   return std::move(*maybe_parquet_reader);
 }
 
-// nullptr for error
-auto LoadFileFromDisk(std::string file_path)
+auto BuildFileReader(std::shared_ptr<arrow::io::ReadableFile> file)
     -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
   arrow::MemoryPool *pool = arrow::default_memory_pool();
-
-  auto maybe_file = arrow::io::ReadableFile::Open(file_path, pool);
-  if (!maybe_file.ok()) {
-    return std::unexpected{maybe_file.status()};
-  }
-
-  auto const &file = *maybe_file;
 
   auto reader_properties = parquet::ReaderProperties(pool);
   reader_properties.enable_buffered_stream();
@@ -159,7 +155,7 @@ auto LoadFileFromDisk(std::string file_path)
 
   parquet::arrow::FileReaderBuilder reader_builder;
 
-  if (auto const status = reader_builder.Open(file, reader_properties); !status.ok()) {
+  if (auto const status = reader_builder.Open(std::move(file), reader_properties); !status.ok()) {
     return std::unexpected{status};
   }
 
@@ -174,6 +170,41 @@ auto LoadFileFromDisk(std::string file_path)
   return file_reader;
 }
 
+auto LoadFileFromDisk(std::string file_path)
+    -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
+  auto maybe_file = arrow::io::ReadableFile::Open(file_path, arrow::default_memory_pool());
+  if (!maybe_file.ok()) {
+    return std::unexpected{maybe_file.status()};
+  }
+
+  return BuildFileReader(*maybe_file);
+}
+
+auto LoadFileFromDescriptor(memgraph::utils::OwnedFd fd)
+    -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
+  // Arrow closes what it is given, but only once it has accepted it: on failure the descriptor is
+  // still ours, which is what holding it in an owner until that point takes care of.
+  auto maybe_file = arrow::io::ReadableFile::Open(fd.Get(), arrow::default_memory_pool());
+  if (!maybe_file.ok()) {
+    return std::unexpected{maybe_file.status()};
+  }
+  static_cast<void>(fd.Release());
+
+  return BuildFileReader(*maybe_file);
+}
+
+// Multiply a tick count by us_per_unit to convert it to microseconds, throwing instead of silently overflowing
+// int64. Signed overflow is UB and, in practice, would wrap and store a bogus temporal value; a large enough
+// TIMESTAMP[s]/DURATION[s] (x1'000'000) or [ms] (x1000) value can trigger it. Surfacing an error is correct here.
+auto TicksToMicroseconds(int64_t const count, int64_t const us_per_unit) -> int64_t {
+  int64_t microseconds = 0;
+  if (__builtin_mul_overflow(count, us_per_unit, &microseconds)) {
+    throw std::overflow_error(
+        fmt::format("temporal value {} does not fit into the supported microsecond range", count));
+  }
+  return microseconds;
+}
+
 // Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
   switch (arrow_time_unit) {
@@ -185,12 +216,10 @@ auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t 
       return std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
     }
     case arrow::TimeUnit::MILLI: {
-      auto const ms = std::chrono::milliseconds(arrow_val);
-      return std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
+      return TicksToMicroseconds(arrow_val, 1000);
     }
     case arrow::TimeUnit::SECOND: {
-      auto const secs = std::chrono::seconds(arrow_val);
-      return std::chrono::duration_cast<std::chrono::microseconds>(secs).count();
+      return TicksToMicroseconds(arrow_val, 1'000'000);
     }
     default: {
       throw std::invalid_argument("Unsupported time unit. TIME32 should only support seconds and milliseconds");
@@ -312,8 +341,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       auto date_array = std::static_pointer_cast<arrow::Date64Array>(column);
       return [date_array, resource](int64_t const i) -> TypedValue {
         if (date_array->IsNull(i)) return TypedValue(resource);
-        auto const ms = std::chrono::milliseconds(date_array->Value(i));
-        auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
+        auto const us = std::chrono::microseconds{TicksToMicroseconds(date_array->Value(i), 1000)};
         return TypedValue(Date{us}, resource);
       };
     }
@@ -519,11 +547,12 @@ struct ParquetReader::impl {
   BatchIterator row_it_;
   utils::MemoryResource *resource_;
   utils::pmr::vector<Row> rows_;
-  utils::DataQueue<utils::pmr::vector<Row>> work_queue_;
   Header header_;
-  std::jthread prefetcher_thread_;  // should get destroyed before all other variables that it uses as a reference
   uint64_t row_in_batch_{0};
   uint64_t current_batch_size_{0};
+  // Declared last so everything the reading thread touches is constructed before that thread starts,
+  // and destroyed only after it has been joined.
+  memgraph::utils::Prefetched<utils::pmr::vector<Row>> batches_;
 };
 
 ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
@@ -534,41 +563,48 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       row_it_(BatchIterator(std::move(rbr), num_columns_)),
       resource_(resource),
       rows_(resource),
-      work_queue_(2),
       header_(std::move(header)),
-      prefetcher_thread_{[this](std::stop_token stop_token) {
-        while (!stop_token.stop_requested()) {
-          auto const batch_ref = row_it_.Next();
-          // No more data
-          if (batch_ref.empty()) {
-            work_queue_.finish();
-            break;
-          }
+      batches_{2,
+               [this](auto const &push_batch) {
+                 // A batch read or a value conversion can throw. Prefetched carries that to the consumer
+                 // rather than letting it reach the top of this thread.
+                 try {
+                   while (true) {
+                     auto const batch_ref = row_it_.Next();
+                     // No more data
+                     if (batch_ref.empty()) {
+                       return;
+                     }
 
-          auto const num_rows = batch_ref[0]->length();
-          utils::pmr::vector<Row> queued_batch(resource_);
-          queued_batch.reserve(num_rows);
-          for (auto i = 0; i < num_rows; ++i) {
-            // temporary needs to be created
-            // NOLINTNEXTLINE
-            queued_batch.emplace_back(Row{resource_});
-          }
+                     auto const num_rows = batch_ref[0]->length();
+                     utils::pmr::vector<Row> queued_batch(resource_);
+                     queued_batch.reserve(num_rows);
+                     for (auto i = 0; i < num_rows; ++i) {
+                       // temporary needs to be created
+                       // NOLINTNEXTLINE
+                       queued_batch.emplace_back(Row{resource_});
+                     }
 
-          std::vector<std::function<TypedValue(int64_t)>> converters;
-          converters.reserve(num_columns_);
-          for (int j = 0U; j < num_columns_; j++) {
-            converters.push_back(CreateColumnConverter(batch_ref[j], resource_));
-          }
+                     std::vector<std::function<TypedValue(int64_t)>> converters;
+                     converters.reserve(num_columns_);
+                     for (int j = 0U; j < num_columns_; j++) {
+                       converters.push_back(CreateColumnConverter(batch_ref[j], resource_));
+                     }
 
-          for (int j = 0U; j < num_columns_; j++) {
-            auto const &converter = converters[j];
-            for (int64_t i = 0; i < num_rows; i++) {
-              queued_batch[i].emplace(header_[j], converter(i));  // RVO should kick in here
-            }
-          }
-          work_queue_.push(std::move(queued_batch));
-        }
-      }}
+                     for (int j = 0U; j < num_columns_; j++) {
+                       auto const &converter = converters[j];
+                       for (int64_t i = 0; i < num_rows; i++) {
+                         queued_batch[i].emplace(header_[j], converter(i));  // RVO should kick in here
+                       }
+                     }
+                     if (!push_batch(std::move(queued_batch))) {
+                       return;
+                     }
+                   }
+                 } catch (const std::exception &e) {
+                   throw QueryRuntimeException("Error while loading PARQUET file: {}", e.what());
+                 }
+               }}
 
 {
   rows_.reserve(batch_rows);
@@ -579,14 +615,13 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
   }
 }
 
-ParquetReader::impl::~impl() {
-  prefetcher_thread_.request_stop();
-  work_queue_.finish();
-}
+ParquetReader::impl::~impl() = default;
 
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
-    if (!work_queue_.pop(rows_)) {
+    // Rethrows on this thread whatever reading a batch threw, so it becomes a query error rather
+    // than reaching the top of the thread that read it.
+    if (!batches_.Next(rows_)) {
       return false;
     }
     row_in_batch_ = 0;
@@ -604,21 +639,43 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
 
     // When using a file that should be downloaded using https or ftp, we first download it and then load it
     if (url_matcher(uri)) {
-      auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri}.filename();
-      auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
-      if (requests::CreateAndDownloadFile(std::string{uri},
-                                          std::move(file),
-                                          memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
-                                          std::move(abort_check))) {
-        // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-        utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};
-
-        return LoadFileFromDisk(local_file_path);
+      auto temp_file = utils::DownloadTempFile::Create();
+      if (!temp_file) {
+        return std::unexpected{arrow::Status{
+            arrow::StatusCode::IOError,
+            fmt::format("Couldn't create a file to download {} into: {}", uri, temp_file.error().message())}};
       }
-      utils::DeleteFile(local_file_path);
 
-      return std::unexpected{
-          arrow::Status{arrow::StatusCode::UnknownError, fmt::format("Couldn't download file: {}", uri)}};
+      auto stream = temp_file->OpenStream();
+      if (!stream) {
+        return std::unexpected{arrow::Status{
+            arrow::StatusCode::IOError,
+            fmt::format("Couldn't open the download of {} for writing: {}", uri, stream.error().message())}};
+      }
+
+      if (auto const downloaded =
+              requests::CreateAndDownloadFile(std::string{uri},
+                                              std::move(*stream),
+                                              memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
+                                              std::move(abort_check));
+          !downloaded) {
+        // Thrown rather than returned: an arrow::Status has nowhere to carry whether trying again
+        // could help.
+        memgraph::query::ThrowDownloadFailed(
+            downloaded.error().Retryable(),
+            fmt::format("Couldn't download file {}: {}", uri, downloaded.error().message));
+      }
+
+      // The reader takes a descriptor of its own, so the download outlives `temp_file` going out of
+      // scope here and needs no cleanup: it was unlinked when it was created.
+      auto fd = temp_file->DupFd();
+      if (!fd) {
+        return std::unexpected{
+            arrow::Status{arrow::StatusCode::IOError,
+                          fmt::format("Couldn't read back the download of {}: {}", uri, fd.error().message())}};
+      }
+
+      return LoadFileFromDescriptor(std::move(*fd));
     }
 
     if (s3_matcher(uri)) {

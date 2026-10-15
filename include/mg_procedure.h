@@ -1010,6 +1010,9 @@ MGP_ENUM_CLASS text_search_mode{
     SPECIFIED_PROPERTIES,
     REGEX,
     ALL_PROPERTIES,
+    // Fuzzy phrase search (ordered, adjacent terms; last term a prefix) over a single
+    // `data.<property>`. Appended last to keep the existing values' numbering stable.
+    FUZZY_PHRASE,
 };
 
 /// Search the named text index for the given query. The result is a map with the "search_results" and "error_msg" keys.
@@ -1077,6 +1080,20 @@ enum mgp_error mgp_drop_label_property_index(struct mgp_graph *graph, const char
 /// List all label+property indices.
 enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
                                                    struct mgp_list **result);
+
+/// Creates global vertex-property index for given property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if vertex-property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
+
+/// Drops global vertex-property index for given property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping vertex-property index failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
+
+/// List all global vertex-property indices.
+enum mgp_error mgp_list_all_vertex_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                    struct mgp_list **result);
 
 /// Creates existence constraint for given label and property.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

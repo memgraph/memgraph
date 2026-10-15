@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <string>
 
@@ -60,7 +61,7 @@ struct SnapshotInfo {
   uint64_t durable_timestamp;
   uint64_t edges_count;
   uint64_t vertices_count;
-  uint64_t num_committed_txns;
+  uint64_t num_committed_txns{0};
 };
 
 /// Structure used to hold information about the snapshot that has been
@@ -87,7 +88,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                memgraph::storage::DescriptionStore *description_store,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                               ProgressCallback const &on_progress = {});
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 
@@ -102,12 +103,17 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer);
 
-std::optional<std::filesystem::path> CreateSnapshot(
+/// Why `CreateSnapshot` didn't create a snapshot. Either way no partial snapshot is left behind.
+enum class SnapshotCreationError : uint8_t {
+  kAborted,      ///< Aborted, or a snapshot file couldn't be opened or written.
+  kNoSpaceLeft,  ///< The disk ran out of space or quota.
+};
+
+std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-    utils::UUID const &uuid, std::string_view epoch_id,
-    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr,
-    std::string_view trigger = "periodic");
+    utils::UUID const &uuid, std::string epoch_id, std::deque<std::pair<std::string, uint64_t>> epoch_history,
+    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot = nullptr,
+    SnapshotProgress *progress = nullptr, std::string_view trigger = "periodic");
 
 }  // namespace memgraph::storage::durability

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 from typing import List
 from urllib.parse import quote
@@ -58,14 +59,25 @@ def parse_file_os_arch(file, image_type):
     """
 
     if image_type == "mage":
+        # `file` is the full S3 key, and MAGE stages into per-kind/flavour
+        # dirs mirroring memgraph. `os` (really the packaging format) comes
+        # from the extension: .deb -> DEB, .rpm -> RPM, .run -> Offline
+        # Installer, else Docker (<arch>). arch/flavour come from substring
+        # tests over the whole key, so a token may match the dir, the
+        # basename or both — safe, since both spell the flavours identically
+        # and the arch test takes either convention (x86_64/aarch64 dirs,
+        # amd64/arm64 debs).
         is_deb = file.endswith(".deb")
+        is_rpm = file.endswith(".rpm")
+        is_run = file.endswith(".run")
 
-        if "arm64" in file:
-            arch = "arm64"
-            os = "Docker (arm64)" if not is_deb else "ubuntu-24.04"
+        # rpms use `aarch64`, debs/docker tarballs use `arm64`
+        if "aarch64" in file or "arm64" in file:
+            base_arch = "arm64"
         else:
-            arch = "x86_64"
-            os = "Docker (x86_64)" if not is_deb else "ubuntu-24.04"
+            base_arch = "x86_64"
+
+        arch = base_arch
 
         if "relwithdebinfo" in file:
             arch = f"{arch}-relwithdebinfo"
@@ -79,6 +91,18 @@ def parse_file_os_arch(file, image_type):
         if "cugraph" in file:
             arch = f"{arch}-cugraph"
 
+        if "-debuginfo" in file:
+            arch = f"{arch}-debuginfo"
+
+        if is_rpm:
+            os = "RPM"
+        elif is_deb:
+            os = "DEB"
+        elif is_run:
+            os = "Offline Installer"
+        else:
+            os = f"Docker ({base_arch})"
+
     elif image_type == "memgraph":
         if "aarch64" in file:
             arch = "arm64"
@@ -91,7 +115,33 @@ def parse_file_os_arch(file, image_type):
         if "malloc" in file:
             arch = f"{arch}-malloc"
 
-        os = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
+        if "fips" in file:
+            arch = f"{arch}-fips"
+
+        if "no-python" in file:
+            arch = f"{arch}-no-python"
+
+        # debuginfo rpms share the os dir + arch of the main package, so suffix
+        # the arch to give them their own key (e.g. centos-10.x86_64-debuginfo)
+        # instead of overwriting the main package. `-debuginfo` (with the hyphen)
+        # never matches `-relwithdebinfo`.
+        if "-debuginfo" in file:
+            arch = f"{arch}-debuginfo"
+
+        # `os` is not really an OS anymore - it's basically a packaging format
+        os_path = (
+            file.split("/")[3]
+            .replace("-malloc", "")
+            .replace("-aarch64", "")
+            .replace("-relwithdebinfo", "")
+            .replace("-fips", "")
+            .replace("-no-python", "")
+        )
+        os = "unknown"
+        for substr in ["docker", "rpm", "deb"]:
+            if substr in os_path:
+                os = substr
+                break
     else:
         raise ValueError(f"Unsupported image_type: {image_type}")
 
@@ -129,6 +179,10 @@ def build_package_json(files: List[str], return_url: bool = True, image_type: st
             url = quote(f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{file}", safe=":/")
         else:
             url = file
+
+        # skip .tsv - this is used for tracking debug info for releases
+        if url.endswith(".tsv"):
+            continue
 
         os, arch = parse_file_os_arch(file, image_type)
 

@@ -237,7 +237,8 @@ class VaryMatchingStart {
 // Cartesian product of all of them is returned.
 CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &, const SymbolTable &);
 
-CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching, const SymbolTable &symbol_table);
+CartesianProduct<VaryMatchingStart> VarySubqueryMatchingStarts(const Matching &matching,
+                                                               const SymbolTable &symbol_table);
 
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
@@ -293,8 +294,8 @@ class VaryQueryPartMatching {
                     optional_matchings_.end(),
                     merge_matchings_.begin(),
                     merge_matchings_.end(),
-                    filter_matchings_.begin(),
-                    filter_matchings_.end());
+                    subquery_matchings_.begin(),
+                    subquery_matchings_.end());
   }
 
   auto end() {
@@ -305,8 +306,8 @@ class VaryQueryPartMatching {
                     optional_matchings_.end(),
                     merge_matchings_.end(),
                     merge_matchings_.end(),
-                    filter_matchings_.end(),
-                    filter_matchings_.end());
+                    subquery_matchings_.end(),
+                    subquery_matchings_.end());
   }
 
  private:
@@ -318,7 +319,7 @@ class VaryQueryPartMatching {
   CartesianProduct<VaryMatchingStart> optional_matchings_;
   // Like optional matching, but for merge matchings.
   CartesianProduct<VaryMatchingStart> merge_matchings_;
-  CartesianProduct<VaryMatchingStart> filter_matchings_;
+  CartesianProduct<VaryMatchingStart> subquery_matchings_;
 };
 
 }  // namespace impl
@@ -339,7 +340,7 @@ class VariableStartPlanner {
   auto VaryQueryMatching(const QueryParts &query_parts, const SymbolTable &symbol_table) {
     std::vector<impl::VaryQueryPartMatching> varying_query_matchings;
 
-    auto single_query_parts = ExtractSingleQueryParts(std::make_unique<QueryParts>(query_parts));
+    auto single_query_parts = ExtractSingleQueryParts(query_parts);
 
     for (const auto &single_query_part : single_query_parts) {
       varying_query_matchings.emplace_back(single_query_part, symbol_table);
@@ -348,19 +349,23 @@ class VariableStartPlanner {
     return iter::slice(MakeCartesianProduct(std::move(varying_query_matchings)), 0UL, FLAGS_query_max_plans);
   }
 
-  std::vector<SingleQueryPart> ExtractSingleQueryParts(const std::shared_ptr<QueryParts> query_parts) {
+  std::vector<SingleQueryPart> ExtractSingleQueryParts(const QueryParts &query_parts) {
     std::vector<SingleQueryPart> results;
+    auto const append = [this, &results](const QueryParts &parts) {
+      auto part_results = ExtractSingleQueryParts(parts);
+      results.insert(
+          results.end(), std::make_move_iterator(part_results.begin()), std::make_move_iterator(part_results.end()));
+    };
 
-    for (const auto &query_part : query_parts->query_parts) {
+    for (const auto &query_part : query_parts.query_parts) {
       for (const auto &single_query_part : query_part.single_query_parts) {
         results.push_back(single_query_part);
 
-        for (const auto &subquery : single_query_part.subqueries) {
-          const auto subquery_results = ExtractSingleQueryParts(subquery);
-          results.insert(results.end(),
-                         std::make_move_iterator(subquery_results.begin()),
-                         std::make_move_iterator(subquery_results.end()));
-        }
+        for (const auto &subquery : single_query_part.subqueries) append(*subquery);
+      }
+      // A conditional leg has no single-query parts; its branches follow, in the order Reconstruct reads them.
+      if (query_part.conditional) {
+        for (const auto &branch : query_part.conditional->branches) append(branch.body);
       }
     }
 
@@ -383,6 +388,18 @@ class VariableStartPlanner {
               std::make_shared<QueryParts>(ReconstructQueryParts(*subquery, single_query_parts_variation, index));
         }
       }
+      if (old_query_part.conditional) {
+        const auto &old = *old_query_part.conditional;
+        auto conditional = std::make_shared<ConditionalQueryParts>();
+        conditional->output_symbols = old.output_symbols;
+        for (const auto &branch : old.branches) {
+          conditional->branches.push_back(
+              {.predicate = branch.predicate,
+               .predicate_filters = branch.predicate_filters,
+               .body = ReconstructQueryParts(branch.body, single_query_parts_variation, index)});
+        }
+        reconstructed_query_parts.query_parts[i].conditional = std::move(conditional);
+      }
     }
 
     return reconstructed_query_parts;
@@ -401,6 +418,7 @@ class VariableStartPlanner {
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
+          context->scoped_call_imports.clear();
           return rule_planner.Plan(reconstructed_query_parts);
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));

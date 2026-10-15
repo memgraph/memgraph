@@ -20,6 +20,14 @@ void Encoder::WriteBool(bool value) {
   slk::Save(value, builder_);
 }
 
+// Just writes 0 as placeholder value. No need to encode replication stream when we are using TCP sockets
+uint32_t Encoder::WriteCrc() {
+  WriteMarker(durability::Marker::TYPE_INT);
+  uint64_t const placeholder{0};
+  slk::Save(placeholder, builder_);
+  return static_cast<uint32_t>(placeholder);
+}
+
 void Encoder::WriteUint(uint64_t value) {
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
@@ -70,7 +78,8 @@ void Encoder::WriteFileData(utils::InputFile *file) {
   }
 }
 
-bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write) {
+bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write,
+                        utils::PageCachePolicy const page_cache) {
   builder_->PrepareForFileSending();
   utils::InputFile file;
   if (!file.Open(path)) {
@@ -85,8 +94,13 @@ bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path
   auto const file_size = file.GetSize();
   WriteUint(file_size);
   WriteFileData(&file);
+  // The read is done and left the file's pages clean, which is the only state they can be evicted
+  // in. The bytes are already in the stream's buffers, so nothing here waits on the replica.
+  if (page_cache == utils::PageCachePolicy::kDrop) file.DropCachedPages();
   return true;
 }
+
+uint64_t Encoder::GetPosition() { return builder_->GetPosition(); }
 
 ////// Decoder //////
 std::optional<durability::Marker> Decoder::ReadMarker() {

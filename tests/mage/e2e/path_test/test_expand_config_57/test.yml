@@ -1,0 +1,15 @@
+# An empty list is a filter that was not given, so it leaves nothing for `beginSequenceAtStart` to spend
+# on the first hop -- the same as leaving the key out, and not an error about a sequence the caller never
+# wrote.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, maxHops: 2, relationshipFilter: [],
+                              beginSequenceAtStart: false})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]

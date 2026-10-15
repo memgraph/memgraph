@@ -75,10 +75,6 @@ def load_workloads(root_directory):
         search_path = Path(os.path.join(build_e2e_dir, root_directory))
 
     for file in search_path.rglob("workloads.yaml"):
-        # 8.03.2024. - Skip streams e2e tests
-        if str(file).endswith("/streams/workloads.yaml"):
-            continue
-
         if str(file).endswith("/graphql/workloads.yaml") and DISABLE_NODE:
             continue
         with open(file, "r") as f:

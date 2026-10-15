@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,8 @@ State StateErrorRun(TSession &session, State state) {
     return state;
   }
 
-  // Clear the data buffer if it has any leftover data.
+  // No-op in practice: State::Error is only reached via HandleFailure, which already drained the buffer
+  // (FlushFinalized) and sent FAILURE, so nothing is deferred here. Kept defensive; no acks can be dropped.
   session.encoder_buffer_.Clear();
 
   if (session.version_.major == 1 && signature == Signature::AckFailure) {

@@ -23,6 +23,10 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      python_build_version:
+        type: string
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python. Runtime stays the image default (no swap)."
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -33,7 +37,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: v7
+  TOOLCHAIN: v8
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -90,13 +94,18 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
-      build_docker_image: prod
+      # debug (not prod/both): the diff path tests the relwithdebinfo image so a
+      # crash here produces an analyzable core dump (gdb + symbols). prod and
+      # debug build from the same binary; the prod image is built and
+      # smoke/e2e-tested on daily builds and RCs (build_docker_image: both).
+      build_docker_image: debug
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
       run_smoke_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
+      python_build_version: ${{ inputs.python_build_version }}
     secrets: inherit
 
   arm_mage_tests:
@@ -107,13 +116,17 @@ jobs:
     with:
       arch: arm
       build_type: RelWithDebInfo
-      build_docker_image: prod
+      # debug (not prod/both): see the amd_mage_tests note — diff path tests the
+      # relwithdebinfo image for analyzable core dumps; prod is covered on
+      # daily builds and RCs.
+      build_docker_image: debug
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
       run_tests: true
       run_smoke_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
+      python_build_version: ${{ inputs.python_build_version }}
     secrets: inherit
 
   cuda_mage_tests:
@@ -124,8 +137,10 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
+      build_docker_image: debug
       push_to_github: false
       push_to_s3: false
       run_tests: true
       cuda: true
+      python_build_version: ${{ inputs.python_build_version }}
     secrets: inherit

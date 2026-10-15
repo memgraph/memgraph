@@ -15,6 +15,7 @@ module;
 #include <cassert>
 #include <span>
 #include <type_traits>
+#include <utility>
 
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
@@ -76,6 +77,14 @@ template <typename Analysis>
 struct EClass : private detail::EClassBase {
   explicit EClass(ENodeId initial_enode_id) : EClassBase(initial_enode_id) {}
 
+  EClass(ENodeId initial_enode_id, Analysis analysis)
+      : EClassBase(initial_enode_id), analysis_data(std::move(analysis)) {}
+
+  /// The e-class's analysis facts. Set once at construction (the make half) and
+  /// thereafter only by merge; there is deliberately no mutable accessor, so
+  /// the variant arm cannot be changed out from under the merge soundness guard.
+  [[nodiscard]] auto analysis() const -> Analysis const & { return analysis_data; }
+
   using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
@@ -90,13 +99,9 @@ struct EClass : private detail::EClassBase {
   void merge_with(EClass &&other) {
     EClassBase::merge_with(other);
 
-    // Non-empty Analysis types carry per-eclass state that needs combining on
-    // merge; there's no implementation yet, so catch at compile time to force
-    // the issue the first time someone instantiates EClass with a stateful
-    // analysis. Empty analyses (e.g. NoAnalysis) have nothing to merge.
-    static_assert(std::is_empty_v<Analysis>,
-                  "EClass::merge_with does not yet know how to combine Analysis data across e-classes; "
-                  "implement analysis merging before instantiating EClass with a stateful Analysis type.");
+    // Combine per-e-class facts and flag any contradiction. Analyses that carry
+    // no facts (e.g. NoAnalysis) supply a no-op merge.
+    analysis_data.merge(other.analysis_data);
   }
 
  private:

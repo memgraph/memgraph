@@ -98,6 +98,11 @@ class PropertyStore {
   /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
   std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
 
+  /// As above, but writes into the caller-provided `out` (one slot per ordered property, same single pass), so a
+  /// fixed-size buffer can be filled without a heap allocation. `out.size()` must equal `ordered_properties.size()`.
+  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const;
+
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
   /// performing the equality check. The time complexity of this function is
@@ -109,10 +114,13 @@ class PropertyStore {
   /// allocations while performing the equality check. The time complexity of
   /// this function is O(n). `position_lookup` is an ordering mapping of values
   /// to match given property from `ordered_properties`, hence value for
-  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The
-  /// returned results in std::vector<bool> correspond to `ordered_properties`
-  auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
-                          std::span<std::size_t const> position_lookup) const -> std::vector<bool>;
+  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The results
+  /// written to `result` correspond to `ordered_properties`.
+  ///
+  /// `result` is supplied by the caller, and its previous contents are discarded: the comparison
+  /// itself never allocated, a returned vector did, and both callers walk index entries in a loop.
+  void ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup, std::vector<bool> &result) const;
 
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
@@ -163,6 +171,11 @@ class PropertyStore {
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
       std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
+  /// Same as above, but old values are decoded with `decoder` before the store is modified.
+  template <typename T>
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder);
+
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time
   /// complexity of this function is O(1).
@@ -181,6 +194,10 @@ class PropertyStore {
  private:
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
+
+  template <typename TDecoder>
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> DoUpdateProperties(
+      std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder);
 
   template <typename Func>
   auto WithReader(Func &&func) const;

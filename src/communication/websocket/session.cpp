@@ -164,7 +164,7 @@ std::expected<void, std::string> Session::Authorize(const nlohmann::json &creds)
     return std::unexpected{"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
-  if (!auth_.HasPermission(auth::Permission::WEBSOCKET)) {
+  if (!auth_.HasWebsocketPermission()) {
     return std::unexpected{"Authorization failed!"};
   }
 #endif
@@ -215,6 +215,10 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       const auto err_msg = fmt::format("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
       spdlog::error(err_msg);
       std::invoke(auth_failed, err_msg);
+      return;
+    } catch (const std::exception &e) {
+      spdlog::error("Authentication failed: {}", e.what());
+      std::invoke(auth_failed, "Authentication failed!");
       return;
     }
   }

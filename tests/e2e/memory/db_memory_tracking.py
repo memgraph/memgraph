@@ -37,6 +37,7 @@ import sys
 import threading
 import time
 import uuid
+from itertools import islice
 
 import mgclient
 import pytest
@@ -206,6 +207,60 @@ def assert_global_metric_returns_near_baseline(cursor, key, baseline, tolerance_
     )
 
 
+def settle_storage_arena(cursor, key="db_storage_memory_tracked", timeout=30.0, interval=0.5, epsilon=64 * 1024):
+    """Drive FREE MEMORY until *key* stops falling, so a baseline read next holds no slack.
+
+    The storage metrics count committed pages of the per-database jemalloc arena, so a
+    figure read straight after a bulk load still includes pages that FREE MEMORY has not
+    returned yet. Asserting growth against such a figure is unfounded: the next
+    allocation is served from that slack and commits no new pages, so both readings come
+    out identical.
+
+    Only a fall counts as movement. Every iteration forces a purge, so the figure does not
+    rise on its own here, and waiting for two-sided stability would sit until the timeout
+    whenever the arena is still decaying. Giving up on timeout is right: settling is a
+    precondition for the measurement, not the property under test.
+    """
+    prev = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        execute(cursor, "FREE MEMORY")
+        curr = metric_triplet(cursor)[key]
+        if prev is not None and prev - curr <= epsilon:
+            return
+        prev = curr
+        time.sleep(interval)
+    debug_log(f"settle_storage_arena: {key} was still falling after {timeout}s; measuring anyway")
+
+
+def wait_for_metric_growth(cursor, key, baseline, timeout=20.0, message=None):
+    """Return the first metric_triplet reading in which *key* exceeds *baseline*.
+
+    Committed pages are charged when the arena extends, which can lag the query that
+    caused the allocation, so a single snapshot taken the moment a DDL statement returns
+    can miss growth that is about to be charged.
+    """
+    if message is None:
+        message = f"{key} did not grow"
+    seen = []
+    last = []
+
+    def grew():
+        triplet = metric_triplet(cursor)
+        last.clear()
+        last.append(triplet)
+        if triplet[key] > baseline:
+            seen.append(triplet)
+            return True
+        return False
+
+    try:
+        wait_until(grew, timeout=timeout, message=message)
+    except AssertionError as exc:
+        raise AssertionError(f"{exc} (baseline={baseline}, last reading={last[0] if last else None})") from exc
+    return seen[0]
+
+
 def release_query_memory_hold(cursor, signal_id):
     debug_log(f"release proc start signal_id={signal_id}")
     rows = fetch_all(
@@ -369,11 +424,12 @@ def test_explicit_transaction_storage_visible_before_commit_and_persists_after_c
 
     create_nodes(tx_cursor, 2500, label="TxCommit")
 
-    wait_until(
-        lambda: metric_triplet(inspect_cursor)["db_storage_memory_tracked"] > before["db_storage_memory_tracked"],
+    mid = wait_for_metric_growth(
+        inspect_cursor,
+        "db_storage_memory_tracked",
+        before["db_storage_memory_tracked"],
         message="uncommitted storage allocations did not become visible",
     )
-    mid = metric_triplet(inspect_cursor)
 
     tx_conn.commit()
     wait_until(
@@ -404,8 +460,10 @@ def test_explicit_transaction_rollback_returns_storage_near_baseline():
     before = metric_triplet(inspect_cursor)
     create_nodes(tx_cursor, 2500, label="TxRollback")
 
-    wait_until(
-        lambda: metric_triplet(inspect_cursor)["db_storage_memory_tracked"] > before["db_storage_memory_tracked"],
+    wait_for_metric_growth(
+        inspect_cursor,
+        "db_storage_memory_tracked",
+        before["db_storage_memory_tracked"],
         message="rollback test never observed storage growth",
     )
 
@@ -663,7 +721,9 @@ def test_query_memory_stays_high_while_result_is_partially_pulled():
                 count=300000,
             )
 
-            first_batch = result.fetch(100)
+            # islice advances the result by exactly 100 records and leaves the rest
+            # unread, which both the 4.x and the 5.x driver support.
+            first_batch = list(islice(result, 100))
             assert len(first_batch) == 100
             wait_until(
                 lambda: metric_triplet(inspect_cursor)["db_query_memory_tracked"]
@@ -673,7 +733,7 @@ def test_query_memory_stays_high_while_result_is_partially_pulled():
             after_first_fetch = metric_triplet(inspect_cursor)
             debug_log(f"partial-pull after first fetch db={db_name} metrics={after_first_fetch}")
 
-            second_batch = result.fetch(100)
+            second_batch = list(islice(result, 100))
             assert len(second_batch) == 100
             after_second_fetch = metric_triplet(inspect_cursor)
             debug_log(f"partial-pull after second fetch db={db_name} metrics={after_second_fetch}")
@@ -706,18 +766,26 @@ def test_label_and_property_index_creation_grows_db_storage_memory():
 
     conn = connect(db_name)
     cursor = conn.cursor()
-    # SHOW STORAGE INFO tracks committed DB-arena pages, not precise live bytes.
-    # Small index builds can fit into arena slack already committed by node creation,
-    # so use a larger dataset to force an observable committed-page increase.
+    # A small index build fits into arena slack already committed by node creation, so
+    # the dataset has to be large enough that the build has to commit new pages.
     create_nodes(cursor, 100000, label="Indexed", property_name="value")
-    execute(cursor, "FREE MEMORY")
-    execute(cursor, "FREE MEMORY")
 
+    settle_storage_arena(cursor)
     before = metric_triplet(cursor)
-    debug_log(f"index create before db={db_name} metrics={before}")
+    debug_log(f"index create before (settled) db={db_name} metrics={before}")
+
     execute(cursor, "CREATE INDEX ON :Indexed;")
     execute(cursor, "CREATE INDEX ON :Indexed(value);")
-    after = metric_triplet(cursor)
+
+    after = wait_for_metric_growth(
+        cursor,
+        "db_storage_memory_tracked",
+        before["db_storage_memory_tracked"],
+        message=(
+            f"db_storage_memory_tracked did not grow after CREATE INDEX "
+            f"(before={before['db_storage_memory_tracked']})"
+        ),
+    )
     debug_log(f"index create after db={db_name} metrics={after}")
 
     conn.close()
@@ -738,17 +806,24 @@ def test_index_and_constraint_drop_returns_storage_near_baseline():
     create_nodes(cursor, 100000, label="Indexed", property_name="value")
     create_edges(cursor, 50000, edge_type="TRACKED")
     create_nodes(cursor, 50000, label="UniqueNode", property_name="uid")
-    execute(cursor, "FREE MEMORY")
-    execute(cursor, "FREE MEMORY")
 
+    settle_storage_arena(cursor)
     before = metric_triplet(cursor)
-    debug_log(f"index/constraint drop before db={db_name} metrics={before}")
+    debug_log(f"index/constraint drop before (settled) db={db_name} metrics={before}")
     execute(cursor, "CREATE INDEX ON :Indexed;")
     execute(cursor, "CREATE INDEX ON :Indexed(value);")
     execute(cursor, "CREATE EDGE INDEX ON :TRACKED;")
     execute(cursor, "CREATE EDGE INDEX ON :TRACKED(weight);")
     execute(cursor, "CREATE CONSTRAINT ON (n:UniqueNode) ASSERT n.uid IS UNIQUE;")
-    after_create = metric_triplet(cursor)
+    after_create = wait_for_metric_growth(
+        cursor,
+        "db_storage_memory_tracked",
+        before["db_storage_memory_tracked"],
+        message=(
+            f"db_storage_memory_tracked did not grow after the indices and constraint "
+            f"were created (before={before['db_storage_memory_tracked']})"
+        ),
+    )
     debug_log(f"index/constraint drop after create db={db_name} metrics={after_create}")
 
     execute(cursor, "DROP INDEX ON :Indexed;")
@@ -785,15 +860,22 @@ def test_edge_indices_and_unique_constraint_grow_db_storage_memory():
     cursor = conn.cursor()
     create_edges(cursor, 50000, edge_type="TRACKED")
     create_nodes(cursor, 50000, label="UniqueNode", property_name="uid")
-    execute(cursor, "FREE MEMORY")
-    execute(cursor, "FREE MEMORY")
 
+    settle_storage_arena(cursor)
     before = metric_triplet(cursor)
-    debug_log(f"edge-index/constraint before db={db_name} metrics={before}")
+    debug_log(f"edge-index/constraint before (settled) db={db_name} metrics={before}")
     execute(cursor, "CREATE EDGE INDEX ON :TRACKED;")
     execute(cursor, "CREATE EDGE INDEX ON :TRACKED(weight);")
     execute(cursor, "CREATE CONSTRAINT ON (n:UniqueNode) ASSERT n.uid IS UNIQUE;")
-    after = metric_triplet(cursor)
+    after = wait_for_metric_growth(
+        cursor,
+        "db_storage_memory_tracked",
+        before["db_storage_memory_tracked"],
+        message=(
+            f"db_storage_memory_tracked did not grow after the edge indices and constraint "
+            f"were created (before={before['db_storage_memory_tracked']})"
+        ),
+    )
     debug_log(f"edge-index/constraint after db={db_name} metrics={after}")
 
     conn.close()
@@ -920,11 +1002,13 @@ def test_vector_index_memory_uses_embedding_tracker_and_returns_on_drop():
     conn = connect(db_name)
     cursor = conn.cursor()
     create_embedding_nodes(cursor, 10000, label="Embedding", property_name="vec", dimension=8)
-    execute(cursor, "FREE MEMORY")
-    execute(cursor, "FREE MEMORY")
 
+    # The embedding tracker is charged by the index's own allocator, but db_memory_tracked
+    # sums it with the arena-backed storage figure, so slack left over from the load can
+    # decay away between the two readings and sink the total the index has just raised.
+    settle_storage_arena(cursor)
     before = metric_triplet(cursor)
-    debug_log(f"vector index before db={db_name} metrics={before}")
+    debug_log(f"vector index before (settled) db={db_name} metrics={before}")
     execute(cursor, 'CREATE VECTOR INDEX emb_idx ON :Embedding(vec) WITH CONFIG {"dimension": 8, "capacity": 20000};')
     after_create = metric_triplet(cursor)
     debug_log(f"vector index after create db={db_name} metrics={after_create}")

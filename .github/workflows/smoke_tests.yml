@@ -7,14 +7,10 @@ on:
   #push:
   workflow_dispatch:
     inputs:
-      next_version:
+      version:
         type: string
         required: false
-        description: "Next Version (e.g. x.y.z or x.y.z-relwithdebinfo etc.), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
-      last_version:
-        type: string
-        required: false
-        description: "Last Version (e.g. x.y.z or x.y.z-relwithdebinfo etc.), daily build date (YYYYMMDD), or URL to Docker image: Default - latest release"
+        description: "Version (e.g. x.y.z or x.y.z-relwithdebinfo etc.), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
       arch:
         type: choice
         default: "amd"
@@ -59,14 +55,11 @@ jobs:
         id: determine
         shell: bash
         env:
-          NEXT_VERSION: ${{ github.event.inputs.next_version }}
-          LAST_VERSION: ${{ github.event.inputs.last_version }}
+          VERSION: ${{ github.event.inputs.version }}
           ARCH:         ${{ github.event.inputs.arch }}
         run: |
-          # if either version is a URL, or arch != "all", we only run the "single" path
-          if [[ "$NEXT_VERSION" =~ ^https?:// ]] \
-             || [[ "$LAST_VERSION" =~ ^https?:// ]] \
-             || [[ "$ARCH" != "all" ]]; then
+          # if the version is a URL, or arch != "all", we only run the "single" path
+          if [[ "$VERSION" =~ ^https?:// ]] || [[ "$ARCH" != "all" ]]; then
             echo "run_all=false" >> "$GITHUB_OUTPUT"
           else
             echo "run_all=true"  >> "$GITHUB_OUTPUT"
@@ -79,8 +72,7 @@ jobs:
     uses: ./.github/workflows/reusable_smoke_test_docker.yml
     with:
       arch: "${{ inputs.arch }}"
-      next_version: "${{ inputs.next_version }}"
-      last_version: "${{ inputs.last_version }}"
+      version: "${{ inputs.version }}"
       malloc: ${{ inputs.malloc }}
       image_type: "${{ inputs.image_type }}"
     secrets: inherit
@@ -97,8 +89,7 @@ jobs:
     uses: ./.github/workflows/reusable_smoke_test_docker.yml
     with:
       arch: "${{ matrix.arch }}"
-      next_version: "${{ inputs.next_version }}"
-      last_version: "${{ inputs.last_version }}"
+      version: "${{ inputs.version }}"
       image_type: "memgraph"
     secrets: inherit
 
@@ -118,8 +109,7 @@ jobs:
     uses: ./.github/workflows/reusable_smoke_test_docker.yml
     with:
       arch: "${{ matrix.arch }}"
-      next_version: "${{ inputs.next_version }}"
-      last_version: "${{ inputs.last_version }}"
+      version: "${{ inputs.version }}"
       malloc: ${{ matrix.malloc }}
       image_type: "mage"
     secrets: inherit

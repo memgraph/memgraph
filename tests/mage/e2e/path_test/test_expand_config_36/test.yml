@@ -1,0 +1,16 @@
+# Depth-first with the node-global mode keeps every mark, so the first branch it descends takes the
+# nodes it can reach and the second gets what is left: D falls to the B branch here, where the
+# breadth-first walk reaches it through E instead. Which branch is descended first follows the order a
+# node's relationships are iterated in.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, maxHops: 3, uniqueness: 'NODE_GLOBAL', bfs: false})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]
+  - names: ["A", "B", "C", "D"]
+  - names: ["A", "E"]

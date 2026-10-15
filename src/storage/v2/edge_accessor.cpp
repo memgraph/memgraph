@@ -41,7 +41,11 @@ namespace {
 
 std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, EdgeTypeId edge_type,
                                                                  PropertyId property, const PropertyValue &value) {
+  // An older main sends [] as a tag with no vector; store it as the plain list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) return PropertyValue(std::vector<double>{});
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  // An empty list has no vector to index; keep it as a plain list so the edge leaves the index.
+  if (value.ListSize() == 0) return std::nullopt;
   if (storage->indices_.vector_edge_index_.Empty()) return std::nullopt;
   auto index_ids = storage->indices_.vector_edge_index_.GetIndexIdsForEdgeTypeProperty(edge_type, property);
   if (index_ids.empty()) return std::nullopt;
@@ -320,7 +324,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write, &schema_acc]() {
-    id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
+    // Decoded old values: undo must restore the floats, which live only in the vector index.
+    id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(
+        properties,
+        IndexedPropertyDecoder<Edge>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
@@ -364,7 +372,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock([&properties, this, &schema_acc]() {
-    properties.emplace(edge_.ptr->properties.Properties());
+    properties.emplace(edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDeltaForEdgeSetProperty(transaction_,
@@ -515,6 +524,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
+}
+
+std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {
+  return transaction_->active_indices_->vector_edge_->IndexedProperties(edge_type_);
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyIds(

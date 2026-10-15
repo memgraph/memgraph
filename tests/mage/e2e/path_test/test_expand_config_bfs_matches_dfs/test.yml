@@ -1,0 +1,15 @@
+# The two drivers differ only in the order they emit; the set of paths they return is the same one.
+# They are separate walks with separate uniqueness bookkeeping, so this pins the property directly
+# rather than trusting either against a hand-written expectation.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {bfs: true, minHops: 1, maxHops: 4}) YIELD result
+  WITH collect([n IN nodes(result) | n.name]) AS breadth_first
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {bfs: false, minHops: 1, maxHops: 4}) YIELD result
+  WITH breadth_first, collect([n IN nodes(result) | n.name]) AS depth_first
+  RETURN size(breadth_first) = size(depth_first)
+     AND all(p IN breadth_first WHERE p IN depth_first) AS same_paths;
+
+output:
+  - same_paths: true

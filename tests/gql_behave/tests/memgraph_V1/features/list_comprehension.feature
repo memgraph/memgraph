@@ -202,3 +202,47 @@ Feature: ListComprehension
         Then the result should be:
             | result                |
             | [{a: 2, label: [0]}]  |
+
+    Scenario: Using a list comprehension whose predicate is null for one element
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [x in [1, null, 3] WHERE x > 0 | x] as processed
+            """
+        Then the result should be:
+            | processed |
+            | [1, 3]    |
+
+    Scenario: Using a list comprehension whose predicate is null for every element
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [x in [1, 2] WHERE null | x] as processed
+            """
+        Then the result should be:
+            | processed |
+            | []        |
+
+    Scenario: Using a list comprehension over a property missing from some elements
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(:Person {name: 'Charlie', age: 35}),
+                   (a)-[:LIKES]->(:Item {name: 'Widget'})
+            """
+        When executing query:
+            """
+            MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(p:Person), (a)-[:LIKES]->(i:Item)
+            RETURN [x in [p, i] WHERE x.age > 25 | x.name] as names
+            """
+        Then the result should be:
+            | names       |
+            | ['Charlie'] |
+
+    Scenario: Using a list comprehension whose predicate is not a boolean
+        Given an empty graph
+        When executing query:
+            """
+            RETURN [x in [1, 2, 3] WHERE 2 | x] as processed
+            """
+        Then an error should be raised

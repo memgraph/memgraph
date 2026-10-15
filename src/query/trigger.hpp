@@ -31,13 +31,11 @@
 
 namespace memgraph::query {
 
-struct QueryCacheEntry;
-
 enum class TransactionStatus;
 
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                   TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                   TriggerEventType event_type, AstCache *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                    std::string_view db_name,
                    TriggerPrivilegeContext privilege_context = TriggerPrivilegeContext::DEFINER,
@@ -78,8 +76,14 @@ struct Trigger {
     std::vector<IdentifierInfo> identifiers;
   };
 
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name,
-                                       std::shared_ptr<QueryUserOrRole> triggering_user) const;
+  struct PlanResult {
+    std::shared_ptr<TriggerPlan> plan;
+    // DEFINER: private clone of the creator taken under plan_lock_; INVOKER: the caller's own principal.
+    std::shared_ptr<QueryUserOrRole> effective_principal;
+  };
+
+  PlanResult GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                     std::shared_ptr<QueryUserOrRole> triggering_user) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -97,15 +101,15 @@ enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
 struct TriggerStore {
   explicit TriggerStore(std::filesystem::path directory);
 
-  void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                       std::string_view db_name, parameters::Parameters const *server_parameters);
+  void RestoreTriggers(AstCache *query_cache, DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
+                       const query::AuthChecker *auth_checker, std::string_view db_name,
+                       parameters::Parameters const *server_parameters);
 
   void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                  TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
-                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                  std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
-                  TriggerPrivilegeContext privilege_context, parameters::Parameters const *server_parameters);
+                  TriggerEventType event_type, TriggerPhase phase, AstCache *query_cache, DbAccessor *db_accessor,
+                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
+                  std::string_view db_name, TriggerPrivilegeContext privilege_context,
+                  parameters::Parameters const *server_parameters);
 
   void DropTrigger(const std::string &name);
   void DropAll();
@@ -130,9 +134,9 @@ struct TriggerStore {
   std::unordered_set<TriggerEventType> GetEventTypes() const;
 
  private:
-  void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                      const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                      std::string_view trigger_name, std::string_view trigger_data, std::string_view db_name,
+  void RestoreTrigger(AstCache *query_cache, DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
+                      const query::AuthChecker *auth_checker, std::string_view trigger_name,
+                      std::string_view trigger_data, std::string_view db_name,
                       parameters::Parameters const *server_parameters);
 
   utils::SpinLock store_lock_;

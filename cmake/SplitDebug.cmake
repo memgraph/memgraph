@@ -8,6 +8,9 @@
 #
 # Enable with -DMG_SPLIT_DEBUG=ON at configure time. Requires
 # CMAKE_BUILD_TYPE=RelWithDebInfo or Debug.
+#
+# Sidecars are compressed by objcopy in the format CompressDebug selected
+# (MG_COMPRESS_DEBUG_FORMAT); zlib when that module is not included.
 
 option(MG_SPLIT_DEBUG "Extract debug info into sidecar .debug files post-link" OFF)
 
@@ -23,25 +26,43 @@ if(MG_SPLIT_DEBUG)
     message(STATUS "MG_SPLIT_DEBUG enabled (using ${CMAKE_OBJCOPY})")
 endif()
 
-# mg_split_debug(target [INSTALL_DESTINATION <dir>])
+# mg_split_debug(target [INSTALL_DESTINATION <dir>] [COMPONENT <component>])
 #
 # POST_BUILD: extract DWARF into <target>.debug, strip the binary, and embed a
 # .gnu_debuglink pointing at the sidecar.
 #
-# If INSTALL_DESTINATION is given, the sidecar is installed into the
-# "debuginfo" CPack component, which ships in
-# memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm next to the matching
-# binary so gdb resolves it via .gnu_debuglink.
+# If INSTALL_DESTINATION is given, the sidecar is installed into the given
+# install COMPONENT (default "debuginfo", which ships in
+# memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm) next to the matching
+# binary so gdb resolves it via .gnu_debuglink. MAGE modules pass
+# COMPONENT mage_debuginfo so their sidecars stay out of the memgraph
+# debuginfo package.
 #
 # No-op when MG_SPLIT_DEBUG is OFF, so callers don't need to guard.
 function(mg_split_debug target)
     if(NOT MG_SPLIT_DEBUG)
         return()
     endif()
-    cmake_parse_arguments(MGSD "" "INSTALL_DESTINATION" "" ${ARGN})
+    cmake_parse_arguments(MGSD "" "INSTALL_DESTINATION;COMPONENT" "" ${ARGN})
+    if(NOT MGSD_COMPONENT)
+        set(MGSD_COMPONENT debuginfo)
+    endif()
+
+    # Compress the sidecar exactly once, in objcopy. A link-time -gz (see
+    # CompressDebug) is speed-tuned and objcopy would pass its sections
+    # through untouched, so the link of a split target stays uncompressed.
+    # Guarded by link language: the cuGraph MAGE modules link through nvcc.
+    target_link_options(${target} PRIVATE $<$<LINK_LANGUAGE:C,CXX>:-gz=none>)
+    if(NOT DEFINED MG_COMPRESS_DEBUG_FORMAT)
+        set(_compress --compress-debug-sections=zlib)
+    elseif(NOT MG_COMPRESS_DEBUG_FORMAT STREQUAL "none")
+        set(_compress --compress-debug-sections=${MG_COMPRESS_DEBUG_FORMAT})
+    else()
+        set(_compress "")
+    endif()
 
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug --compress-debug-sections=zlib $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug ${_compress} $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
         # --strip-debug keeps .symtab so customer-side stack traces (journalctl,
         # perf, gdb without the debuginfo package) still resolve to function
         # names. Switch to --strip-all once a symbol server is in place and
@@ -54,7 +75,7 @@ function(mg_split_debug target)
     if(MGSD_INSTALL_DESTINATION)
         install(FILES $<TARGET_FILE:${target}>.debug
             DESTINATION ${MGSD_INSTALL_DESTINATION}
-            COMPONENT debuginfo
+            COMPONENT ${MGSD_COMPONENT}
             OPTIONAL)
 
         # Also lay down a build-id-indexed symlink at
@@ -89,6 +110,6 @@ function(mg_split_debug target)
                         SYMBOLIC)
                 endif()
             endif()
-        " COMPONENT debuginfo)
+        " COMPONENT ${MGSD_COMPONENT})
     endif()
 endfunction()

@@ -13,7 +13,6 @@
 
 #include "utils/exceptions.hpp"
 
-#include <fmt/core.h>
 #include <fmt/format.h>
 
 namespace memgraph::query {
@@ -221,6 +220,24 @@ class QueryRuntimeException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(QueryRuntimeException)
 };
 
+/// A download that could deliver the file if the query were run again, such as one the server failed
+/// to serve or that never reached it. Reported to the client as retryable, and counted separately
+/// from other retryable errors so a run of them is visible.
+class TransientDownloadException : public RetryBasicException {
+ public:
+  using RetryBasicException::RetryBasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(TransientDownloadException)
+};
+
+/// Reports a failed download. Whether trying again could help is what decides which of the two the
+/// client sees, and that question belongs to whoever attempted the transfer.
+[[noreturn]] inline void ThrowDownloadFailed(bool const retryable, std::string message) {
+  if (retryable) {
+    throw TransientDownloadException(std::move(message));
+  }
+  throw QueryRuntimeException(std::move(message));
+}
+
 enum class AbortReason : uint8_t {
   NO_ABORT = 0,
 
@@ -288,15 +305,6 @@ class ConcurrentSystemQueriesException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(ConcurrentSystemQueriesException)
 };
 
-class WriteVertexOperationInEdgeImportModeException : public QueryException {
- public:
-  WriteVertexOperationInEdgeImportModeException()
-      : QueryException(
-            "Write operations on nodes are forbidden while the edge import mode is active. To disable the edge import "
-            "mode, run the EDGE IMPORT MODE INACTIVE; query.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(WriteVertexOperationInEdgeImportModeException)
-};
-
 // This one is inherited from BasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
@@ -306,6 +314,17 @@ class TransactionSerializationException : public RetryBasicException {
       : RetryBasicException(MessageWithDocsLink("Cannot resolve conflicting transactions. Retry this transaction when "
                                                 "the conflicting transaction is finished.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
+};
+
+// The storage mode selects which storage access a DDL query needs, so it is read before that
+// access is taken and a concurrent SET STORAGE MODE can land in between. Retrying picks the
+// access matching the new mode.
+class StorageModeChangedDuringSetupException : public RetryBasicException {
+ public:
+  StorageModeChangedDuringSetupException()
+      : RetryBasicException(
+            "The storage mode changed while this query was acquiring storage access. Retry this query.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(StorageModeChangedDuringSetupException)
 };
 
 class ReconstructionException : public QueryException {
@@ -323,10 +342,25 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
-class UserModificationInMulticommandTxException : public MulticommandTxException {
+class UserProfileInMulticommandTxException : public MulticommandTxException {
  public:
-  UserModificationInMulticommandTxException() : MulticommandTxException("Managing users") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(UserModificationInMulticommandTxException)
+  UserProfileInMulticommandTxException() : MulticommandTxException("Managing user profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UserProfileInMulticommandTxException)
+};
+
+class TenantProfileInMulticommandTxException : public MulticommandTxException {
+ public:
+  TenantProfileInMulticommandTxException() : MulticommandTxException("Managing tenant profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TenantProfileInMulticommandTxException)
+};
+
+class MixedAuthAndDataTxException : public QueryException {
+ public:
+  MixedAuthAndDataTxException()
+      : QueryException(
+            "A transaction that runs an auth query can contain only auth queries. Run other queries in a separate "
+            "transaction.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(MixedAuthAndDataTxException)
 };
 
 class InvalidArgumentsException : public QueryException {
@@ -509,13 +543,18 @@ class AnalyzeGraphInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(AnalyzeGraphInMulticommandTxException)
 };
 
+// Shared by the aborted-transaction ReplicationException and the notification reported when the transaction is
+// committed on main but could not reach all SYNC replicas, so both report the failure with the same wording.
+inline auto ReplicationFailureMessage(std::string_view message) -> std::string {
+  return fmt::format("{} Check the status of the replicas using 'SHOW REPLICAS' query.", message);
+}
+
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 
   explicit ReplicationException(const std::string &message)
-      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
-                              message) {}
+      : utils::BasicException(fmt::format("Replication Exception: {}", ReplicationFailureMessage(message))) {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)
 };
 
@@ -532,8 +571,8 @@ class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()
       : QueryException(
-            "Write queries currently forbidden on the main instance. The cluster is in the process of setting up a new "
-            "main instance, please retry the query later on.") {}
+            "Write queries currently forbidden on the main instance. Either the cluster is in read-only mode, or a new "
+            "main instance is being set up. Please retry the query later on if this is transient.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
 };
 
@@ -541,6 +580,12 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
  public:
   TransactionQueueInMulticommandTxException() : MulticommandTxException("Querying transaction status") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionQueueInMulticommandTxException)
+};
+
+class SessionQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  SessionQueryInMulticommandTxException() : MulticommandTxException("Session management") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionQueryInMulticommandTxException)
 };
 
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
@@ -559,16 +604,6 @@ class DropGraphInMulticommandTxException : public MulticommandTxException {
  public:
   DropGraphInMulticommandTxException() : MulticommandTxException("Dropping the graph") {}
   SPECIALIZE_GET_EXCEPTION_NAME(DropGraphInMulticommandTxException)
-};
-
-class TextSearchException : public QueryException {
-  using QueryException::QueryException;
-  SPECIALIZE_GET_EXCEPTION_NAME(TextSearchException)
-};
-
-class VectorSearchException : public QueryException {
-  using QueryException::QueryException;
-  SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchException)
 };
 
 class EnumModificationInMulticommandTxException : public MulticommandTxException {

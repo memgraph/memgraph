@@ -35,7 +35,7 @@ bool DataInstanceManagementServer::Shutdown() {
   if (rpc_server_.Shutdown()) {
     try {
       // trace can throw
-      spdlog::trace("Closing data instance management server");
+      spdlog::info("Closing data instance management server");
       // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (std::exception const &) {
     }

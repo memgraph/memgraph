@@ -21,6 +21,8 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <boost/container/flat_set.hpp>
+#include <boost/container/small_vector.hpp>
 
 #include "utils/small_vector.hpp"
 
@@ -52,8 +54,10 @@ enum class FuzzSymbol : uint8_t {
   Mul = 14,
 };
 
-/// Empty analysis for fuzz testing (no analysis data needed)
-struct FuzzAnalysis {};
+/// Dummy analysis for fuzz testing: no facts, no-op merge.
+struct FuzzAnalysis {
+  void merge(FuzzAnalysis const & /*other*/) {}
+};
 
 // ============================================================================
 // Validation Functions

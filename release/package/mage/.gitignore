@@ -1,0 +1,13 @@
+# Transient artifacts staged into this docker build context by
+# package_mage_docker (mgbuild.sh) and the packaging workflows.
+memgraph*.deb
+memgraph*.rpm
+openssl/
+wheels/
+heaptrack/
+ci.sources
+mirrors/
+requirements.txt
+requirements-gpu.txt
+auth-module-requirements.txt
+run_with_gdb.sh

@@ -1,0 +1,6 @@
+# An empty label-property map searches nothing and returns no rows (no error).
+query: >
+  CALL search.node({}, 'exact', 'abc') YIELD node
+  RETURN node;
+
+output: []

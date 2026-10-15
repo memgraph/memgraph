@@ -14,12 +14,30 @@ in_memory_cluster: &in_memory_cluster
       setup_queries: []
       validation_queries: []
 
+# convert.to_json serializes relationship/path properties, which requires
+# properties on edges to be enabled.
+args_edge_props: &args_edge_props
+  - "--bolt_port"
+  - *bolt_port
+  - "--log-level=TRACE"
+  - "--query-callable-mappings-path"
+  - "query_modules/callable_alias_mapping.json"
+  - "--storage-properties-on-edges"
+
+in_memory_cluster_edge_props: &in_memory_cluster_edge_props
+  cluster:
+    main:
+      args: *args_edge_props
+      log_file: "query_modules-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Convert query module test"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
     args: ["query_modules/convert_test.py"]
-    <<: *in_memory_cluster
+    <<: *in_memory_cluster_edge_props
 
   - name: "Mgps query module test"
     pre_set_workload: "tests/e2e/x.sh"

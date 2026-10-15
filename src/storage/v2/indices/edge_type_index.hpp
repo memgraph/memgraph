@@ -31,7 +31,7 @@ struct Vertex;
 
 struct EdgeTypeIndexActiveIndices;
 struct EdgeTypeIndexAbortProcessor;
-using EdgeTypeIndexAbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
+using EdgeTypeIndexAbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, EdgeRef>>>;
 
 class EdgeTypeIndex {
  public:
@@ -54,10 +54,17 @@ class EdgeTypeIndex {
 };
 
 struct EdgeTypeIndexAbortProcessor {
-  explicit EdgeTypeIndexAbortProcessor(std::span<EdgeTypeId const> edge_types);
+  EdgeTypeIndexAbortProcessor() = default;
 
-  void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+  explicit EdgeTypeIndexAbortProcessor(std::span<EdgeTypeId const> indexed) : indexed_{indexed} {}
 
+  void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
+
+  bool IsInteresting(EdgeTypeId edge_type) const;
+
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life. Sorted,
+  /// so looking one up is a binary search rather than a map built for every abort.
+  std::span<EdgeTypeId const> indexed_;
   EdgeTypeIndexAbortableInfo cleanup_collection_;
 };
 
@@ -70,7 +77,7 @@ struct EdgeTypeIndexActiveIndices {
   virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
 
   virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
-  virtual bool IndexRegistered(EdgeTypeId edge_type) const = 0;
+  virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
 
   virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;
 

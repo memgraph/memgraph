@@ -1,0 +1,14 @@
+# denylistNodes: B is neither returned nor expanded through, so C is only reached via D.
+query: >
+  MATCH (b:Node {name: "B"})
+  WITH collect(b) AS deny
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {denylistNodes: deny, maxHops: 5})
+  YIELD result
+  WITH result ORDER BY size(nodes(result)), [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "D"]
+  - names: ["A", "D", "C"]

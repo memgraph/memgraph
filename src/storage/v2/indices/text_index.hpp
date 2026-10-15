@@ -15,10 +15,10 @@
 #include <nlohmann/json_fwd.hpp>
 
 #include "mg_procedure.h"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
@@ -136,11 +136,12 @@ class TextIndex {
   /// the resulting ActiveIndices snapshot via PublishActiveIndices — typically
   /// deferred through Transaction::commit_callbacks_ so the snapshot is only
   /// observable after the DDL transaction commits.
-  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
+  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper,
+                   ProgressCallback const &on_progress = {});
 
   void RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                    ProgressCallback const &on_progress = {});
 
   /// Removes the index from the live container and returns the evicted
   /// TextIndexData. The caller MUST keep the returned shared_ptr until commit

@@ -1,0 +1,13 @@
+# The same mixed-direction step as test_expand_config_mixed_direction_step, under the node-global
+# rule, which is a separate walk with its own direction skip.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: 'R>|<OTHER', minHops: 1, maxHops: 1,
+                              bfs: true, uniqueness: 'NODE_GLOBAL'})
+  YIELD result
+  WITH result ORDER BY [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A", "B"]
+  - names: ["A", "C"]

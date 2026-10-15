@@ -11,17 +11,19 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "memory/db_arena_fwd.hpp"
-#include "query/cypher_query_interpreter.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "query/context.hpp"
+#include "query/plan_cache.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/database_protector.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/gatekeeper.hpp"
@@ -64,10 +66,8 @@ class Database {
    * @brief Construct a new Database object
    *
    * @param config storage configuration
-   * @param database_protector_factory factory function to create database protectors for async operations
    */
-  explicit Database(storage::Config config,
-                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+  explicit Database(storage::Config config);
   ~Database();
 
   /**
@@ -106,6 +106,16 @@ class Database {
   std::string name() const;
 
   utils::SafeString::ConstSafeWrapper name_view() const;
+
+  void Rename(std::string_view new_name);
+
+  // Opt-in customization point utils::GatekeeperLabelFor<Database> detects via SFINAE (see
+  // gatekeeper.hpp) so ~Gatekeeper's stall warning can name the tenant — looks unused otherwise.
+  std::string gatekeeper_label() const { return name(); }
+
+  // Opt-in customization point utils::Gatekeeper<Database> calls once this database is in place. The
+  // handle stays valid across rename and gatekeeper moves, so background workers pin this database by it.
+  void BindGatekeeper(utils::Gatekeeper<Database>::Ref ref) { gatekeeper_ref_.store(ref, std::memory_order_release); }
 
   /**
    * @brief Unique storage identified (uuid)
@@ -163,18 +173,18 @@ class Database {
    */
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
 
+  // See after_commit_trigger_status_.
+  std::atomic<query::TransactionStatus> *after_commit_trigger_status() { return &after_commit_trigger_status_; }
+
   /**
-   * @brief Add task to the after commit trigger thread pool
+   * @brief Add task to the after commit trigger thread pool.
+   *
+   * A task scheduled after StopAllBackgroundTasks() is dropped and logged, not run.
    *
    * @param new_task
    */
-  void AddTask(utils::ThreadPool::TaskSignature new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
+  void AddTask(utils::ThreadPool::TaskSignature new_task);
 
-  /**
-   * @brief Returns the PlanCache vector raw pointer
-   *
-   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<PlanWrapper>>, utils::RWSpinLock>
-   */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
   storage::ttl::TTL &ttl();
@@ -237,6 +247,10 @@ class Database {
   metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
 
  private:
+  // Declared first so it is released last: the storage's garbage collector writes to these metrics
+  // until it is joined, which happens while the storage is being destroyed.
+  metrics::PrometheusMetrics::Registration metrics_;
+
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this
   // as their second parent so every allocation is counted here AND in the domain global.
@@ -252,35 +266,23 @@ class Database {
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
   std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
 
-  // RAII guard that de-registers this database's metric handles from the
-  // global PrometheusMetrics registry on destruction.
-  class DatabaseMetricsRegistration {
-   public:
-    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles handles)
-        : uuid_(uuid), handles_(std::move(handles)) {}
-
-    ~DatabaseMetricsRegistration();
-
-    DatabaseMetricsRegistration(DatabaseMetricsRegistration const &) = delete;
-    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration const &) = delete;
-    DatabaseMetricsRegistration(DatabaseMetricsRegistration &&) = delete;
-    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration &&) = delete;
-
-    metrics::DatabaseMetricHandles const &handles() const { return handles_; }
-
-    metrics::DatabaseMetricHandles &handles() { return handles_; }
-
-   private:
-    utils::UUID uuid_;
-    metrics::DatabaseMetricHandles handles_{};
-  };
-
-  DatabaseMetricsRegistration metrics_;                 //!< De-registration guard for this db's prometheus metrics
+  // Declared before storage_ so it outlives the storage's TTL and async-indexer threads, which read it.
+  std::atomic<utils::Gatekeeper<Database>::Ref> gatekeeper_ref_{};
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers
-  std::unique_ptr<query::stream::Streams> streams_;     //!< Streams associated with the storage
-  query::PlanCacheLRU plan_cache_;                      //!< Plan cache associated with the storage
+  // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is
+  // never reset. After-commit triggers run on after_commit_trigger_pool_ outside the interpreter's
+  // transaction registry, so they cannot be aborted through the normal transaction-status path; this
+  // atomic is the cooperative abort signal. StopAllBackgroundTasks() stores TERMINATED here BEFORE
+  // joining the pool, so a running trigger observes the transition via StoppingContext::MustAbort()
+  // and exits promptly.
+  // Declaration order matters: members destruct in reverse declaration order, so declaring this
+  // BEFORE after_commit_trigger_pool_ guarantees the atomic outlives the pool's worker-thread join
+  // at destruction — mirroring the store-before-join guarantee provided at runtime.
+  std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
+  utils::ThreadPool after_commit_trigger_pool_{1};   //!< Thread pool for after commit triggers
+  std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

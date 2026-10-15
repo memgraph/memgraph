@@ -28,10 +28,10 @@ using rewrite::RewriteResult;
 // Rewriter Test Types
 // ============================================================================
 
-using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
-using TestRuleSet = rewrite::RuleSet<Op, NoAnalysis>;
-using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
-using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
+using TestRewriteRule = rewrite::RewriteRule<TypedTestEGraph>;
+using TestRuleSet = rewrite::RuleSet<TypedTestEGraph>;
+using TestRewriter = rewrite::Rewriter<TypedTestEGraph>;
+using TestRuleContext = rewrite::RuleContext<TypedTestEGraph>;
 
 // ============================================================================
 // Rewrite Test Fixture
@@ -42,7 +42,7 @@ using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
 
 class Rewrite : public EGraphTestBase {
  protected:
-  TestRewriter rewriter_{egraph};
+  TestRewriter rewriter_{typed_egraph};
   RewriteResult result_;
   std::unordered_map<std::string, std::size_t> rule_indices_;
 

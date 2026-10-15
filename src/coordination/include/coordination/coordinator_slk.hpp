@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
@@ -177,6 +178,16 @@ inline void Load(coordination::ReplicationLagInfo *obj, Reader *reader) {
   Load(&obj->replicas_info_, reader);
 }
 
+inline void Save(const coordination::ReplicationLagResult &obj, Builder *builder) {
+  Save(obj.status_, builder);
+  Save(obj.data_, builder);
+}
+
+inline void Load(coordination::ReplicationLagResult *obj, Reader *reader) {
+  Load(&obj->status_, reader);
+  Load(&obj->data_, reader);
+}
+
 inline void Save(coordination::CoordinatorInstanceConfig const &config, Builder *builder) {
   Save(config.coordinator_hostname, builder);
   Save(config.coordinator_id, builder);
@@ -191,6 +202,16 @@ inline void Load(coordination::CoordinatorInstanceConfig *obj, Reader *reader) {
   Load(&obj->coordinator_server, reader);
   Load(&obj->bolt_server, reader);
   Load(&obj->management_server, reader);
+}
+
+inline void Save(coordination::CoordinatorRole const &obj, Builder *builder) {
+  Save(obj.name, builder);
+  Save(obj.permissions, builder);
+}
+
+inline void Load(coordination::CoordinatorRole *obj, Reader *reader) {
+  Load(&obj->name, reader);
+  Load(&obj->permissions, reader);
 }
 
 inline void Save(coordination::DataInstanceConfig const &config, Builder *builder) {

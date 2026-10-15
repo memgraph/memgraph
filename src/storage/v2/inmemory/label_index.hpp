@@ -11,15 +11,17 @@
 
 #pragma once
 
+#include <mutex>
 #include <span>
 
 #include "memory/db_arena_fwd.hpp"
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -67,16 +69,14 @@ class InMemoryLabelIndex : public LabelIndex {
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(LabelId label, utils::SkipListDb<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                          ActiveIndicesUpdater const &updater,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
-  /// Caller can re-install via RestoreIndex on abort. The returned shared_ptr keeps
-  /// the entry alive in all_indices_, so RestoreIndex must not re-append there.
   [[nodiscard]] auto DropIndex(LabelId label, ActiveIndicesUpdater const &updater) -> std::shared_ptr<IndividualIndex>;
-  void RestoreIndex(LabelId label, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// Sweeps only the indexes whose label `arming` names, and returns how many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
 
   class Iterable {
    public:
@@ -191,7 +191,7 @@ class InMemoryLabelIndex : public LabelIndex {
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {};
 
-    bool IndexRegistered(LabelId label) const override;
+    bool IndexExists(LabelId label) const override;
 
     bool IndexReady(LabelId label) const override;
 
@@ -213,7 +213,12 @@ class InMemoryLabelIndex : public LabelIndex {
     auto GetAbortProcessor() const -> AbortProcessor override;
 
    private:
+    auto BuildIndexedLabels() const -> std::vector<LabelId>;
+
     std::shared_ptr<IndexContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag indexed_labels_built_;
+    mutable std::vector<LabelId> indexed_labels_;
   };
 
   auto GetActiveIndices() const -> std::shared_ptr<LabelIndex::ActiveIndices> override;
@@ -221,8 +226,7 @@ class InMemoryLabelIndex : public LabelIndex {
   auto RegisterIndex(LabelId, ActiveIndicesUpdater const &updater) -> bool;
   auto PopulateIndex(LabelId label, utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     ActiveIndicesUpdater const &updater,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
@@ -242,11 +246,6 @@ class InMemoryLabelIndex : public LabelIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
-
-  // Atomic install into index_ + (optional) all_indices_. Returns false if the slot
-  // is taken. Shared by RegisterIndex (true) and RestoreIndex (false).
-  bool InstallIndividualIndex_(LabelId label, std::shared_ptr<IndividualIndex> entry,
-                               ActiveIndicesUpdater const &updater, bool register_in_all_indices);
 
   metrics::GaugeHandle gauge_{};
 

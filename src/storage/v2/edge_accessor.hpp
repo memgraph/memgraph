@@ -92,6 +92,9 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// Properties of this edge that are backed by a vector index.
+  std::vector<PropertyId> VectorIndexedProperties() const;
+
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
 
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }

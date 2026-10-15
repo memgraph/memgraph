@@ -198,7 +198,11 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
   if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
     spdlog::trace("Error trace: {}", p->trace());
   }
-  session.encoder_buffer_.Clear();
+  // Complete any record already partially on the wire (64 KiB auto-flush split) before the summary.
+  if (!session.encoder_buffer_.FlushFinalized()) {
+    spdlog::trace("Couldn't flush finalized record chunks!");
+    return State::Close;
+  }
 
   auto code_message = ExceptionToErrorMessage(e, session.GetMetricHandles());
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
@@ -463,8 +467,7 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
-    session.CommitTransaction();
-    if (!session.encoder_.MessageSuccess({})) {
+    if (!session.encoder_.MessageSuccess(session.CommitTransaction())) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
@@ -507,13 +510,19 @@ State HandleNoop(const State state) {
 }
 
 template <typename TSession>
-State HandleGoodbye() {
+State HandleGoodbye(TSession &session) {
+  // Deliver any responses deferred by encoder response-batching before the connection closes; the flush
+  // result is moot since the SessionClosedException below closes the connection regardless.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   throw SessionClosedException("Closing connection.");
 }
 
 template <typename TSession, int bolt_major, int bolt_minor = 0>
 auto ReadDB(TSession &session) -> std::optional<std::string> {
-  if constexpr (bolt_major == 5) {
+  // The ROUTE message carries the database name differently across Bolt versions: 4.3 sends it as a standalone
+  // string field, while 4.4+ (and all of 5.x) moved it inside the trailing `extra` map. The third struct field
+  // must be consumed regardless so the decoder stays aligned, hence the explicit branch per layout.
+  if constexpr (bolt_major == 5 || (bolt_major == 4 && bolt_minor >= 4)) {
     Value extra;
     if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
       spdlog::trace("Couldn't read extra field!");
@@ -572,7 +581,8 @@ State HandleRoute(TSession &session, const Marker marker) {
   }
 
 #else
-  session.encoder_buffer_.Clear();
+  // Deliver any responses deferred earlier in this burst before the FAILURE, rather than discarding them.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   bool fail_sent =
       session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
   if (!fail_sent) {
@@ -585,8 +595,15 @@ State HandleRoute(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleLogOff(TSession &session) {
-  // No arguments and cannot fail
-  session.LogOff();
-  return State::Init;
+  try {
+    session.LogOff();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Init;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 }  // namespace memgraph::communication::bolt

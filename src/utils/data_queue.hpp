@@ -103,6 +103,28 @@ class DataQueue {
   }
 
   /**
+   * Pops an item only if one is already waiting.  Never blocks, so a consumer
+   * that already has something to return can drain what has arrived without
+   * committing to wait for more.
+   *
+   * @param[out] item  If `try_pop` returns `true`, it contains the popped item.
+   *                    If it returns `false`, it is unmodified.
+   * @returns          True if an item was popped.
+   */
+  bool try_pop(T &item) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.empty()) {
+        return false;
+      }
+      std::swap(item, queue_.front());
+      queue_.pop();
+    }
+    writerCv_.notify_one();
+    return true;
+  }
+
+  /**
    * Sets the maximum queue size.  If `maxSize == 0` then it is unbounded.
    *
    * @param maxSize The new maximum queue size.

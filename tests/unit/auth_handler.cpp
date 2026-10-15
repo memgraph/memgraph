@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <future>
 #include <latch>
 #include <thread>
 #include <variant>
@@ -24,13 +26,20 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/repository.hpp"
+#include "auth_test_utils.hpp"
 #include "dbms/constants.hpp"
 #include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
+#include "glue/query_user.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/query_user.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
+#include "utils/fips.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -80,8 +89,8 @@ class AuthQueryHandlerFixture : public testing::Test {
 };
 
 TEST_F(AuthQueryHandlerFixture, GivenAuthQueryHandlerWhenInitializedHaveNoUsernamesOrRolenames) {
-  ASSERT_EQ(auth_handler.GetUsernames().size(), 0);
-  ASSERT_EQ(auth_handler.GetRolenames().size(), 0);
+  ASSERT_EQ(auth_handler.GetUsernames(nullptr).size(), 0);
+  ASSERT_EQ(auth_handler.GetRolenames(nullptr).size(), 0);
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturned) {
@@ -89,12 +98,12 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturn
   auth.value()->SaveUser(user);
 
   {
-    ASSERT_EQ(auth_handler.GetUsernames().size(), 1);
+    ASSERT_EQ(auth_handler.GetUsernames(nullptr).size(), 1);
   }
 
   {
-    auto privileges =
-        auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+    auto privileges = auth_handler.GetPrivileges(
+        user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
 
     ASSERT_EQ(privileges.size(), 0);
   }
@@ -105,8 +114,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedGrantPermissionThenItIsReturne
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -127,8 +136,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedDenyPermissionThenItIsReturned
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -150,8 +159,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturn
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 0);
 }
 
@@ -161,12 +170,12 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
   auth.value()->SaveRole(role);
 
   {
-    ASSERT_EQ(auth_handler.GetRolenames().size(), 1);
+    ASSERT_EQ(auth_handler.GetRolenames(nullptr).size(), 1);
   }
 
   {
-    auto privileges =
-        auth_handler.GetPrivileges("Mates_role", std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+    auto privileges = auth_handler.GetPrivileges(
+        "Mates_role", std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
     ASSERT_EQ(privileges.size(), 1);
 
     auto result = *privileges.begin();
@@ -188,8 +197,8 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeDeniedThenItIsReturned) {
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
 
-  auto privileges =
-      auth_handler.GetPrivileges("Mates_role", std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      "Mates_role", std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -211,8 +220,8 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeRevokedThenNothingIsReturn
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
 
-  auto privileges =
-      auth_handler.GetPrivileges("Mates_role", std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      "Mates_role", std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 0);
 }
 
@@ -222,8 +231,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreRetu
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 2);
 }
 
@@ -236,8 +245,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
   user.AddRole(role);
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -262,8 +271,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
   user.AddRole(role);
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -296,8 +305,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
   user.AddRole(role);
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -326,8 +335,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   user.AddRole(role);
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -356,8 +365,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -385,8 +394,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -416,8 +425,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -445,8 +454,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -477,8 +486,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -506,8 +515,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenA
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -535,8 +544,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -564,8 +573,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -593,8 +602,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenDeniedOnLabelThenDenyIsDisplayed) {
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -623,8 +632,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenBothAreD
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 2);
 
   auto it = privileges.begin();
@@ -650,8 +659,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenDeniedOnEdgeTypeThenDenyIsDisplayed
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
   auth.value()->SaveUser(user);
 
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
@@ -697,7 +706,8 @@ TEST_F(AuthQueryHandlerFixture, CreateProfile) {
     // Stop auth and check if profiles are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
     for (const auto &profile : check_durable_profiles.GetAll()) {
       if (profile.name == "profile") {
         ASSERT_EQ(profile.limits.size(), 0);
@@ -803,7 +813,8 @@ TEST_F(AuthQueryHandlerFixture, CreateProfileWithPredefinedUsernames) {
     // Stop auth and check if profiles with usernames are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
 
     bool found_profile_with_users = false;
     bool found_profile_moving_users = false;
@@ -858,7 +869,8 @@ TEST_F(AuthQueryHandlerFixture, UpdateProfile) {
     // Stop auth and check if profiles are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
     for (const auto &profile : check_durable_profiles.GetAll()) {
       if (profile.name == "profile") {
         ASSERT_EQ(profile.limits.size(), 1);
@@ -894,7 +906,8 @@ TEST_F(AuthQueryHandlerFixture, DropProfile) {
     // Stop auth and check if profiles are saved in the durable storage
     auth.reset();
     memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
-    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    memgraph::auth::Repository check_durable_repository{check_durable_kvstore};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_repository};
     for (const auto &profile : check_durable_profiles.GetAll()) {
       if (profile.name == "profile") {
         ASSERT_EQ(profile.limits.size(), 0);
@@ -996,7 +1009,7 @@ TEST_F(AuthQueryHandlerFixture, SetProfile) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr, nullptr).created);
 
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
   {
@@ -1034,7 +1047,7 @@ TEST_F(AuthQueryHandlerFixture, RevokeProfile) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr, nullptr).created);
 
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
   {
@@ -1079,9 +1092,9 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
-  ASSERT_TRUE(auth_handler.CreateRole("role", nullptr));
-  auth_handler.SetRoles("user", {"role"}, {}, nullptr);
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateRole("role", nullptr, nullptr));
+  auth_handler.SetRoles("user", {"role"}, {}, nullptr, nullptr);
 
   // Set profile for user (not role)
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
@@ -1119,12 +1132,12 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
   }
 
   // Revoke role from user before dropping
-  auth_handler.RevokeRoles("user", {"role"}, {}, nullptr);
+  auth_handler.RevokeRoles("user", {"role"}, {}, nullptr, nullptr);
 
   // Drop role and verify user still exists
-  auth_handler.DropRole("role", nullptr);
+  auth_handler.DropRole("role", nullptr, nullptr);
   {
-    ASSERT_THROW(auth_handler.GetUsernamesForRole("role"), memgraph::query::QueryRuntimeException);
+    ASSERT_THROW(auth_handler.GetUsernamesForRole("role", nullptr), memgraph::query::QueryRuntimeException);
     const auto user = auth.value()->GetUser("user");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->GetRoles().size(), 0);
@@ -1139,7 +1152,7 @@ TEST_F(AuthQueryHandlerFixture, GetProfileForUser) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr, nullptr).created);
 
   ASSERT_FALSE(auth_handler.GetProfileForUser("user"));
   ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
@@ -1181,10 +1194,10 @@ TEST_F(AuthQueryHandlerFixture, GetUsersForProfile) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr).created);
-  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr).created);
-  ASSERT_TRUE(auth_handler.CreateUser("user3", {}, nullptr).created);
-  ASSERT_TRUE(auth_handler.CreateUser("user4", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user3", {}, nullptr, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user4", {}, nullptr, nullptr).created);
 
   ASSERT_EQ(auth_handler.GetUsernamesForProfile("profile").size(), 0);
 
@@ -1205,7 +1218,7 @@ TEST_F(AuthQueryHandlerFixture, GetUsersForProfile) {
     ASSERT_TRUE(std::find(users.begin(), users.end(), "user1") != users.end());
     ASSERT_TRUE(std::find(users.begin(), users.end(), "user3") != users.end());
   }
-  ASSERT_NO_THROW(auth_handler.DropUser("user3", nullptr));
+  ASSERT_NO_THROW(auth_handler.DropUser("user3", nullptr, nullptr));
   {
     // In the new architecture, dropping a user doesn't automatically remove them from profiles
     // The username remains in the profile even after the user is dropped
@@ -1245,7 +1258,7 @@ TEST_F(AuthQueryHandlerFixture,
   auth.value()->SaveUser(user);
 
   // Test filtering by db1 - should only show MATCH permission from role1
-  auto privileges_db1 = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db1"}});
+  auto privileges_db1 = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db1"}}, nullptr);
   ASSERT_EQ(privileges_db1.size(), 1);
   auto result_db1 = *privileges_db1.begin();
   ASSERT_EQ(result_db1.size(), 3);
@@ -1255,7 +1268,7 @@ TEST_F(AuthQueryHandlerFixture,
   ASSERT_EQ(result_db1[2].ValueString(), "GRANTED TO ROLE");
 
   // Test filtering by db2 - should only show CREATE permission from role2
-  auto privileges_db2 = auth_handler.GetPrivileges(user_name, "db2");
+  auto privileges_db2 = auth_handler.GetPrivileges(user_name, "db2", nullptr);
   ASSERT_EQ(privileges_db2.size(), 1);
   auto result_db2 = *privileges_db2.begin();
   ASSERT_EQ(result_db2.size(), 3);
@@ -1265,7 +1278,7 @@ TEST_F(AuthQueryHandlerFixture,
   ASSERT_EQ(result_db2[2].ValueString(), "GRANTED TO ROLE");
 
   // Test filtering by db3 - should show no privileges
-  auto privileges_db3 = auth_handler.GetPrivileges(user_name, "db3");
+  auto privileges_db3 = auth_handler.GetPrivileges(user_name, "db3", nullptr);
   ASSERT_EQ(privileges_db3.size(), 0);
 }
 
@@ -1281,7 +1294,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithNoAc
   auth.value()->SaveUser(user);
 
   // Test filtering by db2 - role doesn't have access to db2
-  auto privileges = auth_handler.GetPrivileges(user_name, "db2");
+  auto privileges = auth_handler.GetPrivileges(user_name, "db2", nullptr);
   ASSERT_EQ(privileges.size(), 0);
 }
 
@@ -1303,14 +1316,14 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithMultipleRolesWhenFilteringByDefault
 
   // Test with empty database name (should return all privileges)
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, std::nullopt);
+    auto privileges = auth_handler.GetPrivileges(user_name, std::nullopt, nullptr);
     ASSERT_EQ(privileges.size(), 2);
   }
 
   // Test with default database
   {
-    auto privileges =
-        auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+    auto privileges = auth_handler.GetPrivileges(
+        user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
     ASSERT_EQ(privileges.size(), 2);
   }
 }
@@ -1327,11 +1340,11 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithDeni
   user.AddRole(role);
   auth.value()->SaveUser(user);
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, "db1");
+    auto privileges = auth_handler.GetPrivileges(user_name, "db1", nullptr);
     ASSERT_EQ(privileges.size(), 1);
   }
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, "db2");
+    auto privileges = auth_handler.GetPrivileges(user_name, "db2", nullptr);
     ASSERT_EQ(privileges.size(), 0);
   }
 }
@@ -1358,7 +1371,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
 
   // Test filtering by any database - should show privileges
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, "db1");
+    auto privileges = auth_handler.GetPrivileges(user_name, "db1", nullptr);
     ASSERT_EQ(privileges.size(), 3);
     {
       auto &result = privileges[0];
@@ -1386,7 +1399,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
     }
   }
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db2"}});
+    auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db2"}}, nullptr);
     EXPECT_EQ(privileges.size(), 3);
     {
       auto &result = privileges[0];
@@ -1414,11 +1427,11 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
     }
   }
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db3"}});
+    auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db3"}}, nullptr);
     EXPECT_EQ(privileges.size(), 0);
   }
   {
-    auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db4"}});
+    auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db4"}}, nullptr);
     EXPECT_EQ(privileges.size(), 0);
   }
 }
@@ -1440,7 +1453,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseThenOnlyRelevant
   auth.value()->SaveRole(role2);
 
   // Test filtering by db1 - should only show MATCH permission from role1
-  auto privileges_db1 = auth_handler.GetPrivileges("role1", "db1");
+  auto privileges_db1 = auth_handler.GetPrivileges("role1", "db1", nullptr);
   ASSERT_EQ(privileges_db1.size(), 1);
   auto result_db1 = *privileges_db1.begin();
   ASSERT_EQ(result_db1.size(), 3);
@@ -1452,7 +1465,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseThenOnlyRelevant
   ASSERT_EQ(result_db1[2].ValueString(), "GRANTED TO ROLE");
 
   // Test filtering by db2 - should only show CREATE permission from role2
-  auto privileges_db2 = auth_handler.GetPrivileges("role2", "db2");
+  auto privileges_db2 = auth_handler.GetPrivileges("role2", "db2", nullptr);
   ASSERT_EQ(privileges_db2.size(), 1);
   auto result_db2 = *privileges_db2.begin();
   ASSERT_EQ(result_db2.size(), 3);
@@ -1464,7 +1477,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseThenOnlyRelevant
   ASSERT_EQ(result_db2[2].ValueString(), "GRANTED TO ROLE");
 
   // Test filtering by db3 - should show no privileges
-  auto privileges_db3 = auth_handler.GetPrivileges("role1", "db3");
+  auto privileges_db3 = auth_handler.GetPrivileges("role1", "db3", nullptr);
   ASSERT_EQ(privileges_db3.size(), 0);
 }
 
@@ -1476,7 +1489,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseWithNoAccessThen
   auth.value()->SaveRole(role);
 
   // Test filtering by db2 - role doesn't have access to db2
-  auto privileges = auth_handler.GetPrivileges("test_role", "db2");
+  auto privileges = auth_handler.GetPrivileges("test_role", "db2", nullptr);
   ASSERT_EQ(privileges.size(), 0);
 }
 
@@ -1490,13 +1503,13 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseWithDeniedAccess
 
   // Test filtering by db1 - should show privileges
   {
-    auto privileges = auth_handler.GetPrivileges("test_role", "db1");
+    auto privileges = auth_handler.GetPrivileges("test_role", "db1", nullptr);
     ASSERT_EQ(privileges.size(), 1);
   }
 
   // Test filtering by db2 - should show no privileges due to deny
   {
-    auto privileges = auth_handler.GetPrivileges("test_role", "db2");
+    auto privileges = auth_handler.GetPrivileges("test_role", "db2", nullptr);
     ASSERT_EQ(privileges.size(), 0);
   }
 }
@@ -1512,7 +1525,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseWithAllowAllThen
 
   // Test filtering by any database - should show privileges
   {
-    auto privileges = auth_handler.GetPrivileges("test_role", "db1");
+    auto privileges = auth_handler.GetPrivileges("test_role", "db1", nullptr);
     ASSERT_EQ(privileges.size(), 2);
     {
       auto &result = privileges[0];
@@ -1538,7 +1551,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseWithAllowAllThen
 
   // Test filtering by denied database - should show no privileges
   {
-    auto privileges = auth_handler.GetPrivileges("test_role", std::optional<std::string>{std::string{"db3"}});
+    auto privileges = auth_handler.GetPrivileges("test_role", std::optional<std::string>{std::string{"db3"}}, nullptr);
     ASSERT_EQ(privileges.size(), 0);
   }
 }
@@ -1562,7 +1575,7 @@ TEST_F(AuthQueryHandlerFixture,
   auth.value()->SaveRole(role);
 
   // Test filtering by db1 - should show both generic and fine-grained privileges
-  auto privileges_db1 = auth_handler.GetPrivileges("test_role", "db1");
+  auto privileges_db1 = auth_handler.GetPrivileges("test_role", "db1", nullptr);
   ASSERT_GT(privileges_db1.size(), 0);
 
   // Check that we have the generic MATCH privilege
@@ -1606,7 +1619,7 @@ TEST_F(AuthQueryHandlerFixture,
   ASSERT_TRUE(found_edge_works_for);
 
   // Test filtering by db3 - should show no privileges
-  auto privileges_db3 = auth_handler.GetPrivileges("test_role", "db3");
+  auto privileges_db3 = auth_handler.GetPrivileges("test_role", "db3", nullptr);
   ASSERT_EQ(privileges_db3.size(), 0);
 }
 
@@ -1619,7 +1632,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWithoutDatabaseAccessWhenFilteringByDat
   auth.value()->SaveRole(role);
 
   // Test filtering by any database - should show no privileges
-  auto privileges = auth_handler.GetPrivileges("test_role", "db1");
+  auto privileges = auth_handler.GetPrivileges("test_role", "db1", nullptr);
   ASSERT_EQ(privileges.size(), 0);
 }
 
@@ -1635,7 +1648,7 @@ TEST_F(AuthQueryHandlerFixture,
   auth.value()->SaveRole(role);
 
   // Test filtering by db1 - should show all privileges
-  auto privileges = auth_handler.GetPrivileges("test_role", "db1");
+  auto privileges = auth_handler.GetPrivileges("test_role", "db1", nullptr);
   ASSERT_EQ(privileges.size(), 4);
 
   // Check that all expected privileges are present
@@ -1657,7 +1670,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWithNoPermissionsWhenFilteringByDatabas
   auth.value()->SaveRole(role);
 
   // Test filtering by db1 - should show no privileges
-  auto privileges = auth_handler.GetPrivileges("test_role", "db1");
+  auto privileges = auth_handler.GetPrivileges("test_role", "db1", nullptr);
   ASSERT_EQ(privileges.size(), 0);
 }
 #endif
@@ -1813,7 +1826,8 @@ TEST_F(AuthQueryHandlerFixture, SetRole_WithDatabaseSpecification_Success) {
   {
     std::vector<std::string> roles = {"role1", "role2"};
     std::unordered_set<std::string> databases = {"db1", "db2"};
-    ASSERT_THROW(auth_handler.SetRoles("test_user", roles, databases, nullptr), memgraph::query::QueryRuntimeException);
+    ASSERT_THROW(auth_handler.SetRoles("test_user", roles, databases, nullptr, nullptr),
+                 memgraph::query::QueryRuntimeException);
   }
 
   // Update roles to have access to both databases
@@ -1827,7 +1841,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_WithDatabaseSpecification_Success) {
   {
     std::vector<std::string> roles = {"role1", "role2"};
     std::unordered_set<std::string> databases = {"db1", "db2"};
-    ASSERT_NO_THROW(auth_handler.SetRoles("test_user", roles, databases, nullptr));
+    ASSERT_NO_THROW(auth_handler.SetRoles("test_user", roles, databases, nullptr, nullptr));
   }
 
   // Verify the roles are set as multi-tenant roles
@@ -1868,7 +1882,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRole_WithDatabaseSpecification_Success) {
 
   // Clear roles for specific database
   std::unordered_set<std::string> databases = {"db1"};
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", databases, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", databases, nullptr, nullptr));
 
   // Verify roles are cleared for db1 but remain for db2
   auto updated_user = auth.value()->GetUser("test_user");
@@ -1894,12 +1908,12 @@ TEST_F(AuthQueryHandlerFixture, GetRolenameForUser_WithDatabaseSpecification) {
   auth.value()->SaveUser(user);
 
   // Get roles for specific database
-  auto rolenames = auth_handler.GetRolenamesForUser("test_user", "db1");
+  auto rolenames = auth_handler.GetRolenamesForUser("test_user", "db1", nullptr);
   ASSERT_EQ(rolenames.size(), 1);
   ASSERT_EQ(rolenames[0].name, "test_role");
 
   // Get roles for different database (should be empty)
-  auto rolenames_db2 = auth_handler.GetRolenamesForUser("test_user", "db2");
+  auto rolenames_db2 = auth_handler.GetRolenamesForUser("test_user", "db2", nullptr);
   ASSERT_EQ(rolenames_db2.size(), 0);
 }
 
@@ -2024,7 +2038,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRolesRemovesAllRoles) {
   user.AddMultiTenantRole(role2, "db2");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2044,7 +2058,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRoleOnDatabaseLeavesOtherDatabases) {
   user.AddMultiTenantRole(role1, "db2");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {"db1"}, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", {"db1"}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2061,8 +2075,8 @@ TEST_F(AuthQueryHandlerFixture, AddRolesAddsRolesToUser) {
   memgraph::auth::User user("test_user");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {}, nullptr));
-  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role2"}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {}, nullptr, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role2"}, {}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2074,7 +2088,7 @@ TEST_F(AuthQueryHandlerFixture, AddRolesThrowsIfRoleDoesNotExist) {
   memgraph::auth::User user("test_user");
   auth.value()->SaveUser(user);
 
-  ASSERT_THROW(auth_handler.AddRoles("test_user", {"nonexistent"}, {}, nullptr),
+  ASSERT_THROW(auth_handler.AddRoles("test_user", {"nonexistent"}, {}, nullptr, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
@@ -2082,7 +2096,8 @@ TEST_F(AuthQueryHandlerFixture, AddRolesThrowsIfUserDoesNotExist) {
   memgraph::auth::Role role("role1");
   auth.value()->SaveRole(role);
 
-  ASSERT_THROW(auth_handler.AddRoles("nonexistent", {"role1"}, {}, nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.AddRoles("nonexistent", {"role1"}, {}, nullptr, nullptr),
+               memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, AddRolesDoesNotDuplicateExistingRole) {
@@ -2093,7 +2108,7 @@ TEST_F(AuthQueryHandlerFixture, AddRolesDoesNotDuplicateExistingRole) {
   user.AddRole(role);
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2111,7 +2126,7 @@ TEST_F(AuthQueryHandlerFixture, RevokeRolesRemovesRoleFromUser) {
   user.AddRole(role2);
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.RevokeRoles("test_user", {"role1"}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.RevokeRoles("test_user", {"role1"}, {}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2121,7 +2136,8 @@ TEST_F(AuthQueryHandlerFixture, RevokeRolesRemovesRoleFromUser) {
 }
 
 TEST_F(AuthQueryHandlerFixture, RevokeRolesThrowsIfUserDoesNotExist) {
-  ASSERT_THROW(auth_handler.RevokeRoles("nonexistent", {"role1"}, {}, nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.RevokeRoles("nonexistent", {"role1"}, {}, nullptr, nullptr),
+               memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, RevokeRolesOnDatabaseLeavesOtherDatabases) {
@@ -2135,7 +2151,7 @@ TEST_F(AuthQueryHandlerFixture, RevokeRolesOnDatabaseLeavesOtherDatabases) {
   user.AddMultiTenantRole(role1, "db2");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.RevokeRoles("test_user", {"role1"}, {"db1"}, nullptr));
+  ASSERT_NO_THROW(auth_handler.RevokeRoles("test_user", {"role1"}, {"db1"}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2152,7 +2168,7 @@ TEST_F(AuthQueryHandlerFixture, AddRolesOnDatabaseAddsToSpecifiedDatabase) {
   memgraph::auth::User user("test_user");
   auth.value()->SaveUser(user);
 
-  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {"db1"}, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("test_user", {"role1"}, {"db1"}, nullptr, nullptr));
 
   auto updated_user = auth.value()->GetUser("test_user");
   ASSERT_TRUE(updated_user);
@@ -2172,12 +2188,12 @@ TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
   ASSERT_TRUE(role3);
 
   // Create user
-  auto user = auth.value()->AddUser("multiuser");
+  auto user = AddUser(*auth->Lock(), "multiuser");
   ASSERT_TRUE(user);
 
   // Set multiple roles
   std::vector<std::string> roles = {"role1", "role2", "role3"};
-  ASSERT_NO_THROW(auth_handler.SetRoles("multiuser", roles, std::unordered_set<std::string>{}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRoles("multiuser", roles, std::unordered_set<std::string>{}, nullptr, nullptr));
 
   // Check user roles
   auto updated_user = auth.value()->GetUser("multiuser");
@@ -2196,14 +2212,14 @@ TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
   // Create role and user
   auto role = auth.value()->AddRole("role1");
   ASSERT_TRUE(role);
-  auto user = auth.value()->AddUser("user1");
+  auto user = AddUser(*auth->Lock(), "user1");
   ASSERT_TRUE(user);
   user->AddRole(*role);
   auth.value()->SaveUser(*user);
 
   // Clear roles by setting empty vector
   std::vector<std::string> roles = {};
-  ASSERT_NO_THROW(auth_handler.SetRoles("user1", roles, std::unordered_set<std::string>{}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRoles("user1", roles, std::unordered_set<std::string>{}, nullptr, nullptr));
   auto updated_user = auth.value()->GetUser("user1");
   ASSERT_TRUE(updated_user);
   ASSERT_TRUE(updated_user->roles().GetRoles().empty());
@@ -2211,17 +2227,17 @@ TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
 
 TEST_F(AuthQueryHandlerFixture, SetRole_NonExistentRole_Throws) {
   // Create user
-  auto user = auth.value()->AddUser("user2");
+  auto user = AddUser(*auth->Lock(), "user2");
   ASSERT_TRUE(user);
   // Try to set a non-existent role
   std::vector<std::string> roles = {"doesnotexist"};
-  ASSERT_THROW(auth_handler.SetRoles("user2", roles, std::unordered_set<std::string>{}, nullptr),
+  ASSERT_THROW(auth_handler.SetRoles("user2", roles, std::unordered_set<std::string>{}, nullptr, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, SetRole_UserDoesNotExist_Throws) {
   std::vector<std::string> roles = {"role1"};
-  ASSERT_THROW(auth_handler.SetRoles("no_such_user", roles, std::unordered_set<std::string>{}, nullptr),
+  ASSERT_THROW(auth_handler.SetRoles("no_such_user", roles, std::unordered_set<std::string>{}, nullptr, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
@@ -2231,11 +2247,11 @@ TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
   auto role2 = auth.value()->AddRole("role2");
   ASSERT_TRUE(role1);
   ASSERT_TRUE(role2);
-  auto user = auth.value()->AddUser("user3");
+  auto user = AddUser(*auth->Lock(), "user3");
   ASSERT_TRUE(user);
   // Set duplicate roles
   std::vector<std::string> roles = {"role1", "role2", "role1", "role2"};
-  ASSERT_NO_THROW(auth_handler.SetRoles("user3", roles, std::unordered_set<std::string>{}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRoles("user3", roles, std::unordered_set<std::string>{}, nullptr, nullptr));
   auto updated_user = auth.value()->GetUser("user3");
   ASSERT_TRUE(updated_user);
   std::set<std::string> unique_roles;
@@ -2328,8 +2344,8 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentProfileAssignment) {
   // Create profiles and users
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile1", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile2", {}, {}, nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr).created);
-  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr, nullptr).created);
 
   constexpr size_t kNumThreads = 4;
   std::vector<std::thread> threads;
@@ -2417,7 +2433,7 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceAccess) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("limited_profile", "test_user", nullptr));
 
   constexpr size_t kNumThreads = 10;
@@ -2465,7 +2481,7 @@ TEST_F(AuthQueryHandlerFixture, SessionLimitExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("single_session_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2489,6 +2505,7 @@ TEST_F(AuthQueryHandlerFixture, SessionLimitExhaustion) {
 
 TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with memory limit
   auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
@@ -2500,7 +2517,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("memory_limited_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2529,6 +2546,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
 
 TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with moderate memory limit
   auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
@@ -2540,7 +2558,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2557,6 +2575,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
 
 TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThrow) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with moderate memory limit
   auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
@@ -2568,7 +2587,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThr
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2588,6 +2607,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThr
 
 TEST_F(AuthQueryHandlerFixture, ResourceExhaustionRecovery) {
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
   // Create profile with limits
   auto session_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
   session_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
@@ -2604,7 +2624,7 @@ TEST_F(AuthQueryHandlerFixture, ResourceExhaustionRecovery) {
        memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("recovery_test_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2651,7 +2671,7 @@ TEST_F(AuthQueryHandlerFixture, ProfileUpdateDuringResourceExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("update_test_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2690,7 +2710,7 @@ TEST_F(AuthQueryHandlerFixture, ProfileDeletionDuringResourceUsage) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("delete_test_profile", "test_user", nullptr));
 
   auto resource = resources.GetUser("test_user");
@@ -2725,7 +2745,7 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceExhaustion) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("concurrent_exhaustion_profile", "test_user", nullptr));
 
   constexpr size_t kNumThreads = 10;
@@ -2734,19 +2754,21 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceExhaustion) {
   std::atomic<size_t> failure_count{0};
   std::atomic<size_t> total_allocated{0};
 
-  // Test concurrent resource exhaustion
+  // The limit caps concurrent sessions, so the latch holds every winner's session open until all
+  // ten threads have tried. The counts below are then exact rather than scheduling-dependent.
+  std::latch latch(kNumThreads);
   for (size_t i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&]() {
       auto resource = resources.GetUser("test_user");
       if (resource->IncrementSessions()) {
         success_count.fetch_add(1);
         total_allocated.fetch_add(1);
-        // Hold the resource for a bit
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        latch.arrive_and_wait();
         resource->DecrementSessions();
         total_allocated.fetch_sub(1);
       } else {
         failure_count.fetch_add(1);
+        latch.arrive_and_wait();
       }
     });
   }
@@ -2773,7 +2795,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
       {},
       nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr, nullptr).created);
   ASSERT_NO_THROW(auth_handler.SetProfile("memory_load_profile", "test_user", nullptr));
 
   constexpr size_t kNumThreads = 8;
@@ -2785,6 +2807,7 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
   for (size_t i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&]() {
       memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
       auto resource = resources.GetUser("test_user");
       ASSERT_TRUE(resource);
       size_t allocation_size = 256;  // 256 bytes per thread
@@ -2808,33 +2831,33 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
 TEST_F(AuthQueryHandlerFixture, FirstUserCommunityGetsPermissionsNoRoles) {
   memgraph::license::global_license_checker.DisableTesting();
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
 
   auto user = auth->ReadLock()->GetUser("alice");
   ASSERT_TRUE(user.has_value());
-  EXPECT_EQ(auth_handler.GetRolenames().size(), 0);
+  EXPECT_EQ(auth_handler.GetRolenames(nullptr).size(), 0);
   EXPECT_TRUE(user->roles().GetRoles().empty());
   EXPECT_NE(user->permissions().grants(), 0);
 }
 
 #ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, FirstUserEnterpriseGetsAdminRoleAndBuiltinRolesCreated) {
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
 
   auto locked = auth->ReadLock();
   auto user = locked->GetUser("alice");
   ASSERT_TRUE(user.has_value());
   EXPECT_EQ(locked->AllRolenames().size(), 3);
-  auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
+  auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt, nullptr);
   EXPECT_EQ(roles.size(), 1);
   EXPECT_EQ(roles[0].name, "admin");
   EXPECT_TRUE(roles[0].is_builtin);
 }
 
 TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRole) {
-  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr, nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
 
   auto locked = auth->ReadLock();
   auto user = locked->GetUser("alice");
@@ -2846,9 +2869,9 @@ TEST_F(AuthQueryHandlerFixture, FirstUserWhenRolesExistGetsPermissionsNoAdminRol
 }
 
 TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermissionsNotAdminRole) {
-  ASSERT_TRUE(auth_handler.CreateRole("admin", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("admin", nullptr, nullptr));
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
 
   auto locked = auth->ReadLock();
   auto user = locked->GetUser("alice");
@@ -2860,54 +2883,204 @@ TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermission
   ASSERT_TRUE(admin_role.has_value());
   EXPECT_FALSE(admin_role->IsBuiltIn());
 }
+
+TEST_F(AuthQueryHandlerFixture, FirstUserFallbackHasFullGrants) {
+  using memgraph::auth::FineGrainedPermission;
+  using memgraph::auth::kAllEdgeTypePermissions;
+  using memgraph::auth::kAllLabelPermissions;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Pre-existing role prevents builtin role creation; first user gets direct grants
+  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
+
+  auto locked = auth->ReadLock();
+  auto user = locked->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+  EXPECT_TRUE(user->roles().GetRoles().empty());
+
+  for (auto perm : memgraph::auth::kPermissionsAll) {
+    EXPECT_EQ(user->permissions().Has(perm), PermissionLevel::GRANT);
+  }
+
+  EXPECT_EQ(user->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+            PermissionLevel::GRANT);
+
+  EXPECT_EQ(user->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+            PermissionLevel::GRANT);
+
+  EXPECT_TRUE(user->db_access().GetAllowAll());
+}
+
+TEST_F(AuthQueryHandlerFixture, BuiltinRolesHaveCorrectGrants) {
+  using memgraph::auth::FineGrainedPermission;
+  using memgraph::auth::kAllEdgeTypePermissions;
+  using memgraph::auth::kAllLabelPermissions;
+  using memgraph::auth::Permission;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
+  auto locked = auth->ReadLock();
+
+  // admin
+  {
+    auto role = locked->GetRole("admin");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    for (auto perm : memgraph::auth::kPermissionsAll) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::GRANT);
+    }
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+              PermissionLevel::GRANT);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+
+    EXPECT_TRUE(role->db_access().GetAllowAll());
+  }
+
+  // readwrite
+  {
+    auto role = locked->GetRole("readwrite");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    for (auto perm : {Permission::CREATE,
+                      Permission::DELETE,
+                      Permission::MERGE,
+                      Permission::SET,
+                      Permission::REMOVE,
+                      Permission::INDEX,
+                      Permission::MATCH}) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::GRANT);
+    }
+    for (auto perm : {Permission::AUTH,
+                      Permission::REPLICATION,
+                      Permission::DUMP,
+                      Permission::CONFIG,
+                      Permission::MULTI_DATABASE_EDIT}) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::NEUTRAL);
+    }
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+              PermissionLevel::GRANT);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+
+    EXPECT_FALSE(role->db_access().GetAllowAll());
+  }
+
+  // readonly
+  {
+    auto role = locked->GetRole("readonly");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    EXPECT_EQ(role->permissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+    EXPECT_EQ(role->permissions().Has(Permission::STATS), PermissionLevel::GRANT);
+    EXPECT_EQ(role->permissions().Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(role->permissions().Has(Permission::SET), PermissionLevel::NEUTRAL);
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::NEUTRAL);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::NEUTRAL);
+
+    EXPECT_FALSE(role->db_access().GetAllowAll());
+  }
+}
 #endif
 
 TEST_F(AuthQueryHandlerFixture, CreateRoleWhenUserWithSameNameExists) {
-  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr).created);
-  ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr, nullptr));
 }
 
 TEST_F(AuthQueryHandlerFixture, CreateUserWhenRoleWithSameNameExists) {
-  ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr));
-  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateRole("developer", nullptr, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("developer", {}, nullptr, nullptr).created);
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedOnlyUserExists) {
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
-  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED));
+  ASSERT_NO_THROW(
+      auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED, nullptr));
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedOnlyRoleExists) {
   auth.value()->SaveRole(memgraph::auth::Role{"alice"});
-  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED));
+  ASSERT_NO_THROW(
+      auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED, nullptr));
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationUnspecifiedBothExistThrows) {
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
   auth.value()->SaveRole(memgraph::auth::Role{"alice"});
-  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED),
+  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::UNSPECIFIED, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationUserKeywordWithUser) {
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
-  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER));
+  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER, nullptr));
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordWithRole) {
   auth.value()->SaveRole(memgraph::auth::Role{"alice"});
-  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE));
+  ASSERT_NO_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE, nullptr));
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationUserKeywordButOnlyRoleExistsThrows) {
   auth.value()->SaveRole(memgraph::auth::Role{"alice"});
-  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER),
+  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordButOnlyUserExistsThrows) {
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
-  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE),
+  ASSERT_THROW(auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
@@ -2916,7 +3089,7 @@ TEST_F(AuthQueryHandlerFixture, DisambiguationUserKeywordBothExistResolvesToUser
   perms.Grant(memgraph::auth::Permission::MATCH);
   auth.value()->SaveUser(memgraph::auth::User{"alice", std::nullopt, perms});
   auth.value()->SaveRole(memgraph::auth::Role{"alice"});
-  auto result = auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER);
+  auto result = auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::USER, nullptr);
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0][2].ValueString(), "GRANTED TO USER");
 }
@@ -2926,7 +3099,7 @@ TEST_F(AuthQueryHandlerFixture, DisambiguationRoleKeywordBothExistResolvesToRole
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
   auth.value()->SaveRole(memgraph::auth::Role{"alice", role_perms});
-  auto result = auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE);
+  auto result = auth_handler.GetPrivileges("alice", std::nullopt, memgraph::auth::UserOrRoleType::ROLE, nullptr);
   ASSERT_EQ(result.size(), 1);
   ASSERT_EQ(result[0][2].ValueString(), "GRANTED TO ROLE");
 }
@@ -2941,16 +3114,19 @@ TEST_F(AuthQueryHandlerFixture, DatabasePrivilegesDisambiguationUserAndRoleKeywo
   role.db_access().Grant("role_db");
   auth.value()->SaveRole(role);
 
-  ASSERT_THROW(auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::UNSPECIFIED),
-               memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(
+      auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::UNSPECIFIED, nullptr),
+      memgraph::query::QueryRuntimeException);
 
-  auto user_result = auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::USER);
+  auto user_result =
+      auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::USER, nullptr);
   ASSERT_EQ(user_result.size(), 1);
   ASSERT_EQ(user_result[0].size(), 2);
   ASSERT_TRUE(user_result[0][0].IsString());
   ASSERT_EQ(user_result[0][0].ValueString(), "*");
 
-  auto role_result = auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::ROLE);
+  auto role_result =
+      auth_handler.GetDatabasePrivileges("admin", {"admin"}, memgraph::auth::UserOrRoleType::ROLE, nullptr);
   ASSERT_EQ(role_result.size(), 1);
   ASSERT_EQ(role_result[0].size(), 2);
   ASSERT_TRUE(role_result[0][0].IsList());
@@ -2974,19 +3150,19 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesOnMainForRoleUsesRoleMainDatabaseW
   ASSERT_TRUE(role.db_access().SetMain("role_db"));
   auth.value()->SaveRole(role);
 
-  ASSERT_THROW(auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::UNSPECIFIED),
+  ASSERT_THROW(auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::UNSPECIFIED, nullptr),
                memgraph::query::QueryRuntimeException);
 
-  auto role_main_db = auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::ROLE);
+  auto role_main_db = auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::ROLE, nullptr);
   ASSERT_TRUE(role_main_db.has_value());
-  auto role_result = auth_handler.GetPrivileges("admin", role_main_db, memgraph::auth::UserOrRoleType::ROLE);
+  auto role_result = auth_handler.GetPrivileges("admin", role_main_db, memgraph::auth::UserOrRoleType::ROLE, nullptr);
   ASSERT_EQ(role_result.size(), 1);
   ASSERT_EQ(role_result[0][0].ValueString(), "MATCH");
   ASSERT_EQ(role_result[0][2].ValueString(), "GRANTED TO ROLE");
 
-  auto user_main_db = auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::USER);
+  auto user_main_db = auth_handler.GetMainDatabase("admin", memgraph::auth::UserOrRoleType::USER, nullptr);
   ASSERT_TRUE(user_main_db.has_value());
-  auto user_result = auth_handler.GetPrivileges("admin", user_main_db, memgraph::auth::UserOrRoleType::USER);
+  auto user_result = auth_handler.GetPrivileges("admin", user_main_db, memgraph::auth::UserOrRoleType::USER, nullptr);
   ASSERT_EQ(user_result.size(), 1);
   ASSERT_EQ(user_result[0][0].ValueString(), "CREATE");
   ASSERT_EQ(user_result[0][2].ValueString(), "GRANTED TO USER");
@@ -2994,7 +3170,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesOnMainForRoleUsesRoleMainDatabaseW
 #endif
 
 TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
-  ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr, nullptr));
 
   auto regular_role = auth->ReadLock()->GetRole("regular_role");
   ASSERT_TRUE(regular_role.has_value());
@@ -3004,7 +3180,7 @@ TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
   builtin_role.SetBuiltIn(true);
   auth.value()->SaveRole(builtin_role);
 
-  auto const roles = auth_handler.GetRolenames();
+  auto const roles = auth_handler.GetRolenames(nullptr);
   ASSERT_EQ(roles.size(), 2);
 
   auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.name == name; }); };
@@ -3020,15 +3196,15 @@ TEST_F(AuthQueryHandlerFixture, GetRolenamesReturnsBuiltinFlag) {
 
 TEST_F(AuthQueryHandlerFixture, GetRolenamesForUserReturnsBuiltinFlag) {
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
-  ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("regular_role", nullptr, nullptr));
 
   memgraph::auth::Role builtin_role{"builtin_role"};
   builtin_role.SetBuiltIn(true);
   auth.value()->SaveRole(builtin_role);
 
-  ASSERT_NO_THROW(auth_handler.AddRoles("alice", {"regular_role", "builtin_role"}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("alice", {"regular_role", "builtin_role"}, {}, nullptr, nullptr));
 
-  auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt);
+  auto const roles = auth_handler.GetRolenamesForUser("alice", std::nullopt, nullptr);
   ASSERT_EQ(roles.size(), 2);
 
   auto find = [&](std::string_view name) { return r::find_if(roles, [&](auto const &p) { return p.name == name; }); };
@@ -3056,6 +3232,7 @@ TEST_F(AuthQueryHandlerFixture, GrantPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
                               {},
                               {},
                               memgraph::auth::UserOrRoleType::ROLE,
+                              nullptr,
                               nullptr);
 
   EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
@@ -3072,6 +3249,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
                              {},
                              {},
                              memgraph::auth::UserOrRoleType::ROLE,
+                             nullptr,
                              nullptr);
 
   EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
@@ -3088,6 +3266,7 @@ TEST_F(AuthQueryHandlerFixture, RevokePrivilegeOnBuiltinRoleClearsBuiltinFlag) {
                                {},
                                {},
                                memgraph::auth::UserOrRoleType::ROLE,
+                               nullptr,
                                nullptr);
 
   EXPECT_FALSE(auth->ReadLock()->GetRole("builtin_role")->IsBuiltIn());
@@ -3095,16 +3274,16 @@ TEST_F(AuthQueryHandlerFixture, RevokePrivilegeOnBuiltinRoleClearsBuiltinFlag) {
 #endif
 
 TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUser) {
-  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr, nullptr));
   auth.value()->SaveUser(memgraph::auth::User{"alice"});
-  ASSERT_NO_THROW(auth_handler.AddRoles("alice", {"role1"}, {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.AddRoles("alice", {"role1"}, {}, nullptr, nullptr));
 
-  ASSERT_THROW(auth_handler.DropRole("role1", nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.DropRole("role1", nullptr, nullptr), memgraph::query::QueryRuntimeException);
 }
 
 #ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
-  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr, nullptr));
   auto role = auth->ReadLock()->GetRole("role1");
   ASSERT_TRUE(role.has_value());
 
@@ -3116,6 +3295,610 @@ TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
   user.AddMultiTenantRole(role_with_access, "db1");
   auth.value()->SaveUser(user);
 
-  ASSERT_THROW(auth_handler.DropRole("role1", nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.DropRole("role1", nullptr, nullptr), memgraph::query::QueryRuntimeException);
 }
 #endif
+
+#ifdef MG_ENTERPRISE
+// Property Permission Tests
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn", "salary"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  std::vector<std::string> emp = {"Employee"};
+  EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(emp, "salary", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(emp, "name", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"ssn"},
+                                      {"Employee"},
+                                      memgraph::auth::PropertyEntityKind::NODE,
+                                      memgraph::auth::MatchingMode::ANY,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
+                                      nullptr,
+                                      nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  std::vector<std::string> emp = {"Employee"};
+  EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ), memgraph::auth::PermissionLevel::DENY);
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+  auth_handler.RevokePropertyPermission(user_name,
+                                        {"ssn"},
+                                        {"Employee"},
+                                        memgraph::auth::PropertyEntityKind::NODE,
+                                        memgraph::auth::MatchingMode::ANY,
+                                        memgraph::auth::UserOrRoleType::USER,
+                                        memgraph::auth::PropertyPermissionType::READ,
+                                        nullptr,
+                                        nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  std::vector<std::string> emp = {"Employee"};
+  EXPECT_EQ(
+      user->property_access_handler().label_properties().Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ),
+      memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
+  auth_handler.CreateRole("analyst", nullptr, nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"amount"},
+                                       {"PAID"},
+                                       memgraph::auth::PropertyEntityKind::EDGE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+
+  auto role = auth->ReadLock()->GetRole("analyst");
+  ASSERT_TRUE(role.has_value());
+  auto const &props = role->property_access_handler().edge_type_properties();
+  std::vector<std::string> paid = {"PAID"};
+  EXPECT_EQ(props.Has(paid, "amount", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(paid, "currency", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {
+  EXPECT_THROW(auth_handler.GrantPropertyPermission("nobody",
+                                                    {"ssn"},
+                                                    {"Employee"},
+                                                    memgraph::auth::PropertyEntityKind::NODE,
+                                                    memgraph::auth::MatchingMode::ANY,
+                                                    memgraph::auth::UserOrRoleType::USER,
+                                                    memgraph::auth::PropertyPermissionType::READ,
+                                                    nullptr,
+                                                    nullptr),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn", "salary"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"dob"},
+                                      {"Employee"},
+                                      memgraph::auth::PropertyEntityKind::NODE,
+                                      memgraph::auth::MatchingMode::ANY,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
+                                      nullptr,
+                                      nullptr);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+
+  // Find property permission rows
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 2);
+
+  // Sort by effective column for deterministic checking (DENY before GRANT)
+  std::sort(prop_rows.begin(), prop_rows.end(), [](auto const &a, auto const &b) {
+    return a[1].ValueString() < b[1].ValueString();
+  });
+
+  // denied row
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {dob} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "DENY");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER");
+
+  // granted row (collapsed)
+  EXPECT_EQ(prop_rows[1][0].ValueString(), "READ {salary, ssn} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[1][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[1][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForRole) {
+  auth_handler.CreateRole("analyst", nullptr, nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"amount"},
+                                       {"PAID"},
+                                       memgraph::auth::PropertyEntityKind::EDGE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+
+  auto privileges = auth_handler.GetPrivileges("analyst",
+                                               std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}},
+                                               memgraph::auth::UserOrRoleType::ROLE,
+                                               nullptr);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {amount} ON EDGES OF TYPE :PAID");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {*} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesForUserIncludesRolePropertyPermissions) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  auth_handler.CreateRole("analyst", nullptr, nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"ssn"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr, nullptr);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {ssn} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRoleLbacPermissions) {
+  using FGP = memgraph::auth::FineGrainedPermission;
+
+  auto user_label_perms = memgraph::auth::FineGrainedAccessPermissions{};
+  user_label_perms.GrantGlobal(FGP::READ);
+
+  auto role_label_perms = memgraph::auth::FineGrainedAccessPermissions{};
+  role_label_perms.GrantGlobal(FGP::READ);
+
+  memgraph::auth::User user{user_name};
+  user.fine_grained_access_handler() = memgraph::auth::FineGrainedAccessHandler{
+      std::move(user_label_perms), memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveUser(user);
+
+  memgraph::auth::Role role{"analyst"};
+  role.fine_grained_access_handler() = memgraph::auth::FineGrainedAccessHandler{
+      std::move(role_label_perms), memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveRole(role);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr, nullptr);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> lbac_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("LABEL") != std::string::npos &&
+        row[0].ValueString().find("ALL LABELS") != std::string::npos) {
+      lbac_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(lbac_rows.size(), 1);
+  EXPECT_EQ(lbac_rows[0][0].ValueString(), "READ ON ALL LABELS");
+  EXPECT_EQ(lbac_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(lbac_rows[0][2].ValueString(),
+            "GLOBAL LABEL PERMISSION GRANTED TO USER, GLOBAL LABEL PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRolePbacPermissions) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  auth_handler.CreateRole("analyst", nullptr, nullptr);
+
+  // Grant global {*} READ and WRITE to both user and role
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::WRITE,
+                                       nullptr,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::WRITE,
+                                       nullptr,
+                                       nullptr);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr, nullptr);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos &&
+        row[0].ValueString().find("ALL LABELS") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ, SET PROPERTY {*} ON ALL LABELS");
+  EXPECT_EQ(prop_rows[0][2].ValueString(),
+            "GLOBAL PROPERTY PERMISSION GRANTED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE");
+}
+#endif
+
+namespace {
+std::string MessageOf(auto &&fn) {
+  try {
+    fn();
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    return e.what();
+  }
+  ADD_FAILURE() << "expected QueryRuntimeException";
+  return {};
+}
+
+constexpr auto kBound = std::chrono::seconds(10);
+
+enum class LockMode : uint8_t { kShared, kExclusive };
+
+// Holds an auth lock on a background thread until Release() or destruction.
+class LockHolder {
+ public:
+  LockHolder(memgraph::auth::SynchedAuth &auth, LockMode mode)
+      : future_{std::async(std::launch::async, [this, &auth, mode] {
+          if (mode == LockMode::kShared) {
+            auto const guard = auth.ReadLock();
+            Hold();
+          } else {
+            auto const guard = auth.Lock();
+            Hold();
+          }
+        })} {
+    held_.wait();
+  }
+
+  ~LockHolder() { Release(); }
+
+  LockHolder(const LockHolder &) = delete;
+  LockHolder &operator=(const LockHolder &) = delete;
+
+  void Release() {
+    if (!future_.valid()) return;
+    release_.count_down();
+    future_.get();
+  }
+
+ private:
+  void Hold() {
+    held_.count_down();
+    release_.wait();
+  }
+
+  std::latch held_{1};
+  std::latch release_{1};
+  std::future<void> future_;
+};
+
+// Waits (bounded) for every future, then releases the holder so a blocked op can finish before its future's
+// destructor joins it.
+template <typename... Ts>
+bool CompleteWhileHeld(LockHolder &holder, std::future<Ts> &...futures) {
+  bool const all_ready = ((futures.wait_for(kBound) == std::future_status::ready) && ...);
+  holder.Release();
+  return all_ready;
+}
+}  // namespace
+
+TEST_F(AuthQueryHandlerFixture, FipsLegacyHashLiteralReportsSameErrorsAsBeforeHashing) {
+  auto const literal =
+      std::optional<std::string>{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"};
+
+  // FIPS status is process-global; reset it even when an assertion fails.
+  memgraph::utils::OnScopeExit const reset_fips{[] { memgraph::utils::SetFipsStatus({}); }};
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", std::nullopt, nullptr, nullptr).created);
+  memgraph::utils::SetFipsStatus({.enabled = true});
+
+  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("in valid", literal, nullptr, nullptr); }),
+              testing::HasSubstr("Invalid user name"));
+
+  EXPECT_FALSE(auth_handler.CreateUser("alice", literal, nullptr, nullptr).created);
+
+  EXPECT_THAT(MessageOf([&] { auth_handler.SetPassword("nobody", literal, nullptr, nullptr); }),
+              testing::HasSubstr("doesn't exist"));
+
+  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("bob", literal, nullptr, nullptr); }),
+              testing::HasSubstr("not permitted in FIPS mode"));
+}
+
+// Missing user, wrong old password and weak new password are each reported ahead of the strength policy.
+TEST_F(AuthQueryHandlerFixture, StrictPolicyErrorOrder) {
+  memgraph::auth::SynchedAuth strict_auth{
+      test_folder_ / "strict_policy",
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex},
+                                   "^.{12,}$",
+                                   /*password_permit_null=*/false}
+#ifdef MG_ENTERPRISE
+      ,
+      &resources
+#endif
+  };
+  memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
+  auto const old_password = std::string{"a-long-enough-password"};
+  ASSERT_TRUE(strict_handler.CreateUser("alice", old_password, nullptr, nullptr).created);
+
+  EXPECT_THAT(MessageOf([&] { strict_handler.SetPassword("nobody", std::nullopt, nullptr, nullptr); }),
+              testing::HasSubstr("doesn't exist"));
+
+  EXPECT_EQ(MessageOf([&] { strict_handler.ChangePassword("alice", "wrong-old-password", "weak", nullptr, nullptr); }),
+            "Old password is not correct.");
+
+  EXPECT_THAT(MessageOf([&] { strict_handler.ChangePassword("alice", old_password, "weak", nullptr, nullptr); }),
+              testing::HasSubstr("doesn't conform to the required strength"));
+  // Nothing was saved: the old password still verifies.
+  auto alice = strict_auth.ReadLock()->GetUser("alice");
+  ASSERT_TRUE(alice);
+  EXPECT_TRUE(alice->CheckPasswordExplicit(old_password));
+}
+
+// Each of these takes at most the shared lock, so it must complete while another thread holds it shared.
+TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
+  {
+    auto locked = auth->Lock();
+    auto match_user = AddUser(*locked, "match_user");
+    ASSERT_TRUE(match_user.has_value());
+    match_user->permissions().Grant(memgraph::auth::Permission::MATCH);
+    locked->SaveUser(*match_user);
+
+    auto alice = AddUser(*locked, "alice");
+    ASSERT_TRUE(alice.has_value());
+    alice->UpdatePassword("secret");  // bcrypt by default: IsSalted() == true -> no upgrade path
+    locked->SaveUser(*alice);
+  }
+  auto stored = auth->ReadLock()->GetUser("match_user");
+  ASSERT_TRUE(stored.has_value());
+  memgraph::glue::QueryUserOrRole subject{&*auth, memgraph::auth::UserOrRole{std::move(*stored)}};
+
+#ifdef MG_ENTERPRISE
+  {
+    auto locked = auth->Lock();
+    auto impersonator = AddUser(*locked, "impersonator");
+    ASSERT_TRUE(impersonator.has_value());
+    impersonator->permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+    impersonator->GrantUserImp();
+    locked->SaveUser(*impersonator);
+
+    auto target = AddUser(*locked, "target");
+    ASSERT_TRUE(target.has_value());
+    locked->SaveUser(*target);
+  }
+  auto stored_imp = auth->ReadLock()->GetUser("impersonator");
+  ASSERT_TRUE(stored_imp.has_value());
+  memgraph::glue::QueryUserOrRole impersonator_subject{&*auth, memgraph::auth::UserOrRole{std::move(*stored_imp)}};
+#endif
+
+  // Bump the auth epoch so the subject's cached epoch is stale and IsAuthorized takes the refresh branch.
+  ASSERT_TRUE(auth_handler.CreateUser("epoch_bump", std::nullopt, nullptr, nullptr).created);
+  LockHolder holder{*auth, LockMode::kShared};
+  auto authorized_fut = std::async(std::launch::async, [&] {
+    return subject.IsAuthorized(
+        {memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt, &memgraph::query::up_to_date_policy);
+  });
+  auto ok_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "secret"); });
+  auto bad_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "wrong"); });
+#ifdef MG_ENTERPRISE
+  auto impersonate_fut = std::async(std::launch::async, [&] {
+    return impersonator_subject.CanImpersonate("target", &memgraph::query::up_to_date_policy);
+  });
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, impersonate_fut))
+      << "a read path blocked under the shared auth lock";
+  EXPECT_TRUE(impersonate_fut.get());
+#else
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut))
+      << "a read path blocked under the shared auth lock";
+#endif
+  EXPECT_TRUE(authorized_fut.get());
+  EXPECT_TRUE(ok_fut.get().has_value());
+  EXPECT_FALSE(bad_fut.get().has_value());
+}
+
+// Bcrypt runs with no auth lock, so CreateUser and SetPassword blocked behind an exclusive holder have already
+// hashed by the time it releases and finish in far less than one hash.
+TEST_F(AuthQueryHandlerFixture, PasswordHashingOverlapsExclusiveLockHold) {
+  using Clock = std::chrono::steady_clock;
+  ASSERT_TRUE(auth_handler.CreateUser("target", "password1", nullptr, nullptr).created);
+
+  auto const hash_start = Clock::now();
+  auth_handler.SetPassword("target", "password2", nullptr, nullptr);
+  auto const hash_time = Clock::now() - hash_start;
+
+  auto const hold = std::chrono::milliseconds(1000);
+  ASSERT_LT(hash_time, hold / 2) << "a single hash is too slow for this test to be meaningful";
+
+  LockHolder holder{*auth, LockMode::kExclusive};
+  auto create_fut =
+      std::async(std::launch::async, [&] { return auth_handler.CreateUser("fresh", "password1", nullptr, nullptr); });
+  auto set_fut =
+      std::async(std::launch::async, [&] { auth_handler.SetPassword("target", "password3", nullptr, nullptr); });
+  std::this_thread::sleep_for(hold);
+
+  auto const release_time = Clock::now();
+  holder.Release();
+  ASSERT_EQ(create_fut.wait_for(kBound), std::future_status::ready);
+  ASSERT_EQ(set_fut.wait_for(kBound), std::future_status::ready);
+  auto const after_release = Clock::now() - release_time;
+
+  EXPECT_LT(after_release, hash_time / 2) << "hashing was not overlapped with the exclusive hold";
+  EXPECT_TRUE(create_fut.get().created);
+  set_fut.get();
+}
+
+// session_long_policy reads only the cached principal, so it completes under an exclusive write lock, including for
+// an anonymous session that has no cached principal.
+TEST_F(AuthQueryHandlerFixture, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
+  auto const make_user = [&](const std::string &username, bool grant_match) {
+    {
+      auto locked = auth->Lock();
+      auto user = AddUser(*locked, username);
+      EXPECT_TRUE(user.has_value());
+      if (grant_match) {
+        user->permissions().Grant(memgraph::auth::Permission::MATCH);
+        locked->SaveUser(*user);
+      }
+    }
+    auto stored = auth->ReadLock()->GetUser(username);
+    EXPECT_TRUE(stored.has_value());
+    return memgraph::glue::QueryUserOrRole{&*auth, memgraph::auth::UserOrRole{std::move(*stored)}};
+  };
+  auto granted = make_user("granted_user", true);
+  auto denied = make_user("denied_user", false);
+  memgraph::glue::QueryUserOrRole anonymous{&*auth};
+
+  LockHolder holder{*auth, LockMode::kExclusive};
+  auto const authorized = [](memgraph::glue::QueryUserOrRole &subject) {
+    return std::async(std::launch::async, [&subject] {
+      return subject.IsAuthorized(
+          {memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt, &memgraph::query::session_long_policy);
+    });
+  };
+  auto granted_fut = authorized(granted);
+  auto denied_fut = authorized(denied);
+  auto anonymous_fut = authorized(anonymous);
+
+  ASSERT_TRUE(CompleteWhileHeld(holder, granted_fut, denied_fut, anonymous_fut))
+      << "session_long_policy blocked under exclusive lock";
+  EXPECT_TRUE(granted_fut.get());
+  EXPECT_FALSE(denied_fut.get());
+  EXPECT_TRUE(anonymous_fut.get());
+}

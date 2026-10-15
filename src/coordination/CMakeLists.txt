@@ -25,7 +25,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_state_manager.hpp
         include/coordination/data_instance_context.hpp
         include/coordination/data_instance_management_server.hpp
-        include/coordination/data_instance_management_server_handlers.hpp
         include/coordination/instance_state.hpp
         include/coordination/instance_status.hpp
         include/coordination/logger.hpp
@@ -56,7 +55,6 @@ target_sources(mg-coordination
         coordinator_state_manager.cpp
         data_instance_context.cpp
         data_instance_management_server.cpp
-        data_instance_management_server_handlers.cpp
         logger.cpp
         logger_wrapper.cpp
         raft_state.cpp
@@ -67,5 +65,5 @@ target_sources(mg-coordination
 find_package(range-v3 REQUIRED)
 
 target_link_libraries(mg-coordination
-    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue range-v3::range-v3 nuraft mg-replication_handler
+    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue mg-metrics range-v3::range-v3 nuraft
 )

@@ -11,9 +11,7 @@
 
 #pragma once
 
-#include <filesystem>
-#include <format>
-#include <vector>
+#include <optional>
 
 #include "gflags/gflags.h"
 
@@ -59,6 +57,11 @@ DECLARE_uint64(memory_warning_threshold);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(allow_load_csv);
 
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(fips_mode);
+#endif
+
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_gc_cycle_sec);
@@ -82,6 +85,8 @@ DECLARE_uint64(storage_wal_file_flush_every_n_tx);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_snapshot_on_exit);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_allow_recovery_failure);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_items_per_batch);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_parallel_snapshot_creation);
@@ -89,6 +94,12 @@ DECLARE_bool(storage_parallel_snapshot_creation);
 DECLARE_bool(storage_parallel_schema_recovery);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_snapshot_thread_count);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_snapshot_writeback_window_mib);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_release_recovered_snapshot_page_cache);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_release_sent_snapshot_page_cache);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_recovery_thread_count);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -100,13 +111,13 @@ DECLARE_bool(storage_automatic_edge_type_index_creation_enabled);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_enable_edges_metadata);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_light_edge);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_delta_on_identical_property_update);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_backup_dir_enabled);
 
 // RocksDB flags
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(storage_rocksdb_info_log_level);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_rocksdb_enable_thread_tracking);
 
@@ -135,10 +146,6 @@ DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);
 
-namespace memgraph::flags {
-auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
-}  // namespace memgraph::flags
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -150,6 +157,9 @@ DECLARE_string(cluster_cert_file);
 DECLARE_string(cluster_key_file);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(cluster_ca_file);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(ca_bundle_file);
 
 namespace memgraph::flags {
 auto IsIntraClusterTLSEnabled() -> bool;

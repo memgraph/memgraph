@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <unistd.h>
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -20,6 +22,7 @@
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
+#include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -30,12 +33,19 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 using Streams = memgraph::query::stream::Streams;
 using StreamInfo = memgraph::query::stream::KafkaStream::StreamInfo;
 using StreamStatus = memgraph::query::stream::StreamStatus<memgraph::query::stream::KafkaStream>;
 
 namespace {
+// How far past its timeout Check may be seen to return. The consumer notices the deadline between
+// batches, so the overshoot is a batch interval plus however long a loaded machine leaves the process
+// unscheduled. Well under kDefaultCheckTimeout, so a Check that ignored its timeout still fails.
+inline constexpr auto kTimeoutOvershoot = std::chrono::seconds{10};
+
 const static std::string kTopicName{"TrialTopic"};
 
 struct FakeUser : memgraph::query::QueryUserOrRole {
@@ -71,7 +81,12 @@ std::string GetDefaultStreamName() {
 }
 
 std::filesystem::path GetCleanDataDirectory() {
-  const auto path = std::filesystem::temp_directory_path() / "query-streams";
+  // Emptied on every fixture construction, so the path must be private to this process: a path
+  // shared with a concurrently running test deletes that test's storage out from under it.
+  // Resolved once, so a directory is removed under the name it was created under even if the
+  // process forks in between.
+  static const std::string id = std::to_string(static_cast<int>(getpid()));
+  const auto path = std::filesystem::temp_directory_path() / ("query-streams-" + id);
   std::filesystem::remove_all(path);
   return path;
 }
@@ -381,7 +396,7 @@ TYPED_TEST(StreamsTestFixture, CheckWithTimeout) {
 
   const auto elapsed = (end - start);
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * 1.2);
+  EXPECT_LE(elapsed, timeout + kTimeoutOvershoot);
 }
 
 TYPED_TEST(StreamsTestFixture, CheckInvalidConfig) {
@@ -418,3 +433,41 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
       memgraph::integrations::kafka::SettingCustomConfigFailed,
       checker);
 }
+
+#if USE_JEMALLOC
+// A database registers the stream procedures through the C procedure API whenever it is created or
+// resumed. Those entry points report a refused allocation as an error return, and the registration
+// has no way to act on one, so an instance whose allocations are being refused must still construct
+// its Streams object rather than terminate.
+//
+// The refusal is provoked through a per-thread limit because that is charged for every allocation,
+// where the instance-wide limit is charged for every extent the allocator takes from the operating
+// system. Both decide whether to refuse in the same place, so either reaches the registration.
+TEST(StreamsProcedureRegistration, ConstructsWhileAllocationsAreRefused) {
+  // Earlier tests in this binary leave storage threads running, and a fork()-based death test hands
+  // the child threads it cannot use, so the child re-executes the binary instead.
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+
+  // Named after the test rather than the process, so the re-executed child resolves the same path
+  // as the parent that cleans it up.
+  const auto directory = std::filesystem::temp_directory_path() / "query-streams-refused-allocations";
+  std::filesystem::remove_all(directory);
+  const memgraph::utils::OnScopeExit cleanup{[&directory] { std::filesystem::remove_all(directory); }};
+
+  // The limit is set only in the death test's child, so nothing the rest of the suite allocates is
+  // refused.
+  EXPECT_EXIT(
+      {
+        memgraph::utils::QueryMemoryTracker query_tracker;
+        query_tracker.SetQueryLimit(1);
+        memgraph::memory::StartTrackingCurrentThread(&query_tracker);
+        {
+          Streams streams{directory};
+        }
+        memgraph::memory::StopTrackingCurrentThread();
+        std::exit(0);
+      },
+      ::testing::ExitedWithCode(0),
+      "");
+}
+#endif

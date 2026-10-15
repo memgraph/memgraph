@@ -23,9 +23,9 @@ from neo4j import Auth, GraphDatabase
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
-    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..", "..")
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
 )
-interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "memgraph", "build"))
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 AUTH_MODULE_PATH = os.path.normpath(os.path.join(interactive_mg_runner.SCRIPT_DIR, "dummy_sso_module.py"))
@@ -72,6 +72,12 @@ def multi_tenant_setup(request):
             session.run("GRANT MATCH, CREATE, DELETE, SET, REMOVE, INDEX, MULTI_DATABASE_USE TO user;").consume()
             session.run("GRANT MATCH, MULTI_DATABASE_USE TO readonly;").consume()
             session.run("GRANT MATCH, CREATE, MULTI_DATABASE_USE TO limited;").consume()
+
+            for role in ["admin", "architect", "user", "limited"]:
+                session.run(f"GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {role};").consume()
+                session.run(f"GRANT READ, SET PROPERTY {{*}} ON EDGES OF TYPE * TO {role};").consume()
+            session.run("GRANT READ {*} ON NODES CONTAINING LABELS * TO readonly;").consume()
+            session.run("GRANT READ {*} ON EDGES OF TYPE * TO readonly;").consume()
 
             # Create databases
             session.run("CREATE DATABASE admin_db;").consume()

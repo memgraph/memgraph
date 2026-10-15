@@ -47,6 +47,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
@@ -199,6 +200,21 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
   return value;
 }
 
+/// Removes from @p gathered every vertex whose @p property the predicate rejects.
+/// The disk scan applies only the range bounds while gathering, so the predicate
+/// runs here as a second pass. The plan has no filter left to drop these rows.
+void DropWhatAPredicateTurnsDown(utils::SkipListDb<Vertex> &gathered, PropertyId property,
+                                 PropertyValueRange::ValuePredicateFn const &keeps, Transaction *transaction,
+                                 View view) {
+  auto accessor = gathered.access();
+
+  auto turned_down = std::vector<Gid>{};
+  for (auto const &vertex : accessor) {
+    if (!keeps(GetVertexProperty(vertex, property, transaction, view))) turned_down.push_back(vertex.gid);
+  }
+  for (auto const gid : turned_down) accessor.remove(gid);
+}
+
 bool HasVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
   return !GetVertexProperty(vertex, property, transaction, view).IsNull();
 }
@@ -208,15 +224,26 @@ bool VertexHasEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
   return GetVertexProperty(vertex, property_id, transaction, view) == property_value;
 }
 
+bool BoundsSpanWholeType(const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                         const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+  return lower_bound && upper_bound && BoundsMarkAWholeStretch(*lower_bound, *upper_bound);
+}
+
 bool IsPropertyValueWithinInterval(const PropertyValue &value,
                                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                    const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  if (lower_bound && (!AreComparableTypes(value.type(), lower_bound->value().type()) || value < lower_bound->value() ||
-                      (lower_bound->IsExclusive() && value == lower_bound->value()))) {
+  // Requiring each bound to be one the value can be compared against is how a one-sided range is
+  // kept inside its own stretch of the order here, but it rejects every value of a whole-stretch
+  // range, whose bounds are two types by construction. Comparing against the bounds is enough
+  // there: the pair *is* the stretch.
+  bool const spans_whole_type = BoundsSpanWholeType(lower_bound, upper_bound);
+
+  if (lower_bound && ((!spans_whole_type && !AreComparable(value, lower_bound->value())) ||
+                      value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {
     return false;
   }
-  if (upper_bound && (!AreComparableTypes(value.type(), upper_bound->value().type()) || value > upper_bound->value() ||
-                      (upper_bound->IsExclusive() && value == upper_bound->value()))) {
+  if (upper_bound && ((!spans_whole_type && !AreComparable(value, upper_bound->value())) ||
+                      value > upper_bound->value() || (upper_bound->IsExclusive() && value == upper_bound->value()))) {
     return false;
   }
   return true;
@@ -287,19 +314,9 @@ DiskStorage::~DiskStorage() {
   kvstore_->options_.comparator = nullptr;
 }
 
-DiskStorage::DiskAccessor::DiskAccessor(Accessor::SharedAccess tag, DiskStorage *storage,
-                                        IsolationLevel isolation_level, StorageMode storage_mode,
-                                        StorageAccessType rw_type)
-    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, /*no timeout*/ std::nullopt) {
-  rocksdb::WriteOptions write_options;
-  auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
-  transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
-  transaction_.disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
-}
-
-DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
-                                        StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode, /*no timeout*/ std::nullopt) {
+DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                                        utils::ResourceLockGuard guard)
+    : Accessor(storage, override_isolation_level, std::move(guard)) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -556,7 +573,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+        label, property, PropertyValueRange::Bounded(std::nullopt, std::nullopt), view, storage_, &transaction_));
   }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
@@ -593,13 +610,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(label,
-                                                                            property,
-                                                                            utils::MakeBoundInclusive(value),
-                                                                            utils::MakeBoundInclusive(value),
-                                                                            view,
-                                                                            storage_,
-                                                                            &transaction_));
+    auto const range = PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value));
+    return VerticesIterable(
+        disk_storage->edge_import_mode_cache_->Vertices(label, property, range, view, storage_, &transaction_));
   }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
@@ -631,11 +644,28 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
   if (properties[0].size() != 1) throw utils::NotYetImplemented("nested index");
 
   auto const &range{property_ranges.front()};
-  if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    return Vertices(label, properties[0][0], view);
-  } else {
-    return Vertices(label, properties[0][0], range.lower_, range.upper_, view);
+  auto const &property = properties[0][0];
+
+  // Edge import mode reads from its own cache, an in-memory index that applies the predicate itself.
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+    disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
+    return VerticesIterable(
+        disk_storage->edge_import_mode_cache_->Vertices(label, property, range, view, storage_, &transaction_));
   }
+
+  // The scans below gather into a new index_storage_ entry; the predicate runs over it.
+  auto const gathered_before = transaction_.index_storage_.size();
+  auto found = range.type_ == PropertyRangeType::IS_NOT_NULL
+                   ? Vertices(label, property, view)
+                   : Vertices(label, property, range.lower_, range.upper_, view);
+
+  auto const &keeps = range.GetValuePredicate();
+  if (!keeps) return found;
+
+  MG_ASSERT(transaction_.index_storage_.size() > gathered_before, "The scan above gathered into no index_storage_");
+  DropWhatAPredicateTurnsDown(*transaction_.index_storage_.back(), property, *keeps, &transaction_, view);
+  return found;
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
@@ -647,7 +677,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+        label, property, PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage_, &transaction_));
   }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
@@ -889,11 +919,15 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, Propert
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
-                                               View /*view*/) {
+                                               PropertyValueRange const & /*range*/, View /*view*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, PropertyValueRange const & /*range*/,
+                                               View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge property index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, View /*view*/) {
@@ -902,14 +936,6 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, View /*v
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, const PropertyValue & /*value*/,
-                                               View /*view*/) {
-  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
-                                 kErrorMessage);
-}
-
-EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
-                                               const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
                                                View /*view*/) {
   throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
@@ -1569,7 +1595,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex,
                                                 const std::vector<EdgeTypeId> &edge_types,
                                                 const VertexAccessor *destination, Transaction *transaction, View view,
-                                                query::HopsLimit *hops_limit) {
+                                                HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && src_vertex->vertex_->deleted()) return {};
 
@@ -1656,7 +1682,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
-                                               Transaction *transaction, View view, query::HopsLimit *hops_limit) {
+                                               Transaction *transaction, View view, HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && dst_vertex->vertex_->deleted()) return {};
 
@@ -1767,8 +1793,13 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
     PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
     if (std::ranges::contains(labels, label) && property_store.HasAllProperties(properties)) {
-      if (auto target_property_values = property_store.ExtractPropertyValues(properties);
-          target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
+      auto target_property_values = property_store.ExtractPropertyValues(properties);
+      // A value that is not equal to itself duplicates nothing, so it is kept
+      // out of the storage compared against.
+      if (target_property_values.has_value() && !EveryValueEqualsItself(*target_property_values)) {
+        continue;
+      }
+      if (target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
         unique_storage.insert(*target_property_values);
         vertices_for_constraints.emplace_back(
             utils::SerializeVertexAsKeyForUniqueConstraint(label, properties, utils::ExtractGidFromKey(key_str)),
@@ -1823,6 +1854,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
           throw utils::NotYetImplemented(
               "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
             return std::unexpected{StorageManipulationError{PersistenceError{}}};
@@ -1846,6 +1881,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
         case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
           throw utils::NotYetImplemented(
               "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
@@ -2241,7 +2280,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(LabelId label,
+                                                                                      AbsentIndex /*absent*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2261,7 +2301,8 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
+    AbsentIndex /*absent*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2294,25 +2335,27 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
   return {};
 }
 
-std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                      AbsentIndex /*absent*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
-                                                                                      PropertyId /*property*/) {
+                                                                                      PropertyId /*property*/,
+                                                                                      AbsentIndex /*absent*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropGlobalEdgeIndex(
-    PropertyId /*property*/) {
+    PropertyId /*property*/, AbsentIndex /*absent*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreatePointIndex(
-    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
+    storage::LabelId /*label*/, storage::PropertyId /*property*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2324,13 +2367,13 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorIndex(
-    VectorIndexSpec /*spec*/) {
+    VectorIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
-    std::string_view /*index_name*/) {
+    std::string_view /*index_name*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2347,13 +2390,13 @@ utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(V
 }
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
-    VectorEdgeIndexSpec /*spec*/) {
+    VectorEdgeIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
-    LabelId label, PropertyId property) {
+    LabelId label, PropertyId property, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
@@ -2390,7 +2433,8 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                  CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
@@ -2427,7 +2471,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 }
 
 std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateTypeConstraint(
-    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/, CheckCancelFunction /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
@@ -2503,6 +2547,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_constraints),
           {},
           std::nullopt,
+          0,
           metric_handles_.unreleased_delta_objects};
 }
 
@@ -2516,7 +2561,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_, rw_type});
+      new DiskAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, std::nullopt)});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2525,8 +2570,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, std::nullopt)});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2535,8 +2580,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, std::nullopt)});
 }
 
 bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
@@ -2578,6 +2623,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       .edge_type = {/* edge type indices */},
       .edge_type_property = {/* edge_type_property */},
       .edge_property = {/*edge property*/},
+      .vertex_property = {/*vertex property*/},
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = {/* text edge indices */},
       .point_label_property = {/* point indices */},

@@ -25,6 +25,10 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
 UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\. This issue comes from the user having not enough role-based access privileges to execute this query\. If you want this issue to be resolved\, ask your database administrator to grant you a specific privilege for query execution\."
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port, delay=0.1):
@@ -37,7 +41,7 @@ def wait_for_server(port, delay=0.1):
 def execute_tester(
     binary, queries, should_fail=False, failure_message="", username="", password="", check_failure=True
 ):
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -51,7 +55,7 @@ def execute_tester(
 def execute_filtering(
     binary: str, queries: List[str], expected: int, username: str = "", password: str = "", db: str = "memgraph"
 ) -> None:
-    args = [binary, "--username", username, "--password", password, "--use-db", db]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password, "--use-db", db]
 
     args.extend(queries)
     args.append(str(expected))
@@ -61,7 +65,13 @@ def execute_filtering(
 
 def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     def execute_admin_queries(queries):
         return execute_tester(
@@ -75,7 +85,7 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
 
     # Register cleanup function
     @atexit.register
@@ -92,18 +102,21 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     def setup_user():
         execute_admin_queries(
             [
-                "CREATE USER admin IDENTIFIED BY 'admin'",
-                "GRANT ALL PRIVILEGES TO admin",
-                "CREATE USER user IDENTIFIED BY 'user'",
-                "GRANT ALL PRIVILEGES TO user",
-                "GRANT LABELS :label1, :label2, :label3 TO user",
-                "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user",
+                "CREATE USER IF NOT EXISTS admin IDENTIFIED BY 'admin'",
+                "GRANT ALL PRIVILEGES TO USER admin",
+                "CREATE USER IF NOT EXISTS user IDENTIFIED BY 'user'",
+                "GRANT ALL PRIVILEGES TO USER user",
+                "GRANT DATABASE * TO user",
+                "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3 TO user",
+                "GRANT READ ON EDGES OF TYPE :edgeType1, READ ON EDGES OF TYPE :edgeType2 TO user",
             ]
         )
 
-    def db_setup():
+    def db_setup(db):
+        # Each tester call is its own session, so the database must be selected in the same batch.
         execute_admin_queries(
             [
+                f"USE DATABASE {db}",
                 "MERGE (l1:label1 {name: 'test1'})",
                 "MERGE (l2:label2  {name: 'test2'})",
                 "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2)",
@@ -114,22 +127,26 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
             ]
         )
 
-    db_setup()  # default db setup
-    execute_admin_queries(["CREATE DATABASE db1", "USE DATABASE db1"])
-    db_setup()  # db1 setup
+    db_setup("memgraph")
+    execute_admin_queries(["CREATE DATABASE db1"])
+    db_setup("db1")
 
     print("\033[1;36m~~ Starting edge filtering test ~~\033[0m")
     for db in ["memgraph", "db1"]:
         setup_user()
         # Run the test with all combinations of permissions
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 3, "user", "user", db)
-        execute_admin_queries(["DENY EDGE_TYPES :edgeType1 TO user"])
+        execute_admin_queries(["DENY * ON EDGES OF TYPE :edgeType1 TO user"])
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 2, "user", "user", db)
-        execute_admin_queries(["GRANT EDGE_TYPES :edgeType1 TO user", "DENY LABELS :label3 TO user"])
+        execute_admin_queries(
+            ["GRANT READ ON EDGES OF TYPE :edgeType1 TO user", "DENY * ON NODES CONTAINING LABELS :label3 TO user"]
+        )
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 1, "user", "user", db)
-        execute_admin_queries(["DENY LABELS :label1 TO user"])
+        execute_admin_queries(["DENY * ON NODES CONTAINING LABELS :label1 TO user"])
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user", db)
-        execute_admin_queries(["REVOKE LABELS * FROM user", "REVOKE EDGE_TYPES * FROM user"])
+        execute_admin_queries(
+            ["REVOKE * ON NODES CONTAINING LABELS * FROM user", "REVOKE * ON EDGES OF TYPE * FROM user"]
+        )
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user", db)
 
     print("\033[1;36m~~ Finished edge filtering test ~~\033[0m\n")
@@ -145,8 +162,8 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
 
 if __name__ == "__main__":
     memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
-    tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "lba", "tester")
-    filtering_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "lba", "filtering")
+    tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "fine_grained_access", "tester")
+    filtering_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "fine_grained_access", "filtering")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

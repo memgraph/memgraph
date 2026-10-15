@@ -1,0 +1,9 @@
+# bfs:false walks one branch to its end before starting the next, so the lengths climb and reset.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: ['R>'], maxHops: 3, bfs: false})
+  YIELD result
+  RETURN collect(size(nodes(result)) - 1) AS lengths;
+
+output:
+  - lengths: [0, 1, 2, 3, 1, 2, 3]

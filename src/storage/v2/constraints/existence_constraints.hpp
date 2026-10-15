@@ -18,13 +18,14 @@
 
 #include "absl/container/flat_hash_map.h"
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -36,10 +37,12 @@ class ExistenceConstraints {
  public:
   explicit ExistenceConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+  /// Both validators call `cancel_check` once per vertex and throw PopulateCancel when it returns true. The parallel
+  /// one catches it per worker and re-throws after joining, so an escaping exception can never terminate the process.
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
-                    const PropertyId &property,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+                    const PropertyId &property, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
         -> std::expected<void, ConstraintViolation>;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
@@ -47,8 +50,8 @@ class ExistenceConstraints {
 
   struct SingleThreadConstraintValidation {
     auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
-                    const PropertyId &property,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
+                    const PropertyId &property, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
         -> std::expected<void, ConstraintViolation>;
   };
 
@@ -78,14 +81,22 @@ class ExistenceConstraints {
   using ContainerPtr = std::shared_ptr<Container const>;
 
   struct ActiveConstraints {
-    explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>())
-        : container_{std::move(container)} {}
+    explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>());
 
     auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, PropertyId>>;
     bool empty() const;
 
+    /// The properties and the labels any active existence constraint is keyed on, as two
+    /// independent unions rather than per-constraint pairs. Asked once per transaction, so a write
+    /// does not reach these.
+    auto ConstrainedProperties() const -> InterestingProperties;
+    auto ConstrainedLabels() const -> InterestingLabels;
+
    private:
     ContainerPtr container_;
+    // Sorted, and borrowed by every transaction started against this snapshot.
+    std::vector<PropertyId> constrained_properties_;
+    std::vector<LabelId> constrained_labels_;
   };
 
   /// Creates an ActiveConstraints snapshot for transaction use.
@@ -123,10 +134,11 @@ class ExistenceConstraints {
       -> std::expected<void, ConstraintViolation>;
 
   /// Create/Recover time validation
+  /// @throw PopulateCancel if `cancel_check` asks to stop; the caller is responsible for deregistering the constraint.
   [[nodiscard]] static auto ValidateVerticesOnConstraint(
       utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
+      ProgressCallback const &on_progress = {}, CheckCancelFunction const &cancel_check = neverCancel)
       -> std::expected<void, ConstraintViolation>;
 
   /// [OnDisk] alternative validation performs poorly but disk will be removed soon

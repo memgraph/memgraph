@@ -1,0 +1,20 @@
+# The positional form has no `bfs` argument, so it must not be breadth-first: the driver reaches a
+# depth by re-walking from the start, which costs a factor of the depth on a chain. It has to emit in
+# the same order as the config form with bfs:false.
+#
+# The fixture has to branch for this to mean anything -- on a single chain both orders are the same
+# sequence, so an assertion made there holds whichever the positional form uses. Traversing every
+# relationship type gives A two branches, and the two orders then differ: [0,1,2,3,1,2,3] depth-first
+# against [0,1,1,2,2,3,3] breadth-first.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand(a, [], [], 0, 3) YIELD result
+  WITH collect(size(nodes(result)) - 1) AS positional
+  MATCH (b:Node {name: "A"})
+  CALL path.expand_config(b, {maxHops: 3, bfs: false}) YIELD result
+  WITH positional, collect(size(nodes(result)) - 1) AS config
+  RETURN positional, positional = config AS same;
+
+output:
+  - positional: [0, 1, 2, 3, 1, 2, 3]
+    same: true

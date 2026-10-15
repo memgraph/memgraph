@@ -30,10 +30,8 @@ class AuthChecker : public query::AuthChecker {
 
   std::shared_ptr<query::QueryUserOrRole> GenEmptyUser() const override;
 
-#ifdef MG_ENTERPRISE
   std::unique_ptr<query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(const query::QueryUserOrRole &user,
                                                                            const query::DbAccessor *dba) const override;
-#endif
 
   [[nodiscard]] static bool IsUserAuthorized(const auth::User &user,
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
@@ -89,6 +87,18 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasUnrestrictedAccessToEdges() const override;
 
+  bool HasUnrestrictedAccessToVertexProperties() const override;
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override;
+
+  bool NeedsFineGrainedAuthChecker() const override;
+
+  bool HasPropertyPermission(std::span<storage::LabelId const> labels, storage::PropertyId property,
+                             query::AuthQuery::PropertyPermissionType type) const override;
+
+  bool HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
+                             query::AuthQuery::PropertyPermissionType type) const override;
+
   void MakeThreadSafe() const override;
   bool IsThreadSafe() const override;
 
@@ -97,15 +107,27 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   void PopulateCachedPermissions() const;
   bool IsCachedPermissionsPopulated() const;
 
+  // As `FineGrainedAuthChecker` is now cached for the session, we need to
+  // ensure it has the latest `DBAccessor`.
+  void UpdateDbAccessor(query::DbAccessor const *dba) override;
+
  private:
   auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
   auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;
+  auth::PropertyAccessPermissions const &GetCachedPropertyLabelPermissions() const;
+  auth::PropertyAccessPermissions const &GetCachedPropertyEdgeTypePermissions() const;
 
   auth::UserOrRole user_or_role_;
   const query::DbAccessor *dba_;
   std::string db_name_;
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_label_permissions_;
   mutable std::optional<auth::FineGrainedAccessPermissions> cached_edge_permissions_;
+  mutable std::optional<auth::PropertyAccessPermissions> cached_property_label_permissions_;
+  mutable std::optional<auth::PropertyAccessPermissions> cached_property_edge_type_permissions_;
+  mutable std::optional<bool> unrestricted_vertices_;
+  mutable std::optional<bool> unrestricted_edges_;
+  mutable std::optional<bool> unrestricted_vertex_properties_;
+  mutable std::optional<bool> unrestricted_edge_properties_;
 };
 #endif
 }  // namespace memgraph::glue

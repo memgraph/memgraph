@@ -129,7 +129,7 @@ void PointIndexStorage::PublishActiveIndices(ActiveIndicesUpdater const &updater
 
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
                                          utils::SkipListDb<Vertex>::Accessor vertices,
-                                         std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                         ProgressCallback const &on_progress) {
   auto key = LabelPropKey{label, property};
   if (indexes_->contains(key)) return false;
 
@@ -170,9 +170,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
         continue;
     }
 
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::POINT_IDX);
-    }
+    if (on_progress) on_progress();
   }
   // Skip the COW copy when the key already exists - matches the symmetric
   // early-return in DropPointIndex.

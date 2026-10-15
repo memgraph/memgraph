@@ -1,0 +1,184 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <type_traits>
+
+#include "query/db_accessor.hpp"
+#include "storage/v2/enum.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
+#include "tests/unit/typed_value_shapes.hpp"
+#include "utils/temporal.hpp"
+
+using memgraph::query::TypedValue;
+
+namespace shapes = memgraph::test::shapes;
+
+namespace {
+
+// Copying a value that owns nothing copies the whole union without knowing which member is live,
+// which reproduces the value only while every type it is done for is trivially copyable. Each of
+// these is declared elsewhere and could stop being so without anything here changing.
+static_assert(std::is_trivially_copyable_v<memgraph::query::VertexAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::query::EdgeAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::Date>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalDateTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::ZonedDateTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::Duration>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Enum>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Point2d>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Point3d>);
+
+// A value that owns nothing is written by constructing the union rather than by assigning to it,
+// because an assignment begins the lifetime of what it writes only where that type has a trivial
+// default constructor that is not deleted. A union has neither for as long as any one of its
+// members has a non-trivial default constructor of its own and no member carries a default member
+// initializer. Several of the types above initialize their members where they declare them, which
+// is what puts the union in that position, and what makes the destination of a copy or of a move
+// onto a Null an object whose lifetime an assignment would not have started.
+//
+// Were every one of them to become trivially default constructible, an assignment would be sound
+// again, and this is where that is noticed.
+static_assert(!std::conjunction_v<std::is_trivially_default_constructible<memgraph::query::VertexAccessor>,
+                                  std::is_trivially_default_constructible<memgraph::query::EdgeAccessor>,
+                                  std::is_trivially_default_constructible<memgraph::utils::Date>,
+                                  std::is_trivially_default_constructible<memgraph::utils::LocalTime>,
+                                  std::is_trivially_default_constructible<memgraph::utils::LocalDateTime>,
+                                  std::is_trivially_default_constructible<memgraph::utils::ZonedDateTime>,
+                                  std::is_trivially_default_constructible<memgraph::utils::Duration>,
+                                  std::is_trivially_default_constructible<memgraph::storage::Enum>,
+                                  std::is_trivially_default_constructible<memgraph::storage::Point2d>,
+                                  std::is_trivially_default_constructible<memgraph::storage::Point3d>>);
+
+bool IsUnshaped(TypedValue::Type type) {
+  return std::ranges::find(shapes::kUnshapedTypedValueTypes, type) != shapes::kUnshapedTypedValueTypes.end();
+}
+
+bool Contains(std::ranges::range auto const &types, TypedValue::Type type) {
+  return std::ranges::find(types, type) != std::ranges::end(types);
+}
+
+class TypedValueShapes : public ::testing::Test {
+ protected:
+  std::unique_ptr<memgraph::storage::Storage> db_ =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  std::unique_ptr<memgraph::storage::Storage::Accessor> accessor_ = db_->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba_{accessor_.get()};
+};
+
+}  // namespace
+
+TEST_F(TypedValueShapes, EveryTypeIsListedOnce) {
+  // `ShapesOfType` switches without a default, so a type added to the enum
+  // stops the build there. Nothing does the same for the list the callers walk,
+  // and the enum runs from zero without a gap, so its last value counts it.
+  ASSERT_FALSE(shapes::kEveryTypedValueType.empty());
+  for (auto index = std::size_t{0}; index < shapes::kEveryTypedValueType.size(); ++index) {
+    EXPECT_EQ(static_cast<unsigned>(shapes::kEveryTypedValueType[index]), index)
+        << "the list is out of step with the enum at position " << index;
+  }
+}
+
+TEST_F(TypedValueShapes, EveryTypeIsHandledTheWayItsValueNeeds) {
+  for (auto const type : shapes::kEveryTypedValueType) {
+    auto const owns_an_allocation = !Contains(shapes::kTypesWithoutAnAllocation, type);
+
+    EXPECT_EQ(TypedValue::OwnsAnAllocation(type), owns_an_allocation)
+        << "type " << static_cast<unsigned>(type) << " is "
+        << (owns_an_allocation ? "treated as holding its value outright, and is not listed that way"
+                               : "listed as holding its value outright, and is not treated that way");
+  }
+}
+
+TEST_F(TypedValueShapes, EveryShapedTypeHasShapesAndEachHoldsItsOwnType) {
+  for (auto const type : shapes::kEveryTypedValueType) {
+    auto const group = shapes::ShapesOfType(type, &dba_);
+    if (IsUnshaped(type)) {
+      EXPECT_TRUE(group.empty()) << "type " << static_cast<unsigned>(type) << " is named unshaped but has shapes";
+      continue;
+    }
+    EXPECT_FALSE(group.empty()) << "type " << static_cast<unsigned>(type) << " has no shapes";
+    for (auto const &value : group) {
+      EXPECT_EQ(value.type(), type) << "a shape of type " << static_cast<unsigned>(type) << " holds "
+                                    << static_cast<unsigned>(value.type());
+    }
+  }
+}
+
+TEST_F(TypedValueShapes, TheTypesThatNeedTheGraphAreTheOnlyOnesAnAccessorAdds) {
+  for (auto const type : shapes::kEveryTypedValueType) {
+    if (IsUnshaped(type)) continue;
+    auto const without = shapes::ShapesOfType(type, nullptr);
+    auto const with = shapes::ShapesOfType(type, &dba_);
+
+    auto const needs_the_graph =
+        std::ranges::find(shapes::kGraphTypedValueTypes, type) != shapes::kGraphTypedValueTypes.end();
+    if (needs_the_graph) {
+      EXPECT_TRUE(without.empty()) << "type " << static_cast<unsigned>(type) << " made a value with no accessor";
+      EXPECT_FALSE(with.empty());
+    } else {
+      EXPECT_EQ(without.size(), with.size())
+          << "type " << static_cast<unsigned>(type) << " reads the accessor it does not need";
+    }
+  }
+}
+
+TEST_F(TypedValueShapes, TheScalarsDrawTheSameValuesTheStoredShapesDo) {
+  // Writing the awkward doubles twice lets one copy fall behind the other, so
+  // the query side unwraps the stored shapes rather than restating them.
+  auto const doubles = shapes::ShapesOfType(TypedValue::Type::Double, &dba_);
+  auto const holds = [&](auto predicate) {
+    return std::ranges::any_of(doubles, [&](auto const &value) { return predicate(value.ValueDouble()); });
+  };
+
+  EXPECT_TRUE(holds([](double d) { return std::isnan(d); })) << "no NaN";
+  EXPECT_TRUE(holds([](double d) { return std::isinf(d); })) << "no infinity";
+  EXPECT_TRUE(holds([](double d) { return d == 0.0 && std::signbit(d); })) << "no negative zero";
+}
+
+TEST_F(TypedValueShapes, ANaNIsReachableBelowTheTopOfAValue) {
+  auto const holds_a_nested_nan = [](TypedValue const &value) {
+    if (value.type() == TypedValue::Type::List) {
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) {
+        return element.type() == TypedValue::Type::Double && std::isnan(element.ValueDouble());
+      });
+    }
+    if (value.type() == TypedValue::Type::Map) {
+      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) {
+        return entry.second.type() == TypedValue::Type::Double && std::isnan(entry.second.ValueDouble());
+      });
+    }
+    return false;
+  };
+
+  auto const every = shapes::EveryTypedValueShape(&dba_);
+  EXPECT_TRUE(std::ranges::any_of(every, [&](auto const &value) {
+    return value.type() == TypedValue::Type::List && holds_a_nested_nan(value);
+  })) << "no list holds a NaN";
+  EXPECT_TRUE(std::ranges::any_of(every, [&](auto const &value) {
+    return value.type() == TypedValue::Type::Map && holds_a_nested_nan(value);
+  })) << "no map holds a NaN";
+}
+
+TEST_F(TypedValueShapes, EveryShapeReachesEveryShapedType) {
+  auto const every = shapes::EveryTypedValueShape(&dba_);
+  for (auto const type : shapes::kEveryTypedValueType) {
+    if (IsUnshaped(type)) continue;
+    EXPECT_TRUE(std::ranges::any_of(every, [type](auto const &value) { return value.type() == type; }))
+        << "no shape of type " << static_cast<unsigned>(type);
+  }
+}

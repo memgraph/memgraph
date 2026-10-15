@@ -14,14 +14,15 @@ import sys
 import pytest
 from common import connect, execute_and_fetch_all
 
+
 # this would cause a crash in the past
 def test_nested_calls():
     cursor = connect().cursor()
 
     query = "CREATE (n) WITH n CALL { WITH n UNWIND [n,n] AS m WITH m CALL { WITH m CALL module.procedure(m) YIELD result RETURN result } RETURN result } RETURN result;"
     result = execute_and_fetch_all(cursor, query)
-    assert len(result) == 1
-    assert result[0][0] == 0
+    # `UNWIND [n,n]` feeds the procedure two rows and it emits one record for each.
+    assert result == [(0,), (0,)]
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <vector>
+
 #include <gtest/gtest.h>
 
 #include "test_rewriter_fixture.hpp"
@@ -142,10 +144,10 @@ TEST_F(Rewrite, IterationLimitReached_StopsRewriting) {
 
   auto always_rewrite = TestRewriteRule::Builder{"always_rewrite"}
                             .pattern(make_double_neg_pattern())
-                            .apply([counter = 2](auto &ctx, [[maybe_unused]] Match const &match) mutable {
-                              auto new_node = ctx.emplace(Op::Var, counter++);
-                              auto another_node = ctx.emplace(Op::Var, counter++);
-                              ctx.merge(new_node.eclass_id, another_node.eclass_id);
+                            .apply([counter = 2U](TestRuleContext &ctx, [[maybe_unused]] Match const &match) mutable {
+                              auto new_node = ctx.Make<Op::Var>(counter++);
+                              auto another_node = ctx.Make<Op::Var>(counter++);
+                              ctx.merge(new_node, another_node);
                             });
 
   rebuild_index();
@@ -169,10 +171,10 @@ TEST_F(Rewrite, ENodeLimitReached_StopsRewriting) {
 
   auto explosive_rule = TestRewriteRule::Builder{"explosive"}
                             .pattern(TestPattern::build(kVarRoot, Op::Var))
-                            .apply([counter = 2](TestRuleContext &ctx, Match const &match) mutable {
+                            .apply([counter = 2U](TestRuleContext &ctx, Match const &match) mutable {
                               for (int i = 0; i < 10; ++i) {
-                                auto n = ctx.emplace(Op::Var, counter++);
-                                ctx.merge(n.eclass_id, match[kVarRoot]);
+                                auto n = ctx.Make<Op::Var>(counter++);
+                                ctx.merge(n, match[kVarRoot]);
                               }
                             });
 
@@ -310,8 +312,8 @@ TEST_F(Rewrite, MultiPattern_RequiresAllPatternsMatch) {
 
 // --- Node Creation ---
 
-TEST_F(Rewrite, Emplace_CreatesNewNodes) {
-  // Rules can create new nodes using ctx.emplace().
+TEST_F(Rewrite, Make_CreatesNewNodes) {
+  // Rules can create new nodes using ctx.Make<S>().
   //
   //   Before:          After:
   //   ┌─────┐          ┌─────────────────┐
@@ -322,8 +324,8 @@ TEST_F(Rewrite, Emplace_CreatesNewNodes) {
                            .pattern(TestPattern::build(kVarRoot, Op::Var))
                            .apply([](TestRuleContext &ctx, Match const &match) {
                              auto var_eclass = match[kVarRoot];
-                             auto new_f = ctx.emplace(Op::F, utils::small_vector{var_eclass, var_eclass});
-                             ctx.merge(new_f.eclass_id, var_eclass);
+                             auto new_f = ctx.Make<Op::F>(std::vector<EClassId>{var_eclass, var_eclass});
+                             ctx.merge(new_f, var_eclass);
                            });
   use_rules(create_f_rule);
 
@@ -337,7 +339,7 @@ TEST_F(Rewrite, Emplace_CreatesNewNodes) {
   EXPECT_EQ(egraph.eclass(egraph.find(x)).nodes().size(), 2);  // Var and F
 }
 
-TEST_F(Rewrite, EmplacedNodes_Matchable) {
+TEST_F(Rewrite, MadeNodes_Matchable) {
   // Nodes created in iteration N must be matchable in iteration N+1.
   auto create_f = TestRewriteRule::Builder{"create_f"}
                       .pattern(TestPattern::build(kVarX, Op::Var))
@@ -346,14 +348,14 @@ TEST_F(Rewrite, EmplacedNodes_Matchable) {
                         auto vx = match[kVarX];
                         auto vy = match[kVarY];
                         if (ctx.find(vx) != ctx.find(vy)) {
-                          ctx.emplace(Op::F, utils::small_vector{vx, vy});
+                          ctx.Make<Op::F>(std::vector<EClassId>{vx, vy});
                         }
                       });
 
   auto wrap_f2 = TestRewriteRule::Builder{"wrap_f2"}
                      .pattern(TestPattern::build(kVarRootA, Op::F, {Var{kVarX}, Var{kVarY}}))
                      .apply([](TestRuleContext &ctx, Match const &match) {
-                       ctx.emplace(Op::F2, utils::small_vector{match[kVarRootA]});
+                       ctx.Make<Op::F2>(std::vector<EClassId>{match[kVarRootA]});
                      });
   use_rules(create_f, wrap_f2);
 
@@ -429,36 +431,33 @@ TEST_F(Rewrite, Congruence_PropagatesAfterMerge) {
   EXPECT_EQ(egraph.find(f_a), egraph.find(f_b));  // Congruence propagated
 }
 
-TEST_F(Rewrite, EmplaceExisting_ReturnsSameEClass) {
-  // Emplacing a node that already exists returns the existing e-class
-  // with did_insert=false (hash-consing property).
-  //
-  // Risk: Duplicate nodes created, breaking e-graph invariants.
+TEST_F(Rewrite, MakeExisting_ReturnsSameEClass) {
+  // Re-making a node that already exists hash-conses to the existing e-class
+  // rather than creating a duplicate, so the iteration produces no rewrite.
 
   auto x = leaf(Op::Var, 1);
   auto f_x = node(Op::F, x);
   rebuild_index();
 
-  std::size_t emplace_count = 0;
-  bool saw_existing = false;
+  std::size_t make_count = 0;
+  bool reused_existing = false;
 
   auto try_duplicate = TestRewriteRule::Builder{"try_duplicate"}
                            .pattern(TestPattern::build(kVarX, Op::Var))
                            .apply([&](TestRuleContext &ctx, Match const &match) {
-                             // Try to create F(x) which already exists
-                             auto [eclass_id, _, did_insert] = ctx.emplace(Op::F, utils::small_vector{match[kVarX]});
-                             ++emplace_count;
-                             if (!did_insert) {
-                               saw_existing = true;
-                               EXPECT_EQ(eclass_id, f_x);
+                             // F(x) already exists; Make must return its e-class.
+                             auto eclass_id = ctx.Make<Op::F>(std::vector<EClassId>{match[kVarX]});
+                             ++make_count;
+                             if (eclass_id == f_x) {
+                               reused_existing = true;
                              }
                            });
   use_rules(try_duplicate);
 
   rewriter().iterate_once();
 
-  EXPECT_EQ(emplace_count, 1);
-  EXPECT_TRUE(saw_existing);
+  EXPECT_EQ(make_count, 1);
+  EXPECT_TRUE(reused_existing);
   expect_rewrites(0);
 }
 
@@ -605,7 +604,7 @@ TEST_F(Rewrite, VM_VariablePatternRoot_FallbackToAllCandidates) {
                            .pattern(TestPattern::build(kVarRoot, Op::Var))
                            .apply([](TestRuleContext &ctx, Match const &match) {
                              // Just mark this as matched by creating a node
-                             ctx.emplace(Op::F, utils::small_vector{match[kVarRoot]});
+                             ctx.Make<Op::F>(std::vector<EClassId>{match[kVarRoot]});
                            });
   use_rules(var_root_rule);
 

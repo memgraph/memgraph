@@ -64,6 +64,11 @@ startup_config_dict = {
         "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
+    "ca_bundle_file": (
+        "",
+        "",
+        "Path to a CA certificate bundle used to verify peers of outgoing HTTPS requests (e.g. LOAD CSV from https URLs). When empty, well-known system trust-store locations are probed on the first outgoing request and the result is cached for the lifetime of the process.",
+    ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "cluster_ca_file": (
         "",
@@ -74,7 +79,7 @@ startup_config_dict = {
     "cluster_key_file": ("", "", "Key file used for intra-cluster TLS communication."),
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
-    "coordinator_id": ("0", "0", "Unique ID of the raft server."),
+    "coordinator_id": ("2147483647", "2147483647", "Unique ID of the raft server."),
     "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_dir_lock_acquisition_timeout_sec": (
@@ -91,6 +96,13 @@ startup_config_dict = {
         "10",
         "10",
         "Define a timeout for establishing a connection with a remote server during a file download.",
+    ),
+    "fips_mode": (
+        "false",
+        "false",
+        "Run Memgraph in FIPS 140-3 approved mode. Enterprise only. Requires the validated OpenSSL FIPS "
+        "provider to be available and restricts password hashing and TLS to FIPS-approved algorithms. "
+        "Experimental: existing users' passwords must be reset, as their hashes cannot be re-hashed.",
     ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
@@ -115,6 +127,13 @@ startup_config_dict = {
         "TRACE",
         "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     ),
+    "log_min_duration_ms": (
+        "-1",
+        "-1",
+        "Log queries whose parse+plan+execute time (ms) reaches this threshold with a [slow-query] tag. -1 disables; 0 logs every successful query.",
+    ),
+    "log_failed_queries": ("false", "false", "Log each failed query with a [failed-query] tag."),
+    "log_query_plan": ("true", "true", "Append the query's EXPLAIN plan to its [slow-query] log line."),
     "memory_limit": (
         "0",
         "0",
@@ -131,8 +150,8 @@ startup_config_dict = {
         "IP address on which the Memgraph server for exposing metrics should listen.",
     ),
     "metrics_format": (
-        "JSON",
-        "JSON",
+        "OpenMetrics",
+        "OpenMetrics",
         "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.",
     ),
     "metrics_port": ("9091", "9091", "Port on which the Memgraph server for exposing metrics should listen."),
@@ -171,6 +190,11 @@ startup_config_dict = {
         "false",
         "false",
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
+    ),
+    "storage_light_edge": (
+        "false",
+        "false",
+        "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies --storage-properties-on-edges.",
     ),
     "storage_property_store_compression_enabled": (
         "false",
@@ -217,6 +241,11 @@ startup_config_dict = {
     "strict_flag_check": ("true", "true", "If true, error and exit when suspicious positional arguments are detected."),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
+    "storage_omit_vector_index_properties_on_return": (
+        "false",
+        "false",
+        "If set to true, properties backed by a vector index are omitted when a whole node or relationship is returned. They remain accessible via explicit property access.",
+    ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (
@@ -226,6 +255,26 @@ startup_config_dict = {
     ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
     "storage_snapshot_thread_count": ("12", "12", "The number of threads used to create snapshots."),
+    "storage_snapshot_writeback_window_mib": (
+        "32",
+        "32",
+        "How much of a snapshot may build up in the operating system's file cache before it is written out to "
+        "disk and released, in MiB. Applies per snapshot thread. Set to 0 to leave this to the operating system, "
+        "which can let a large snapshot slow down queries and evict cached data.",
+    ),
+    "storage_release_recovered_snapshot_page_cache": (
+        "true",
+        "true",
+        "Release a snapshot from the operating system's file cache once recovery has loaded it, so it stops "
+        "holding memory the database could use. Set to false to leave it cached.",
+    ),
+    "storage_release_sent_snapshot_page_cache": (
+        "false",
+        "false",
+        "Release a snapshot from the operating system's file cache once it has been sent to a replica. Off by "
+        "default, because any further replica syncing from the same snapshot then has to read it from disk again. "
+        "Set to true to free the memory sooner on an instance that syncs a replica once.",
+    ),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "300",
@@ -238,6 +287,11 @@ startup_config_dict = {
         "Define periodic snapshot schedule via cron format or as a period in seconds.",
     ),
     "storage_snapshot_on_exit": ("false", "false", "Controls whether the storage creates another snapshot on exit."),
+    "storage_allow_recovery_failure": (
+        "false",
+        "false",
+        "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.",
+    ),
     "storage_snapshot_retention_count": ("3", "3", "The number of snapshots that should always be kept."),
     "storage_wal_enabled": (
         "false",
@@ -277,6 +331,11 @@ startup_config_dict = {
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
     "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
+    "query_ast_cache_max_size": (
+        "1000",
+        "1000",
+        "Maximum number of parsed query ASTs to cache (0 disables the cache).",
+    ),
     "query_vertex_count_to_expand_existing": (
         "10",
         "10",
@@ -313,7 +372,7 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [planner-v2]",
+        "Experimental features to be used, comma-separated. Options [commit-lock-narrowing, planner-v2]",
     ),
     "experimental_config": (
         "",
@@ -330,6 +389,11 @@ startup_config_dict = {
         "INFO_LEVEL",
         "INFO_LEVEL",
         "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.",
+    ),
+    "storage_rocksdb_keep_log_file_num": (
+        "1000",
+        "1000",
+        "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the current info log, older ones are deleted. Default is 1000.",
     ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }

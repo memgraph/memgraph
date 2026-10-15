@@ -12,7 +12,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
+#include <numeric>
 #include <string>
+#include <vector>
 
 #include "db_arena.hpp"
 #include "global_memory_control.hpp"
@@ -44,6 +47,25 @@ namespace {
 DbArenaHooks global_graph_arena_hooks{};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extent_hooks_t *old_hooks = nullptr;
+
+// Arenas for global graph hooks: automatic arenas [0, opt.narenas) plus the
+// sacrificial CPU-coverage arenas lazily created by EnsureCpuArenaCoverage().
+// Invariant after startup — cached as magic static.
+const std::vector<unsigned> &GlobalHookArenaIds() {
+  static const std::vector<unsigned> ids = [] {
+    unsigned n_arenas = 0;
+    size_t sz = sizeof(n_arenas);
+    if (je_mallctl("opt.narenas", static_cast<void *>(&n_arenas), &sz, nullptr, 0)) {
+      LOG_FATAL("Error getting number of jemalloc arenas");
+    }
+    std::vector<unsigned> result(n_arenas);
+    std::ranges::iota(result, 0U);
+    const auto &coverage = EnsureCpuArenaCoverage();
+    result.append_range(coverage);
+    return result;
+  }();
+  return ids;
+}
 }  // namespace
 
 #endif
@@ -55,20 +77,17 @@ void SetHooks() {
     return;
   }
 
-  unsigned n_arenas = 0;
-  size_t sz = sizeof(n_arenas);
-  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-  if (err) {
-    LOG_FATAL("Error getting number of jemalloc arenas");
-  }
-
-  for (unsigned i = 0; i < n_arenas; i++) {
-    std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
+  int err = 0;
+  // Create the sacrificial CPU-coverage arenas BEFORE installing the global
+  // tracking hooks so they are covered too (see GlobalHookArenaIds).
+  EnsureCpuArenaCoverage();
+  for (const unsigned i : GlobalHookArenaIds()) {
+    const auto func_name = fmt::format("arena.{}.extent_hooks", i);
 
     extent_hooks_t *current_old_hooks = nullptr;
     size_t hooks_len = sizeof(extent_hooks_t *);
 
-    err = je_mallctl(func_name.c_str(), (void *)&current_old_hooks, &hooks_len, nullptr, 0);
+    err = je_mallctl(func_name.c_str(), static_cast<void *>(&current_old_hooks), &hooks_len, nullptr, 0);
     if (err) {
       LOG_FATAL("Error getting hooks for jemalloc arena {}", i);
     }
@@ -94,14 +113,14 @@ void SetHooks() {
 
     // Due to the way jemalloc works, we need first to set their hooks
     // which will trigger creating arena, then we can set our custom hook wrappers
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, static_cast<void *>(&old_hooks), sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
     // Install tracker hooks.
     const extent_hooks_t *new_hooks = &global_graph_arena_hooks.hooks;
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&new_hooks, sizeof(extent_hooks_t *));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, static_cast<void *>(&new_hooks), sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
     }
@@ -115,37 +134,46 @@ void UnsetHooks() {
     return;
   }
 
-  MG_ASSERT(old_hooks);
-  MG_ASSERT(old_hooks->alloc);
-  MG_ASSERT(old_hooks->dalloc);
-  MG_ASSERT(old_hooks->destroy);
-  MG_ASSERT(old_hooks->commit);
-  MG_ASSERT(old_hooks->decommit);
-  MG_ASSERT(old_hooks->purge_forced);
-  MG_ASSERT(old_hooks->purge_lazy);
-  MG_ASSERT(old_hooks->split);
-  MG_ASSERT(old_hooks->merge);
-
-  unsigned n_arenas{0};
-  size_t sz = sizeof(n_arenas);
-  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
-  if (err) {
-    LOG_FATAL("Error getting number of jemalloc arenas");
-  }
-
-  for (unsigned i = 0; i < n_arenas; i++) {
-    std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
-    err = je_mallctl(func_name.c_str(), nullptr, nullptr, (void *)&old_hooks, sizeof(extent_hooks_t *));
+  for (const unsigned i : GlobalHookArenaIds()) {
+    const auto func_name = fmt::format("arena.{}.extent_hooks", i);
+    const int err =
+        je_mallctl(func_name.c_str(), nullptr, nullptr, static_cast<void *>(&old_hooks), sizeof(extent_hooks_t *));
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
     }
   }
+  old_hooks = nullptr;
 #endif
 }
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
+  // A forced purge skips an arena that another thread is already purging, and a background thread
+  // purges only down to the decay limit, so purging while one is mid-pass leaves pages behind.
+  // Stopping the background threads joins them, so none is mid-pass when the purge runs. Callers
+  // are serialised so that one cannot restart the threads while another is still purging. Each call
+  // joins and recreates the threads, which is acceptable for a purge a user's query asks for but not
+  // for one run periodically.
+  static std::mutex purge_mutex;
+  const std::scoped_lock lock(purge_mutex);
+
+  bool was_enabled = false;
+  size_t len = sizeof(was_enabled);
+  bool disable = false;
+  if (const int err = je_mallctl("background_thread", &was_enabled, &len, &disable, sizeof(disable)); err != 0) {
+    spdlog::warn("Failed to stop jemalloc background threads before a purge: {} ({})", strerror(err), err);
+  }
   je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+  if (was_enabled) {
+    if (const int err = je_mallctl("background_thread", nullptr, nullptr, &was_enabled, sizeof(was_enabled));
+        err != 0) {
+      spdlog::error(
+          "Failed to restart jemalloc background threads after a purge, so application threads purge instead: {} "
+          "({})",
+          strerror(err),
+          err);
+    }
+  }
 #else
   malloc_trim(0);
 #endif

@@ -1,0 +1,13 @@
+omit_vector_index_properties: &omit_vector_index_properties
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=WARNING"]
+      log_file: "vector_index_return.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Omit vector index properties on return"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["vector_index_return/omit_vector_index_properties.py"]
+    <<: *omit_vector_index_properties

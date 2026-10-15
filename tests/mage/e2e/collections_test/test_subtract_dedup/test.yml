@@ -1,0 +1,6 @@
+query: >
+  WITH collections.subtract([1, 1, 2, 2, 3], [3]) AS result UNWIND result AS element RETURN element ORDER BY element ASC;
+
+output:
+  - element: 1
+  - element: 2

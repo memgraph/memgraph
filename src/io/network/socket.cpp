@@ -283,19 +283,18 @@ bool Socket::Bind(const Endpoint &endpoint) {
 // Not const because of C-API
 // NOLINTNEXTLINE
 void Socket::SetKeepAlive() {
-  int optval = 1;
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
+  auto const set_opt = [this](int const level, int const optname, int value, char const *const opt_name) {
+    if (setsockopt(socket_, level, optname, &value, sizeof(value)) != 0) {
+      int const err_sc = errno;
+      spdlog::error("Failed to set socket option {} for keep alive. Errno: {}", opt_name, std::strerror(err_sc));
+      LOG_FATAL("Can't set socket keep alive");
+    }
+  };
 
-  optval = 20;  // wait 20s before sending keep-alive packets
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, sizeof(optval)),
-            "Can't set socket keep alive");
-
-  optval = 4;  // 4 keep-alive packets must fail to close
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, sizeof(optval)), "Can't set socket keep alive");
-
-  optval = 15;  // send keep-alive packets every 15s
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, sizeof(optval)),
-            "Can't set socket keep alive");
+  set_opt(SOL_SOCKET, SO_KEEPALIVE, 1, "SO_KEEPALIVE");
+  set_opt(SOL_TCP, TCP_KEEPIDLE, 20, "TCP_KEEPIDLE");    // wait 20s before sending keep-alive packets
+  set_opt(SOL_TCP, TCP_KEEPCNT, 4, "TCP_KEEPCNT");       // 4 keep-alive packets must fail to close
+  set_opt(SOL_TCP, TCP_KEEPINTVL, 15, "TCP_KEEPINTVL");  // send keep-alive packets every 15s
 }
 
 // Not const because of C-API

@@ -30,8 +30,25 @@ target_link_libraries(${test_prefix}ring_buffer mg-utils)
 add_benchmark(query/eval.cpp)
 target_link_libraries(${test_prefix}eval mg-query)
 
+add_benchmark(query/label_wildcard.cpp)
+target_link_libraries(${test_prefix}label_wildcard mg-query)
+
 add_benchmark(query/execution.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}execution mg-query mg-communication)
+
+add_benchmark(query/aggregation.cpp)
+target_link_libraries(${test_prefix}aggregation mg-query)
+
+add_benchmark(query/typed_value_ops.cpp)
+target_link_libraries(${test_prefix}typed_value_ops mg-query)
+
+add_benchmark(query/expression_lowering.cpp)
+target_link_libraries(${test_prefix}expression_lowering mg-query)
+
+if(MG_ENTERPRISE)
+    add_benchmark(query/property_permission.cpp)
+    target_link_libraries(${test_prefix}property_permission mg-query mg-glue mg-auth)
+endif()
 
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-query)
@@ -42,8 +59,19 @@ target_link_libraries(${test_prefix}plan_v2_extract mg-query)
 add_benchmark(query/profile.cpp)
 target_link_libraries(${test_prefix}profile mg-query)
 
+add_benchmark(query/accessor_free_dispatch.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}accessor_free_dispatch mg-query mg-communication mg-glue mg-dbms mg-license)
+target_include_directories(${test_prefix}accessor_free_dispatch PRIVATE ${CMAKE_SOURCE_DIR}/tests/unit)
+# Built everywhere so it cannot rot unnoticed, since no other target compiles it, but not run by ctest:
+# it drives a whole interpreter against live storage to compare two execution paths, and nothing tracks a
+# baseline for what it reports. Run it directly when working on that path.
+set_tests_properties(${test_prefix}accessor_free_dispatch PROPERTIES DISABLED TRUE)
+
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
+
+add_benchmark(query/parsing.cpp)
+target_link_libraries(${test_prefix}parsing mg-query)
 
 if (MG_ENTERPRISE)
 add_benchmark(rpc.cpp)
@@ -74,8 +102,17 @@ target_link_libraries(${test_prefix}storage_v2_gc2 mg::storage)
 add_benchmark(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg::storage)
 
+add_benchmark(storage_v2_property_compare.cpp)
+target_link_libraries(${test_prefix}storage_v2_property_compare mg::storage)
+
 add_benchmark(storage_v2_enum_store_bench.cpp)
 target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
+
+add_benchmark(storage_v2_edge_index_scan.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_index_scan mg::storage)
+
+add_benchmark(storage_v2_label_property_index_predicate.cpp)
+target_link_libraries(${test_prefix}storage_v2_label_property_index_predicate mg::storage)
 
 add_benchmark(thread_safe_memory.cpp)
 target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
@@ -101,3 +138,6 @@ add_test(NAME ${test_prefix}usearch_index_add_simsimd COMMAND $<TARGET_FILE:${te
 set_tests_properties(${test_prefix}usearch_index_add_simsimd PROPERTIES LABELS "benchmark")
 add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_simsimd)
 ]]
+
+add_benchmark(memory_new_delete.cpp)
+target_link_libraries(${test_prefix}memory_new_delete mg-utils)

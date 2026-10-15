@@ -16,11 +16,11 @@
 #include <optional>
 #include <string>
 
-#include "metrics/prometheus_metrics.hpp"
+#include "metrics/metric_handles.hpp"
 
 #ifdef MG_ENTERPRISE
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <nlohmann/json_fwd.hpp>
 
 #include "utils/exceptions.hpp"

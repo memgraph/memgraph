@@ -1,0 +1,19 @@
+# `sequence` spells one alternating string, starting with a label filter and ending with a relationship
+# filter, and takes priority over both filter keys: the '-Post' denylist and the incoming '<NEXT' here
+# are ignored rather than intersected, so the walk still leaves P1 over an outgoing NEXT. Its second
+# label step denies Blocked, which is what keeps RB out.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {minHops: 0, maxHops: 4,
+                              sequence: 'Post, NEXT>, Reply|-Blocked, <FROM, Admin, POSTED>',
+                              labelFilter: '-Post', relationshipFilter: '<NEXT'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["P1"]
+  - names: ["P1", "R1"]
+  - names: ["P1", "R1", "A1"]
+  - names: ["P1", "R1", "A1", "P2"]
+  - names: ["P1", "R1", "A1", "P2", "R2"]

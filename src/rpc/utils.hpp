@@ -43,14 +43,18 @@ void SaveWithDowngrade(TResponse const &res, uint64_t const response_version, sl
 
 template <RpcMessage TResponse>
 void SendFinalResponse(TResponse const &res, uint64_t const response_version, slk::Builder *builder,
-                       std::string description = "") {
+                       std::string_view db_name = {}) {
   ProtocolMessageHeader const message_header{.protocol_version = current_protocol_version,
                                              .message_id = TResponse::kType.id,
                                              .message_version = response_version};
   SaveMessageHeader(message_header, builder);
   SaveWithDowngrade(res, response_version, builder);
   builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
+  if (db_name.empty()) {
+    spdlog::trace("[RpcServer] sent {}, version {}.", TResponse::kType.name, response_version);
+  } else {
+    spdlog::trace("[RpcServer] sent {}, version {}. db: {}", TResponse::kType.name, response_version, db_name);
+  }
 }
 
 inline void SendInProgressMsg(slk::Builder *builder) {

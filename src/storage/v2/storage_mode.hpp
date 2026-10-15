@@ -16,6 +16,8 @@
 #include <string_view>
 #include <utility>
 
+#include <nlohmann/json_fwd.hpp>
+
 namespace memgraph::storage {
 
 enum class StorageMode : std::uint8_t {
@@ -24,6 +26,13 @@ enum class StorageMode : std::uint8_t {
   ON_DISK_TRANSACTIONAL,
   /* Leave at end */ N
 };
+
+// nlohmann ADL hooks: persist StorageMode as its underlying integer (matching nlohmann's built-in
+// enum default, so durable formats stay integer-encoded) but range-check the value on read via
+// NumToEnum, falling back to IN_MEMORY_TRANSACTIONAL — the built-in from_json blind-casts. Defined
+// in storage_mode.cpp so the full <nlohmann/json.hpp> stays out of this widely-included header.
+void to_json(nlohmann::json &j, StorageMode mode);
+void from_json(const nlohmann::json &j, StorageMode &mode);
 
 inline constexpr std::array storage_mode_mappings{
     std::pair{std::string_view{"IN_MEMORY_TRANSACTIONAL"}, StorageMode::IN_MEMORY_TRANSACTIONAL},

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,12 @@ using DatabaseProtectorPtr = std::unique_ptr<DatabaseProtector>;
 
 struct DatabaseProtector {
   virtual auto clone() const -> DatabaseProtectorPtr = 0;
+
+  // Advisory predicate: true once the underlying value has been sealed (marked for teardown).
+  // Generic on purpose — the "for deletion" meaning lives in the dbms layer. Callers use this to
+  // cooperatively stop re-arming background work on a value that is going away.
+  virtual bool sealed() const = 0;
+
   virtual ~DatabaseProtector() = default;
 };
 

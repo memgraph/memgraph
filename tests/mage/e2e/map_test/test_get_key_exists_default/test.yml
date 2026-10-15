@@ -1,0 +1,5 @@
+query: >
+  RETURN map.get({name: "x"}, "name", "DEF") AS value;
+
+output:
+  - value: "x"

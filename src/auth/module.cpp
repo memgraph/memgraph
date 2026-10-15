@@ -8,6 +8,7 @@
 
 #include "auth/module.hpp"
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <sched.h>
@@ -24,11 +25,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "utils/nofile_limit.hpp"
 
 namespace {
 
@@ -139,6 +143,21 @@ bool SetLimit(int resource, rlim_t n) {
   return setrlimit(resource, &limit) == 0;
 }
 
+// close_range(2); the toolchain's glibc 2.31 headers predate it, the number is the same on x86_64 and aarch64.
+constexpr long kSysCloseRange = 436;
+
+void CloseFdRange(int first, int last) {
+  if (syscall(kSysCloseRange, first, last, 0) == 0) return;
+  // Kernels older than 5.9 lack close_range.
+  DIR *dir = opendir("/proc/self/fd");
+  if (dir == nullptr) return;
+  while (const auto *entry = readdir(dir)) {
+    const long fd = std::strtol(entry->d_name, nullptr, 10);
+    if (fd >= first && fd <= last && fd != dirfd(dir)) close(static_cast<int>(fd));
+  }
+  closedir(dir);
+}
+
 ////////////////////////////////////////////////////
 // Target function used to start the module process.
 ////////////////////////////////////////////////////
@@ -196,10 +215,23 @@ int Target(void *arg) {
     return EXIT_FAILURE;
   }
 
+  // Don't leak the server's non-CLOEXEC fds (e.g. listening sockets, log file) into the module.
+  static_assert(kCommunicationFromModuleFd == kCommunicationToModuleFd + 1);
+  CloseFdRange(STDERR_FILENO + 1, kCommunicationToModuleFd - 1);
+  CloseFdRange(kCommunicationFromModuleFd + 1, std::numeric_limits<int>::max());
+
   // Disable core dumps.
   if (!SetLimit(RLIMIT_CORE, 0)) {
     std::cerr << "Couldn't disable core dumps for auth module!" << std::endl;
     // This isn't a fatal error.
+  }
+
+  // The server raises its soft open files limit; the module gets the original one.
+  if (const auto &original = memgraph::utils::OriginalNoFileLimit()) {
+    if (setrlimit(RLIMIT_NOFILE, &*original) != 0) {
+      std::cerr << "Couldn't restore the open files limit for auth module!\n";
+      // This isn't a fatal error.
+    }
   }
 
   // Ignore SIGINT.

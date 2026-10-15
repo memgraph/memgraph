@@ -30,7 +30,7 @@
 #include <prometheus/registry.h>
 #include <nlohmann/json_fwd.hpp>
 
-#include "utils/logging.hpp"
+#include "metrics/metric_handles.hpp"
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
@@ -82,190 +82,6 @@ using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(uti
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
 #endif
 
-struct GaugeHandle {
-  prometheus::Gauge *gauge{nullptr};
-
-  void Increment(double v = 1.0) const {
-    if (gauge) gauge->Increment(v);
-  }
-
-  void Decrement(double v = 1.0) const {
-    if (gauge) gauge->Decrement(v);
-  }
-
-  void Set(double v) const {
-    if (gauge) gauge->Set(v);
-  }
-
-  double Value() const { return gauge ? gauge->Value() : 0.0; }
-
-  prometheus::Gauge *get() const {
-    DMG_ASSERT(gauge);
-    return gauge;
-  }
-};
-
-struct CounterHandle {
-  prometheus::Counter *counter{nullptr};
-
-  void Increment(double v = 1.0) const {
-    if (counter) counter->Increment(v);
-  }
-
-  double Value() const { return counter ? counter->Value() : 0.0; }
-
-  prometheus::Counter *get() const {
-    DMG_ASSERT(counter);
-    return counter;
-  }
-};
-
-struct HistogramHandle {
-  prometheus::Histogram *histogram{nullptr};
-
-  void Observe(double v) const {
-    if (histogram) histogram->Observe(v);
-  }
-
-  auto Collect() const {
-    DMG_ASSERT(histogram);
-    return histogram->Collect();
-  }
-
-  prometheus::Histogram *get() const {
-    DMG_ASSERT(histogram);
-    return histogram;
-  }
-};
-
-struct DatabaseMetricHandles {
-  // Storage
-  GaugeHandle vertex_count;
-  GaugeHandle edge_count;
-  GaugeHandle disk_usage_bytes;
-
-  // Per-database memory tracking
-  GaugeHandle db_memory_tracked_bytes;
-  GaugeHandle db_peak_memory_tracked_bytes;
-  GaugeHandle db_storage_memory_tracked_bytes;
-  GaugeHandle db_embedding_memory_tracked_bytes;
-  GaugeHandle db_query_memory_tracked_bytes;
-
-  // Operators
-  CounterHandle once_operator;
-  CounterHandle create_node_operator;
-  CounterHandle create_expand_operator;
-  CounterHandle scan_all_operator;
-  CounterHandle scan_all_by_label_operator;
-  CounterHandle scan_all_by_label_properties_operator;
-  CounterHandle scan_all_by_id_operator;
-  CounterHandle scan_all_by_edge_operator;
-  CounterHandle scan_all_by_edge_type_operator;
-  CounterHandle scan_all_by_edge_type_property_operator;
-  CounterHandle scan_all_by_edge_type_property_value_operator;
-  CounterHandle scan_all_by_edge_type_property_range_operator;
-  CounterHandle scan_all_by_edge_property_operator;
-  CounterHandle scan_all_by_edge_property_value_operator;
-  CounterHandle scan_all_by_edge_property_range_operator;
-  CounterHandle scan_all_by_edge_id_operator;
-  CounterHandle scan_all_by_point_distance_operator;
-  CounterHandle scan_all_by_point_withinbbox_operator;
-  CounterHandle expand_operator;
-  CounterHandle expand_variable_operator;
-  CounterHandle construct_named_path_operator;
-  CounterHandle filter_operator;
-  CounterHandle produce_operator;
-  CounterHandle delete_operator;
-  CounterHandle set_property_operator;
-  CounterHandle set_properties_operator;
-  CounterHandle set_labels_operator;
-  CounterHandle remove_property_operator;
-  CounterHandle remove_labels_operator;
-  CounterHandle edge_uniqueness_filter_operator;
-  CounterHandle empty_result_operator;
-  CounterHandle accumulate_operator;
-  CounterHandle aggregate_operator;
-  CounterHandle skip_operator;
-  CounterHandle limit_operator;
-  CounterHandle order_by_operator;
-  CounterHandle merge_operator;
-  CounterHandle optional_operator;
-  CounterHandle unwind_operator;
-  CounterHandle distinct_operator;
-  CounterHandle union_operator;
-  CounterHandle cartesian_operator;
-  CounterHandle call_procedure_operator;
-  CounterHandle foreach_operator;
-  CounterHandle evaluate_pattern_filter_operator;
-  CounterHandle apply_operator;
-  CounterHandle indexed_join_operator;
-  CounterHandle hash_join_operator;
-  CounterHandle roll_up_apply_operator;
-  CounterHandle periodic_commit_operator;
-  CounterHandle periodic_subquery_operator;
-  CounterHandle set_nested_property_operator;
-  CounterHandle remove_nested_property_operator;
-
-  // Index
-  GaugeHandle active_label_indices;
-  GaugeHandle active_label_property_indices;
-  GaugeHandle active_edge_type_indices;
-  GaugeHandle active_edge_type_property_indices;
-  GaugeHandle active_edge_property_indices;
-  GaugeHandle active_point_indices;
-  GaugeHandle active_text_indices;
-  GaugeHandle active_text_edge_indices;
-  GaugeHandle active_vector_indices;
-  GaugeHandle active_vector_edge_indices;
-
-  // Constraint
-  GaugeHandle active_existence_constraints;
-  GaugeHandle active_unique_constraints;
-  GaugeHandle active_type_constraints;
-
-  // Stream
-  CounterHandle streams_created;
-  CounterHandle messages_consumed;
-
-  // Trigger
-  CounterHandle triggers_created;
-  CounterHandle triggers_executed;
-
-  // Transaction
-  GaugeHandle active_transactions;
-  CounterHandle committed_transactions;
-  CounterHandle rolled_back_transactions;
-  CounterHandle failed_query;
-  CounterHandle failed_prepare;
-  CounterHandle failed_pull;
-  CounterHandle successful_query;
-  CounterHandle write_write_conflicts;
-  CounterHandle transient_errors;
-  GaugeHandle unreleased_delta_objects;
-
-  // Query type
-  CounterHandle read_query;
-  CounterHandle write_query;
-  CounterHandle read_write_query;
-
-  // TTL
-  CounterHandle deleted_nodes;
-  CounterHandle deleted_edges;
-
-  // SchemaInfo
-  CounterHandle show_schema;
-
-  // StorageInfo database specific
-  CounterHandle show_storage_info;
-
-  // Histograms
-  HistogramHandle query_execution_latency_seconds;
-  HistogramHandle snapshot_creation_latency_seconds;
-  HistogramHandle snapshot_recovery_latency_seconds;
-  HistogramHandle gc_latency_seconds;
-  HistogramHandle gc_skiplist_cleanup_latency_seconds;
-};
-
 struct GlobalMetricHandles {
   // Session
   prometheus::Gauge *active_sessions;
@@ -278,6 +94,17 @@ struct GlobalMetricHandles {
   // Memory
   prometheus::Gauge *memory_res_bytes;
   prometheus::Gauge *peak_memory_res_bytes;
+
+  // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
+  // live storage to attribute a per-db series to). suspends/resumes count user-driven operations; the
+  // gauge tracks the current COLD set size.
+  prometheus::Counter *database_suspends;
+  prometheus::Counter *database_resumes;
+  prometheus::Gauge *cold_databases;
+  // Wall-clock latency of a successful SUSPEND / RESUME (observed once per successful operation, on the
+  // same path as the counters above). Global for the same reason: a COLD tenant has no live storage.
+  prometheus::Histogram *database_suspend_latency_seconds;
+  prometheus::Histogram *database_resume_latency_seconds;
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
@@ -307,8 +134,6 @@ struct GlobalMetricHandles {
   prometheus::Counter *state_check_rpc_fail;
   prometheus::Counter *unregister_replica_rpc_success;
   prometheus::Counter *unregister_replica_rpc_fail;
-  prometheus::Counter *enable_writing_on_main_rpc_success;
-  prometheus::Counter *enable_writing_on_main_rpc_fail;
   prometheus::Counter *promote_to_main_rpc_success;
   prometheus::Counter *promote_to_main_rpc_fail;
   prometheus::Counter *demote_main_to_replica_rpc_success;
@@ -335,7 +160,6 @@ struct GlobalMetricHandles {
   prometheus::Histogram *demote_main_to_replica_rpc_seconds;
   prometheus::Histogram *register_replica_on_main_rpc_seconds;
   prometheus::Histogram *unregister_replica_rpc_seconds;
-  prometheus::Histogram *enable_writing_on_main_rpc_seconds;
   prometheus::Histogram *state_check_rpc_seconds;
   prometheus::Histogram *get_database_histories_rpc_seconds;
   prometheus::Histogram *heartbeat_rpc_seconds;
@@ -362,9 +186,50 @@ class PrometheusMetrics {
   PrometheusMetrics &operator=(PrometheusMetrics &&) = delete;
   ~PrometheusMetrics() = default;
 
-  DatabaseMetricHandles AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RemoveDatabase(utils::UUID const &uuid);
-  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+  /// Owns one registration of a database's metrics and releases it on destruction. Move-only, so
+  /// exactly one object releases each registration. It releases the entry it registered rather than
+  /// one matching a uuid or a name, so a database that is renamed or rebound still releases its own.
+  class Registration {
+   public:
+    Registration() = default;
+    ~Registration();
+
+    Registration(Registration &&other) noexcept;
+    Registration &operator=(Registration &&other) noexcept;
+    Registration(Registration const &) = delete;
+    Registration &operator=(Registration const &) = delete;
+
+    DatabaseMetricHandles const &handles() const { return handles_; }
+
+    DatabaseMetricHandles &handles() { return handles_; }
+
+    /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
+    void Rebind(utils::UUID const &new_uuid);
+
+    /// Presents this entry under `new_name`. The metric objects and the handles into them stay put.
+    void Rename(std::string_view new_name);
+
+   private:
+    friend class PrometheusMetrics;
+
+    Registration(PrometheusMetrics *registry, uint64_t entry_id, DatabaseMetricHandles handles)
+        : registry_(registry), entry_id_(entry_id), handles_(std::move(handles)) {}
+
+    void Release() noexcept;
+
+    PrometheusMetrics *registry_{nullptr};
+    uint64_t entry_id_{0};
+    DatabaseMetricHandles handles_{};
+  };
+
+  [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
+
+  /// Relabels the default database's entry onto @p new_uuid. The metric objects stay put, so
+  /// every outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
+  DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Refresh any gauges whose values are pulled from current storage state,
+  /// rather than updated at point of use.
   void UpdateGauges();
 
   /// Thread-safe update of the global peak_memory_res_bytes gauge.
@@ -397,16 +262,43 @@ class PrometheusMetrics {
 
   nlohmann::json GetTelemetryCounters() const;
 
-  prometheus::Registry &registry() { return registry_; }
+  /// Collects every family for a scrape, substituting each per-database entry's current name and uuid
+  /// for the internal entry-id label. This is the only way out of the registry, because the entry-id label
+  /// keys the families internally and must never be exposed.
+  std::vector<prometheus::MetricFamily> CollectForScrape();
 
   GlobalMetricHandles global;
 
  private:
   struct DatabaseEntry {
+    // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
+    // change while registrations are outstanding.
+    uint64_t id;
+    // Substituted into the scrape output by CollectForScrape. AddDatabase matches on both to share an
+    // entry, and UpdateGauges and GetDbMetricsInfo find the entry by uuid. The default database's uuid
+    // changes when the instance joins a cluster, and a tenant's name changes on rename. The metric
+    // objects must outlive both changes, so they are presented at collection time rather than baked
+    // into the family key.
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
+    // Registrations of one database share every handle, because a family returns the metric it
+    // already holds for a label set. The metrics go when the last registration does.
+    std::size_t registrations{1};
   };
+
+  /// Drops one registration of the entry, and the metrics with the last of them.
+  void ReleaseRegistration(uint64_t entry_id);
+
+  void RebindRegistration(uint64_t entry_id, utils::UUID const &new_uuid);
+
+  void RenameRegistration(uint64_t entry_id, std::string_view new_name);
+
+  // Caller must hold databases_.mutex.
+  DatabaseMetricHandles CreateHandles(uint64_t entry_id);
+  void RemoveHandlesFromFamilies(DatabaseMetricHandles const &h);
+  void RemoveEntryAt(std::list<DatabaseEntry>::iterator it);
+  DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
@@ -415,6 +307,7 @@ class PrometheusMetrics {
   struct {
     mutable std::shared_mutex mutex;
     std::list<DatabaseEntry> entries;
+    uint64_t next_entry_id{1};
   } databases_;
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
@@ -456,12 +349,9 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_type_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_type_property_operator_family_;
-  prometheus::Family<prometheus::Counter> &scan_all_by_edge_type_property_value_operator_family_;
-  prometheus::Family<prometheus::Counter> &scan_all_by_edge_type_property_range_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_operator_family_;
-  prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_value_operator_family_;
-  prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_range_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_id_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_point_distance_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_point_withinbbox_operator_family_;
   prometheus::Family<prometheus::Counter> &expand_operator_family_;
@@ -495,6 +385,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &indexed_join_operator_family_;
   prometheus::Family<prometheus::Counter> &hash_join_operator_family_;
   prometheus::Family<prometheus::Counter> &roll_up_apply_operator_family_;
+  prometheus::Family<prometheus::Counter> &conditional_operator_family_;
   prometheus::Family<prometheus::Counter> &periodic_commit_operator_family_;
   prometheus::Family<prometheus::Counter> &periodic_subquery_operator_family_;
   prometheus::Family<prometheus::Counter> &set_nested_property_operator_family_;
@@ -506,6 +397,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &active_edge_type_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_type_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_property_indices_family_;
+  prometheus::Family<prometheus::Gauge> &active_vertex_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_point_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_text_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_text_edge_indices_family_;
@@ -555,6 +447,13 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &memory_res_family_;
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
 
+  // Global metric families — hot/cold databases
+  prometheus::Family<prometheus::Counter> &database_suspends_family_;
+  prometheus::Family<prometheus::Counter> &database_resumes_family_;
+  prometheus::Family<prometheus::Gauge> &cold_databases_family_;
+  prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
+  prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
+
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 
   // Global metric families — HA counters
@@ -575,8 +474,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &state_check_rpc_fail_family_;
   prometheus::Family<prometheus::Counter> &unregister_replica_rpc_success_family_;
   prometheus::Family<prometheus::Counter> &unregister_replica_rpc_fail_family_;
-  prometheus::Family<prometheus::Counter> &enable_writing_on_main_rpc_success_family_;
-  prometheus::Family<prometheus::Counter> &enable_writing_on_main_rpc_fail_family_;
   prometheus::Family<prometheus::Counter> &promote_to_main_rpc_success_family_;
   prometheus::Family<prometheus::Counter> &promote_to_main_rpc_fail_family_;
   prometheus::Family<prometheus::Counter> &demote_main_to_replica_rpc_success_family_;
@@ -608,7 +505,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &demote_main_to_replica_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &register_replica_on_main_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &unregister_replica_rpc_histogram_family_;
-  prometheus::Family<prometheus::Histogram> &enable_writing_on_main_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &state_check_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &get_database_histories_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &heartbeat_rpc_family_;
@@ -624,6 +520,7 @@ class PrometheusMetrics {
   // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
+  prometheus::Family<prometheus::Counter> &gc_index_sweeps_family_;
 
   // Global metric family — per-instance snapshot throughput (bytes/s)
   prometheus::Family<prometheus::Histogram> &snapshot_throughput_family_;

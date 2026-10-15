@@ -1,0 +1,4 @@
+include(memgraph_freebsd_base)
+
+[settings]
+compiler.cppstd=gnu17

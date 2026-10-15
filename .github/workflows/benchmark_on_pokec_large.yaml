@@ -13,11 +13,10 @@ jobs:
     runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 720
     env:
-      THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: ubuntu-24.04
-      TOOLCHAIN: v7
+      TOOLCHAIN: v8
       ARCH: amd
       BUILD_TYPE: RelWithDebInfo
 
@@ -29,6 +28,12 @@ jobs:
             # branches and tags. (default: 1)
             fetch-depth: 0
 
+        - name: Clean up Docker
+          if: always()
+          continue-on-error: true
+          run: |
+            ./tools/ci/docker_cleanup.sh
+
         - name: Log in to Docker Hub
           uses: ./.github/actions/docker-login
           with:
@@ -36,17 +41,23 @@ jobs:
             password: ${{ secrets.DOCKERHUB_TOKEN }}
 
         - name: Spin up mgbuild container
+          env:
+            GITHUB_TOKEN: ${{ github.token }}
           run: |
-            if [[ "$OS" == "ubuntu-24.04" ]]; then
-              USE_CUSTOM_MIRROR=true
-            else
-              USE_CUSTOM_MIRROR=false
-            fi
+            USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
             ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
             run --custom-mirror $USE_CUSTOM_MIRROR
+
+        - name: Check core dump support
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            check-core-dumps
 
         - name: Build binary
           run: |
@@ -55,7 +66,6 @@ jobs:
             --os $OS \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
-            --threads $THREADS \
             build-memgraph --split-debug
 
         - name: Get branch name (merge)
@@ -101,6 +111,24 @@ jobs:
             --github-run-id "${{ github.run_id }}" \
             --github-run-number "${{ github.run_number }}" \
             --head-branch-name "${{ env.BRANCH_NAME }}"
+
+        - name: Collect core dumps
+          if: failure()
+          continue-on-error: true
+          env:
+            AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+            MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+            MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+            MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+            CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+            CLUSTER_ENV: "ci-benchmark-pokec-large"
+          run: |
+            ./tools/ci/core-dumps/collect.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --run-id "${{ github.run_id }}" \
+            --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
         - name: Stop mgbuild container
           if: always()

@@ -1,0 +1,9 @@
+# The same terminator at or above the lower hop bound does end the walk.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {labelFilter: ['/Term', 'X'], minLevel: 0, maxLevel: 4})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["S", "T1"]

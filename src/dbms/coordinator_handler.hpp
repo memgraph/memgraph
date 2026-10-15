@@ -44,14 +44,28 @@ class CoordinatorHandler {
   auto ForceResetClusterState() -> coordination::ReconcileClusterStateStatus;
 
   auto ShowInstance() const -> coordination::InstanceStatus;
-  auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowInstances() const -> std::optional<std::vector<coordination::InstanceStatus>>;
 
   auto YieldLeadership() const -> coordination::YieldLeadershipStatus;
 
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> coordination::SetCoordinatorSettingStatus;
 
-  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+  auto CreateRole(std::string_view role_name) const -> coordination::CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> coordination::DropRoleStatus;
+
+  auto GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::RevokePrivilegeStatus;
+
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
+  // nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
@@ -62,7 +76,10 @@ class CoordinatorHandler {
 
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
-  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>;
+  // nullopt if the leader couldn't be reached.
+  auto ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult>;
+
+  auto GetRoutingTable(std::string_view db_name) const -> coordination::RoutingTable;
 
  private:
   // NOLINTNEXTLINE

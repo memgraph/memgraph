@@ -1,0 +1,10 @@
+# The config is read before the start node is looked at, so a null start cannot decide whether a
+# misspelled key is reported -- otherwise the same call would fail only on the rows that matched.
+query: >
+  OPTIONAL MATCH (missing:NoSuchLabel)
+  CALL path.subgraph_nodes(missing, {maxHops: 2, mispelled: 1})
+  YIELD nodes
+  RETURN nodes;
+
+exception_contains: >
+  Unrecognized config key 'mispelled'.

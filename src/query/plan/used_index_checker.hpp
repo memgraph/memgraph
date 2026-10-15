@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,12 +48,9 @@ struct UsedIndexChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdge &) override;
   bool PreVisit(ScanAllByEdgeType &) override;
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeProperty &) override;
-  bool PreVisit(ScanAllByEdgePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
+  bool PreVisit(ScanAllByVertexProperty &) override;
 
   bool PreVisit(Expand &) override;
   bool PreVisit(ExpandVariable &) override;
@@ -85,6 +82,7 @@ struct UsedIndexChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(IndexedJoin &) override;
   bool PreVisit(HashJoin &) override;
   bool PreVisit(RollUpApply &) override;
+  bool PreVisit(Conditional &) override;
   bool PreVisit(PeriodicSubquery &) override;
   bool PreVisit(PeriodicCommit &) override;
 

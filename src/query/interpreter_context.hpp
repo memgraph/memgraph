@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -21,6 +22,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/config.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
@@ -33,7 +35,6 @@
 #include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #ifdef MG_ENTERPRISE
@@ -48,14 +49,19 @@ class DbmsHandler;
 
 namespace memgraph::query {
 
-struct QueryCacheEntry;
-
 constexpr uint64_t kInterpreterTransactionInitialId = 1ULL << 63U;
 
 class AuthQueryHandler;
 class AuthChecker;
 class Interpreter;
 struct QueryUserOrRole;
+
+bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv);
+
+struct TerminateSessionsResult {
+  std::vector<std::vector<TypedValue>> rows;  // one {session_id, killed} row per requested id, input order
+  std::vector<std::string> to_close;          // uuids the CALLER must hand to the session registry
+};
 
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
@@ -70,7 +76,7 @@ struct InterpreterContext {
   // Internal
   const InterpreterConfig config;
   std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
-  utils::SkipList<QueryCacheEntry> ast_cache;
+  AstCache ast_cache;
 
   // GLOBAL
   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *repl_state;
@@ -105,8 +111,35 @@ struct InterpreterContext {
       const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
       QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
+  /// Terminates every transaction the caller is authorized to kill, across all databases.
+  /// `self` is the issuing interpreter and is skipped: terminating it would make its own
+  /// commit throw, so the caller would never see which transactions it killed. Returns one
+  /// row per terminated transaction, ordered by ascending transaction id.
+  static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
+      const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
+      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+
+  // Close is deferred: the destructor chain re-enters InterpreterContext::interpreters. Call this inside
+  // interpreters.WithLock(...) and close `to_close` only after that lock is released, or self-deadlock.
+  //
+  // Each session is authorized against its own current database (roles and privileges are DB-scoped);
+  // a caller may always terminate its own other connections regardless of privilege.
+  //
+  // A dbless target falls back to dbms::kDefaultDB ("memgraph") for the privilege check — a "memgraph"-scoped
+  // admin can therefore reach sessions that hold no database at all.
+  static TerminateSessionsResult TerminateSessions(
+      const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
+      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
+      std::string_view caller_session_uuid);
+
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
+
+  // Hooks into the DbmsHandler's deferred-drop worker: while a FORCE drop is draining, Bolt sessions whose current
+  // database is being dropped are closed, so the database can drain. Unregister before this context is destroyed;
+  // it returns only once the hook can no longer run.
+  void RegisterDropDrainHook();
+  void UnregisterDropDrainHook() const;
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
@@ -198,8 +231,12 @@ struct InterpreterContextLifetimeControl {
                                          ac,
                                          replication_handler,
                                          worker_pool);
+    InterpreterContextHolder::GetInstance().RegisterDropDrainHook();
   }
 
-  ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }
+  ~InterpreterContextLifetimeControl() {
+    InterpreterContextHolder::GetInstance().UnregisterDropDrainHook();
+    InterpreterContextHolder::destroy();
+  }
 };
 }  // namespace memgraph::query

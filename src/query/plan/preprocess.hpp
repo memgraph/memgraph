@@ -27,6 +27,7 @@
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/transparent_compare.hpp"
 
 namespace memgraph::query::plan {
@@ -76,6 +77,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Extract &extract) override {
+    // Remove the symbol bound by extract, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*extract.identifier_));
+    return true;
+  }
+
   bool PostVisit(ListComprehension &list_comprehension) override {
     // Remove the symbol which is bound by list comprehension, because we are only interested
     // in free (unbound) symbols.
@@ -84,7 +92,8 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    if (subquery_externals_only_) return true;
+    const bool is_ordinary_flow = in_pattern_comprehension_depth == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -93,51 +102,47 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Exists &exists) override {
-    in_exists = true;
-
-    if (exists.HasPattern()) {
-      // We do not visit pattern identifier since we're in exists filter pattern
-      for (auto &atom : exists.GetPattern()->atoms_) {
-        atom->Accept(*this);
+  bool PreVisit(SubqueryExpression &subquery) override {
+    // Take the set @c SymbolGenerator computed; the body is not walked.
+    for (const auto &symbol : subquery.external_symbols_) {
+      // Skip one an enclosing comprehension binds.
+      if (!comprehension_bound_.contains(symbol)) {
+        symbols_.insert(symbol);
       }
-    } else if (exists.HasSubquery()) {
-      // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = exists.GetSubquery()->single_query_;
-      if (single_query) {
-        for (auto *clause : single_query->clauses_) {
-          if (auto *match = utils::Downcast<Match>(clause)) {
-            for (auto *pattern : match->patterns_) {
-              for (auto &atom : pattern->atoms_) {
-                atom->Accept(*this);
-              }
-            }
-          }
-        }
-      }
-    } else {
-      throw SemanticException(
-          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
-          "should not happen!");
     }
-
     return false;
   }
 
-  bool PostVisit(Exists & /*exists*/) override {
-    in_exists = false;
-    return true;
-  }
-
   bool PreVisit(PatternComprehension &pc) override {
-    in_pattern_comprehension = true;
+    ++in_pattern_comprehension_depth;
     pc.pattern_->Accept(*this);
 
+    // A subquery in the filter or the result may read an outer name.
+    auto const outer_bound = comprehension_bound_;
+    auto const restore_bound = utils::OnScopeExit{[this, &outer_bound] { comprehension_bound_ = outer_bound; }};
+    if (pc.variable_) {
+      comprehension_bound_.insert(symbol_table_.at(*pc.variable_));
+    }
+    for (auto *atom : pc.pattern_->atoms_) {
+      comprehension_bound_.insert(symbol_table_.at(*atom->identifier_));
+    }
+
+    // Only subqueries contribute, so the comprehension's own variables stay out. Suppress rather than erase on
+    // exit: `comprehension_bound_` also holds an outer anchor, which the pattern walk above already collected.
+    auto const outer_only = subquery_externals_only_;
+    auto const restore_only = utils::OnScopeExit{[this, outer_only] { subquery_externals_only_ = outer_only; }};
+    subquery_externals_only_ = true;
+    if (pc.filter_) {
+      pc.filter_->expression_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
     return false;
   }
 
   bool PostVisit(PatternComprehension & /*pc*/) override {
-    in_pattern_comprehension = false;
+    --in_pattern_comprehension_depth;
     return true;
   }
 
@@ -151,8 +156,12 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
 
  private:
-  bool in_exists{false};
-  bool in_pattern_comprehension{false};
+  // A depth, not a flag: comprehensions nest in property maps and variable-length bounds.
+  int in_pattern_comprehension_depth{0};
+  // Variables bound by the enclosing comprehensions. Nested comprehensions add to this and restore on exit.
+  std::unordered_set<Symbol> comprehension_bound_;
+  // When set, subqueries contribute but identifiers do not.
+  bool subquery_externals_only_{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -210,21 +219,22 @@ struct Expansion {
 enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
-struct FilterMatching;
+struct SubqueryMatching;
 using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
-enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
+/// Which body form was written: a bare pattern, or a full subquery. Independent of the fold.
+enum class SubqueryKind : uint8_t { kPattern, kSubquery };
 
 /// Collects pattern comprehensions and EXISTS patterns from any AST node.
 /// Uses HierarchicalTreeVisitor for automatic traversal of all expressions in all clause types.
-class PatternComprehensionCollector : public HierarchicalTreeVisitor {
+class SubqueryMatchingCollector : public HierarchicalTreeVisitor {
  public:
-  explicit PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage);
-  PatternComprehensionCollector(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector &operator=(const PatternComprehensionCollector &) = delete;
-  PatternComprehensionCollector(PatternComprehensionCollector &&) = delete;
-  PatternComprehensionCollector &operator=(PatternComprehensionCollector &&) = delete;
-  ~PatternComprehensionCollector() override;
+  explicit SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage);
+  SubqueryMatchingCollector(const SubqueryMatchingCollector &) = delete;
+  SubqueryMatchingCollector &operator=(const SubqueryMatchingCollector &) = delete;
+  SubqueryMatchingCollector(SubqueryMatchingCollector &&) = delete;
+  SubqueryMatchingCollector &operator=(SubqueryMatchingCollector &&) = delete;
+  ~SubqueryMatchingCollector() override;
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -234,9 +244,9 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
   // Uses PreVisit to handle manually and prevent automatic traversal into pattern/filter
   bool PreVisit(PatternComprehension &op) override;
 
-  // Exists pattern filters
+  // SubqueryExpression pattern filters
   // Uses PreVisit to handle manually and prevent automatic traversal into pattern/subquery
-  bool PreVisit(Exists &op) override;
+  bool PreVisit(SubqueryExpression &op) override;
 
   // Leaf nodes - stop traversal (no children to visit)
   bool Visit(Identifier &) override { return true; }
@@ -247,13 +257,13 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
 
   bool Visit(EnumValueAccess &) override { return true; }
 
-  std::vector<FilterMatching> getFilterMatchings();
+  std::vector<SubqueryMatching> getSubqueryMatchings();
   PatternComprehensionMatchings getPatternComprehensionMatchings();
 
  private:
   SymbolTable &symbol_table_;
   AstStorage &storage_;
-  std::vector<FilterMatching> filter_matchings_;
+  std::vector<SubqueryMatching> subquery_matchings_;
   PatternComprehensionMatchings pattern_comprehension_matchings_;
 };
 
@@ -264,7 +274,39 @@ class PropertyFilter {
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
-  enum class Type : uint8_t { EQUAL = 0, REGEX_MATCH = 1, RANGE = 2, IN = 3, IS_NOT_NULL = 4 };
+  enum class Type : uint8_t {
+    EQUAL = 0,
+    REGEX_MATCH = 1,
+    RANGE = 2,
+    IN = 3,
+    IS_NOT_NULL = 4,
+    STARTS_WITH = 5,
+    CONTAINS = 6,
+    ENDS_WITH = 7
+  };
+
+  /// True when an edge index scan admits rows the filter rejects, so the original expression must
+  /// be retained as a post-filter. An edge scan bounds a prefix match above as well as below, and
+  /// those two bounds span exactly the strings carrying the prefix, so STARTS_WITH has nothing
+  /// left to check. The rest have no bound narrower than the whole string type.
+  static constexpr bool RequiresPostFilterOnEdgeScan(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// True when a node index scan admits rows the filter rejects, so the original expression must be
+  /// retained as a post-filter. A node scan bounds a prefix match above as well as below, and those
+  /// two bounds span exactly the strings carrying the prefix, so STARTS_WITH has nothing left to
+  /// check. The rest have no bound narrower than the whole string type.
+  static constexpr bool RequiresPostFilterOnNodeScan(Type t) {
+    return t == Type::REGEX_MATCH || t == Type::CONTAINS || t == Type::ENDS_WITH;
+  }
+
+  /// The predicates that read a search term to narrow a scan over the property's string values,
+  /// as the seek key or as the predicate that skips whole groups of equal values.
+  /// IsCorrelatedStringPredicate says which of them the planner declines to key a seek on.
+  static constexpr bool IsStringPredicate(Type t) {
+    return t == Type::STARTS_WITH || t == Type::CONTAINS || t == Type::ENDS_WITH || t == Type::REGEX_MATCH;
+  }
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);
@@ -349,15 +391,23 @@ struct PointFilter {
 /// Filtering by ID, for example `MATCH (n) WHERE id(n) = 42 ...`
 class IdFilter {
  public:
+  /// EQUAL is `id(n) = <expr>`; IN is `id(n) IN <list expr>`. The IN form is
+  /// lowered to an Unwind + per-element id scan during the index rewrite.
+  enum class Type : uint8_t { EQUAL, IN };
+
   /// Construct with Expression being the required value for ID.
-  IdFilter(const SymbolTable &, const Symbol &, Expression *);
+  IdFilter(const SymbolTable &, const Symbol &, Expression *, bool expects_string_id = false, Type type = Type::EQUAL);
 
   /// Symbol whose id is looked up.
   Symbol symbol_;
   /// Expression which when evaluted produces the value an ID must satisfy.
+  /// For Type::IN this is the list whose elements the id must be one of.
   Expression *value_;
   /// True if the same symbol is used in expressions for value.
   bool is_symbol_in_value_{false};
+  /// True if the filter comes from elementId(), which compares against a string id.
+  bool expects_string_id_{false};
+  Type type_{Type::EQUAL};
 };
 
 /// Stores additional information for a filter expression.
@@ -366,9 +416,11 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
+  /// @c Node tests only that a symbol holds a node. Kept apart from @c Label because no index can answer it,
+  /// and because it must not collect the labels another test states about the same symbol.
+  enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType, Node };
 
-  // FilterInfo is tricky because FilterMatching is not yet defined:
+  // FilterInfo is tricky because SubqueryMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
   //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
   //   * IMPORTANT: Matchings will always be initialized to an empty container.
@@ -397,13 +449,23 @@ struct FilterInfo {
   std::vector<EdgeTypeIx> edgetypes{};
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
-  /// Matchings for filters that include patterns
-  /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
-  std::vector<FilterMatching> matchings;
+  /// The EXISTS this filter evaluates, in either spelling.
+  /// NOTE: The vector is not defined here because SubqueryMatching is forward declared above.
+  std::vector<SubqueryMatching> subquery_matchings;
   PatternComprehensionMatchings pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };
+
+/// Whether this filter searches for a term read from somewhere other than the entity being scanned.
+/// Such a term describes a single row of the branch that produces it, while the scan it would key
+/// makes a pass per row of that branch, so the planner leaves it as a filter over a scan: keying a
+/// seek on it either absorbs that branch into the scan which then reads what it produces, or is
+/// refused outright inside an OPTIONAL branch.
+inline bool IsCorrelatedStringPredicate(Symbol const &scanned_symbol, FilterInfo const &filter) {
+  if (!filter.property_filter || !PropertyFilter::IsStringPredicate(filter.property_filter->type_)) return false;
+  return std::ranges::any_of(filter.used_symbols, [&scanned_symbol](Symbol const &s) { return s != scanned_symbol; });
+}
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
 ///
@@ -472,18 +534,31 @@ class Filters final {
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectWhereFilter(Where &, const SymbolTable &);
+  void CollectWhereFilter(Where &, const SymbolTable &, AstStorage &);
 
-  /// Collects filtering information from an expression.
+  /// Collects one expression into a collection of its own.
   ///
-  /// Takes the where expression and stores it, then analyzes the expression for
-  /// additional information. The additional information is used to populate
-  /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &);
+  /// Every label test of one expression applies to the same rows, so tests of one symbol are collected as one,
+  /// and that one is what the plan evaluates.
+  static auto FromExpression(Expression *, const SymbolTable &, AstStorage &) -> Filters;
+
+  /// Adds what one plan operator's expression requires, to a collection that may already hold the filters of
+  /// other operators.
+  ///
+  /// A label test is kept as a filter of its own. The test already collected can belong to an operator over
+  /// other rows, such as a pattern filter under a negation, and merging the two would change what each of them
+  /// demands of the rows it passes on.
+  void AddOperatorFilters(Expression *, const SymbolTable &, AstStorage &);
 
  private:
+  /// Whether a label test may be merged into a label test already collected. Sound only for two tests over the
+  /// same rows, which is why no caller chooses it: each entry point above knows which of the two it is.
+  enum class LabelTestMerging : uint8_t { kAllowed, kForbidden };
+
+  void CollectFilterExpression(Expression *, const SymbolTable &, AstStorage &, LabelTestMerging);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &, AstStorage &, LabelTestMerging);
+
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
 /// Normalized representation of a single or multiple Match clauses.
@@ -521,12 +596,16 @@ struct Matching {
 // TODO clumsy to need to declare it before, usually only the struct definition would be in header
 struct QueryParts;
 
-struct FilterMatching : Matching {
-  /// Type of pattern filter
-  PatternFilterType type;
-  /// Symbol for the filter expression
+/// One EXISTS, normalized. The pattern form fills in @c Matching's expansions and filters; the subquery form leaves
+/// those empty and carries a preprocessed body instead.
+struct SubqueryMatching : Matching {
+  /// Which spelling this was written as.
+  SubqueryKind type{SubqueryKind::kPattern};
+  /// What the branch's rows are reduced to - the other axis, independent of @c type.
+  SubqueryExpression::Fold fold{SubqueryExpression::Fold::kBool};
+  /// The frame slot the fold writes, and the expression reads.
   std::optional<Symbol> symbol;
-  /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
+  /// For @c SubqueryKind::kSubquery, the body's own query parts.
   std::shared_ptr<QueryParts> subquery;
 };
 
@@ -608,6 +687,9 @@ struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
   Symbol result_symbol;
+  /// The clause whose own expressions evaluate this comprehension; a drain at any earlier clause would put the
+  /// RollUpApply below the operators that clause plans.
+  Clause *origin_clause = nullptr;
   /// Nested pattern comprehensions found in the result expression
   PatternComprehensionMatchings nested_pattern_comprehensions;
   /// External symbols that this pattern comprehension depends on.
@@ -666,6 +748,11 @@ struct SingleQueryPart {
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
   PatternComprehensionMatchings pattern_comprehension_matchings;
 
+  /// @brief @c SubqueryMatching for each EXISTS found in a non-@c Match clause.
+  ///
+  /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo instead; these need a forced fold on the chain.
+  std::vector<SubqueryMatching> subquery_matchings;
+
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
   /// The subqueries vector are all the subqueries in this query part ordered in a list by
@@ -673,12 +760,17 @@ struct SingleQueryPart {
   std::vector<std::shared_ptr<QueryParts>> subqueries{};
 };
 
+struct ConditionalQueryParts;
+
 /// Holds query parts of a single query together with the optional information
 /// about the combinator used between this single query and the previous one.
 struct QueryPart {
+  /// Empty for a conditional leg.
   std::vector<SingleQueryPart> single_query_parts = {};
   /// Optional AST query combinator node
   Tree *query_combinator = nullptr;
+  /// Set when the leg is a `WHEN ... THEN ...` body.
+  std::shared_ptr<ConditionalQueryParts> conditional = nullptr;
 };
 
 /// Holds query parts of all single queries together with the information
@@ -690,6 +782,20 @@ struct QueryParts {
   /// Commit frequency for periodic commit
   Expression *commit_frequency = nullptr;
   bool is_subquery = false;
+  /// Whether any part writes, nested CALL bodies included.
+  bool writes = false;
+};
+
+/// A conditional leg: its branches in order, each with the predicate that selects it.
+struct ConditionalQueryParts {
+  struct Branch {
+    Expression *predicate = nullptr;  ///< nullptr for ELSE
+    Filters predicate_filters;        ///< hold the predicate's subqueries
+    QueryParts body;
+  };
+
+  std::vector<Branch> branches;
+  std::vector<Symbol> output_symbols;
 };
 
 /// @brief Convert the AST to multiple @c QueryParts.
@@ -718,5 +824,12 @@ std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressio
  * @return Expression *
  */
 Expression *SubstituteExpression(Expression *expr, Expression *old, Expression *in);
+
+/// `expression` with every labels test among its AND operands replaced by the AND of the pieces SplitLabelsTest
+/// makes of it, reading `NOT NOT x` as `x` as filter collection does. A Filter built from the result holds the
+/// tests filter collection yields, so an index scan can remove the one it consumes. The expression itself is not
+/// changed. Splitting an already-split expression returns it unchanged, so a caller that keeps the result pays
+/// for the split once however often it asks.
+Expression *SplitLabelsTests(Expression *expression, AstStorage &storage);
 
 }  // namespace memgraph::query::plan

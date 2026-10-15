@@ -12,58 +12,28 @@
 #include "utils/file.hpp"
 
 #include <fcntl.h>
+#include <sys/sendfile.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 #include <ranges>
 #include <thread>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
-
-auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
-    -> std::pair<std::filesystem::path, FileUniquePtr> {
-  // w for writing
-  // b for binary
-  // x for exclusive access
-  constexpr auto file_mode = "wbx";
-
-  // Try without suffix
-  FileUniquePtr file(std::fopen(base_path.string().data(), file_mode), &std::fclose);
-
-  if (file) {
-    return std::make_pair(base_path, std::move(file));
-  }
-
-  auto const stem = base_path.stem();
-  auto const ext = base_path.extension();
-  auto const parent = base_path.parent_path();
-
-  auto suffix = 1;
-  // We don't want more than 10k files with the same name
-  constexpr auto max_suffix = 10'000;
-
-  std::filesystem::path new_path;
-
-  do {
-    new_path = parent / std::format("{}_{}{}", stem.string(), suffix, ext.string());
-    FileUniquePtr file(std::fopen(new_path.string().data(), file_mode), &std::fclose);
-    if (file) {
-      return std::make_pair(new_path, std::move(file));
-    }
-  } while (suffix++ < max_suffix);
-
-  throw utils::BasicException("More than 10k files with the same name. File {} won't be downloaded.",
-                              base_path.string());
-}
 
 std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
 
@@ -146,6 +116,20 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
 
 bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
 
+// `len == 0` means "to the end of the file".
+int DropCachedPages(int fd) { return ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); }
+
+namespace {
+// A refusal cannot be repaired and must not fail the operation it belongs to: the caller asked for
+// memory back, not for an outcome. It is still worth saying, because a release the kernel declines
+// frees nothing and leaves no other sign that it did not.
+void WarnIfPagesKept(int result, const std::filesystem::path &path) {
+  if (result == 0) return;
+  spdlog::warn(
+      "Releasing the page cache for {} was refused: {} ({}). Its pages stay cached.", path, strerror(result), result);
+}
+}  // namespace
+
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
 
 InputFile::~InputFile() { Close(); }
@@ -158,13 +142,17 @@ InputFile::InputFile(InputFile &&other) noexcept
       buffer_(other.buffer_),
       buffer_start_(other.buffer_start_),
       buffer_size_(other.buffer_size_),
-      buffer_position_(other.buffer_position_) {
+      buffer_position_(other.buffer_position_),
+      crc_acc_(other.crc_acc_),
+      crc_fold_position_(other.crc_fold_position_) {
   other.fd_ = -1;
   other.file_size_ = 0;
   other.file_position_ = 0;
   other.buffer_start_ = std::nullopt;
   other.buffer_size_ = 0;
   other.buffer_position_ = 0;
+  other.crc_acc_.Reset();
+  other.crc_fold_position_ = 0;
 }
 
 InputFile &InputFile::operator=(InputFile &&other) noexcept {
@@ -178,6 +166,8 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   buffer_start_ = other.buffer_start_;
   buffer_size_ = other.buffer_size_;
   buffer_position_ = other.buffer_position_;
+  crc_acc_ = other.crc_acc_;
+  crc_fold_position_ = other.crc_fold_position_;
 
   other.fd_ = -1;
   other.file_size_ = 0;
@@ -185,6 +175,8 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   other.buffer_start_ = std::nullopt;
   other.buffer_size_ = 0;
   other.buffer_position_ = 0;
+  other.crc_acc_.Reset();
+  other.crc_fold_position_ = 0;
 
   return *this;
 }
@@ -214,6 +206,8 @@ bool InputFile::Open(const std::filesystem::path &path) {
     return false;
   }
   file_size_ = *size;
+
+  ResetCrc();
 
   return true;
 }
@@ -245,6 +239,13 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
   auto old_buffer_position = buffer_position_;
   auto real_position = GetPosition();
 
+  // A peek that leaves the current buffer goes through `LoadBuffer`/`SetPosition`, which fold pending bytes into the
+  // CRC as if they were consumed. Settle the CRC over the genuinely consumed bytes now and restore that state
+  // afterwards so peeked bytes never enter it. A peek served from the current buffer doesn't touch the CRC at all.
+  bool const leaves_buffer = !buffer_start_ || buffer_size_ - buffer_position_ < size;
+  if (leaves_buffer) FoldPendingCrc();
+  auto const settled_crc_acc = crc_acc_;
+
   auto ret = Read(data, size);
 
   if (buffer_start_ == old_buffer_start) {
@@ -254,6 +255,11 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
     buffer_position_ = old_buffer_position;
   } else {
     SetPosition(Position::SET, static_cast<ssize_t>(real_position));
+  }
+
+  if (leaves_buffer) {
+    crc_acc_ = settled_crc_acc;
+    crc_fold_position_ = real_position;
   }
 
   return ret;
@@ -266,6 +272,7 @@ size_t InputFile::GetPosition() {
   return file_position_;
 }
 
+// TODO: (andi) SetPosition is not safe w.r.t to CRC loading
 std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) {
   // It would be wrong not to take into account buffering
   if (position == Position::RELATIVE_TO_CURRENT) {
@@ -278,6 +285,7 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     auto target = static_cast<size_t>(offset);
     if (target >= *buffer_start_ && target < *buffer_start_ + buffer_size_) {
       buffer_position_ = target - *buffer_start_;
+      crc_fold_position_ = target;
       return target;
     }
   }
@@ -305,6 +313,7 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     buffer_start_ = std::nullopt;
     buffer_size_ = 0;
     buffer_position_ = 0;
+    crc_fold_position_ = pos;
     return pos;
   }
 }
@@ -332,7 +341,33 @@ void InputFile::Close() noexcept {
   path_ = "";
 }
 
+void InputFile::ResetCrc() {
+  crc_acc_.Reset();
+  crc_fold_position_ = GetPosition();
+}
+
+auto InputFile::CrcValue() -> uint32_t {
+  FoldPendingCrc();
+  return crc_acc_.Value();
+}
+
+void InputFile::FoldPendingCrc() {
+  if (!buffer_start_) return;  // Nothing buffered; all consumed bytes are already folded.
+  auto const consumed_up_to = *buffer_start_ + buffer_position_;
+  if (crc_fold_position_ >= consumed_up_to) return;
+  DMG_ASSERT(crc_fold_position_ >= *buffer_start_, "CRC fold position fell behind the current buffer");
+  crc_acc_.Update(buffer_.data() + (crc_fold_position_ - *buffer_start_),
+                  static_cast<uint32_t>(consumed_up_to - crc_fold_position_));
+  crc_fold_position_ = consumed_up_to;
+}
+
+void InputFile::DropCachedPages() const { WarnIfPagesKept(utils::DropCachedPages(fd_), path_); }
+
 bool InputFile::LoadBuffer() {
+  // The buffer is about to be discarded; fold its consumed bytes into the CRC first. When the buffer was fully
+  // consumed this is the single CRC computation covering it.
+  FoldPendingCrc();
+
   buffer_start_ = std::nullopt;
   buffer_size_ = 0;
   buffer_position_ = 0;
@@ -365,6 +400,19 @@ bool InputFile::LoadBuffer() {
   return true;
 }
 
+std::unexpected<FileWriteError> NoSpaceHandling::Fail(std::string_view const operation,
+                                                      std::filesystem::path const &path, int const error) {
+  spdlog::error(
+      "While trying to {} {} an error occurred: {} ({}). The file is incomplete and nothing more will be "
+      "written to it.",
+      operation,
+      path,
+      strerror(error),
+      error);
+  failed_ = true;
+  return std::unexpected{FileWriteError::kNoSpace};
+}
+
 OutputFile::~OutputFile() {
   if (IsOpen()) Close();
 }
@@ -373,10 +421,12 @@ OutputFile::OutputFile(OutputFile &&other) noexcept
     : fd_(other.fd_),
       buffer_position_(other.buffer_position_.load(std::memory_order_acquire)),
       written_since_last_sync_(other.written_since_last_sync_),
+      no_space_(other.no_space_),
       buffer_(other.buffer_),
       path_(std::move(other.path_)) {
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
+  other.no_space_.Reset();
   other.buffer_position_.store(0, std::memory_order_release);
 }
 
@@ -388,15 +438,17 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   path_ = std::move(other.path_);
   buffer_position_ = other.buffer_position_.load();
   buffer_ = other.buffer_;
+  no_space_ = other.no_space_;
 
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
+  other.no_space_.Reset();
   other.buffer_position_ = 0;
 
   return *this;
 }
 
-bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
+std::expected<void, FileWriteError> OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -404,6 +456,7 @@ bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
+  no_space_.Reset();
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
   if (mode == Mode::APPEND_TO_EXISTING) flags |= O_APPEND;
@@ -420,20 +473,22 @@ bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     break;
   }
 
-  auto const res = fd_ != -1;
-  if (!res) {
-    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  if (fd_ == -1) {
+    auto const error = errno;
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(error), error);
+    return std::unexpected{NoSpaceHandling::IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
   }
-  return res;
+  return {};
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
 
 const std::filesystem::path &OutputFile::path() const { return path_; }
 
-void OutputFile::Write(const uint8_t *data, size_t size) {
+std::expected<void, FileWriteError> OutputFile::Write(const uint8_t *data, size_t size) {
   std::unique_lock flush_guard(flush_lock_);
   MG_ASSERT(IsOpen(), "Trying to write to an unopened file!");
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
 
   auto *write_ptr = buffer_.data() + buffer_start;
@@ -441,7 +496,7 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
-      FlushBufferInternal(kFileBufferSize);
+      if (auto flushed = FlushBufferInternal(kFileBufferSize); !flushed) return flushed;
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_.data();
     }
@@ -455,11 +510,16 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
     written_since_last_sync_ += amount_to_write;
   }
   buffer_position_.store(write_ptr - buffer_.data(), std::memory_order_release);
+  return {};
 }
 
-void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
+std::expected<void, FileWriteError> OutputFile::Write(const char *data, size_t size) {
+  return Write(reinterpret_cast<const uint8_t *>(data), size);
+}
 
-void OutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
+std::expected<void, FileWriteError> OutputFile::Write(const std::string_view data) {
+  return Write(data.data(), data.size());
+}
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence = 0;
@@ -488,7 +548,8 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
 size_t OutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURRENT, 0); }
 
 size_t OutputFile::SetPosition(Position position, ssize_t offset) {
-  FlushBuffer();
+  // A failed flush is remembered and reported by the next Write or Sync.
+  std::ignore = FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -527,8 +588,8 @@ auto OutputFile::AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeo
   std::unreachable();
 }
 
-void OutputFile::Sync() {
-  FlushBuffer();
+std::expected<void, FileWriteError> OutputFile::Sync() {
+  if (auto flushed = FlushBuffer(); !flushed) return flushed;
 
   int ret = 0;
   while (true) {
@@ -542,6 +603,8 @@ void OutputFile::Sync() {
       break;
     }
   }
+
+  if (ret == -1 && no_space_.Reports(errno)) return ReportNoSpace("sync", errno);
 
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
@@ -576,10 +639,14 @@ void OutputFile::Sync() {
 
   // Reset the counter.
   written_since_last_sync_ = 0;
+  return {};
 }
 
+void OutputFile::DropCachedPages() const { WarnIfPagesKept(utils::DropCachedPages(fd_), path_); }
+
 void OutputFile::Close() noexcept {
-  FlushBuffer();
+  // Running out of space here is logged by the flush itself; nothing more can be done about it while closing.
+  std::ignore = FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -594,33 +661,43 @@ void OutputFile::Close() noexcept {
     }
   }
 
-  MG_ASSERT(ret == 0,
-            "While trying to close {}, an error occurred: {} ({}). Possibly {} "
-            "bytes from previous write calls were lost.",
-            path_,
-            strerror(errno),
-            errno,
-            written_since_last_sync_);
+  if (ret == -1 && no_space_.Reports(errno)) {
+    spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
+  } else {
+    MG_ASSERT(ret == 0,
+              "While trying to close {}, an error occurred: {} ({}). Possibly {} "
+              "bytes from previous write calls were lost.",
+              path_,
+              strerror(errno),
+              errno,
+              written_since_last_sync_);
+  }
 
   fd_ = -1;
   written_since_last_sync_ = 0;
+  no_space_.Reset();
+  buffer_position_.store(0, std::memory_order_release);
   path_ = "";
 }
 
-void OutputFile::FlushBuffer() {
+std::expected<void, FileWriteError> OutputFile::FlushBuffer() {
   MG_ASSERT(IsOpen(), "Flushing an unopened file.");
 
   std::unique_lock flush_guard(flush_lock_);
-  FlushBufferInternal();
+  return FlushBufferInternal();
 }
 
-void OutputFile::FlushBufferInternal(size_t to_write) {
+std::expected<void, FileWriteError> OutputFile::FlushBufferInternal(size_t to_write) {
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   // Doesn't update buffer_position_ to avoid using atomics
   auto *buffer = buffer_.data();
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
       continue;
+    }
+    if (written == -1 && no_space_.Reports(errno)) {
+      return ReportNoSpace("write to", errno);
     }
 
     MG_ASSERT(written > 0,
@@ -636,16 +713,23 @@ void OutputFile::FlushBufferInternal(size_t to_write) {
     to_write -= written;
     buffer += written;
   }
+  return {};
 }
 
-void OutputFile::FlushBufferInternal() {
+std::expected<void, FileWriteError> OutputFile::FlushBufferInternal() {
   auto to_write = buffer_position_.load(std::memory_order_acquire);
   MG_ASSERT(to_write <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
-  FlushBufferInternal(to_write);
+  if (auto flushed = FlushBufferInternal(to_write); !flushed) return flushed;
   buffer_position_.store(0, std::memory_order_release);
+  return {};
+}
+
+std::unexpected<FileWriteError> OutputFile::ReportNoSpace(std::string_view const operation, int const error) {
+  buffer_position_.store(0, std::memory_order_release);
+  return no_space_.Fail(operation, path_, error);
 }
 
 void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
@@ -672,7 +756,8 @@ size_t OutputFile::GetSize() {
 
 void OutputFile::TryFlushing() {
   if (std::unique_lock guard(flush_lock_, std::try_to_lock); guard.owns_lock()) {
-    FlushBufferInternal();
+    // A failed flush is remembered and reported by the next Write or Sync.
+    std::ignore = FlushBufferInternal();
   }
 }
 
@@ -680,7 +765,7 @@ NonConcurrentOutputFile::~NonConcurrentOutputFile() {
   if (IsOpen()) Close();
 }
 
-bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -688,6 +773,8 @@ bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
+  no_space_.Reset();
+  RestartPacing(0);  // otherwise a reused handle carries the previous file's offset into this one
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
   if (mode == Mode::APPEND_TO_EXISTING) flags |= O_APPEND;
@@ -705,18 +792,20 @@ bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  auto const res = fd_ != -1;
-  if (!res) {
-    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  if (fd_ == -1) {
+    auto const error = errno;
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(error), error);
+    return std::unexpected{NoSpaceHandling::IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
   }
-  return res;
+  return {};
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }
 
 const std::filesystem::path &NonConcurrentOutputFile::path() const { return path_; }
 
-void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   auto const buffer_start = buffer_position_;
 
   auto *write_ptr = buffer_.data() + buffer_start;
@@ -724,7 +813,7 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
-      FlushBufferInternal(kFileBufferSize);
+      if (auto flushed = FlushBufferInternal(kFileBufferSize); !flushed) return flushed;
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_.data();
     }
@@ -738,13 +827,16 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
     written_since_last_sync_ += amount_to_write;
   }
   buffer_position_ = write_ptr - buffer_.data();
+  return {};
 }
 
-void NonConcurrentOutputFile::Write(const char *data, size_t size) {
-  Write(reinterpret_cast<const uint8_t *>(data), size);
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const char *data, size_t size) {
+  return Write(reinterpret_cast<const uint8_t *>(data), size);
 }
 
-void NonConcurrentOutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const std::string_view data) {
+  return Write(data.data(), data.size());
+}
 
 size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence = 0;
@@ -766,6 +858,11 @@ size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t 
     }
     MG_ASSERT(
         pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno), errno);
+    // A seek that does not move is not a move. Asking a file for its position is such a seek, and
+    // the snapshot writer asks at every batch boundary, so treating it as one would abandon the
+    // window in flight over and over: its bytes never handed to writeback, and the window before
+    // it never disposed of.
+    if (std::cmp_not_equal(pos, pacing_offset_)) RestartPacing(static_cast<size_t>(pos));
     return pos;
   }
 }
@@ -773,7 +870,8 @@ size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t 
 size_t NonConcurrentOutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURRENT, 0); }
 
 size_t NonConcurrentOutputFile::SetPosition(Position position, ssize_t offset) {
-  FlushBuffer();
+  // A failed flush is remembered and reported by the next Write or Sync.
+  std::ignore = FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -800,8 +898,8 @@ bool NonConcurrentOutputFile::AcquireLock() {
   return ret != -1;
 }
 
-void NonConcurrentOutputFile::Sync() {
-  FlushBuffer();
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Sync() {
+  if (auto flushed = FlushBuffer(); !flushed) return flushed;
 
   int ret = 0;
   while (true) {
@@ -815,6 +913,8 @@ void NonConcurrentOutputFile::Sync() {
       break;
     }
   }
+
+  if (ret == -1 && no_space_.Reports(errno)) return ReportNoSpace("sync", errno);
 
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
@@ -849,10 +949,12 @@ void NonConcurrentOutputFile::Sync() {
 
   // Reset the counter.
   written_since_last_sync_ = 0;
+  return {};
 }
 
 void NonConcurrentOutputFile::Close() noexcept {
-  FlushBuffer();
+  // Running out of space here is logged by the flush itself; nothing more can be done about it while closing.
+  std::ignore = FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -867,31 +969,42 @@ void NonConcurrentOutputFile::Close() noexcept {
     }
   }
 
-  MG_ASSERT(ret == 0,
-            "While trying to close {}, an error occurred: {} ({}). Possibly {} "
-            "bytes from previous write calls were lost.",
-            path_,
-            strerror(errno),
-            errno,
-            written_since_last_sync_);
+  if (ret == -1 && no_space_.Reports(errno)) {
+    spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
+  } else {
+    MG_ASSERT(ret == 0,
+              "While trying to close {}, an error occurred: {} ({}). Possibly {} "
+              "bytes from previous write calls were lost.",
+              path_,
+              strerror(errno),
+              errno,
+              written_since_last_sync_);
+  }
 
   fd_ = -1;
   written_since_last_sync_ = 0;
+  no_space_.Reset();
+  buffer_position_ = 0;
   path_ = "";
 }
 
-void NonConcurrentOutputFile::FlushBuffer() {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBuffer() {
   MG_ASSERT(IsOpen(), "Flushing an unopened file.");
 
-  FlushBufferInternal();
+  return FlushBufferInternal();
 }
 
-void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   auto *buffer = buffer_.data();
+  auto const flushed = to_write;
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
       continue;
+    }
+    if (written == -1 && no_space_.Reports(errno)) {
+      return ReportNoSpace("write to", errno);
     }
 
     MG_ASSERT(written > 0,
@@ -907,16 +1020,144 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
     to_write -= written;
     buffer += written;
   }
+
+  return PaceWriteback(flushed);
 }
 
-void NonConcurrentOutputFile::FlushBufferInternal() {
+void NonConcurrentOutputFile::EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window) {
+  pacing_window_ = window_bytes;
+  pacing_completed_window_ = completed_window;
+  pacing_windows_completed_ = 0;
+  RestartPacing(0);
+}
+
+void NonConcurrentOutputFile::RestartPacing(size_t offset) {
+  pacing_offset_ = offset;
+  pacing_pending_start_ = offset;
+  pacing_prev_start_ = 0;
+  pacing_prev_len_ = 0;
+}
+
+void NonConcurrentOutputFile::DropCachedPages() {
+  WarnIfPagesKept(utils::DropCachedPages(fd_), path_);
+  // The windows in flight describe ranges that are no longer cached, so nothing is owed on them.
+  RestartPacing(pacing_offset_);
+}
+
+std::expected<uint64_t, FileWriteError> NonConcurrentOutputFile::AppendFrom(int src_fd, uint64_t size) {
+  // Whatever is buffered belongs in front of the copied bytes.
+  if (auto flushed = FlushBuffer(); !flushed) return std::unexpected{flushed.error()};
+
+  uint64_t copied = 0;
+  off_t src_offset = 0;
+  while (copied < size) {
+    // Copied a buffer at a time rather than in one call, so that pacing sees the same granularity
+    // of output here as it does from the buffered path. Handed a whole file at once it would treat
+    // that file as a single window and bound nothing.
+    auto const chunk = std::min<uint64_t>(size - copied, kFileBufferSize);
+    auto const sent = ::sendfile(fd_, src_fd, &src_offset, chunk);
+    if (sent == -1) {
+      if (errno == EINTR) continue;
+      if (no_space_.Reports(errno)) return ReportNoSpace("append to", errno);
+      return std::unexpected{FileWriteError::kOther};
+    }
+    if (sent == 0) break;  // the source ended early
+    copied += static_cast<uint64_t>(sent);
+    if (auto paced = PaceWriteback(static_cast<size_t>(sent)); !paced) return std::unexpected{paced.error()};
+  }
+  return copied;
+}
+
+std::expected<void, FileWriteError> NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
+  if (pacing_window_ == 0) return {};
+  pacing_offset_ += bytes;
+
+  auto const pending_len = pacing_offset_ - pacing_pending_start_;
+  if (pending_len < pacing_window_) return {};
+
+  // What a failed `sync_file_range` means. EIO and ENOSPC are the same class of failure that makes
+  // a failed `fsync` fatal in this file, and they must not be swallowed: Linux reports a given
+  // writeback error to an open file once, so a pacing call that consumes one and drops it leaves
+  // the later `fsync` in `Sync` free to report success for data that never reached the disk. Every
+  // other failure says pacing does not apply to this descriptor rather than that anything is wrong
+  // with the data; the file is written exactly as it was before pacing, so pacing turns itself off
+  // and the file carries on. A descriptor pacing cannot work on will not become one.
+  //
+  // A file that reports running out of space instead of crashing reports it here too, and it must:
+  // on filesystems with delayed allocation a full disk often surfaces only at writeback.
+  //
+  // Returns whether pacing is still on. Retrying the whole range after EINTR is what `Sync` does
+  // with `fsync`, and is safe because handing the same range over again asks for the same work.
+  auto const sync_range = [this](
+                              uint64_t start, uint64_t len, unsigned int flags) -> std::expected<bool, FileWriteError> {
+    while (::sync_file_range(fd_, static_cast<off64_t>(start), static_cast<off64_t>(len), flags) != 0) {
+      auto const err = errno;
+      if (err == EINTR) continue;
+      if (no_space_.Reports(err)) {
+        pacing_window_ = 0;
+        return ReportNoSpace("wait for writeback of", err);
+      }
+      MG_ASSERT(err != EIO && err != ENOSPC,
+                "While waiting for writeback of {} an error occurred: {} ({}). Data already written to this "
+                "file may not have reached the physical device, and no later fsync will report it.",
+                path_,
+                strerror(err),
+                err);
+      // A closed descriptor is this class losing track of its own file, which no filesystem can
+      // cause and disabling pacing would hide.
+      DMG_ASSERT(err != EBADF, "Writeback pacing for {} was given a closed descriptor.", path_);
+      spdlog::warn(
+          "Disabling writeback pacing for {}: sync_file_range failed with {} ({}).", path_, strerror(err), err);
+      pacing_window_ = 0;
+      return false;
+    }
+    return true;
+  };
+
+  // Two windows are in flight: the one just completed is handed to writeback, and the one handed
+  // over previously is waited for and then disposed of. Dropping has to come after the pages are
+  // clean, because POSIX_FADV_DONTNEED silently does nothing to a dirty page; that is what the
+  // WAIT_BEFORE on the older window buys.
+  //
+  // The WRITE-only call is asynchronous in intent, but the kernel may still block it once the range
+  // exceeds the device's request queue. That is the trade pacing exists to make: this writer waits
+  // instead of every writer on the machine waiting at `dirty_ratio`.
+  auto const written = sync_range(pacing_pending_start_, pending_len, SYNC_FILE_RANGE_WRITE);
+  if (!written) return std::unexpected{written.error()};
+  if (!*written) return {};
+  ++pacing_windows_completed_;
+
+  if (pacing_prev_len_ != 0) {
+    auto const waited = sync_range(pacing_prev_start_, pacing_prev_len_, SYNC_FILE_RANGE_WAIT_BEFORE);
+    if (!waited) return std::unexpected{waited.error()};
+    if (!*waited) return {};
+    if (pacing_completed_window_ == PageCachePolicy::kDrop) {
+      ::posix_fadvise(
+          fd_, static_cast<off_t>(pacing_prev_start_), static_cast<off_t>(pacing_prev_len_), POSIX_FADV_DONTNEED);
+    }
+  }
+
+  pacing_prev_start_ = pacing_pending_start_;
+  pacing_prev_len_ = pending_len;
+  pacing_pending_start_ = pacing_offset_;
+  return {};
+}
+
+std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal() {
   auto to_write = buffer_position_;
   MG_ASSERT(to_write <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
-  FlushBufferInternal(to_write);
+  if (auto flushed = FlushBufferInternal(to_write); !flushed) return flushed;
   buffer_position_ = 0;
+  return {};
+}
+
+std::unexpected<FileWriteError> NonConcurrentOutputFile::ReportNoSpace(std::string_view const operation,
+                                                                       int const error) {
+  buffer_position_ = 0;
+  return no_space_.Fail(operation, path_, error);
 }
 
 std::pair<const uint8_t *, size_t> NonConcurrentOutputFile::CurrentBuffer() const {

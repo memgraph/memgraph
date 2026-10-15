@@ -1,0 +1,13 @@
+# A '*' under the end prefix makes every node an end node, and an end filter in any step puts every step
+# in end-nodes-only mode -- so each node is returned and the walk carries on through it, while the start
+# node the filter was never applied to is not returned at all.
+query: >
+  MATCH (a:X {name: "A"})
+  CALL path.expand_config(a, {minHops: 0, maxHops: 2, labelFilter: '>*'})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A", "B"]
+  - names: ["A", "B", "C"]

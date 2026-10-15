@@ -29,11 +29,13 @@ class MyFixture1 : public benchmark::Fixture {
     auto index_config = mgcxx::text_search::IndexConfig{.mappings = dummy_mappings1().dump()};
     context = std::make_unique<mgcxx::text_search::Context>(mgcxx::text_search::create_index(index_path, index_config));
   }
+
   void TearDown(const ::benchmark::State &state) {
     // NOTE: Dropping index here produces errors probably because of the
     // concurrent access. Folder delete under the test.sh script.
     cnt.fetch_add(1);
   }
+
   std::unique_ptr<mgcxx::text_search::Context> context;
   std::string index_path;
 };
@@ -49,11 +51,13 @@ class MyFixture2 : public benchmark::Fixture {
     auto index_config = mgcxx::text_search::IndexConfig{.mappings = dummy_mappings2().dump()};
     context = std::make_unique<mgcxx::text_search::Context>(mgcxx::text_search::create_index(index_path, index_config));
   }
+
   void TearDown(const ::benchmark::State &state) {
     // NOTE: Dropping index here produces errors probably because of the
     // concurrent access. Folder delete under the test.sh script.
     cnt.fetch_add(1);
   }
+
   std::unique_ptr<mgcxx::text_search::Context> context;
   std::string index_path;
 };
@@ -98,8 +102,9 @@ BENCHMARK_DEFINE_F(MyFixture1, BM_BenchLookup)(benchmark::State &state) {
       .search_query = fmt::format("metadata.gid:{}", 0),
       .return_fields = {"data"},
   };
+  auto searcher = mgcxx::text_search::acquire_searcher(*context);
   for (auto _ : state) {
-    auto result = mgcxx::text_search::search(*context, search_input);
+    auto result = mgcxx::text_search::search_gids_pinned(*context, *searcher, search_input);
     if (result.docs.size() < 1) {
       std::exit(1);
     }
@@ -119,8 +124,9 @@ BENCHMARK_DEFINE_F(MyFixture2, BM_BenchLookup)(benchmark::State &state) {
       .search_query = fmt::format("{}", 0),
       .return_fields = {"data"},
   };
+  auto searcher = mgcxx::text_search::acquire_searcher(*context);
   for (auto _ : state) {
-    auto result = mgcxx::text_search::search(*context, search_input);
+    auto result = mgcxx::text_search::search_gids_pinned(*context, *searcher, search_input);
     if (result.docs.size() < 1) {
       std::exit(1);
     }

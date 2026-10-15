@@ -25,8 +25,30 @@ find_program(CCACHE_PROGRAM ccache)
 
 if(CCACHE_PROGRAM)
     message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
-    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+    # Lets checkouts at different paths share entries. base_dir must be this checkout's root:
+    # a wider one rewrites the dependency paths they share. nohashdir needs -ffile-prefix-map.
+    find_program(ENV_PROGRAM env REQUIRED)
+    set(MG_CCACHE_LAUNCHER
+        ${ENV_PROGRAM}
+        CCACHE_BASEDIR=${PROJECT_SOURCE_DIR}
+        CCACHE_NOHASHDIR=true
+        ${CCACHE_PROGRAM})
+    set(CMAKE_C_COMPILER_LAUNCHER   ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+
+    # A compiled module interface records the path of its source and of every
+    # file it read, and -ffile-prefix-map does not reach those. Sharing an entry
+    # between checkouts then hands one checkout an interface naming another's
+    # files, which a compile that has to quote the module's source reports as a
+    # missing file, or renders from the wrong checkout where that one still
+    # exists. Recording the paths relative to the working directory makes the
+    # interface mean the same thing in whichever checkout reads it. It takes
+    # effect because base_dir has already rewritten the source path given to the
+    # compiler, and so belongs with the sharing it protects.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options(
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fmodule-file-home-is-cwd>")
+    endif()
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
@@ -37,18 +59,16 @@ if(NOT UNIX)
     message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
-# This is used to so that 3rd party libs can find the
-# correct libraries from our toolchain
-if (NOT MG_TOOLCHAIN_ROOT OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
-    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
-endif ()
-message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+# setup CMake module path, defines path for include() and find_package()
+# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+include(MgToolchain)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
-set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
+set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_RUNTIME_DIR}")
 set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
@@ -168,88 +188,68 @@ if (IS_DIRECTORY "${git_directory}")
   endif()
 endif()
 
-# -----------------------------------------------------------------------------
-
-# Custom libstdc++ configuration - REQUIRED
-set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
-set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
-
-if(NOT EXISTS "${CUSTOM_LIBSTDCXX}")
-    message(FATAL_ERROR "Custom libstdc++.so.6 not found at: ${CUSTOM_LIBSTDCXX}. Please ensure the toolchain is properly built.")
-endif()
-
-message(STATUS "Found custom libstdc++.so.6 at: ${CUSTOM_LIBSTDCXX}")
-
-# Verify the library has the correct SONAME
-execute_process(
-    COMMAND readelf -d "${CUSTOM_LIBSTDCXX}"
-    OUTPUT_VARIABLE ELF_INFO
-    RESULT_VARIABLE READ_RESULT
-)
-
-if(NOT READ_RESULT EQUAL 0 OR NOT ELF_INFO MATCHES "SONAME.*libstdc\\+\\+\\.so\\.6")
-    message(FATAL_ERROR "Invalid libstdc++.so.6: bad or missing SONAME. Please ensure the toolchain is properly built.")
-endif()
-
-message(STATUS "Custom libstdc++.so.6 validation successful")
-
-# Create imported target for custom libstdc++
-add_library(libstdc++_custom SHARED IMPORTED GLOBAL)
-set_target_properties(libstdc++_custom PROPERTIES
-    IMPORTED_LOCATION "${CUSTOM_LIBSTDCXX}"
-    INTERFACE_LINK_LIBRARIES ""
-)
-
-# Set global property to use custom libstdc++
-set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
-set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
-# -----------------------------------------------------------------------------
-
-# setup CMake module path, defines path for include() and find_package()
-# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-
 # custom function definitions
 include(functions)
 
-# Load conan dependencies in the correct order using explicit find_package calls
-# Load dependencies that don't depend on others first
-find_package(ApprovalTests REQUIRED)
-find_package(benchmark REQUIRED)
-find_package(GTest REQUIRED)
-find_package(rapidcheck REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(fmt REQUIRED)
-find_package(gflags REQUIRED)
-find_package(strong_type REQUIRED)
-find_package(Boost REQUIRED)
-find_package(BZip2 REQUIRED)
-find_package(antlr4-runtime REQUIRED)
-find_package(cppitertools REQUIRED)
-find_package(ctre REQUIRED)
-find_package(absl REQUIRED)
-find_package(croncpp REQUIRED)
-find_package(range-v3 REQUIRED)
-find_package(asio REQUIRED)
-find_package(RocksDB REQUIRED CONFIG)
-find_package(usearch CONFIG REQUIRED)
-find_package(ZLIB REQUIRED)
-find_package(RdKafka REQUIRED)
-find_package(jemalloc REQUIRED)
-find_package(libbcrypt REQUIRED)
-find_package(librdtsc REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package(nuraft REQUIRED CONFIG)
-find_package(pulsar-client-cpp REQUIRED CONFIG)
-find_package(protobuf REQUIRED CONFIG)
-find_package(Snappy REQUIRED)
-find_package(Arrow REQUIRED)
-find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
+include(BuildParallelism)
 
-# Now load mgclient which depends on OpenSSL
-find_package(OpenSSL REQUIRED)
-find_package(mgclient REQUIRED)
-find_package(prometheus-cpp REQUIRED)
+# Build the Memgraph database itself. Turn OFF (together with
+# -DMG_BUILD_MAGE=ON) for a MAGE-only build — the Conan side of that mode is
+# the `mage_only` option in conanfile.py, which trims the dependency graph
+# to match and sets both CMake options via the toolchain (see
+# `./build.sh --mage only`).
+option(MG_BUILD_MEMGRAPH "Build the Memgraph database" ON)
+option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
+
+if(NOT MG_BUILD_MEMGRAPH AND NOT MG_BUILD_MAGE)
+  message(FATAL_ERROR
+      "Nothing to build: MG_BUILD_MEMGRAPH=OFF requires MG_BUILD_MAGE=ON "
+      "(MAGE-only build).")
+endif()
+
+# Load conan dependencies in the correct order using explicit find_package calls
+# Load dependencies that don't depend on others first.
+# These are needed by every build mode (MAGE links fmt/Boost/GTest/nlohmann_json).
+find_package(GTest REQUIRED)
+find_package(fmt REQUIRED)
+find_package(Boost REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(libuuid REQUIRED)
+
+if(MG_BUILD_MEMGRAPH)
+    find_package(ApprovalTests REQUIRED)
+    find_package(benchmark REQUIRED)
+    find_package(rapidcheck REQUIRED)
+    find_package(spdlog REQUIRED)
+    find_package(gflags REQUIRED)
+    find_package(strong_type REQUIRED)
+    find_package(BZip2 REQUIRED)
+    find_package(antlr4-runtime REQUIRED)
+    find_package(cppitertools REQUIRED)
+    find_package(ctre REQUIRED)
+    find_package(absl REQUIRED)
+    find_package(croncpp REQUIRED)
+    find_package(range-v3 REQUIRED)
+    find_package(asio REQUIRED)
+    find_package(RocksDB REQUIRED CONFIG)
+    find_package(usearch CONFIG REQUIRED)
+    find_package(ZLIB REQUIRED)
+    find_package(RdKafka REQUIRED)
+    find_package(jemalloc REQUIRED)
+    find_package(libbcrypt REQUIRED)
+    find_package(librdtsc REQUIRED)
+    find_package(nuraft REQUIRED CONFIG)
+    find_package(pulsar-client-cpp REQUIRED CONFIG)
+    find_package(protobuf REQUIRED CONFIG)
+    find_package(Snappy REQUIRED)
+    find_package(Arrow REQUIRED)
+    find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
+
+    # Now load mgclient which depends on OpenSSL
+    find_package(OpenSSL REQUIRED)
+    find_package(mgclient REQUIRED)
+    find_package(prometheus-cpp REQUIRED)
+endif()
 
 # -----------------------------------------------------------------------------
 
@@ -294,16 +294,23 @@ add_compile_options(
         -Werror=deprecated
         -Wno-error=deprecated-declarations
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
+        # A member whose constructor starts a thread reading other members is initialized in
+        # declaration order, not the order the initializer list is written in.
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-ctor>
+        $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
 )
 
-# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
+# Tree-relative source paths, so no object names the directory that built it. nvcc rejects it.
+add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}=.>)
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
-link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+# lld otherwise folds .text.unlikely into .text, undoing every cold marking.
+add_link_options(LINKER:-z,keep-text-section-prefix)
+if (MG_TOOLCHAIN_LINK_DIR)
+    link_directories("${MG_TOOLCHAIN_LINK_DIR}")
+endif ()
 
 # After linker is set, check we can use link-time optimization
 include(CheckIPOSupported)
@@ -322,6 +329,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
 include(SplitDebug)
+include(CompressDebug)
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
@@ -395,9 +403,28 @@ if (TEST_COVERAGE)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif()
 
+# -Og is the optimisation level meant to be debugged: it leaves assertions, and the code paths they
+# guard, exactly as they are, while costing a fraction of what unoptimised code does to run. A
+# coverage build is exempt because it compiles without a compilation cache, so it pays the optimiser
+# on every file on every build, which is more than its faster tests give back.
+if (NOT TEST_COVERAGE)
+    string(APPEND CMAKE_CXX_FLAGS_DEBUG " -Og")
+endif()
+
 if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
+
+# Embedded Python interpreter (Python query modules). OFF builds a memgraph
+# with no libpython dependency; only .so query modules can be loaded.
+option(MG_PYTHON_SUPPORT "Embed the Python interpreter (enables Python query modules)" ON)
+if (MG_PYTHON_SUPPORT)
+  add_definitions(-DMG_PYTHON_SUPPORT)
+endif()
+message(STATUS "MG_PYTHON_SUPPORT: ${MG_PYTHON_SUPPORT}")
+
+option(MG_FIPS "Omit components whose crypto cannot come from the validated OpenSSL" OFF)
+message(STATUS "MG_FIPS: ${MG_FIPS}")
 
 option(ENABLE_JEMALLOC "Use jemalloc" ON)
 
@@ -412,6 +439,15 @@ if (MG_MEMORY_PROFILE AND ASAN)
 endif ()
 if (MG_MEMORY_PROFILE)
     add_compile_definitions(MG_MEMORY_PROFILE)
+endif ()
+
+# Profiling build: keep frame pointers so `perf` can walk the stack without
+# unwind metadata, plus -fno-optimize-sibling-calls so tail calls stay as real
+# frames. Reserving a register costs throughput, so keep OFF for shipped builds.
+option(MG_PROFILE "Retain frame pointers for perf profiling" OFF)
+if (MG_PROFILE)
+    message(STATUS "MG_PROFILE=ON: retaining frame pointers for profiling")
+    add_compile_options(-fno-omit-frame-pointer -fno-optimize-sibling-calls)
 endif ()
 
 if (ASAN)
@@ -471,43 +507,46 @@ if (UBSAN)
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
 
-# absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
-add_library(rocksdb INTERFACE IMPORTED GLOBAL)
-set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
+if(MG_BUILD_MEMGRAPH)
+  # absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
+  add_library(rocksdb INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
 
-add_library(usearch INTERFACE IMPORTED GLOBAL)
-set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
-# Suppress the guarded #warning in usearch/index_plugins.hpp.
-target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
+  add_library(usearch INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
+  # Suppress the guarded #warning in usearch/index_plugins.hpp.
+  target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
 
-add_library(nuraft INTERFACE IMPORTED GLOBAL)
-set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
+  add_library(nuraft INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
 
-add_library(protobuf INTERFACE IMPORTED GLOBAL)
-set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
+  add_library(protobuf INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
 
-add_library(pulsar INTERFACE IMPORTED GLOBAL)
-set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
+  add_library(pulsar INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
 
-# Build mgconsole in isolation using the install script to avoid target
-# conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
-# targets available during the normal build graph.
-if(NOT DEFINED MGCONSOLE_GIT_TAG)
-  # Default used by release/install_mgconsole.cmake.
-  set(MGCONSOLE_GIT_TAG "v1.5.0")
+  # Build mgconsole in isolation using the install script to avoid target
+  # conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
+  # targets available during the normal build graph.
+  if(NOT DEFINED MGCONSOLE_GIT_TAG)
+    # Default used by release/install_mgconsole.cmake.
+    set(MGCONSOLE_GIT_TAG "v1.6.0")
+  endif()
+  add_custom_target(mgconsole-proj)
+  add_custom_target(mgconsole)
+
+  set(SPDLOG_FMT_EXTERNAL ON)
+  set(ABSL_PROPAGATE_CXX_STD ON)
+
+  # Include mgcxx text search bridge as part of the main build.
+  set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
+  target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
+  add_library(tantivy_text_search ALIAS mgcxx_text_search)
 endif()
-add_custom_target(mgconsole-proj)
-add_custom_target(mgconsole)
 
-set(SPDLOG_FMT_EXTERNAL ON)
-set(ABSL_PROPAGATE_CXX_STD ON)
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
-
-# Include mgcxx text search bridge as part of the main build.
-set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
-add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
-target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
-add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
@@ -515,38 +554,51 @@ set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the qu
 option(MG_ENABLE_TESTING "Set this to OFF to disable building test binaries" ON)
 message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
 
-# Common
+# Common. enable_testing() stays unconditional so MAGE's unit tests register
+# with CTest in MAGE-only builds too; unit_tests.cmake only defines memgraph
+# test helpers.
 if (MG_ENABLE_TESTING)
   enable_testing()
-  include(cmake/unit_tests.cmake)
+  if (MG_BUILD_MEMGRAPH)
+    include(cmake/unit_tests.cmake)
+  endif()
 endif ()
 
-# Add subprojects
-include_directories(src)
-add_subdirectory(src)
+if (MG_BUILD_MEMGRAPH)
+  # Add subprojects
+  include_directories(src)
+  add_subdirectory(src)
 
-# Release configuration
+  if (MG_ENABLE_TESTING)
+    add_subdirectory(tests)
+  endif()
+
+  if(QUERY_MODULES)
+    add_subdirectory(query_modules)
+  endif()
+endif()
+
+if(MG_BUILD_MAGE)
+  add_subdirectory(src/mage)
+endif()
+
+# Release/packaging configuration (CPack). Always included — the component
+# set it packages follows MG_BUILD_MEMGRAPH / MG_BUILD_MAGE, so MAGE-only
+# builds can still produce the memgraph-mage packages.
 add_subdirectory(release)
 
-if (MG_ENABLE_TESTING)
-  enable_testing()
-  add_subdirectory(tests)
+if (MG_BUILD_MEMGRAPH)
+  # Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
+  # Kept for backwards compatibility with CI scripts.
+  add_custom_target(generated_code DEPENDS
+    generate_opencypher_parser
+    mgcxx_text_search
+  )
+
+  # Build mgconsole during install stage (before installing the file)
+  install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
+
+  install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
+    PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    TYPE BIN)
 endif()
-
-if(QUERY_MODULES)
-  add_subdirectory(query_modules)
-endif()
-
-# Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
-# Kept for backwards compatibility with CI scripts.
-add_custom_target(generated_code DEPENDS
-  generate_opencypher_parser
-  mgcxx_text_search
-)
-
-# Build mgconsole during install stage (before installing the file)
-install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
-
-install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)

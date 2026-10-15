@@ -71,6 +71,9 @@
 (dbclient/defquery show-replication-role
   "SHOW REPLICATION ROLE;")
 
+(dbclient/defquery show-replication-lag
+  "SHOW REPLICATION LAG;")
+
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")
 

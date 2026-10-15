@@ -85,7 +85,7 @@ static memgraph::query::CypherQuery *AddIndexedMatches(int num_matches, const st
     match->patterns_.emplace_back(pattern);
     std::string node1_name = "node" + std::to_string(i - 1);
     auto *node = storage.Create<memgraph::query::NodeAtom>(storage.Create<memgraph::query::Identifier>(node1_name));
-    node->labels_.emplace_back(storage.GetLabelIx(label));
+    node->label_term_ = memgraph::query::LabelTerm{memgraph::query::LabelTerm::Label{storage.GetLabelIx(label)}};
     std::get<0>(node->properties_)[storage.GetPropertyIx(property)] =
         storage.Create<memgraph::query::PrimitiveLiteral>(i);
     pattern->atoms_.emplace_back(node);

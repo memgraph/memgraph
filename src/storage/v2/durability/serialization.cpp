@@ -9,10 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <tuple>
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -37,24 +39,32 @@ void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
 }  // namespace
 
 template <typename FileType>
-bool Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+  logical_position_ = 0;
+  logical_size_ = 0;
   return file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
 template <typename FileType>
-bool Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
-  if (!Initialize(path)) {
-    return false;
-  }
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Initialize(const std::filesystem::path &path,
+                                                                         const std::string_view magic,
+                                                                         uint64_t version) {
+  if (auto opened = Initialize(path); !opened) return opened;
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
-  return true;
+  return {};
 }
 
 template <typename FileType>
 bool Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
-  return file_.Open(path, FileType::Mode::APPEND_TO_EXISTING);
+  if (!file_.Open(path, FileType::Mode::APPEND_TO_EXISTING)) {
+    return false;
+  }
+  // The file is opened for appending, so writing continues from the current end of the file.
+  logical_position_ = file_.GetSize();
+  logical_size_ = logical_position_;
+  return true;
 }
 
 template <typename FileType>
@@ -66,7 +76,11 @@ void Encoder<FileType>::Close() {
 
 template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
-  file_.Write(data, size);
+  // Running out of space is remembered by the file and reported by Sync, Finalize or AppendFrom.
+  std::ignore = file_.Write(data, size);
+  logical_position_ += size;
+  logical_size_ = std::max(logical_size_, logical_position_);
+  crc_acc.Update(data, size);
 }
 
 template <typename FileType>
@@ -90,6 +104,24 @@ void Encoder<FileType>::WriteUint(uint64_t value) {
   value = utils::HostToLittleEndian(value);
   WriteMarker(Marker::TYPE_INT);
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
+}
+
+template <typename FileType>
+uint32_t Encoder<FileType>::WriteCrc() {
+  WriteMarker(Marker::TYPE_INT);
+
+  auto const value = CrcAccValue();
+  auto const wire = utils::HostToLittleEndian(static_cast<uint64_t>(value));
+  Write(reinterpret_cast<const uint8_t *>(&wire), sizeof(wire));
+  return value;
+}
+
+template <typename FileType>
+void Encoder<FileType>::WriteCrcAt(uint64_t position, uint32_t crc) {
+  SetPosition(position);
+  WriteMarker(Marker::TYPE_INT);
+  auto const wire = utils::HostToLittleEndian(static_cast<uint64_t>(crc));
+  Write(reinterpret_cast<const uint8_t *>(&wire), sizeof(wire));
 }
 
 template <typename FileType>
@@ -260,23 +292,38 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
 
 template <typename FileType>
 uint64_t Encoder<FileType>::GetPosition() {
-  return file_.GetPosition();
+  return logical_position_;
+}
+
+template <typename FileType>
+std::expected<uint64_t, utils::FileWriteError> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
+  requires std::same_as<FileType, utils::NonConcurrentOutputFile>
+{
+  auto const appended = file_.AppendFrom(src_fd, size);
+  if (appended) {
+    logical_position_ += *appended;
+    logical_size_ = std::max(logical_size_, logical_position_);
+  }
+  return appended;
 }
 
 template <typename FileType>
 void Encoder<FileType>::SetPosition(uint64_t position) {
-  file_.SetPosition(FileType::Position::SET, position);
+  logical_position_ = file_.SetPosition(FileType::Position::SET, position);
 }
 
 template <typename FileType>
-void Encoder<FileType>::Sync() {
-  file_.Sync();
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Sync() {
+  return file_.Sync();
 }
 
 template <typename FileType>
-void Encoder<FileType>::Finalize() {
-  file_.Sync();
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Finalize(utils::PageCachePolicy page_cache) {
+  if (auto synced = file_.Sync(); !synced) return synced;
+  // After the sync every page is clean, which is the only state in which dropping them works.
+  if (page_cache == utils::PageCachePolicy::kDrop) file_.DropCachedPages();
   file_.Close();
+  return {};
 }
 
 template <typename FileType>
@@ -307,7 +354,7 @@ std::pair<const uint8_t *, size_t> Encoder<FileType>::CurrentFileBuffer() const 
 
 template <typename FileType>
 size_t Encoder<FileType>::GetSize() {
-  return file_.GetSize();
+  return logical_size_;
 }
 
 template class Encoder<utils::OutputFile>;
@@ -343,6 +390,10 @@ std::optional<uint64_t> ReadSize(Decoder *decoder) {
   uint64_t size;
   if (!decoder->Read(reinterpret_cast<uint8_t *>(&size), sizeof(size))) return std::nullopt;
   size = utils::LittleEndianToHost(size);
+  // Bound check
+  if (auto const file_size = decoder->GetSize(); size >= file_size) {
+    return std::nullopt;
+  }
   return size;
 }
 }  // namespace
@@ -559,9 +610,12 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       for (uint64_t i = 0; i < *size; ++i) {
         auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
-        all_ints &= item->IsInt();
+        // An integer too wide for the packed form leaves the list boxed, which
+        // is the only representation that holds it at the width it was given.
+        auto const packable_int = item->IsInt() && FitsAPackedList(item->ValueInt());
+        all_ints &= packable_int;
         all_doubles &= item->IsDouble();
-        all_numeric &= item->IsInt() || item->IsDouble();
+        all_numeric &= packable_int || item->IsDouble();
         list.emplace_back(std::move(*item));
       }
       if (all_ints) {
@@ -678,6 +732,8 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
@@ -835,6 +891,8 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
@@ -862,9 +920,9 @@ bool Decoder::SkipExternalPropertyValue() {
   }
 }
 
-std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
+uint64_t Decoder::GetSize() { return file_.GetSize(); }
 
-std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
+uint64_t Decoder::GetPosition() { return file_.GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 

@@ -23,6 +23,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+
 namespace memgraph::replication {
 
 using namespace std::chrono_literals;
@@ -73,6 +75,18 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 
   auto const result = std::visit(utils::Overloaded{replica, main}, repl_state->ReplicationData());
   MG_ASSERT(result, "Replica recovery failure!");
+}
+
+// Lag of a replica behind main, in committed transactions. An ASYNC replica records its progress on a
+// worker thread with no happens-before against main's counter bump, so it can transiently appear one txn
+// ahead of main; floor that artifact to 0. A SYNC replica bumps after main in program order, so a negative
+// there is a real invariant violation and is left visible.
+int64_t ReplicaLagBehindMain(uint64_t num_main_committed_txns, uint64_t num_replica_committed_txns, bool is_async) {
+  auto const lag = static_cast<int64_t>(num_main_committed_txns) - static_cast<int64_t>(num_replica_committed_txns);
+  if (is_async && lag < 0) {
+    return 0;
+  }
+  return lag;
 }
 #else
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
@@ -141,7 +155,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
+  spdlog::info("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
       [&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
           ReplicationClient &local_client) mutable {
@@ -283,25 +297,32 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
     // All DBs should have the same epoch
     auto const new_epoch = ReplicationEpoch();
-    spdlog::trace("Generated new epoch {}", new_epoch.id());
+    spdlog::info("Generated new epoch {}", new_epoch.id());
 
     // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = new_epoch;
+      auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
 
+      // repl_state -> commit_mutex_ -> engine_lock_, as in PrepareForNewEpoch: a forced MAIN->MAIN promotion runs
+      // alongside commits, which read epoch_ under commit_mutex_ alone when narrowing.
+      auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
       // Modifying storage->timestamp_ needs to be done under the engine lock.
-      // Engine lock needs to be acquired after the repl state lock
       auto lock = std::lock_guard{storage->engine_lock_};
+
+      // Under the engine lock because commits and snapshot creation read the epoch under it.
+      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
       if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
           ldt >= storage->timestamp_) {
         // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
-        static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
+        mem_storage->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
         spdlog::trace("Txn IDs in ranges [{},{}] marked as finished", storage->timestamp_, ldt);
-        storage->timestamp_ = ldt + 1;
+        // Through the setter, so the watermark a BEGIN freezes its snapshot from moves with the clock.
+        // Left behind, it would put every later reader's snapshot a whole jump below its start stamp.
+        mem_storage->SetTimestampQuiescent(ldt + 1);
       }
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
@@ -340,38 +361,60 @@ auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult {
+  // Reject before any replication state is mutated, mirroring the registration gate. Analytical mode
+  // implies there are no per-database clients to erase, so this would silently half-unregister.
+  if (auto const analytical_db = AnalyticalDatabase(); analytical_db.has_value()) {
+    spdlog::error("Cannot unregister replica {} while database \"{}\" is in analytical mode.", name, *analytical_db);
+    return query::UnregisterReplicaResult::ANALYTICAL_MODE;
+  }
+  return UnregisterReplica_(name);
+}
+
+auto ReplicationHandler::UnregisterReplica_(std::string_view name) -> query::UnregisterReplicaResult {
   try {
     auto locked_repl_state = repl_state_.TryLock();
-
-    auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
-      return query::UnregisterReplicaResult::NOT_MAIN;
-    };
-    auto const main_handler =
-        [this, name, &locked_repl_state](RoleMainData &mainData) -> query::UnregisterReplicaResult {
-      if (!locked_repl_state->TryPersistUnregisterReplica(name)) {
-        return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
-      }
-      // Remove database specific clients
-      dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
-        db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
-          std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
-        });
-      });
-      // Remove instance level clients
-      auto const n_unregistered =
-          std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
-
-      // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
-      metrics::Metrics().RemoveReplicationThroughput(name);
-
-      return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
-                                 : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
-    };
-
-    return std::visit(utils::Overloaded{main_handler, replica_handler}, locked_repl_state->ReplicationData());
+    return UnregisterReplicaLocked_(locked_repl_state, name);
   } catch (const utils::TryLockException & /* unused */) {
     return query::UnregisterReplicaResult::NO_ACCESS;
   }
+}
+
+auto ReplicationHandler::UnregisterReplicaLocked_(LockedReplState &locked_repl_state, std::string_view name)
+    -> query::UnregisterReplicaResult {
+  auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
+    return query::UnregisterReplicaResult::NOT_MAIN;
+  };
+  auto const main_handler = [this, name, &locked_repl_state](RoleMainData &mainData) -> query::UnregisterReplicaResult {
+    if (!locked_repl_state->TryPersistUnregisterReplica(name)) {
+      return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
+    }
+    // Stop the instance-level client before destroying any storage client below. Its thread pool holds raw
+    // pointers to them, and only Shutdown aborts the in-flight recovery, drops the queue and joins the
+    // worker; the destructor further down would do it after the storage clients are already gone.
+    // ClientsShutdown observes the same order for the role transition.
+    auto const client_it = std::ranges::find_if(mainData.registered_replicas_,
+                                                [name](auto const &client) { return client.name_ == name; });
+    if (client_it == mainData.registered_replicas_.end()) {
+      return query::UnregisterReplicaResult::CANNOT_UNREGISTER;
+    }
+    client_it->Shutdown();
+
+    // Remove database specific clients
+    dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
+      db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
+        std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
+      });
+    });
+    // Remove instance level client
+    mainData.registered_replicas_.erase(client_it);
+
+    // Drop the per-instance replication throughput series so the metric maps don't grow unbounded.
+    metrics::Metrics().RemoveReplicationThroughput(name);
+
+    return query::UnregisterReplicaResult::SUCCESS;
+  };
+
+  return std::visit(utils::Overloaded{main_handler, replica_handler}, locked_repl_state->ReplicationData());
 }
 
 auto ReplicationHandler::GetRole() const -> replication_coordination_glue::ReplicationRole {
@@ -412,34 +455,51 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
   dbms_handler_.ForEach([&lag_info](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
-    auto const num_main_committed_txns =
-        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
-    lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
 
-    repl_storage_state.replication_storage_clients_.WithReadLock(
-        [&db_name, &lag_info, &num_main_committed_txns](auto &storage_clients) {
-          for (auto &repl_storage_client : storage_clients) {
-            auto const replica_name = repl_storage_client->Name();
-            auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
-            auto const replica_lag = static_cast<int64_t>(num_main_committed_txns - num_committed_txns_repl);
-            // Insert or find the already inserted element
-            auto [replica_it, _] = lag_info.replicas_info_.try_emplace(
-                replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
-            replica_it->second.emplace(db_name,
-                                       coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
-                                                                      .num_txns_behind_main_ = replica_lag});
-          }
-        });
+    repl_storage_state.replication_storage_clients_.WithReadLock([&db_name, &lag_info, &repl_storage_state](
+                                                                     auto &storage_clients) {
+      // First observe replicas' num committed txns, then main's, so a concurrent commit can't make
+      // main's value smaller than the replica's and produce a spurious negative lag. This ordering only
+      // helps SYNC replicas, whose cache is bumped in program order after main's counter; an ASYNC
+      // replica records its progress on a worker thread with no ordering against main's bump, so track
+      // its mode to floor its lag below.
+      struct ReplicaProgress {
+        uint64_t num_committed_txns;
+        bool is_async;
+      };
+      std::map<std::string, ReplicaProgress> repl_committed_txns;
+      for (auto &repl_storage_client : storage_clients) {
+        repl_committed_txns.emplace(repl_storage_client->Name(),
+                                    ReplicaProgress{.num_committed_txns = repl_storage_client->GetNumCommittedTxns(),
+                                                    .is_async = repl_storage_client->Mode() ==
+                                                                replication_coordination_glue::ReplicationMode::ASYNC});
+      }
+
+      auto const num_main_committed_txns =
+          repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+      lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
+
+      for (auto const &[replica_name, progress] : repl_committed_txns) {
+        auto const replica_lag =
+            ReplicaLagBehindMain(num_main_committed_txns, progress.num_committed_txns, progress.is_async);
+        // Insert or find the already inserted element
+        auto [replica_it, _] =
+            lag_info.replicas_info_.try_emplace(replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
+        replica_it->second.emplace(db_name,
+                                   coordination::ReplicaDBLagData{.num_committed_txns_ = progress.num_committed_txns,
+                                                                  .num_txns_behind_main_ = replica_lag});
+      }
+    });
   });
   return lag_info;
 }
 
-std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> ReplicationHandler::GetNumCommittedTxns()
-    const {
+std::optional<std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT>>
+ReplicationHandler::GetNumCommittedTxns() const {
   ReplicasResT replicas;
   MainResT main;
 
-  dbms_handler_.ForEach([&replicas, &main](dbms::DatabaseAccess db_acc) {
+  bool const visited = dbms_handler_.TryForEach([&replicas, &main](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
 
@@ -464,12 +524,17 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
             DMG_ASSERT(replica_it != replicas.end(), "No info for replica {}", replica_name);
             auto old_value_it = replica_it->second.find(db_name);
             DMG_ASSERT(old_value_it != replica_it->second.end(), "No info for db {}", db_name);
-            old_value_it->second = num_main_committed_txns - old_value_it->second;
+            bool const is_async = repl_storage_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC;
+            old_value_it->second = ReplicaLagBehindMain(num_main_committed_txns, old_value_it->second, is_async);
           }
         });
   });
 
-  return std::pair{main, replicas};
+  if (!visited) {
+    spdlog::trace("Skipping committed txns collection, dbms handler is exclusively locked.");
+    return std::nullopt;
+  }
+  return std::pair{std::move(main), std::move(replicas)};
 }
 
 #endif

@@ -51,7 +51,8 @@ class CoordinatorState {
 
   [[nodiscard]] auto ShowInstance() const -> InstanceStatus;
 
-  [[nodiscard]] auto ShowInstances() const -> std::vector<InstanceStatus>;
+  // nullopt if the leader couldn't be reached.
+  [[nodiscard]] auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
@@ -62,9 +63,26 @@ class CoordinatorState {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
-  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+  auto CreateRole(std::string_view role_name) const -> CreateRoleStatus;
 
-  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+  auto DropRole(std::string_view role_name) const -> DropRoleStatus;
+
+  // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state, so
+  // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
+  auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
+
+  // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state; the
+  // returned pair is {role_found, mask}.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
+  // Both return nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+
+  auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

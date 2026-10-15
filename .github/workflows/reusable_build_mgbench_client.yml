@@ -68,6 +68,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
@@ -82,13 +88,13 @@ jobs:
       - name: Build docker image
         run: |
           if [[ "${{ inputs.arch }}" == "arm" ]]; then
-            MGBUILD_IMAGE=memgraph/mgbuild:v7_ubuntu-24.04-arm
+            MGBUILD_IMAGE=memgraph/mgbuild:v8_ubuntu-24.04-arm
           else
-            MGBUILD_IMAGE=memgraph/mgbuild:v7_ubuntu-24.04
+            MGBUILD_IMAGE=memgraph/mgbuild:v8_ubuntu-24.04
           fi
 
           docker buildx build \
-          --build-arg TOOLCHAIN_VERSION=toolchain-v7 \
+          --build-arg TOOLCHAIN_VERSION=toolchain-v8 \
           --build-arg MGBUILD_IMAGE=$MGBUILD_IMAGE \
           --tag ${{ env.REPO_TAG }} \
           --file ${{ env.DOCKERFILE }} \

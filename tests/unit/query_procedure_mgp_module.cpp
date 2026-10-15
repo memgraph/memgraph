@@ -137,12 +137,12 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
 TEST(Module, ReadWriteProcedures) {
   mgp_module module(memgraph::utils::NewDeleteResource());
   auto *read_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "read", &DummyCallback);
-  EXPECT_FALSE(read_proc->info.is_write);
+  EXPECT_EQ(read_proc->info.graph_access, memgraph::query::GraphAccess::Read);
   auto *write_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_write_procedure, &module, "write", &DummyCallback);
-  EXPECT_TRUE(write_proc->info.is_write);
+  EXPECT_EQ(write_proc->info.graph_access, memgraph::query::GraphAccess::Write);
   mgp_proc read_proc_with_function{"dummy_name",
                                    std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)>{
                                        [](mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}},
                                    memgraph::utils::NewDeleteResource()};
-  EXPECT_FALSE(read_proc_with_function.info.is_write);
+  EXPECT_EQ(read_proc_with_function.info.graph_access, memgraph::query::GraphAccess::Read);
 }

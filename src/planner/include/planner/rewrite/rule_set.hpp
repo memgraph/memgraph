@@ -20,16 +20,15 @@
 namespace memgraph::planner::core::rewrite {
 
 /// Immutable, shareable collection of rewrite rules. Cheap to copy (shared_ptr).
-template <typename Symbol, typename Analysis>
-  requires ENodeSymbol<Symbol>
+template <RewritableGraph Graph>
 class RuleSet {
  public:
-  using RulePtr = std::shared_ptr<RewriteRule<Symbol, Analysis> const>;
+  using RulePtr = std::shared_ptr<RewriteRule<Graph> const>;
 
   class Builder {
    public:
-    auto add_rule(RewriteRule<Symbol, Analysis> rule) -> Builder & {
-      rules_.push_back(std::make_shared<RewriteRule<Symbol, Analysis> const>(std::move(rule)));
+    auto add_rule(RewriteRule<Graph> rule) -> Builder & {
+      rules_.push_back(std::make_shared<RewriteRule<Graph> const>(std::move(rule)));
       return *this;
     }
 
@@ -45,7 +44,7 @@ class RuleSet {
   static auto Build(Rules &&...rules) -> RuleSet {
     std::vector<RulePtr> rule_vec;
     rule_vec.reserve(sizeof...(rules));
-    (rule_vec.push_back(std::make_shared<RewriteRule<Symbol, Analysis> const>(std::forward<Rules>(rules))), ...);
+    (rule_vec.push_back(std::make_shared<RewriteRule<Graph> const>(std::forward<Rules>(rules))), ...);
     return RuleSet{std::make_shared<std::vector<RulePtr> const>(std::move(rule_vec))};
   }
 

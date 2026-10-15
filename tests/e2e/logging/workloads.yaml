@@ -1,0 +1,25 @@
+session_trace_log: &session_trace_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "session_trace.log"
+      setup_queries: []
+      validation_queries: []
+
+slow_failed_query_log: &slow_failed_query_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=WARNING"]
+      log_file: "slow_failed_query.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Session trace log"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["logging/session_trace.py"]
+    <<: *session_trace_log
+  - name: "Slow and failed query log"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["logging/slow_failed_query.py"]
+    <<: *slow_failed_query_log

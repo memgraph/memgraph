@@ -1,0 +1,7 @@
+query: >
+  CALL search.node_all({Movie: ['title', 'tagline']}, 'exact', 'Matrix') YIELD node
+  RETURN node ORDER BY node.title;
+
+output:
+  - node: {"labels": ["Movie"], "properties": {"title": "Matrix", "tagline": "Matrix"}}
+  - node: {"labels": ["Movie"], "properties": {"title": "Matrix", "tagline": "Matrix"}}

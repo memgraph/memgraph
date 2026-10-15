@@ -356,3 +356,33 @@ Feature: Patterns
             RETURN n
             """
         Then an error should be raised
+
+    Scenario: Pattern naming a variable bound to null matches nothing
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n)
+            """
+        When executing query:
+            """
+            WITH null AS f
+            MATCH (f)
+            RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: Pattern naming a variable bound to a value that is not a node returns error
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n)
+            """
+        When executing query:
+            """
+            WITH 1 AS f
+            MATCH (f)
+            RETURN count(*) AS c
+            """
+        Then an error should be raised

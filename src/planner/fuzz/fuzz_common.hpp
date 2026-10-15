@@ -39,6 +39,7 @@
 #include "planner/pattern/pattern.hpp"
 
 import memgraph.planner.core.egraph;
+import memgraph.planner.core.typed_egraph;
 
 namespace memgraph::planner::core::fuzz {
 
@@ -72,8 +73,27 @@ enum class FuzzSymbol : uint8_t {
   Ternary = 15,
 };
 
-/// Empty analysis for fuzz testing (no analysis data needed)
-struct FuzzAnalysis {};
+/// Dummy analysis for fuzz testing: no facts, no-op merge.
+struct FuzzAnalysis {
+  void merge(FuzzAnalysis const & /*other*/) {}
+};
+
+/// Trait per fuzz symbol. The harness builds e-nodes directly through the core
+/// e-graph, so no symbol mints nodes via `Make<S>`; the trait exists only to
+/// give `FuzzTypedEGraph` the per-symbol storage the wrapper is defined over.
+template <FuzzSymbol S>
+struct fuzz_traits {
+  struct storage_type {};
+};
+
+using FuzzSeq =
+    SymbolSequence<FuzzSymbol, FuzzSymbol::A, FuzzSymbol::B, FuzzSymbol::C, FuzzSymbol::D, FuzzSymbol::E, FuzzSymbol::F,
+                   FuzzSymbol::G, FuzzSymbol::H, FuzzSymbol::Plus, FuzzSymbol::Mul, FuzzSymbol::Ternary>;
+
+/// The rewrite engine drives a TypedEGraph. Fuzz rules only match, but the
+/// engine's rule/context types are constrained to a RewritableGraph, so the
+/// harness wraps its core e-graph in this typed adapter.
+using FuzzTypedEGraph = TypedEGraph<FuzzSymbol, FuzzAnalysis, FuzzSeq, fuzz_traits>;
 
 // ============================================================================
 // Symbol Utilities

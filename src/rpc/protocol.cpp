@@ -50,6 +50,13 @@ auto RpcMessageDeliverer::GetReqReader() const -> slk::Reader {
 }
 
 void RpcMessageDeliverer::Execute() {
+  auto const write_to_file = [this](const uint8_t *data, size_t const size) {
+    if (auto const res = file_replication_handler_->WriteToFile(data, size); !res) {
+      throw SessionException("Error happened while writing file in RpcMessageDeliverer: {}",
+                             utils::FileWriteErrorToString(res.error()));
+    }
+  };
+
   // Consumed bytes from the input stream
   size_t consumed_bytes{0};
 
@@ -58,10 +65,13 @@ void RpcMessageDeliverer::Execute() {
   while (true) {
     auto const remaining_file_size = GetRemainingFileSize();
 
-    slk::StreamInfo const ret = slk::CheckStreamStatus(input_stream_->data() + consumed_bytes,
-                                                       input_stream_->size() - consumed_bytes,
-                                                       remaining_file_size,
-                                                       consumed_bytes);
+    // Non-zero marks the message in progress, so a lone footer ends it instead of
+    // parsing as an empty (INVALID) stream.
+    slk::StreamInfo const ret =
+        slk::CheckStreamStatus(input_stream_->data() + consumed_bytes,
+                               input_stream_->size() - consumed_bytes,
+                               remaining_file_size,
+                               consumed_bytes + (file_replication_handler_.has_value() ? 1U : 0U));
 
     if (ret.status == slk::StreamStatus::INVALID) {
       input_stream_->Clear();
@@ -70,6 +80,9 @@ void RpcMessageDeliverer::Execute() {
     // We resize the stream if the initial header+request cannot fit into the input stream or if we couldn't read
     // 0xFFFF/0x0000 segment
     if (ret.status == slk::StreamStatus::PARTIAL) {
+      // Drop the consumed prefix: the next Execute() re-parses from the start, and
+      // OpenFile() has a side effect, so a consumed file would otherwise re-register.
+      if (consumed_bytes > 0) input_stream_->Shift(consumed_bytes);
       input_stream_->Resize(ret.stream_size);
       return;
     }
@@ -77,23 +90,21 @@ void RpcMessageDeliverer::Execute() {
     if (ret.status == slk::StreamStatus::FILE_DATA) {
       // When FILE_DATA status is received, we know that we should read from the stream start and that we consumed
       // whole input stream so we can clear it
-      file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
+      write_to_file(input_stream_->data(), input_stream_->size());
       input_stream_->Clear();
       return;
     }
 
     if (ret.status == slk::StreamStatus::NEW_FILE) {
       if (!file_replication_handler_) {
-        // Will be used at the end to construct slk::Reader. Contains message header and request. It is necessary to do
-        // this only when initializing FileReplicationHandler
-        header_request_ =
-            std::vector<uint8_t>{input_stream_->data(),
-                                 input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
+        // The header+request used to build the request reader: [0, ret.pos) is the
+        // args segment plus the file mask, which Finalize() takes as the final segment.
+        header_request_ = std::vector<uint8_t>{input_stream_->data(), input_stream_->data() + ret.pos};
         file_replication_handler_.emplace();
       } else {
         // If file replication handler is already active, and we received NEW_FILE status it means we should create new
         // file but before that, we should first finalize writing to the prior file
-        file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
+        write_to_file(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
       }
       // We processed them either when processing header and request of the 1st file or also if writing part of the old
       // file
@@ -128,13 +139,15 @@ void RpcMessageDeliverer::Execute() {
 
   // Writing last segment
   if (file_replication_handler_) {
-    file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
+    write_to_file(input_stream_->data(), input_stream_->size());
     MG_ASSERT(!file_replication_handler_->HasOpenedFile(), "File should be closed after completing the stream");
   }
 
   slk::Reader req_reader = GetReqReader();
   slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
-    output_stream_->Write(data, size, have_more);
+    if (!output_stream_->Write(data, size, have_more)) {
+      throw SessionException("Failed to write RPC response; peer connection is broken");
+    }
   });
 
   auto const maybe_message_header = std::invoke([&req_reader]() -> std::optional<ProtocolMessageHeader> {
@@ -177,10 +190,8 @@ void RpcMessageDeliverer::Execute() {
   // NOLINTNEXTLINE
   catch (const slk::SlkReaderLeftoverDataException &) {
     // Skip, it may fail because not all data has been read, that's fine.
-  } catch (const std::exception &e) {
-    spdlog::error("Error occurred in the callback: {}", e.what());
-    throw SlkRpcFailedException();
   }
+  // other exceptions will be caught in session.hpp
 }
 
 }  // namespace memgraph::rpc

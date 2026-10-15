@@ -4,11 +4,42 @@ import json
 import os
 import sys
 
+# Distros the built packages can be smoke tested on; must match the resolver
+# in .github/workflows/reusable_package.yaml.
+SMOKE_TARGETS = [
+    "centos-9",
+    "centos-10",
+    "debian-12",
+    "debian-13",
+    "fedora-43",
+    "fedora-44",
+    "rocky-10",
+    "ubuntu-22.04",
+    "ubuntu-24.04",
+    "ubuntu-26.04",
+]
+SMOKE_GROUPS = ["all", "all-deb", "all-rpm"]
+LABEL_PREFIX = "CI -package="
+DEFAULT_OS = "ubuntu-24.04"
+
 
 class PackageSetup:
+    """Turn the triggering event into inputs for the single package job.
+
+    The os input picks the mgbuild container the build runs in (the packages
+    are distro-agnostic). PR labels no longer choose a build OS — they define
+    which distros the packages are smoke tested on (package_smoke_os).
+    """
+
     def __init__(self, gh_context_path: str):
         self._gh_context_path = gh_context_path
-        self._get_default_package_suite(False)
+        self._run_package = False
+        self._run_package_arm = False
+        self._os = DEFAULT_OS
+        self._build_docker_image = "none"
+        self._build_docker_image_arm = "none"
+        self._package_smoke_os_arm = ""
+        self._workflow_inputs = {}
         self._load_gh_context()
 
     def _load_gh_context(self) -> None:
@@ -37,82 +68,72 @@ class PackageSetup:
     def _get_workflow_dispatch_inputs(self) -> dict:
         return self._gh_context.get("event").get("inputs")
 
-    def get_package_suite(self) -> dict:
-        return self._package_suite
-
-    def _get_default_package_suite(self, value: bool) -> None:
-        self._package_suite = {
-            "centos-9": value,
-            "centos-10": value,
-            "debian-12": value,
-            "debian-12-arm": value,
-            "debian-13": value,
-            "debian-13-arm": value,
-            "fedora-42": value,
-            "fedora-42-arm": value,
-            "rocky-10": value,
-            "ubuntu-22.04": value,
-            "ubuntu-24.04": value,
-            "ubuntu-24.04-arm": value,
-            "ubuntu-24.04-malloc": value,
-        }
-        self._build_docker_image_amd = "none"
-        self._build_docker_image_arm = "none"
-        self._build_docker_image_malloc = "none"
-
-    def _check_pr_label(self, package: str, pr_labels: list) -> bool:
-        if f"CI -package={package}" in pr_labels:
-            return True
-        return False
-
     def _setup_pull_request(self) -> None:
         pr_labels = self._get_pr_labels()
         print(f"PR labels: {pr_labels}")
-        for package in self._package_suite.keys():
-            self._package_suite[package] = self._check_pr_label(package, pr_labels)
-        if self._check_pr_label("docker", pr_labels):
-            self._package_suite["ubuntu-24.04"] = True
-            self._build_docker_image_amd = "prod"
-        if self._check_pr_label("docker-arm", pr_labels):
-            self._package_suite["ubuntu-24.04-arm"] = True
-            self._build_docker_image_arm = "prod"
+        values = [label[len(LABEL_PREFIX) :] for label in pr_labels if label.startswith(LABEL_PREFIX)]
 
-    def _check_workflow_input(self, package: str, workflow_dispatch_inputs: dict) -> bool:
-        # For workflow_dispatch, check if the OS input matches the package
-        os_input = workflow_dispatch_inputs.get("os", "")
-        if os_input == package or os_input == "all":
-            return True
-        return False
+        # An '-arm' suffix on any label value routes it to the arm package
+        # job: 'ubuntu-24.04-arm' smoke tests the arm packages on ubuntu
+        # 24.04, 'all-deb-arm' on every deb distro, 'docker-arm' builds the
+        # arm docker image.
+        smoke_tokens = []
+        arm_smoke_tokens = []
+        for value in values:
+            if value == "docker":
+                self._build_docker_image = "prod"
+                continue
+            if value == "docker-arm":
+                self._build_docker_image_arm = "prod"
+                continue
+            base, tokens = value, smoke_tokens
+            if value.endswith("-arm"):
+                base, tokens = value[: -len("-arm")], arm_smoke_tokens
+            if base in SMOKE_GROUPS or base in SMOKE_TARGETS:
+                tokens.append(base)
+            else:
+                print(f"Warning: ignoring unknown package label value '{value}'")
 
-    def get_workflow_inputs(self) -> dict:
-        """Get the workflow inputs for passing to reusable workflows"""
-        if self._get_event_name() == "workflow_dispatch":
-            inputs = dict(self._get_workflow_dispatch_inputs())
-        else:
-            # For pull_request events, return default values
-            inputs = {
-                "push_to_s3": "false",
-                "s3_dest_dir": "",
-                "push_to_github": "false",
-                "malloc": "false",
-                "generate_sbom": "false",
-                "run_smoke_tests": "true",
-            }
-        inputs.pop("build_docker_image", None)
-        inputs["build_docker_image_amd"] = self._build_docker_image_amd
-        inputs["build_docker_image_arm"] = self._build_docker_image_arm
-        inputs["build_docker_image_malloc"] = self._build_docker_image_malloc
-        return inputs
+        # The smoke token labels define where the packages get smoke tested;
+        # each arch's package job runs iff it has smoke targets or builds a
+        # docker image.
+        self._run_package = bool(smoke_tokens) or self._build_docker_image != "none"
+        self._run_package_arm = bool(arm_smoke_tokens) or self._build_docker_image_arm != "none"
+        package_smoke_os = "all" if "all" in smoke_tokens else " ".join(smoke_tokens)
+        self._package_smoke_os_arm = "all" if "all" in arm_smoke_tokens else " ".join(arm_smoke_tokens)
+
+        self._workflow_inputs = {
+            "push_to_s3": "false",
+            "s3_dest_dir": "",
+            "push_to_github": "false",
+            "malloc": "false",
+            "generate_sbom": "false",
+            "run_smoke_tests": "true",
+            # Empty means "smoke test on the build container's distro"
+            # (resolved in reusable_package.yaml).
+            "package_smoke_os": package_smoke_os,
+        }
 
     def _setup_workflow_dispatch(self) -> None:
-        workflow_dispatch_inputs = self._get_workflow_dispatch_inputs()
-        print(f"Workflow dispatch inputs: {workflow_dispatch_inputs}")
-        for package in self._package_suite.keys():
-            self._package_suite[package] = self._check_workflow_input(package, workflow_dispatch_inputs)
-        build_docker_image = workflow_dispatch_inputs.get("build_docker_image") or "none"
-        self._build_docker_image_amd = build_docker_image
-        self._build_docker_image_arm = build_docker_image
-        self._build_docker_image_malloc = build_docker_image
+        inputs = self._get_workflow_dispatch_inputs()
+        print(f"Workflow dispatch inputs: {inputs}")
+        self._os = inputs.get("os") or DEFAULT_OS
+        # arch routes the run to the amd job, the arm job, or both; the docker
+        # image and smoke settings apply to whichever arch stream(s) run.
+        arch = (inputs.get("arch") or "amd").lower()
+        if arch not in ("amd", "arm", "both"):
+            print(f"Error: invalid arch input '{arch}' (expected amd, arm or both)")
+            sys.exit(1)
+        self._run_package = arch in ("amd", "both")
+        self._run_package_arm = arch in ("arm", "both")
+        build_docker_image = inputs.get("build_docker_image") or "none"
+        if self._run_package:
+            self._build_docker_image = build_docker_image
+        if self._run_package_arm:
+            self._build_docker_image_arm = build_docker_image
+            self._package_smoke_os_arm = inputs.get("package_smoke_os", "")
+        self._workflow_inputs = dict(inputs)
+        self._workflow_inputs.pop("build_docker_image", None)
 
     def setup_package_workflow(self) -> None:
         event_name = self._get_event_name()
@@ -125,29 +146,44 @@ class PackageSetup:
             print("Invalid event name")
             sys.exit(1)
 
+    def get_outputs(self) -> dict:
+        # Arch is selected via the dedicated arch input (routing to the amd /
+        # arm jobs); a legacy '-arm' suffixed os still maps onto the amd job
+        # with arch=arm for older callers.
+        package_os = self._os
+        package_arch = "amd"
+        if package_os.endswith("-arm"):
+            package_os = package_os[: -len("-arm")]
+            package_arch = "arm"
 
-def print_package_suite(packages: dict, workflow_inputs: dict, set_env_vars: bool = False) -> None:
+        outputs = {
+            "run_package": self._run_package,
+            "run_package_arm": self._run_package_arm,
+            "package_os": package_os,
+            "package_arch": package_arch,
+        }
+        for key, value in self._workflow_inputs.items():
+            outputs[f"workflow_input_{key}"] = value
+        outputs["workflow_input_build_docker_image"] = self._build_docker_image
+        outputs["workflow_input_build_docker_image_arm"] = self._build_docker_image_arm
+        outputs["workflow_input_package_smoke_os_arm"] = self._package_smoke_os_arm
+        return outputs
+
+
+def print_outputs(outputs: dict, set_env_vars: bool = False) -> None:
     gh_output = open(os.environ["GITHUB_OUTPUT"], "a") if set_env_vars else None
     try:
-        for package, run in packages.items():
-            # Convert package names to valid GitHub output names (replace dots and hyphens with underscores)
-            output_name = package.replace(".", "_").replace("-", "_")
-            print(f"run_package_{output_name}={run}")
+        for key, value in outputs.items():
+            print(f"{key}={value}")
             if gh_output:
-                gh_output.write(f"run_package_{output_name}={run}\n")
-
-        # Also output workflow inputs
-        for key, value in workflow_inputs.items():
-            print(f"workflow_input_{key}={value}")
-            if gh_output:
-                gh_output.write(f"workflow_input_{key}={value}\n")
+                gh_output.write(f"{key}={value}\n")
     finally:
         if gh_output:
             gh_output.close()
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Setup package workflow package suite")
+    parser = argparse.ArgumentParser(description="Setup package workflow inputs")
     parser.add_argument(
         "--gh-context-path",
         type=str,
@@ -161,6 +197,4 @@ if __name__ == "__main__":
     args = parse_args()
     package_setup = PackageSetup(args.gh_context_path)
     package_setup.setup_package_workflow()
-    package_suite = package_setup.get_package_suite()
-    workflow_inputs = package_setup.get_workflow_inputs()
-    print_package_suite(packages=package_suite, workflow_inputs=workflow_inputs, set_env_vars=True)
+    print_outputs(package_setup.get_outputs(), set_env_vars=True)

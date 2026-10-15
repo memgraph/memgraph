@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
 import typing
 
 import mgclient
@@ -37,3 +38,26 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(**kwargs)
     connection.autocommit = True
     return connection
+
+
+def corrupt_snapshots(full_data_directory):
+    """Corrupt the data (vertex/edge/index) region of every snapshot while preserving the
+    offsets block at the start and the metadata section at the end. This keeps the file
+    readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
+    fail, which is the "no usable snapshot" path that yields a broken database."""
+    snapshot_dir = os.path.join(full_data_directory, "snapshots")
+    files = [
+        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
+    ]
+    assert files, "Expected at least one snapshot to corrupt"
+    head_keep = 1024  # magic + version + SECTION_OFFSETS
+    tail_keep = 4096  # SECTION_METADATA (uuid/epoch/counts) lives near the end
+    for path in files:
+        size = os.path.getsize(path)
+        start = min(head_keep, size)
+        end = max(start, size - tail_keep)
+        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
+        with open(path, "r+b") as fh:
+            fh.seek(start)
+            fh.write(b"\xff" * (end - start))
+    return files

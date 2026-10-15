@@ -20,6 +20,7 @@
 #include "storage/v2/disk/delta_utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file.hpp"
@@ -145,6 +146,12 @@ std::expected<void, ConstraintViolation> DiskUniqueConstraints::TestIfVertexSati
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
     const std::set<PropertyId> &constraint_properties) const {
   auto property_values = vertex.properties.ExtractPropertyValues(constraint_properties);
+
+  // A value that is not equal to itself duplicates nothing and nothing
+  // duplicates it. It is left out of the storage compared against too.
+  if (property_values.has_value() && !EveryValueEqualsItself(*property_values)) {
+    return {};
+  }
 
   /// TODO: better naming. Is vertex unique
   if (property_values.has_value() &&

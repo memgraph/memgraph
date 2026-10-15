@@ -11,12 +11,40 @@
 
 #include "auth/rpc.hpp"
 
+#include <variant>
+
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
+
+namespace {
+void AttachRolesToUser(
+    memgraph::auth::User &user, std::vector<memgraph::auth::Role> const &roles,
+    [[maybe_unused]] std::unordered_map<std::string, std::unordered_set<std::string>> const &mt_map) {
+  user.ClearAllRoles();
+#ifdef MG_ENTERPRISE
+  for (auto const &[db, role_names] : mt_map) {
+    for (auto const &role_name : role_names) {
+      if (auto it = std::ranges::find_if(roles, [&role_name](auto const &r) { return r.rolename() == role_name; });
+          it != roles.end()) {
+        user.AddMultiTenantRole(*it, db);
+      }
+    }
+  }
+#endif
+  for (auto const &role : roles) {
+    try {
+      user.AddRole(role);
+    } catch (memgraph::auth::AuthException const &) {
+      // Role already set as multi-tenant role
+      continue;
+    }
+  }
+}
+}  // namespace
 
 namespace memgraph::slk {
 // Serialize code for auth::Role
@@ -26,9 +54,13 @@ namespace {
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  const auto json = nlohmann::json::parse(tmp);
-  auto role = memgraph::auth::Role::Deserialize(json);
-  return role;
+  try {
+    auto json = nlohmann::json::parse(tmp);
+    memgraph::auth::MigrateAuthJson(json);
+    return memgraph::auth::Role::Deserialize(json);
+  } catch (nlohmann::json::exception const &e) {
+    throw auth::AuthException("Failed to deserialize role from RPC: {}", e.what());
+  }
 }
 }  // namespace
 
@@ -53,7 +85,6 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   std::vector<auth::Role> roles{self.roles().cbegin(), self.roles().cend()};
   memgraph::slk::Save(roles, builder);
 #ifdef MG_ENTERPRISE
-  // MT roles
   memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
 #endif
 }
@@ -62,38 +93,21 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  const auto json = nlohmann::json::parse(tmp);
-  *self = memgraph::auth::User::Deserialize(json);
+  try {
+    auto json = nlohmann::json::parse(tmp);
+    memgraph::auth::MigrateAuthJson(json);
+    *self = memgraph::auth::User::Deserialize(json);
+  } catch (nlohmann::json::exception const &e) {
+    throw auth::AuthException("Failed to deserialize user from RPC: {}", e.what());
+  }
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
-  self->ClearAllRoles();
-
 #ifdef MG_ENTERPRISE
-  // Handle multi-tenant roles (has to be done before adding all roles)
-  std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map;
-  memgraph::slk::Load(&db_role_map, reader);
-  for (const auto &[db, role_names] : db_role_map) {
-    for (const auto &role : role_names) {
-      if (auto role_it = std::ranges::find_if(roles, [&role](const auto &r) { return r.rolename() == role; });
-          role_it != roles.end()) {
-        self->AddMultiTenantRole(*role_it, db);
-      }
-    }
-  }
-#endif
-
-  // Handle global roles
-  for (const auto &role : roles) {
-    try {
-      self->AddRole(role);
-    } catch (const auth::AuthException &e) {
-      // Absorb the exception and continue with the next role (role already set as multi-tenant role)
-      continue;
-    }
-  }
-
-#ifdef MG_ENTERPRISE
-  // Profile management moved to UserProfiles class
+  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
+  memgraph::slk::Load(&mt_map, reader);
+  AttachRolesToUser(*self, roles, mt_map);
+#else
+  AttachRolesToUser(*self, roles, {});
 #endif
 }
 
@@ -117,8 +131,7 @@ void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader) {
   *self = auth::Auth::Config{std::move(name_regex_str), std::move(password_regex_str), password_permit_null};
 }
 
-// Serialize code for UpdateAuthDataReq
-void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
@@ -127,7 +140,7 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.profile, builder);
 }
 
-void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
@@ -136,7 +149,87 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->profile, reader);
 }
 
-// Serialize code for UpdateAuthDataRes
+void Save(const memgraph::replication::AuthUpdateOp &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.user, builder);
+  memgraph::slk::Save(self.role, builder);
+  memgraph::slk::Save(self.profile, builder);
+}
+
+void Load(memgraph::replication::AuthUpdateOp *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->user, reader);
+  memgraph::slk::Load(&self->role, reader);
+  memgraph::slk::Load(&self->profile, reader);
+}
+
+void Save(const memgraph::replication::AuthDropOp &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(static_cast<uint8_t>(self.type), builder);
+  memgraph::slk::Save(self.name, builder);
+}
+
+void Load(memgraph::replication::AuthDropOp *self, memgraph::slk::Reader *reader) {
+  uint8_t type{};
+  memgraph::slk::Load(&type, reader);
+  // Refuse a kind this build has no enumerator for. Casting it through would produce a value the drop switch
+  // matches no case for, so the removal would be skipped and the batch still reported as applied.
+  if (!utils::NumToEnum(type, self->type)) {
+    throw SlkReaderException("Auth drop of unknown kind {} in a replicated batch", type);
+  }
+  memgraph::slk::Load(&self->name, reader);
+}
+
+void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
+  memgraph::slk::Save(static_cast<uint64_t>(self.ops.size()), builder);
+  for (auto const &op : self.ops) {
+    // Saved by hand rather than through slk's generic variant overload: that one resolves `slk::Save` for the
+    // alternatives at its own definition, so it only reaches types declared inside slk itself.
+    memgraph::slk::Save(op.index(), builder);
+    std::visit([builder](auto const &held) { memgraph::slk::Save(held, builder); }, op);
+  }
+}
+
+void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
+  uint64_t size{};
+  memgraph::slk::Load(&size, reader);
+  self->ops.clear();
+  for (uint64_t i = 0; i < size; ++i) {
+    std::size_t index{};
+    memgraph::slk::Load(&index, reader);
+    switch (index) {
+      case 0: {
+        memgraph::replication::AuthUpdateOp op;
+        memgraph::slk::Load(&op, reader);
+        self->ops.emplace_back(std::move(op));
+        break;
+      }
+      case 1: {
+        memgraph::replication::AuthDropOp op;
+        memgraph::slk::Load(&op, reader);
+        self->ops.emplace_back(std::move(op));
+        break;
+      }
+      default:
+        // Refuse rather than guess. Taking an unknown kind for a drop would have this delete records a sender
+        // never asked it to, and the bytes for that kind are still in the stream, so nothing after it can be
+        // read either.
+        throw memgraph::slk::SlkDecodeException("Auth operation of unknown kind {} in a replicated batch", index);
+    }
+  }
+}
+
+void Save(const memgraph::replication::UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::replication::UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
@@ -179,11 +272,27 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
 
 namespace memgraph::replication {
 
+void UpdateAuthDataReqV1::Save(const UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateAuthDataReqV1::Load(UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void UpdateAuthDataReq::Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
 void UpdateAuthDataReq::Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void UpdateAuthDataResV1::Save(const UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateAuthDataResV1::Load(UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 

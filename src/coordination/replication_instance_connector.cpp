@@ -21,7 +21,7 @@
 namespace memgraph::coordination {
 
 TimedFailureDetector::TimedFailureDetector(uint32_t const instance_down_timeout_sec)
-    : instance_down_timeout_sec_(instance_down_timeout_sec) {}
+    : instance_down_timeout_sec_(instance_down_timeout_sec), last_response_time_(std::chrono::system_clock::now()) {}
 
 auto TimedFailureDetector::IsAlive() const -> bool { return is_alive_; }
 

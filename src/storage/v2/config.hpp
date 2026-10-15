@@ -50,6 +50,7 @@ struct SalientConfig {
     bool enable_schema_info{false};
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
+    bool storage_light_edge{false};
     bool delta_on_identical_property_update{true};
     bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
@@ -81,6 +82,10 @@ struct Config {
 
     bool recover_on_startup{false};  // PER INSTANCE SYSTEM FLAG
 
+    // When true, a tenant that fails durability recovery comes up in a broken
+    // state instead of crashing the process. PER INSTANCE SYSTEM FLAG.
+    bool allow_recovery_failure{false};
+
     SnapshotWalMode snapshot_wal_mode{
         SnapshotWalMode::DISABLED};  // PER DATABASE - as at time of initialization; can be changed by
                                      // enabling/disabling the periodic snapshot
@@ -99,10 +104,29 @@ struct Config {
     uint64_t snapshot_thread_count{8};    // PER INSTANCE SYSTEM FLAG
     uint64_t recovery_thread_count{8};    // PER INSTANCE SYSTEM FLAG
 
+    // Per snapshot writer, so a parallel snapshot may hold this much again for every thread it
+    // uses. 0 disables pacing.
+    uint64_t snapshot_writeback_window_mib{32};  // PER INSTANCE SYSTEM FLAG
+
+    // Whether a snapshot is released from the page cache once recovery has loaded it. Nothing on
+    // this instance reads that file again, so its pages only compete with the graph built from them.
+    bool release_recovered_snapshot_page_cache{true};  // PER INSTANCE SYSTEM FLAG
+
+    // Whether a snapshot is released from the page cache once it has been sent to a replica. A
+    // separate decision from the one above, and off by default: the file cache is reclaimable on
+    // demand, so releasing it buys memory the kernel could take back anyway, while costing every
+    // further replica syncing from the same snapshot a re-read from the device.
+    bool release_sent_snapshot_page_cache{false};  // PER INSTANCE SYSTEM FLAG
+
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
+
+  // Selects the commit-lock-narrowing MVCC path. Startup-only and per-instance, so members of one
+  // cluster may disagree about it. Must stay out of SalientConfig: durable output must not depend on
+  // it, which is what lets an instance restart with the flag flipped and still recover what it wrote.
+  bool experimental_commit_lock_narrowing{false};
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};

@@ -12,9 +12,11 @@
 #include <gtest/gtest.h>
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/coordinator_slk.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "rpc/utils.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
@@ -185,6 +187,83 @@ TEST(SlkAdvanced, ReplicationClientConfigs) {
   memgraph::slk::Load(&decoded, reader);
 
   ASSERT_EQ(original, decoded);
+}
+
+TEST(SlkAdvanced, ReplicationLagResultSuccess) {
+  using memgraph::coordination::ReplicaDBLagData;
+  using memgraph::coordination::ReplicationLagResult;
+  using memgraph::coordination::ReplicationLagStatus;
+
+  auto const original = ReplicationLagResult::Success(
+      {{"instance_1", {{"memgraph", ReplicaDBLagData{.num_committed_txns_ = 7, .num_txns_behind_main_ = 0}}}},
+       {"instance_2", {{"memgraph", ReplicaDBLagData{.num_committed_txns_ = 5, .num_txns_behind_main_ = 2}}}}});
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original, builder);
+
+  ReplicationLagResult decoded;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded, reader);
+
+  ASSERT_EQ(decoded.status_, ReplicationLagStatus::SUCCESS);
+  ASSERT_EQ(decoded.data_.size(), 2);
+  auto const &lagging = decoded.data_.at("instance_2").at("memgraph");
+  ASSERT_EQ(lagging.num_committed_txns_, 5);
+  ASSERT_EQ(lagging.num_txns_behind_main_, 2);
+}
+
+TEST(SlkAdvanced, ReplicationLagResultFailure) {
+  using memgraph::coordination::ReplicationLagResult;
+  using memgraph::coordination::ReplicationLagStatus;
+
+  auto const original = ReplicationLagResult::Failure(ReplicationLagStatus::MAIN_UNRESPONSIVE);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original, builder);
+
+  ReplicationLagResult decoded;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded, reader);
+
+  ASSERT_EQ(decoded.status_, ReplicationLagStatus::MAIN_UNRESPONSIVE);
+  ASSERT_TRUE(decoded.data_.empty());
+}
+
+// A v1 requester gets the bare map it knows: the data on success, and the empty map it already reads as "no data" for
+// every failure.
+TEST(SlkAdvanced, ReplicationLagResDowngradesToV1) {
+  using memgraph::coordination::CoordReplicationLagRes;
+  using memgraph::coordination::CoordReplicationLagResV1;
+  using memgraph::coordination::ReplicaDBLagData;
+  using memgraph::coordination::ReplicationLagResult;
+  using memgraph::coordination::ReplicationLagStatus;
+
+  {
+    CoordReplicationLagRes const res{ReplicationLagResult::Success(
+        {{"instance_1", {{"memgraph", ReplicaDBLagData{.num_committed_txns_ = 7, .num_txns_behind_main_ = 0}}}}})};
+
+    memgraph::slk::Loopback loopback;
+    memgraph::rpc::SaveWithDowngrade(res, CoordReplicationLagResV1::kVersion, loopback.GetBuilder());
+
+    CoordReplicationLagResV1 decoded;
+    memgraph::slk::Load(&decoded, loopback.GetReader());
+
+    ASSERT_EQ(decoded.arg_.size(), 1);
+    ASSERT_EQ(decoded.arg_.at("instance_1").at("memgraph").num_committed_txns_, 7);
+  }
+  {
+    CoordReplicationLagRes const res{ReplicationLagResult::Failure(ReplicationLagStatus::NO_CURRENT_MAIN)};
+
+    memgraph::slk::Loopback loopback;
+    memgraph::rpc::SaveWithDowngrade(res, CoordReplicationLagResV1::kVersion, loopback.GetBuilder());
+
+    CoordReplicationLagResV1 decoded;
+    memgraph::slk::Load(&decoded, loopback.GetReader());
+
+    ASSERT_TRUE(decoded.arg_.empty());
+  }
 }
 
 TEST(SlkAdvanced, ExternalPropertyValueIntList) {

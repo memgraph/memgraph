@@ -1,3 +1,0 @@
-GQLAlchemy
-neo4j==5.23
-semver==3.0.2

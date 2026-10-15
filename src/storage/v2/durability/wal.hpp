@@ -52,6 +52,30 @@ struct WalDeltaData;
 /// True iff this pre-v15 delta marks the end of its implicit transaction.
 bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
 
+/// What a finalized WAL file records about its own contents. Back-patched into the header by WalFile::FinalizeWal,
+/// so that readers needing only this much don't have to parse every delta to derive it.
+struct WalSummary {
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  /// Deltas belonging to transactions the writer completed, always positive. A file with
+  /// no complete transaction has nothing to summarize and so carries no summary at all rather than one saying zero,
+  /// which is also how the unwritten placeholder is recognised.
+  uint64_t num_deltas;
+};
+
+/// Everything a WAL file states about itself up front, readable without touching the delta region.
+struct WalHeader {
+  uint64_t offset_metadata;
+  uint64_t offset_deltas;
+
+  std::string uuid;
+  std::string epoch_id;
+  uint64_t seq_num;
+  /// Absent while the file is still being written, and for files written before kWalHeader. Deriving the same facts for
+  /// such a file means parsing its deltas with ReadWalInfo.
+  std::optional<WalSummary> summary;
+};
+
 /// Structure used to hold information about a WAL.
 struct WalInfo {
   uint64_t offset_metadata;
@@ -166,8 +190,8 @@ struct EdgeTypePropertyOpInfo {
   std::string property;
 };
 
-struct EdgePropertyOpInfo {
-  friend bool operator==(const EdgePropertyOpInfo &, const EdgePropertyOpInfo &) = default;
+struct PropertyOpInfo {
+  friend bool operator==(const PropertyOpInfo &, const PropertyOpInfo &) = default;
   using ctr_types = std::tuple<std::string>;
   std::string property;
 };
@@ -236,7 +260,8 @@ struct WalTransactionStart {
 
 struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
-  using ctr_types = std::tuple<>;
+  using ctr_types = std::tuple<VersionDependant<kCrcProtection, uint32_t>>;
+  std::optional<uint32_t> txn_crc;  // Started protecting txns with CRC summary since kCrcProtection version
 };
 
 struct WalLabelIndexCreate : LabelOpInfo {};
@@ -283,9 +308,13 @@ struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
 
 struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
 
-struct WalEdgePropertyIndexCreate : EdgePropertyOpInfo {};
+struct WalEdgePropertyIndexCreate : PropertyOpInfo {};
 
-struct WalEdgePropertyIndexDrop : EdgePropertyOpInfo {};
+struct WalEdgePropertyIndexDrop : PropertyOpInfo {};
+
+struct WalVertexPropertyIndexCreate : PropertyOpInfo {};
+
+struct WalVertexPropertyIndexDrop : PropertyOpInfo {};
 
 struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
 
@@ -409,6 +438,7 @@ struct WalDescriptionSet {
   std::string description;
   std::vector<std::string> from_labels;
   std::vector<std::string> to_labels;
+  ExternalPropertyValue value;
 };
 
 struct WalDescriptionDelete {
@@ -419,6 +449,7 @@ struct WalDescriptionDelete {
   std::string property;
   std::vector<std::string> from_labels;
   std::vector<std::string> to_labels;
+  ExternalPropertyValue value;
 };
 
 // Single TTL WAL structure that encompasses all TTL operations
@@ -446,7 +477,7 @@ struct WalDeltaData {
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
                WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
                WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation,
-               WalDescriptionSet, WalDescriptionDelete>
+               WalDescriptionSet, WalDescriptionDelete, WalVertexPropertyIndexCreate, WalVertexPropertyIndexDrop>
       data_ = WalTransactionEnd{};
 };
 
@@ -461,9 +492,20 @@ inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64
   return std::holds_alternative<WalTransactionEnd>(delta.data_);
 }
 
-/// Function used to read information about the WAL file.
+/// Function used to read the WAL file's header, without parsing the deltas.
+/// @throw RecoveryFailure
+WalHeader ReadWalHeader(const std::filesystem::path &path);
+
+/// Function used to read information about the WAL file. Always parses every delta, verifying each transaction's CRC.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
+
+/// The same information, read the cheapest way the file allows: taken from the summary of a finalized file, and
+/// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating kWalHeader.
+/// Prefer this when the information is all that's wanted; a summary is trusted rather than checked against the deltas.
+/// A caller that already read the header can hand it over to save reading it again.
+/// @throw RecoveryFailure
+WalInfo ReadWalContents(const std::filesystem::path &path, std::optional<WalHeader> known_header = std::nullopt);
 
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.
@@ -490,23 +532,31 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
                  Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
-/// Function used to encode the transaction start
-/// Returns the position in the WAL where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit,
-                                StorageAccessType access_type);
+struct WalTxnDataPos {
+  uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
+  uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame
+  uint32_t stored_crc_{0};                // the CRC value written at crc_wal_pos_ (kept in memory to patch in place)
+};
 
-/// Function use to encode the transaction start
-/// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
+/// Positions filled in when encoding the transaction end.
+struct WalTxnEndPos {
+  uint64_t crc_wal_pos_{0};  // position where the CRC value is written
+  uint32_t stored_crc_{0};   // the CRC value written at crc_wal_pos_
+};
+
+/// Function used to encode the transaction start
+/// Returns the position where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+/// Returns the end of the CRC-protected region and the position where the CRC value is written.
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
 void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
                                  PropertyId prop);
-void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop);
+void EncodePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop);
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old);
@@ -532,10 +582,11 @@ void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
 void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                           std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
                           std::string_view description, std::span<LabelId const> from_labels = {},
-                          std::span<LabelId const> to_labels = {});
+                          std::span<LabelId const> to_labels = {}, ExternalPropertyValue const &value = {});
 void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
                              std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
-                             std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {});
+                             std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {},
+                             ExternalPropertyValue const &value = {});
 
 // TTL encoding function
 void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
@@ -561,9 +612,6 @@ class WalFile {
   WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
           utils::FileRetainer *file_retainer);
-  WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-          uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-          utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -578,14 +626,12 @@ class WalFile {
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.
-  // Returns the position in the WAL where the flag 'commit' is about to be written
   uint64_t AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
 
-  // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
-  // recovery
-  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
+  // Updates the commit flag in the WAL file by setting it to treu
+  void UpdateCommitStatus(WalTxnDataPos const &wal_positions);
 
-  void AppendTransactionEnd(uint64_t timestamp);
+  WalTxnEndPos AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
@@ -626,6 +672,12 @@ class WalFile {
   void UpdateStats(uint64_t timestamp);
 
  private:
+  /// Fills in the summary of what was actually written, over the placeholders the constructor reserved.
+  void WriteSummary();
+
+  /// Bytes the summary region occupies: three values plus its own CRC trailer, each a marker and a uint64.
+  static constexpr uint64_t kSummaryBytes = 4 * (sizeof(Marker) + sizeof(uint64_t));
+
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
   Encoder<utils::OutputFile> wal_;
@@ -633,7 +685,11 @@ class WalFile {
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;
   uint64_t count_;
+  // count_ as of the last completed transaction, i.e. excluding a transaction still being appended.
+  uint64_t num_deltas_{0};
   uint64_t seq_num_;
+  // Where FinalizeWal writes the summary. Deliberately outside the CRC-protected metadata section above it.
+  uint64_t offset_summary_{0};
 
   utils::FileRetainer *file_retainer_;
 };

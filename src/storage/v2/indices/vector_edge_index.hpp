@@ -17,12 +17,13 @@
 #include <shared_mutex>
 #include <span>
 
+#include "absl/container/flat_hash_map.h"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -62,21 +63,28 @@ struct VectorEdgeIndexInfo {
 };
 
 /// @struct VectorEdgeIndexRecoveryInfo
-/// @brief Recovery information for a vector edge index, including entry data.
+/// @brief Recovery information for a vector edge index.
 struct VectorEdgeIndexRecoveryInfo {
   VectorEdgeIndexSpec spec;
-  absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
 };
 
-/// @struct VectorEdgeIndexRecovery
-/// @brief Handles recovery operations for vector edge indices during WAL replay and snapshot recovery.
+/// For every edge e and every property p with at least one vector edge spec, if e's stored p is a tag
+/// (VectorIndexId), then edge_vectors[p][e.gid] holds its float vector. A plain list in the property store
+/// is its own vector and wins over any map entry. Tag IDs are not trusted during recovery.
 struct VectorEdgeIndexRecovery {
-  static void UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
-                                std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
-                                utils::SkipListDb<Vertex>::Accessor &vertices);
+  using EdgeVectors = absl::flat_hash_map<PropertyId, absl::flat_hash_map<Gid, utils::small_vector<float>>>;
 
-  static void UpdateOnSetEdgeProperty(PropertyId property, const PropertyValue &value, const Edge *edge,
-                                      std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec);
+  /// Called on WAL EdgeSetProperty: captures tag→edge_vectors[p][gid] or erases (list/null) when p has a
+  /// spec; demotes stale tags to plain lists (mutates value) when p has no spec.
+  static void UpdateOnSetEdgeProperty(PropertyId property, PropertyValue &value, const Edge *edge,
+                                      std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec,
+                                      EdgeVectors &edge_vectors);
+
+  /// Called on WAL VectorIndexDrop: removes the spec. If no other spec covers the same property, iterates
+  /// edges to restore stored tags to plain lists, then drops the map entry.
+  static void UpdateOnIndexDrop(std::string_view index_name,
+                                std::vector<VectorEdgeIndexRecoveryInfo> &recovery_info_vec, EdgeVectors &edge_vectors,
+                                utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper);
 };
 
 /// Abstract interface for vector edge index metadata queries accessed through ActiveIndices snapshots.
@@ -85,6 +93,8 @@ struct VectorEdgeIndexActiveIndices {
   virtual std::vector<VectorEdgeIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const = 0;
   virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
+  /// Properties of an edge of `edge_type` that are covered by a vector edge index.
+  virtual std::vector<PropertyId> IndexedProperties(EdgeTypeId edge_type) const = 0;
 };
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -172,6 +182,7 @@ class VectorEdgeIndex {
     std::vector<VectorEdgeIndexSpec> ListIndices() const override;
     std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
     std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override;
+    std::vector<PropertyId> IndexedProperties(EdgeTypeId edge_type) const override;
 
    private:
     std::shared_ptr<VectorEdgeIndexContainer const> index_container_;
@@ -202,13 +213,14 @@ class VectorEdgeIndex {
 
   /// @brief Creates a new index based on the provided specification.
   bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
-                   NameIdMapper *name_id_mapper,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                   NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {});
 
-  /// @brief Recovers a vector edge index based on recovery info.
-  void RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info, utils::SkipListDb<Vertex>::Accessor &vertices,
-                    NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  /// Recovers all vector edge indices in one pass. On failure, drops every index set up and rethrows.
+  /// edge_vectors is cleared on success; on_progress fires once per vertex, not per insertion.
+  void RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRecoveryInfo> &recovery_infos,
+                                   VectorEdgeIndexRecovery::EdgeVectors &edge_vectors,
+                                   utils::SkipListDb<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
+                                   ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
 
   /// Mirror of VectorIndex::DroppedIndexCapture, plus evicted_endpoints — endpoint
   /// records erased from edge_endpoints_ that RestoreIndex must put back.
@@ -223,7 +235,10 @@ class VectorEdgeIndex {
   /// transaction abort, or std::nullopt if the index doesn't exist. Callers that
   /// only need a fire-and-forget drop (e.g. CreateIndex's exception rollback)
   /// can discard the return value.
-  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper);
+  /// `on_progress` is invoked once per indexed edge while their properties are rewritten back from index ids to
+  /// vectors. See VectorIndex::DropIndex for why the caller needs it.
+  std::optional<DroppedIndexCapture> DropIndex(std::string_view index_name, NameIdMapper *name_id_mapper,
+                                               ProgressCallback const &on_progress = {});
 
   /// @brief Reinstalls an edge index previously evicted by DropIndex.
   void RestoreIndex(DroppedIndexCapture &&capture);
@@ -283,7 +298,7 @@ class VectorEdgeIndex {
 
   /// @brief Adds a single edge to the index, converting its property to VectorIndexId.
   void AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                      std::optional<std::size_t> thread_id = std::nullopt);
+                      NameIdMapper *name_id_mapper, std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);

@@ -686,3 +686,176 @@ Feature: Text search related features
             CALL text_search.regex_search('regexRejectIndex', 'mem.*', {fuzzy_distance: 1}) YIELD node RETURN node
             """
         Then an error should be raised
+
+    Scenario: Fuzzy phrase search enforces order and adjacency with a last-word prefix
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            CREATE (:Doc {title: 'big bad world', n: 2})
+            CREATE (:Doc {title: 'the big bad wolf returns', n: 3})
+            CREATE (:Doc {title: 'bad big wolf', n: 4})
+            CREATE (:Doc {title: 'big wolf', n: 5})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big bad wo') YIELD node
+            RETURN node.n AS n
+            ORDER BY n ASC
+            """
+        Then the result should be:
+            | n |
+            | 1 |
+            | 2 |
+            | 3 |
+
+    Scenario: Fuzzy phrase search enforces word order
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            CREATE (:Doc {title: 'bad big wolf', n: 4})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:bad big wo') YIELD node
+            RETURN node.n AS n
+            ORDER BY n ASC
+            """
+        Then the result should be:
+            | n |
+            | 4 |
+
+    Scenario: Fuzzy phrase search tolerates a typo with fuzzy_distance 1
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            CREATE (:Doc {title: 'coffee shop', n: 2})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big bd wo', {fuzzy_distance: 1}) YIELD node
+            RETURN node.n AS n
+            ORDER BY n ASC
+            """
+        Then the result should be:
+            | n |
+            | 1 |
+
+    Scenario: Fuzzy phrase search rejects fuzzy_prefix false
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big bad wo', {fuzzy_prefix: false}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Fuzzy phrase search shares the fuzzy budget across the whole input
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bd wolf', n: 1})
+            CREATE (:Doc {title: 'bg bd wolf', n: 2})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big bad wo', {fuzzy_distance: 1}) YIELD node
+            RETURN node.n AS n
+            ORDER BY n ASC
+            """
+        Then the result should be:
+            | n |
+            | 1 |
+
+    Scenario: Fuzzy phrase search counts a transposition as one edit
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big abd wo', {fuzzy_distance: 1}) YIELD node
+            RETURN node.n AS n
+            """
+        Then the result should be:
+            | n |
+            | 1 |
+
+    Scenario: Fuzzy phrase search with transpositions disabled needs two edits for a swap
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big abd wo', {fuzzy_distance: 1, fuzzy_transpositions: false}) YIELD node
+            RETURN node.n AS n
+            """
+        Then the result should be empty
+
+    Scenario: Fuzzy phrase search rejects fuzzy_distance above 2
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'data.title:big bad wo', {fuzzy_distance: 3}) YIELD node RETURN node
+            """
+        Then an error should be raised
+
+    Scenario: Fuzzy phrase search requires a single-property query
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX fuzzyPhraseIndex ON :Doc
+            """
+        And having executed
+            """
+            CREATE (:Doc {title: 'big bad wolf', n: 1})
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search('fuzzyPhraseIndex', 'big bad wo') YIELD node RETURN node
+            """
+        Then an error should be raised

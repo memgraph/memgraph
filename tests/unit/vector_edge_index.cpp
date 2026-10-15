@@ -12,15 +12,21 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <chrono>
+#include <filesystem>
+#include <optional>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 
 #include "flags/general.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_edge_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -28,12 +34,16 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
+#include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -86,6 +96,44 @@ class VectorEdgeIndexTest : public testing::Test {
     return {from_vertex, to_vertex, edge};
   }
 
+  // The form an older main replicates for SET e.prop = [] on an indexed edge.
+  PropertyValue MakeEmptyVectorEdgeIndexProperty(Storage::Accessor *accessor) {
+    const auto index_id = accessor->GetNameIdMapper()->NameToId(test_index.data());
+    return PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{index_id},
+                                                          .vector = memgraph::utils::small_vector<float>{}});
+  }
+
+  void ExpectPlainEmptyList(Gid edge_gid, std::optional<std::size_t> expected_index_size) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    if (expected_index_size) {
+      EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, *expected_index_size);
+    }
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_FALSE(stored->IsVectorIndexId());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
+  }
+
+  void CreateEdgeIndexNamed(std::string_view name, VectorMatchMode mode, std::uint16_t dimension,
+                            std::size_t capacity) {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    auto ids = mode == VectorMatchMode::WILDCARD ? std::vector<EdgeTypeId>{} : std::vector<EdgeTypeId>{edge_type};
+    auto spec = VectorEdgeIndexSpec{.index_name = std::string{name},
+                                    .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .ids = std::move(ids)},
+                                    .property = property,
+                                    .metric_kind = metric,
+                                    .dimension = dimension,
+                                    .resize_coefficient = resize_coefficient,
+                                    .capacity = capacity,
+                                    .scalar_kind = scalar_kind};
+    EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
  private:
   memgraph::storage::Config config_;
 };
@@ -102,6 +150,48 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   EXPECT_EQ(all_vector_indices.size(), 1);
 }
 
+TEST_F(VectorEdgeIndexTest, VectorIndexedPropertiesRespectsEdgeTypeFilter) {
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [f1, t1, indexed] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  auto [f2, t2, other] = this->CreateEdge(acc.get(), test_property, property_value, "other_edge_type");
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  EXPECT_EQ(indexed.VectorIndexedProperties(), (std::vector<PropertyId>{acc->NameToProperty(test_property.data())}));
+  EXPECT_TRUE(other.VectorIndexedProperties().empty());
+}
+
+TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_edge_index_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  // restore the process-global flag even if an assertion aborts the test early
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
+
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [from, to, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  ASSERT_TRUE(edge.SetProperty(acc->NameToProperty("weight"), PropertyValue(0.5)).has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  set_omit(false);
+  auto with_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->properties.contains(test_property.data()));
+
+  set_omit(true);
+  auto without_prop = memgraph::glue::ToBoltEdge(edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->properties.contains("weight"));
+}
+
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   this->CreateEdgeIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -113,13 +203,30 @@ TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   EXPECT_EQ(std::get<0>(result[0]).Gid(), edge.Gid());
 }
 
+TEST_F(VectorEdgeIndexTest, SecondIndexBackfillsAlreadyIndexedEdge) {
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(0.0)});
+    this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndexNamed("idx_typed", VectorMatchMode::SINGLE, 2, 10);
+  this->CreateEdgeIndexNamed("idx_wild", VectorMatchMode::WILDCARD, 2, 10);
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  const auto typed = acc->VectorIndexSearchOnEdges("idx_typed", 1, std::vector<float>{1.0, 0.0});
+  const auto wild = acc->VectorIndexSearchOnEdges("idx_wild", 1, std::vector<float>{1.0, 0.0});
+  EXPECT_EQ(typed.size(), 1);
+  EXPECT_EQ(wild.size(), 1);
+}
+
 TEST_F(VectorEdgeIndexTest, InvalidDimensionTest) {
   this->CreateEdgeIndex(2, 10);
   auto acc = this->storage->Access(memgraph::storage::WRITE);
   std::vector<PropertyValue> properties(3, PropertyValue(1.0));
   PropertyValue property_value(properties);
   EXPECT_THROW(this->CreateEdge(acc.get(), test_property, property_value, test_edge_type),
-               memgraph::query::VectorSearchException);
+               memgraph::storage::VectorSearchException);
 }
 
 TEST_F(VectorEdgeIndexTest, SearchWithMultipleEdges) {
@@ -183,6 +290,120 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
     EXPECT_EQ(search_result.size(), 1);
     EXPECT_EQ(std::get<0>(search_result[0]).Gid(), edge_gid);
   }
+}
+
+TEST_F(VectorEdgeIndexTest, SetEmptyListKeepsPlainListAndLeavesIndex) {
+  this->CreateEdgeIndex(2, 10);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue initial_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, initial_value, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto property = acc->NameToProperty(test_property);
+    MG_ASSERT(edge.SetProperty(property, PropertyValue(std::vector<PropertyValue>{})).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_FALSE(stored->IsVectorIndexId());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
+  }
+}
+
+TEST_F(VectorEdgeIndexTest, AbortOverwriteOfEmptyListLeavesEdgeOutOfIndex) {
+  this->CreateEdgeIndex(2, 10);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from_vertex, to_vertex, edge] =
+        this->CreateEdge(acc.get(), test_property, PropertyValue(std::vector<PropertyValue>{}), test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    PropertyValue new_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+    MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), new_value).has_value());
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+    acc->Abort();
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_FALSE(stored->IsVectorIndexId());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
+  }
+}
+
+TEST_F(VectorEdgeIndexTest, CreateIndexOverEmptyListThenDropKeepsPlainList) {
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from_vertex, to_vertex, edge] =
+        this->CreateEdge(acc.get(), test_property, PropertyValue(std::vector<PropertyValue>{}), test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndex(2, 10);
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_FALSE(stored->IsVectorIndexId());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
+  }
+}
+
+TEST_F(VectorEdgeIndexTest, SetEmptyVectorIndexTagStoresPlainEmptyList) {
+  this->CreateEdgeIndex(2, 10);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto empty_tag = MakeEmptyVectorEdgeIndexProperty(acc.get());
+    ASSERT_TRUE(empty_tag.IsVectorIndexId());
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, empty_tag, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(edge_gid, 0);
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(edge_gid, std::nullopt);
 }
 
 TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
@@ -439,22 +660,48 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
   PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
   Gid good_edge_gid;
+  Gid bad_edge_gid;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto [fv1, tv1, e1] = this->CreateEdge(acc.get(), test_property, good_vec, test_edge_type);
     good_edge_gid = e1.Gid();
-    [[maybe_unused]] auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, bad_vec, test_edge_type);
+    auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, bad_vec, test_edge_type);
+    bad_edge_gid = e2.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::query::VectorSearchException);
+  auto read_property = [&](Gid gid) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    return acc->FindEdge(gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+  };
+  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::storage::VectorSearchException);
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
-    auto e1 = acc->FindEdge(good_edge_gid, View::OLD).value();
-    auto prop = e1.GetProperty(acc->NameToProperty(test_property), View::OLD);
-    EXPECT_TRUE(prop->IsDoubleList());
-    EXPECT_EQ(prop->ValueDoubleList().size(), 2);
   }
+  EXPECT_EQ(read_property(good_edge_gid), good_vec);
+  EXPECT_EQ(read_property(bad_edge_gid), bad_vec);
+}
+
+TEST_F(VectorEdgeIndexTest, FailedCreateIndexKeepsOtherIndexTagOnly) {
+  PropertyValue vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from, to, edge] = this->CreateEdge(acc.get(), test_property, vec, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndex(2, 10);
+  EXPECT_THROW(this->CreateEdgeIndexNamed("other_index", VectorMatchMode::WILDCARD, 3, 10), VectorSearchException);
+  // a dangling "other_index" id would survive this drop and make the property unreadable
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->FindEdge(edge_gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value(),
+            vec);
 }
 
 TEST_F(VectorEdgeIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
@@ -611,6 +858,7 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
                                            std::make_shared<InMemoryEdgeTypeIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                                            std::make_shared<InMemoryEdgePropertyIndex::ActiveIndices>(),
+                                           std::make_shared<InMemoryVertexPropertyIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
                                            std::make_shared<memgraph::storage::PointIndexStorage::ActiveIndices>(),
@@ -659,6 +907,48 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
         .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
   }
 
+  void RecoverAll(std::vector<VectorEdgeIndexRecoveryInfo> &infos, VectorEdgeIndexRecovery::EdgeVectors &edge_vectors) {
+    auto vertices_acc = vertices_.access();
+    vector_edge_index_.RecoverAllVectorEdgeIndices(
+        infos, edge_vectors, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_});
+  }
+
+  void ExpectAllFixtureEdgesIndexed(std::string_view index_name) {
+    const auto info = vector_edge_index_.ListVectorIndicesInfo();
+    ASSERT_EQ(info.size(), 1);
+    EXPECT_EQ(info[0].size, kNumEdges);
+    auto edges_acc = edges_.access();
+    for (auto &edge : edges_acc) {
+      const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, index_name, &name_id_mapper_);
+      ASSERT_EQ(vector.size(), kDimension);
+      EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
+      EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
+    }
+  }
+
+  // Mirrors what LoadPartialEdges captures for an edge whose snapshot value is a tag with its vector.
+  VectorEdgeIndexRecovery::EdgeVectors BuildEdgeVectors(PropertyId prop) {
+    VectorEdgeIndexRecovery::EdgeVectors ev;
+    auto &prop_map = ev[prop];
+    auto acc = edges_.access();
+    for (auto &edge : acc) {
+      if (auto maybe_vec = TryListToVector(edge.properties.GetProperty(prop))) {
+        prop_map.emplace(edge.gid, std::move(*maybe_vec));
+      }
+    }
+    return ev;
+  }
+
+  // Replace every fixture edge property with a bare tag, as the property store persists it.
+  void TagAllFixtureEdges(PropertyId prop, uint64_t index_id) {
+    auto acc = edges_.access();
+    for (auto &edge : acc) {
+      edge.properties.SetProperty(prop,
+                                  PropertyValue(PropertyValue::VectorIndexIdData{
+                                      .ids = memgraph::utils::small_vector<uint64_t>{index_id}, .vector = {}}));
+    }
+  }
+
   memgraph::utils::SkipListDb<Vertex> vertices_;
   memgraph::utils::SkipListDb<Edge> edges_;
   VectorEdgeIndex vector_edge_index_;
@@ -666,139 +956,368 @@ class VectorEdgeIndexRecoveryTest : public testing::Test {
   ActiveIndicesStore active_indices_store_;
 };
 
-TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
-  // Ensure single-threaded recovery
+// Fixture edges carry plain lists, so edge_vectors is empty and the build reads the lists directly.
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesSingleThread) {
   FLAGS_storage_parallel_schema_recovery = false;
 
-  auto vertices_acc = vertices_.access();
-  auto spec = CreateSpec();
-  VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
-
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
-      recovery_info, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_}));
-
-  // Verify all edges are in the index
-  const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumEdges);
-
-  // Search for each edge and verify it's found
-  auto edges_acc = edges_.access();
-  for (auto &edge : edges_acc) {
-    Vertex *from_vertex = nullptr;
-    Vertex *to_vertex = nullptr;
-    for (auto &vertex : vertices_acc) {
-      for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
-          from_vertex = &vertex;
-          to_vertex = std::get<kVertexPos>(edge_tuple);
-          break;
-        }
-      }
-      if (from_vertex) break;
-    }
-    ASSERT_NE(from_vertex, nullptr);
-    ASSERT_NE(to_vertex, nullptr);
-
-    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "test_edge_index", &name_id_mapper_);
-    EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
-    EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
-  }
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+  ExpectAllFixtureEdgesIndexed("test_edge_index");
 }
 
-TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
-  // Enable parallel recovery with multiple threads
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesParallel) {
   FLAGS_storage_parallel_schema_recovery = true;
   FLAGS_storage_recovery_thread_count =
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
 
-  auto vertices_acc = vertices_.access();
-  auto spec = CreateSpec();
-  VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
-
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
-      recovery_info, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_}));
-
-  // Verify all edges are in the index
-  const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumEdges);
-
-  // Verify all edges are in the index
-  auto edges_acc = edges_.access();
-  for (auto &edge : edges_acc) {
-    Vertex *from_vertex = nullptr;
-    Vertex *to_vertex = nullptr;
-    for (auto &vertex : vertices_acc) {
-      for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
-          from_vertex = &vertex;
-          to_vertex = std::get<kVertexPos>(edge_tuple);
-          break;
-        }
-      }
-      if (from_vertex) break;
-    }
-    ASSERT_NE(from_vertex, nullptr);
-    ASSERT_NE(to_vertex, nullptr);
-
-    const auto vector = vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "test_edge_index", &name_id_mapper_);
-    EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
-    EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
-  }
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+  ExpectAllFixtureEdgesIndexed("test_edge_index");
 }
 
-TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesConcurrentAddWithResize) {
   FLAGS_storage_parallel_schema_recovery = true;
   FLAGS_storage_recovery_thread_count =
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
-  auto vertices_acc = vertices_.access();
+  // Small capacity forces usearch to resize during parallel population.
+  auto spec = CreateSpec("resize_test_edge_index");
+  spec.capacity = 10;
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = std::move(spec)}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+  ExpectAllFixtureEdgesIndexed("resize_test_edge_index");
+  EXPECT_GE(vector_edge_index_.ListVectorIndicesInfo()[0].capacity, kNumEdges);
+}
 
-  auto spec = VectorEdgeIndexSpec{
-      .index_name = "resize_test_edge_index",
-      .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE, .ids = {EdgeTypeId::FromUint(1)}},
-      .property = PropertyId::FromUint(1),
-      .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-      .dimension = kDimension,
-      .resize_coefficient = 2,
-      .capacity = 10,
-      .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
-  VectorEdgeIndexRecoveryInfo recovery_info{.spec = spec, .index_entries = {}};
+// Tag recovery: every edge is stored as a bare tag and its vector is only available from edge_vectors,
+// which is what the snapshot edge section provides when the index section lacks the gid.
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesFromEdgeVectors) {
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
-  EXPECT_NO_THROW(vector_edge_index_.RecoverIndex(
-      recovery_info, vertices_acc, &name_id_mapper_, ActiveIndicesUpdater{active_indices_store_}));
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+  auto ev = BuildEdgeVectors(kProp);
+  TagAllFixtureEdges(kProp, 999);
 
-  const auto vector_index_info = vector_edge_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumEdges);
-  EXPECT_GE(vector_index_info[0].capacity, kNumEdges);
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec("captured_index")}};
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+  ExpectAllFixtureEdgesIndexed("captured_index");
+  EXPECT_TRUE(ev.empty());
+
+  // Tags are rewritten from the stale id to the real index id.
+  const auto index_id = name_id_mapper_.NameToId("captured_index");
+  auto acc = edges_.access();
+  for (auto &edge : acc) {
+    const auto prop = edge.properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsVectorIndexId());
+    EXPECT_EQ(prop.ValueVectorIndexIds(), (memgraph::utils::small_vector<uint64_t>{index_id}));
+  }
+}
+
+// Two specs share the property: idx_a covers edge type 1 only, idx_b covers types 1 and 2.
+// Fixture edges (type 1, PropId 1) carry no kProp entry and are skipped.
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesResolvesEachEdgeState) {
+  FLAGS_storage_parallel_schema_recovery = false;
+
+  static constexpr EdgeTypeId kType1 = EdgeTypeId::FromUint(1);
+  static constexpr EdgeTypeId kType2 = EdgeTypeId::FromUint(2);
+  static constexpr EdgeTypeId kType3 = EdgeTypeId::FromUint(3);
+
+  const uint64_t idx_a_id = name_id_mapper_.NameToId("idx_a");
+  const uint64_t idx_b_id = name_id_mapper_.NameToId("idx_b");
+  const PropertyId kProp = PropertyId::FromUint(name_id_mapper_.NameToId("test_prop"));
+
+  auto make_spec = [&](const std::string &name, VectorMatchMode mode, std::vector<EdgeTypeId> ids) {
+    return VectorEdgeIndexRecoveryInfo{
+        .spec = VectorEdgeIndexSpec{.index_name = name,
+                                    .edge_type_filter = {.mode = mode, .ids = std::move(ids)},
+                                    .property = kProp,
+                                    .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                    .dimension = kDimension,
+                                    .resize_coefficient = 2,
+                                    .capacity = 10,
+                                    .scalar_kind = unum::usearch::scalar_kind_t::f32_k}};
+  };
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{make_spec("idx_a", VectorMatchMode::SINGLE, {kType1}),
+                                                 make_spec("idx_b", VectorMatchMode::ANY_OF, {kType1, kType2})};
+
+  // Edge gids 200-203 and vertex gids 400-407 are above the fixture's ranges.
+  auto add_edge = [&](uint64_t gid, EdgeTypeId type, PropertyValue value) {
+    auto vertices_acc = vertices_.access();
+    auto edges_acc = edges_.access();
+    auto [from, from_ok] = vertices_acc.insert(Vertex{Gid::FromUint(gid * 2), nullptr});
+    auto [to, to_ok] = vertices_acc.insert(Vertex{Gid::FromUint(gid * 2 + 1), nullptr});
+    auto [edge, edge_ok] = edges_acc.insert(Edge{Gid::FromUint(gid), nullptr});
+    EXPECT_TRUE(from_ok && to_ok && edge_ok);
+    edge->properties.SetProperty(kProp, std::move(value));
+    from->out_edges.emplace_back(type, &*to, EdgeRef(&*edge));
+  };
+  const auto stale_tag = [] {
+    return PropertyValue(
+        PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{999u}, .vector = {}});
+  };
+
+  // (a) plain list [3.0, 4.0] and a stale map entry that must be ignored; type 1 matches both specs.
+  add_edge(200, kType1, PropertyValue(std::vector<double>{3.0, 4.0}));
+  // (b) stale tag; map entry {5.0, 6.0}; type 3 matches neither spec.
+  add_edge(201, kType3, stale_tag());
+  // (c) stale tag; map entry {7.0, 8.0}; type 2 matches idx_b only.
+  add_edge(202, kType2, stale_tag());
+  // (d) stale tag; no map entry; type 1 exercises the missing-vector null path.
+  add_edge(203, kType1, stale_tag());
+
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  ev[kProp].emplace(Gid::FromUint(200), memgraph::utils::small_vector<float>{9.0F, 10.0F});
+  ev[kProp].emplace(Gid::FromUint(201), memgraph::utils::small_vector<float>{5.0F, 6.0F});
+  ev[kProp].emplace(Gid::FromUint(202), memgraph::utils::small_vector<float>{7.0F, 8.0F});
+
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+
+  std::unordered_map<std::string, std::size_t> sizes;
+  for (const auto &info : vector_edge_index_.ListVectorIndicesInfo()) sizes[info.index_name] = info.size;
+  EXPECT_EQ(sizes["idx_a"], 1u);
+  EXPECT_EQ(sizes["idx_b"], 2u);
 
   auto edges_acc = edges_.access();
-  for (auto &edge : edges_acc) {
-    Vertex *from_vertex = nullptr;
-    Vertex *to_vertex = nullptr;
-    for (auto &vertex : vertices_acc) {
-      for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
-          from_vertex = &vertex;
-          to_vertex = std::get<kVertexPos>(edge_tuple);
-          break;
-        }
-      }
-      if (from_vertex) break;
-    }
-    ASSERT_NE(from_vertex, nullptr);
-    ASSERT_NE(to_vertex, nullptr);
-
-    const auto vector =
-        vector_edge_index_.GetVectorPropertyFromEdgeIndex(&edge, "resize_test_edge_index", &name_id_mapper_);
-    EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
-    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint()) + 1));
+  {
+    auto it = edges_acc.find(Gid::FromUint(200));
+    ASSERT_NE(it, edges_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsVectorIndexId());
+    EXPECT_TRUE(std::ranges::is_permutation(prop.ValueVectorIndexIds(),
+                                            memgraph::utils::small_vector<uint64_t>{idx_a_id, idx_b_id}));
+    EXPECT_EQ(vector_edge_index_.GetVectorPropertyFromEdgeIndex(&*it, "idx_a", &name_id_mapper_),
+              (memgraph::utils::small_vector<float>{3.0F, 4.0F}));
   }
+  {
+    auto it = edges_acc.find(Gid::FromUint(201));
+    ASSERT_NE(it, edges_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsDoubleList());
+    const auto dl = prop.ValueDoubleList();
+    ASSERT_EQ(dl.size(), 2u);
+    EXPECT_DOUBLE_EQ(dl[0], 5.0);
+    EXPECT_DOUBLE_EQ(dl[1], 6.0);
+  }
+  {
+    auto it = edges_acc.find(Gid::FromUint(202));
+    ASSERT_NE(it, edges_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsVectorIndexId());
+    EXPECT_EQ(prop.ValueVectorIndexIds(), (memgraph::utils::small_vector<uint64_t>{idx_b_id}));
+    EXPECT_EQ(vector_edge_index_.GetVectorPropertyFromEdgeIndex(&*it, "idx_b", &name_id_mapper_),
+              (memgraph::utils::small_vector<float>{7.0F, 8.0F}));
+  }
+  {
+    auto it = edges_acc.find(Gid::FromUint(203));
+    ASSERT_NE(it, edges_acc.end());
+    EXPECT_TRUE(it->properties.GetProperty(kProp).IsNull());
+  }
+}
+
+// A tagged edge whose index was dropped before a new index was created on the same property. The
+// vector comes from edge_vectors, the drop demotes the tag, and the new index picks the edge up.
+TEST_F(VectorEdgeIndexRecoveryTest, DropThenRecreateOnSamePropertyRecoversFromEdgeVectors) {
+  FLAGS_storage_parallel_schema_recovery = false;
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  auto ev = BuildEdgeVectors(kProp);
+  TagAllFixtureEdges(kProp, 999);
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec("idx_old")}};
+  {
+    auto vertices_acc = vertices_.access();
+    VectorEdgeIndexRecovery::UpdateOnIndexDrop("idx_old", infos, ev, vertices_acc, &name_id_mapper_);
+  }
+  EXPECT_TRUE(infos.empty());
+  EXPECT_TRUE(ev.empty());
+  {
+    auto acc = edges_.access();
+    for (auto &edge : acc) {
+      EXPECT_TRUE(edge.properties.GetProperty(kProp).IsAnyList());
+    }
+  }
+
+  infos.push_back(VectorEdgeIndexRecoveryInfo{.spec = CreateSpec("idx_new")});
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+  ExpectAllFixtureEdgesIndexed("idx_new");
+
+  const auto new_id = name_id_mapper_.NameToId("idx_new");
+  auto acc = edges_.access();
+  for (auto &edge : acc) {
+    const auto prop = edge.properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsVectorIndexId());
+    EXPECT_EQ(prop.ValueVectorIndexIds(), (memgraph::utils::small_vector<uint64_t>{new_id}));
+  }
+}
+
+// A plain [] under a matching spec has nothing to index. It must stay a plain list rather than be
+// promoted to a tag, since a tag with no usearch entry would read as lost data on the next recovery.
+TEST_F(VectorEdgeIndexRecoveryTest, RecoverAllVectorEdgeIndicesLeavesEmptyListUntouched) {
+  FLAGS_storage_parallel_schema_recovery = false;
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  {
+    auto acc = edges_.access();
+    auto e0 = acc.find(Gid::FromUint(0));
+    ASSERT_NE(e0, acc.end());
+    e0->properties.SetProperty(kProp, PropertyValue(std::vector<double>{}));
+  }
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  EXPECT_NO_THROW(RecoverAll(infos, ev));
+
+  const auto info = vector_edge_index_.ListVectorIndicesInfo();
+  ASSERT_EQ(info.size(), 1);
+  EXPECT_EQ(info[0].size, kNumEdges - 1);
+
+  auto acc = edges_.access();
+  auto e0 = acc.find(Gid::FromUint(0));
+  ASSERT_NE(e0, acc.end());
+  const auto stored = e0->properties.GetProperty(kProp);
+  EXPECT_FALSE(stored.IsVectorIndexId());
+  EXPECT_TRUE(stored.IsAnyList());
+  EXPECT_EQ(stored.ListSize(), 0u);
+}
+
+// UpdateOnSetEdgeProperty: a tag with no vector is the legacy on-disk form of [] and becomes a plain
+// empty list, dropping any earlier captured vector for the edge.
+TEST_F(VectorEdgeIndexRecoveryTest, UpdateOnSetEdgePropertyEmptyTagBecomesEmptyList) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  Edge edge(Gid::FromUint(77), nullptr);
+  ev[kProp].emplace(edge.gid, memgraph::utils::small_vector<float>{1.0F, 2.0F});
+
+  PropertyValue empty_tag(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{42}, .vector = {}});
+  VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(kProp, empty_tag, &edge, infos, ev);
+
+  EXPECT_FALSE(empty_tag.IsVectorIndexId());
+  EXPECT_TRUE(empty_tag.IsAnyList());
+  EXPECT_EQ(empty_tag.ListSize(), 0u);
+  EXPECT_FALSE(ev[kProp].contains(edge.gid));
+}
+
+// UpdateOnSetEdgeProperty: with a spec on the property, a tag carrying its vector is captured into
+// edge_vectors and the value is left unchanged for the subsequent SetProperty.
+TEST_F(VectorEdgeIndexRecoveryTest, UpdateOnSetEdgePropertyCapturesVectorWhenSpecExists) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec()}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+
+  memgraph::utils::small_vector<float> raw_vec{1.0F, 2.0F};
+  PropertyValue tag_value(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{42}, .vector = raw_vec});
+
+  Edge edge(Gid::FromUint(77), nullptr);
+  VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(kProp, tag_value, &edge, infos, ev);
+
+  ASSERT_TRUE(tag_value.IsVectorIndexId());
+  ASSERT_TRUE(ev.contains(kProp));
+  ASSERT_TRUE(ev[kProp].contains(edge.gid));
+  EXPECT_EQ(ev[kProp][edge.gid], raw_vec);
+
+  // A later plain-list value on the same edge drops the captured vector.
+  PropertyValue list_value(std::vector<double>{3.0, 4.0});
+  VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(kProp, list_value, &edge, infos, ev);
+  EXPECT_FALSE(ev[kProp].contains(edge.gid));
+}
+
+// UpdateOnSetEdgeProperty: with no spec on the property, a stale tag is converted in place to a list.
+TEST_F(VectorEdgeIndexRecoveryTest, UpdateOnSetEdgePropertyOrphanTagConvertedToList) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorEdgeIndexRecoveryInfo> infos;
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+
+  memgraph::utils::small_vector<float> raw_vec{3.0F, 4.0F};
+  PropertyValue tag_value(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{99}, .vector = raw_vec});
+
+  Edge edge(Gid::FromUint(5), nullptr);
+  VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(kProp, tag_value, &edge, infos, ev);
+
+  EXPECT_TRUE(tag_value.IsAnyList());
+  EXPECT_EQ(tag_value.ListSize(), 2u);
+  EXPECT_TRUE(ev.empty());
+}
+
+// UpdateOnIndexDrop: dropping the only spec on a property demotes every stored tag, whether or not the
+// dropped index's own entries knew about the edge, and clears the property's entry in edge_vectors.
+TEST_F(VectorEdgeIndexRecoveryTest, UpdateOnIndexDropRestoresTagsToPlainLists) {
+  // The null path logs the property name, so the id must be registered with the mapper.
+  const PropertyId kProp = PropertyId::FromUint(name_id_mapper_.NameToId("test_prop"));
+
+  auto spec = CreateSpec();
+  spec.property = kProp;
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = std::move(spec)}};
+
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  ev[kProp].emplace(Gid::FromUint(0), memgraph::utils::small_vector<float>{7.0F, 8.0F});
+
+  auto acc = edges_.access();
+  auto e0 = acc.find(Gid::FromUint(0));
+  ASSERT_NE(e0, acc.end());
+  e0->properties.SetProperty(
+      kProp,
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1}, .vector = {}}));
+
+  // Edge 1 carries a tag but has no map entry, exercising the null-assignment path.
+  auto e1 = acc.find(Gid::FromUint(1));
+  ASSERT_NE(e1, acc.end());
+  e1->properties.SetProperty(
+      kProp,
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1}, .vector = {}}));
+
+  auto vertices_acc = vertices_.access();
+  VectorEdgeIndexRecovery::UpdateOnIndexDrop(infos[0].spec.index_name, infos, ev, vertices_acc, &name_id_mapper_);
+
+  EXPECT_TRUE(infos.empty());
+  EXPECT_FALSE(ev.contains(kProp));
+  const auto restored = e0->properties.GetProperty(kProp);
+  ASSERT_TRUE(restored.IsDoubleList());
+  const auto dl = restored.ValueDoubleList();
+  ASSERT_EQ(dl.size(), 2u);
+  EXPECT_DOUBLE_EQ(dl[0], 7.0);
+  EXPECT_DOUBLE_EQ(dl[1], 8.0);
+  EXPECT_TRUE(e1->properties.GetProperty(kProp).IsNull());
+}
+
+// UpdateOnIndexDrop: when another spec still covers the property, edge_vectors and the stored tags are
+// kept for the final build.
+TEST_F(VectorEdgeIndexRecoveryTest, UpdateOnIndexDropPreservesEdgeVectorsForSurvivingSpec) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  auto spec_b = CreateSpec("idx_b");
+  spec_b.edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::WILDCARD, .ids = {}};
+  std::vector<VectorEdgeIndexRecoveryInfo> infos{VectorEdgeIndexRecoveryInfo{.spec = CreateSpec("idx_a")},
+                                                 VectorEdgeIndexRecoveryInfo{.spec = std::move(spec_b)}};
+  VectorEdgeIndexRecovery::EdgeVectors ev;
+  ev[kProp].emplace(Gid::FromUint(0), memgraph::utils::small_vector<float>{1.0F, 2.0F});
+
+  auto acc = edges_.access();
+  auto e0 = acc.find(Gid::FromUint(0));
+  ASSERT_NE(e0, acc.end());
+  e0->properties.SetProperty(
+      kProp,
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1}, .vector = {}}));
+
+  auto vertices_acc = vertices_.access();
+  VectorEdgeIndexRecovery::UpdateOnIndexDrop("idx_a", infos, ev, vertices_acc, &name_id_mapper_);
+
+  ASSERT_EQ(infos.size(), 1u);
+  EXPECT_EQ(infos[0].spec.index_name, "idx_b");
+  EXPECT_TRUE(ev.contains(kProp));
+  EXPECT_TRUE(ev[kProp].contains(Gid::FromUint(0)));
+  EXPECT_TRUE(e0->properties.GetProperty(kProp).IsVectorIndexId());
 }
 
 // Test fixture for GC-related vector edge index tests.
@@ -998,4 +1517,54 @@ TEST_F(VectorEdgeIndexTest, MultiTypeFilterEqualityIsOrderInsensitive) {
                                             .capacity = 10,
                                             .scalar_kind = scalar_kind})
                    .has_value());
+}
+
+TEST_F(VectorEdgeIndexTest, AbortMapStyleWriteRestoresEmbedding) {
+  // ClearProperties / UpdateProperties back SET r = {...}, SET r = {} and SET r += {...}; their undo before-image
+  // must carry the floats, which live only in usearch.
+  this->CreateEdgeIndex(3, 10);
+  const std::vector<float> original{1.0F, 2.0F, 3.0F};
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue property_value(
+        std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto const expect_original = [&](Storage::Accessor *acc) {
+    auto edge = acc->FindEdge(edge_gid, View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    auto value = edge->GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(value.has_value());
+    ASSERT_TRUE(value->IsVectorIndexId());
+    EXPECT_TRUE(std::ranges::equal(value->ValueVectorIndexList(), original));
+  };
+
+  enum class Write : uint8_t { REPLACE, CLEAR, UPDATE };
+  for (auto const write : {Write::REPLACE, Write::CLEAR, Write::UPDATE}) {
+    SCOPED_TRACE(static_cast<int>(write));
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+      std::map<PropertyId, PropertyValue> new_properties{
+          {acc->NameToProperty(test_property),
+           PropertyValue(std::vector<PropertyValue>{PropertyValue(7.0), PropertyValue(7.0), PropertyValue(7.0)})}};
+      if (write != Write::UPDATE) ASSERT_NO_ERROR(edge.ClearProperties());
+      if (write != Write::CLEAR) ASSERT_NO_ERROR(edge.UpdateProperties(new_properties));
+      {
+        auto reader = this->storage->Access(memgraph::storage::READ);
+        expect_original(reader.get());
+      }
+      acc->Abort();
+    }
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    expect_original(acc.get());
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+    const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, original);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(std::get<0>(result[0]).Gid(), edge_gid);
+  }
 }

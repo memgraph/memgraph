@@ -29,21 +29,30 @@ DIMENSION = 256
 TOLERANCE_MIB = 10.0
 INDEX_VECTOR_COUNT = 1000
 INDEX_CAPACITY = 50_000
+PAYLOAD_BYTES = 4096
 
-INSTANCE_200MB = {
-    "vector_index_test": {
-        "args": [
-            "--bolt-port",
-            str(BOLT_PORT),
-            "--memory-limit=50",
-            "--storage-gc-cycle-sec=180",
-            "--log-level=WARNING",
-        ],
-        "log_file": "vector-index-memory-e2e.log",
-        "setup_queries": [],
-        "validation_queries": [],
+
+def instance_with_memory_limit(mib):
+    return {
+        "vector_index_test": {
+            "args": [
+                "--bolt-port",
+                str(BOLT_PORT),
+                f"--memory-limit={mib}",
+                "--storage-gc-cycle-sec=180",
+                "--log-level=WARNING",
+            ],
+            "log_file": "vector-index-memory-e2e.log",
+            "setup_queries": [],
+            "validation_queries": [],
+        }
     }
-}
+
+
+INSTANCE_50MB = instance_with_memory_limit(50)
+# The limit counts the allocator's committed pages across every per-CPU arena, which grows with how
+# widely the server's threads are spread over CPUs, not only with the data held.
+INSTANCE_200MB = instance_with_memory_limit(200)
 
 
 @pytest.fixture(autouse=True)
@@ -107,7 +116,7 @@ def test_db_storage_and_embedding_sum_to_db_total():
     significantly after inserting vectors, meaning the tracker stays honest
     relative to actual OS memory usage.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     global_info = get_global_storage_info(cursor)
@@ -149,7 +158,7 @@ def test_vector_insert_oom_throws_exception():
     When the global memory limit is exceeded during vector insertion, Memgraph
     must raise an OutOfMemoryException to the client.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     execute_and_fetch_all(
@@ -173,7 +182,7 @@ def test_remove_vector_property_vector_index_unchanged():
     Removing the vector property from vertices does not free vector index memory
     because usearch's bump-pointer allocator cannot free individual entries.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 
@@ -197,6 +206,13 @@ def test_delete_vertices_graph_down_vector_index_unchanged():
     interactive_mg_runner.start_all(INSTANCE_200MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
+    # A vector is charged to the index rather than to the graph, so vertices holding nothing else
+    # free too little on deletion to tell apart from the run-to-run variation in the reported
+    # figure. The payload gives them a graph footprint the assertion can actually see.
+    execute_and_fetch_all(cursor, "MATCH (n:Embedding) SET n.payload = $payload", {"payload": "x" * PAYLOAD_BYTES})
+    # Settle first, so the baseline measures the vertices rather than what setting the payload left
+    # behind.
+    execute_and_fetch_all(cursor, "FREE MEMORY")
 
     info_before = get_storage_info(cursor)
     graph_before = parse_mib(info_before["graph_memory_tracked"])
@@ -213,9 +229,13 @@ def test_delete_vertices_graph_down_vector_index_unchanged():
         f"vector_index_memory_tracked changed after deleting vertices: "
         f"before={vi_before:.2f} MiB, after={vi_after:.2f} MiB"
     )
-    assert graph_after < graph_before, (
-        f"graph_memory_tracked should decrease after deleting vertices: "
-        f"before={graph_before:.2f} MiB, after={graph_after:.2f} MiB"
+    # Half the payload that was deleted: comfortably above the noise, comfortably below the whole
+    # of what deleting the vertices frees.
+    minimum_freed_mib = (INDEX_VECTOR_COUNT * PAYLOAD_BYTES) / (1024 * 1024) / 2
+    freed = graph_before - graph_after
+    assert freed > minimum_freed_mib, (
+        f"graph_memory_tracked should drop by more than {minimum_freed_mib:.2f} MiB after deleting vertices: "
+        f"before={graph_before:.2f} MiB, after={graph_after:.2f} MiB, freed={freed:.2f} MiB"
     )
 
 
@@ -225,7 +245,7 @@ def test_drop_index_vector_index_zero():
     TrackedVectorAllocator::deallocate() → reset() → db_embedding_memory_tracker_.Free().
     Vector index memory should go to 0.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 

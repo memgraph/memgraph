@@ -145,6 +145,12 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Reducing) {
             "\"expression\"))");
 }
 
+TYPED_TEST(ExpressionPrettyPrinterTest, SubqueryExpression) {
+  // The printer names the construct off the fold, so the two spellings differ by exactly that.
+  EXPECT_EQ(ToString(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), "(EXISTS expression)");
+  EXPECT_EQ(ToString(COUNT_PATTERN(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), "(COUNT expression)");
+}
+
 TYPED_TEST(ExpressionPrettyPrinterTest, UnaryOperators) {
   // not(false)
   EXPECT_EQ(ToString(NOT(LITERAL(false))), "(Not false)");

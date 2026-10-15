@@ -27,7 +27,10 @@
 
 namespace {
 inline void *newImpl(const std::size_t size) {
-  auto *ptr = malloc(size);
+  auto *ptr = [size] {
+    const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    return malloc(size);
+  }();
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -42,7 +45,10 @@ inline void *newImpl(const std::size_t size) {
 }
 
 inline void *newImpl(const std::size_t size, const std::align_val_t align) {
-  auto *ptr = aligned_alloc(static_cast<std::size_t>(align), size);
+  auto *ptr = [size, align] {
+    const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    return aligned_alloc(static_cast<std::size_t>(align), size);
+  }();
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }
@@ -181,7 +187,10 @@ void *JeMalloc(size_t size, int flags);
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 __attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
-  auto *ptr = JeMalloc(size, flags);
+  auto *ptr = [size, flags] {
+    const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    return JeMalloc(size, flags);
+  }();
   if (ptr != nullptr) [[likely]] {
     return ptr;
   }

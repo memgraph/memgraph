@@ -11,6 +11,8 @@
 
 #include "communication/client.hpp"
 
+#include <array>
+
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -32,6 +34,23 @@ auto SslWantToPollEvents(int const ssl_err) -> std::optional<short> {
     return POLLOUT;
   }
   return std::nullopt;
+}
+
+// Drains OpenSSL's per-thread error queue into a human-readable string. The SSL_get_error code is
+// coarse; the actual detail (failed cipher/cert/protocol step) lives in the queue. For
+// SSL_ERROR_SYSCALL with an empty queue the information is in errno instead.
+auto SslErrorDetail(int const ssl_err) -> std::string {
+  std::string detail;
+  std::array<char, 256> buf{};
+  for (unsigned long e = ERR_get_error(); e != 0; e = ERR_get_error()) {
+    ERR_error_string_n(e, buf.data(), buf.size());
+    if (!detail.empty()) detail += "; ";
+    detail += buf.data();
+  }
+  if (detail.empty() && ssl_err == SSL_ERROR_SYSCALL) {
+    detail = std::strerror(errno);
+  }
+  return detail.empty() ? "no extra info" : detail;
 }
 
 }  // namespace
@@ -224,7 +243,7 @@ auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
           continue;
         } else {
           // This is a fatal error.
-          spdlog::error("Received an unexpected SSL error: {}", err);
+          spdlog::error("Received an unexpected SSL error during read: {} ({})", err, SslErrorDetail(err));
           return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
         }
       }
@@ -315,6 +334,7 @@ auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::o
           }
         } else {
           // This is a fatal error.
+          spdlog::error("Received an unexpected SSL error during write: {} ({})", err, SslErrorDetail(err));
           return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
         }
       } else if (written == 0) {

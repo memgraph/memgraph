@@ -34,6 +34,7 @@
 #include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
+#include "query/plan/rewrite/pruning_bfs.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -84,7 +85,8 @@ class PostProcessor final {
            } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
-           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table); }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end
@@ -122,6 +124,8 @@ class PostProcessor final {
 template <template <class> class TPlanner, class TDbAccessor>
 auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAccessor> *context) {
   context->bound_symbols.clear();
+  // Only a subquery body has imports; keep each entry point's start state local.
+  context->scoped_call_imports.clear();
   return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(query_parts);
 }
 

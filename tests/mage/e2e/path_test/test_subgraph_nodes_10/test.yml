@@ -1,0 +1,11 @@
+# Self-loop on the start node: the visited set must prevent re-enqueue, so the start is
+# returned once and traversal still reaches its other neighbour.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: ['R>'], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A
+  - name: B

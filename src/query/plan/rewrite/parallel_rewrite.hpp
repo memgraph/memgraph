@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <memory>
 #include <set>
+#include <string>
 #include <vector>
 #include "context.hpp"
 #include "flags/bolt.hpp"
@@ -69,7 +70,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(Merge)
   DEFAULT_VISITS(Optional)
   DEFAULT_VISITS(Foreach)
-  DEFAULT_VISITS(RollUpApply)
   DEFAULT_VISITS(PeriodicSubquery)
   DEFAULT_VISITS(Union)
   DEFAULT_VISITS(Cartesian)
@@ -107,12 +107,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanAllByEdge)
   DEFAULT_VISITS(ScanAllByEdgeType)
   DEFAULT_VISITS(ScanAllByEdgeTypeProperty)
-  DEFAULT_VISITS(ScanAllByEdgeTypePropertyValue)
-  DEFAULT_VISITS(ScanAllByEdgeTypePropertyRange)
   DEFAULT_VISITS(ScanAllByEdgeProperty)
-  DEFAULT_VISITS(ScanAllByEdgePropertyValue)
-  DEFAULT_VISITS(ScanAllByEdgePropertyRange)
   DEFAULT_VISITS(ScanAllByEdgeId)
+  DEFAULT_VISITS(ScanAllByVertexProperty)
   DEFAULT_VISITS(ScanAllByPointDistance)
   DEFAULT_VISITS(ScanAllByPointWithinbbox)
   DEFAULT_VISITS(ScanChunk)
@@ -123,15 +120,37 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanParallelByEdge)
   DEFAULT_VISITS(ScanParallelByEdgeType)
   DEFAULT_VISITS(ScanParallelByEdgeTypeProperty)
-  DEFAULT_VISITS(ScanParallelByEdgeTypePropertyValue)
-  DEFAULT_VISITS(ScanParallelByEdgeTypePropertyRange)
   DEFAULT_VISITS(ScanParallelByEdgeProperty)
-  DEFAULT_VISITS(ScanParallelByEdgePropertyValue)
-  DEFAULT_VISITS(ScanParallelByEdgePropertyRange)
+  DEFAULT_VISITS(ScanParallelByVertexProperty)
   DEFAULT_VISITS(ParallelMerge)
   DEFAULT_VISITS(AggregateParallel)
 
 #undef DEFAULT_VISITS
+
+  // Only the input side is parallelizable: the list branch is rewound per input row and shares the
+  // enclosing frame, and ScanParallel overwrites that frame while OrderByParallel never rewinds.
+  bool PreVisit(RollUpApply &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(RollUpApply &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  // Opaque like RollUpApply: a parallel scan in a correlated branch reads the imports as Null.
+  bool PreVisit(Conditional &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(Conditional &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
 
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
@@ -354,7 +373,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (dynamic_cast<OutputTableStream *>(scan_parent) != nullptr) {
         return failure("OutputTableStream operator cannot be a parent of a scan");
       } else {
-        return failure("Unsupported operator in parallel chain" + scan_parent->ToString());
+        return failure(std::string{"Unsupported operator in parallel chain: "} + scan_parent->GetTypeInfo().name);
       }
     }
 
@@ -370,7 +389,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (auto *distinct_op = dynamic_cast<Distinct *>(update_op)) {
         distinct_op->parallel_execution_.emplace(num_threads_);
       } else {
-        return failure("Unsupported operator in parallel chain " + update_op->ToString());
+        return failure(std::string{"Unsupported operator in parallel chain: "} + update_op->GetTypeInfo().name);
       }
     }
 
@@ -427,7 +446,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (cartesian_op->right_op_.get() == original_op) {
           cartesian_op->right_op_ = create_parallel_op(cartesian_op->right_op_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error(std::string{"Unsupported operator in operator chain: "} +
+                                   current->GetTypeInfo().name);
         }
       } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
         if (hash_join_op->left_op_.get() == original_op) {
@@ -435,7 +455,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (hash_join_op->right_op_.get() == original_op) {
           hash_join_op->right_op_ = create_parallel_op(hash_join_op->right_op_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error(std::string{"Unsupported operator in operator chain: "} +
+                                   current->GetTypeInfo().name);
         }
       } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
         if (indexed_join_op->main_branch_.get() == original_op) {
@@ -443,7 +464,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (indexed_join_op->sub_branch_.get() == original_op) {
           indexed_join_op->sub_branch_ = create_parallel_op(indexed_join_op->sub_branch_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error(std::string{"Unsupported operator in operator chain: "} +
+                                   current->GetTypeInfo().name);
         }
       } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
         if (rollup_apply_op->input_.get() == original_op) {
@@ -451,10 +473,11 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else if (rollup_apply_op->list_collection_branch_.get() == original_op) {
           rollup_apply_op->list_collection_branch_ = create_parallel_op(rollup_apply_op->list_collection_branch_);
         } else {
-          throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+          throw std::runtime_error(std::string{"Unsupported operator in operator chain: "} +
+                                   current->GetTypeInfo().name);
         }
       } else {
-        throw std::runtime_error("Unsupported operator in operator chain: " + current->ToString());
+        throw std::runtime_error(std::string{"Unsupported operator in operator chain: "} + current->GetTypeInfo().name);
       }
     }
   }
@@ -521,44 +544,23 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (scan_type == ScanAllByEdgeTypeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypeProperty>(
-          input, scan->view_, num_threads_, state_symbol, scan->common_.edge_types[0], scan->property_);
-    }
-    if (scan_type == ScanAllByEdgeTypePropertyValue::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypePropertyValue>(input,
-                                                                   scan->view_,
-                                                                   num_threads_,
-                                                                   state_symbol,
-                                                                   scan->common_.edge_types[0],
-                                                                   scan->property_,
-                                                                   scan->expression_->Clone(ast_storage));
-    }
-    if (scan_type == ScanAllByEdgeTypePropertyRange::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypePropertyRange>(input,
-                                                                   scan->view_,
-                                                                   num_threads_,
-                                                                   state_symbol,
-                                                                   scan->common_.edge_types[0],
-                                                                   scan->property_,
-                                                                   scan->lower_bound_,
-                                                                   scan->upper_bound_);
+      return std::make_shared<ScanParallelByEdgeTypeProperty>(input,
+                                                              scan->view_,
+                                                              num_threads_,
+                                                              state_symbol,
+                                                              scan->common_.edge_types[0],
+                                                              scan->property_,
+                                                              scan->expression_range_);
     }
     if (scan_type == ScanAllByEdgeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeProperty *>(scan_op);
       return std::make_shared<ScanParallelByEdgeProperty>(
-          input, scan->view_, num_threads_, state_symbol, scan->property_);
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_range_);
     }
-    if (scan_type == ScanAllByEdgePropertyValue::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgePropertyValue *>(scan_op);
-      return std::make_shared<ScanParallelByEdgePropertyValue>(
-          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_);
-    }
-    if (scan_type == ScanAllByEdgePropertyRange::kType) {
-      auto *scan = dynamic_cast<ScanAllByEdgePropertyRange *>(scan_op);
-      return std::make_shared<ScanParallelByEdgePropertyRange>(
-          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->lower_bound_, scan->upper_bound_);
+    if (scan_type == ScanAllByVertexProperty::kType) {
+      auto *scan = dynamic_cast<ScanAllByVertexProperty *>(scan_op);
+      return std::make_shared<ScanParallelByVertexProperty>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_range_);
     }
 
     // Unsupported scan type
@@ -662,6 +664,14 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   static constexpr auto conflicting_types =
       std::array{Aggregate::kType, AggregateParallel::kType, OrderBy::kType, OrderByParallel::kType};
 
+  bool ConditionalConflicts(const Conditional &op) {
+    return std::ranges::any_of(op.branches_, [this](const auto &branch) {
+      return ConflictingOperators(branch.plan.get()) ||
+             std::ranges::any_of(branch.pattern_filters,
+                                 [this](const auto &fold) { return ConflictingOperators(fold.get()); });
+    });
+  }
+
   bool ConflictingOperators(LogicalOperator *start) {
     if (!start) {
       return false;
@@ -692,6 +702,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
               return true;
             }
           }
+        } else if (auto *conditional_op = dynamic_cast<Conditional *>(current)) {
+          if (ConditionalConflicts(*conditional_op)) return true;
         }
         // Continue down the main input branch
         current = current->input().get();
@@ -725,7 +737,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         spdlog::error(
             "Unsupported operator in operator chain: {}. Please contact Memgraph support as this scenario should not "
             "happen!",
-            current->ToString());
+            current->GetTypeInfo().name);
         return false;
       }
     }
@@ -868,7 +880,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
           spdlog::error(
               "Unsupported operator in operator chain: {}. Please contact Memgraph support as this scenario should not "
               "happen!",
-              current->ToString());
+              current->GetTypeInfo().name);
           return false;
         }
 
@@ -920,6 +932,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           }
           if (has_conflict) break;
+        } else if (auto *conditional_op = dynamic_cast<Conditional *>(current)) {
+          if (ConditionalConflicts(*conditional_op)) break;
         }
         // We still go down the main branch
         current = current->input().get();

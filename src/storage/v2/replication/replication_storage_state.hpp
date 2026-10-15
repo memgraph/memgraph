@@ -35,6 +35,10 @@ class ReplicaStream;
 
 using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
+// Max number of prior epochs retained in EpochHistory before the oldest is dropped (HOT path,
+// SaveLatestHistory).
+inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
 struct ReplicationStorageState {
   // Only MAIN can send
   auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args)
@@ -69,6 +73,7 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   EpochHistory history;
+
   mutable std::atomic<CommitTsInfo> commit_ts_info_{
       CommitTsInfo{.ldt_ = kTimestampInitialId, .num_committed_txns_ = 0}};
 

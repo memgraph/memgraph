@@ -1,0 +1,5 @@
+query: >
+  MATCH ()-[r:R]->() RETURN map.flatten(r) AS result;
+
+output:
+  - result: {"since": 2020, "weight": 5}

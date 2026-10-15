@@ -1,0 +1,5 @@
+query: >
+  MATCH path = (:Node {id: 1})-[:CONNECTED*4]->(:Node {id: 5}) RETURN
+  [x IN nodes(path.slice(path, 2, 99)) | x.id] AS result;
+output:
+  - result: [3, 4, 5]

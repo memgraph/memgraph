@@ -11,14 +11,17 @@
 
 #include "flags/run_time_configurable.hpp"
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <expected>
 #include <functional>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "croncpp.h"
@@ -110,6 +113,10 @@ DEFINE_string(aws_endpoint_url, "", "Define AWS endpoint url for the AWS integra
 // Storage flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_gc_aggressive, false, "Enable aggressive garbage collection.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_omit_vector_index_properties_on_return, false,
+            "If set to true, properties backed by a vector index are omitted when a whole node or relationship is "
+            "returned. They remain accessible via explicit property access.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_uint64(file_download_conn_timeout_sec, 10,
               "Define a timeout for establishing a connection with a remote server during a file download.");
@@ -117,6 +124,15 @@ DEFINE_uint64(file_download_conn_timeout_sec, 10,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 1, "Query's storage level access timeout in seconds.",
                         FLAG_IN_RANGE(1, 1'000'000));
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_int64(log_min_duration_ms, -1,
+             "Log queries whose parse+plan+execute time (ms) reaches this threshold with a [slow-query] tag. "
+             "-1 disables; 0 logs every successful query.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(log_failed_queries, false, "Log each failed query with a [failed-query] tag.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(log_query_plan, true, "Append the query's EXPLAIN plan to its [slow-query] log line.");
 
 namespace {
 // Bolt server name
@@ -148,6 +164,9 @@ constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 constexpr auto kStorageGcAggressiveSettingKey = "storage-gc-aggressive";
 constexpr auto kStorageGcAggressiveGFlagsKey = "storage-gc-aggressive";
 
+constexpr auto kOmitVectorIndexPropertiesOnReturnSettingKey = "storage.omit_vector_index_properties_on_return";
+constexpr auto kOmitVectorIndexPropertiesOnReturnGFlagsKey = "storage_omit_vector_index_properties_on_return";
+
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
@@ -173,6 +192,10 @@ constexpr auto kFileDownloadConnTimeoutSecGFlagsKey = "file_download_conn_timeou
 constexpr auto kStorageAccessTimeoutSecSettingKey = "storage.access_timeout_sec";
 constexpr auto kStorageAccessTimeoutSecGFlagsKey = "storage_access_timeout_sec";
 
+constexpr auto kLogMinDurationMsGFlagsKey = "log_min_duration_ms";
+constexpr auto kLogFailedQueriesGFlagsKey = "log_failed_queries";
+constexpr auto kLogQueryPlanGFlagsKey = "log_query_plan";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
@@ -181,8 +204,21 @@ std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
+std::atomic<bool> omit_vector_index_properties_on_return_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
+std::atomic<int64_t> log_min_duration_ms_{-1};
+std::atomic<bool> log_failed_queries_{false};
+std::atomic<bool> log_query_plan_{true};
+
+memgraph::utils::Settings::ValidatorResult ValidInt64Str(std::string_view in) {
+  try {
+    memgraph::utils::ParseInt(in);
+  } catch (const memgraph::utils::BasicException &) {
+    return std::unexpected{"Value must be an integer."};
+  }
+  return {};
+}
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
@@ -428,6 +464,16 @@ void Initialize(utils::Settings &settings) {
       ValidBoolStr);
 
   /*
+   * Register omit vector index properties on return flag
+   */
+  register_flag(
+      kOmitVectorIndexPropertiesOnReturnGFlagsKey,
+      kOmitVectorIndexPropertiesOnReturnSettingKey,
+      kRestore,
+      [](const std::string &val) { omit_vector_index_properties_on_return_ = val == "true"; },
+      ValidBoolStr);
+
+  /*
    * Register timezone setting
    */
   register_flag(
@@ -502,11 +548,11 @@ void Initialize(utils::Settings &settings) {
       kFileDownloadConnTimeoutSecSettingKey,
       kRestore,
       [](std::string_view val) {
-        file_download_conn_timeout_sec_ = utils::ParseStringToUint64(val);  // throw exception if not ok
+        file_download_conn_timeout_sec_ = utils::ParseStringToUint<uint64_t>(val);  // throw exception if not ok
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         try {
-          utils::ParseStringToUint64(in);
+          utils::ParseStringToUint<uint64_t>(in);
           return {};
         } catch (utils::ParseException const &e) {
           return std::unexpected{"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
@@ -523,11 +569,11 @@ void Initialize(utils::Settings &settings) {
       kStorageAccessTimeoutSecSettingKey,
       !kRestore,
       [](std::string_view val) {
-        storage_access_timeout_sec_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+        storage_access_timeout_sec_.store(utils::ParseStringToUint<uint64_t>(val), std::memory_order_release);
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         try {
-          const auto v = utils::ParseStringToUint64(in);
+          const auto v = utils::ParseStringToUint<uint64_t>(in);
           if (v < 1 || v > 1'000'000) {
             return std::unexpected{"storage.access_timeout_sec must be in range [1, 1000000]"};
           }
@@ -536,6 +582,27 @@ void Initialize(utils::Settings &settings) {
           return std::unexpected{"storage.access_timeout_sec must be a valid unsigned integer"};
         }
       });
+
+  register_flag(
+      kLogMinDurationMsGFlagsKey,
+      std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
+      kRestore,
+      [](const std::string &val) { log_min_duration_ms_.store(utils::ParseInt(val), std::memory_order_release); },
+      ValidInt64Str);
+
+  register_flag(
+      kLogFailedQueriesGFlagsKey,
+      std::string{memgraph::flags::run_time::kLogFailedQueriesKey},
+      kRestore,
+      [](const std::string &val) { log_failed_queries_.store(val == "true", std::memory_order_release); },
+      ValidBoolStr);
+
+  register_flag(
+      kLogQueryPlanGFlagsKey,
+      std::string{memgraph::flags::run_time::kLogQueryPlanKey},
+      kRestore,
+      [](const std::string &val) { log_query_plan_.store(val == "true", std::memory_order_release); },
+      ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -554,6 +621,8 @@ bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 bool GetDebugQueryPlans() { return debug_query_plans_; }
 
 bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
+
+bool GetOmitVectorIndexPropertiesOnReturn() { return omit_vector_index_properties_on_return_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 
@@ -608,6 +677,59 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
+}
+
+int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }
+
+bool GetLogFailedQueries() { return log_failed_queries_.load(std::memory_order_acquire); }
+
+bool GetLogQueryPlan() { return log_query_plan_.load(std::memory_order_acquire); }
+
+namespace {
+// Allow-list of per-session-overridable setting keys.
+constexpr std::array<std::string_view, 3> kSessionSettableKeys{
+    kLogMinDurationMsKey,
+    kLogFailedQueriesKey,
+    kLogQueryPlanKey,
+};
+
+// Read a bool overlay (stored canonical lowercase by ValidateSessionSettingValue),
+// falling back to the cached global when no session override is present.
+bool EffectiveBool(const logging::SessionLogContext &ctx, std::string_view key, bool global) {
+  if (auto overlay = ctx.GetSetting(key); overlay.has_value()) return *overlay == "true";
+  return global;
+}
+}  // namespace
+
+bool IsSessionSettable(std::string_view key) {
+  return std::ranges::find(kSessionSettableKeys, key) != kSessionSettableKeys.end();
+}
+
+std::optional<std::string> ValidateSessionSettingValue(std::string_view key, std::string_view value) {
+  if (key == kLogMinDurationMsKey) {
+    if (!ValidInt64Str(value).has_value()) return fmt::format("Setting '{}' requires an integer value", key);
+    return std::nullopt;
+  }
+  if (key == kLogFailedQueriesKey || key == kLogQueryPlanKey) {
+    // The effective-value readers compare verbatim to "true", so only lowercase is valid.
+    if (value != "true" && value != "false") return fmt::format("Setting '{}' requires 'true' or 'false'", key);
+    return std::nullopt;
+  }
+  return std::nullopt;  // Not session-settable; callers gate on IsSessionSettable first.
+}
+
+int64_t GetEffectiveLogMinDurationMs(const logging::SessionLogContext &ctx) {
+  // Overlay was validated before storage (like the global setter), so ParseInt won't fail here.
+  if (auto overlay = ctx.GetSetting(kLogMinDurationMsKey); overlay.has_value()) return utils::ParseInt(*overlay);
+  return GetLogMinDurationMs();
+}
+
+bool GetEffectiveLogFailedQueries(const logging::SessionLogContext &ctx) {
+  return EffectiveBool(ctx, kLogFailedQueriesKey, GetLogFailedQueries());
+}
+
+bool GetEffectiveLogQueryPlan(const logging::SessionLogContext &ctx) {
+  return EffectiveBool(ctx, kLogQueryPlanKey, GetLogQueryPlan());
 }
 
 }  // namespace memgraph::flags::run_time

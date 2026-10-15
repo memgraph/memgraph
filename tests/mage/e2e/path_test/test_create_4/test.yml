@@ -1,0 +1,12 @@
+# A map without a 'rel' key means no relationships to append, which is what the declared default for
+# the argument holds. Reading the key without checking for its absence dereferenced a null handle and
+# took the whole process down, so `path.create(n)` crashed the server.
+query: >
+  MATCH (n:T)
+  CALL path.create(n, {foo: []})
+  YIELD path
+  RETURN [x IN nodes(path) | x.name] AS names, size(relationships(path)) AS rel_count;
+
+output:
+  - names: ["n"]
+    rel_count: 0

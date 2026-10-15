@@ -1,0 +1,6 @@
+query: >
+  WITH collections.to_set([1, null, 1, null]) AS r UNWIND r AS e RETURN e ORDER BY e IS NULL, e;
+
+output:
+  - e: 1
+  - e: null

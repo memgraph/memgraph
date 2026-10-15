@@ -1125,7 +1125,16 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     if (!reader_val || !value_val) {
       return false;
     }
-    if (CompareNumericValues(*reader_val, *value_val) != std::partial_ordering::equivalent) return false;
+    // A NaN element is held alike by the decoded comparison, so reading it as
+    // IEEE equality here would refuse a list this store does hold.
+    auto const order = CompareNumericValues(*reader_val, *value_val);
+    if (order == std::partial_ordering::unordered) {
+      if (CompareDoublesNaNLast(AsDouble(*reader_val), AsDouble(*value_val)) != std::weak_ordering::equivalent) {
+        return false;
+      }
+      continue;
+    }
+    if (order != std::partial_ordering::equivalent) return false;
   }
   return true;
 }
@@ -1567,9 +1576,9 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
 // Function used to compare a PropertyValue to the one stored in the byte
 // stream.
 //
-// NOTE: The logic in this function *MUST* be equal to the logic in
-// `PropertyValue::operator==`. If you change this function make sure to change
-// the operator so that they have identical functionality.
+// It answers equivalence, as reading the decoded values does. This has a case
+// per type of its own, so the two are asked the same question over every pair
+// of shapes by a test rather than kept alike by hand.
 //
 // @sa DecodePropertyValue
 [[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type, Size payload_size, const PropertyValue &value) {
@@ -1586,30 +1595,30 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return value.ValueBool() == bool_v;
     }
     case Type::INT: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // A number of either numeric type can equal a stored integer, so both are
+      // accepted and the pair is answered the way the decoded values answer it.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto int_v = reader->ReadInt(payload_size);
       if (!int_v) return false;
       if (value.IsInt()) {
-        return value.ValueInt() == int_v;
+        return value.ValueInt() == *int_v;
       }
-      return value.ValueDouble() == int_v;
+      // The stored integer is read at its full width rather than as a double,
+      // which is what stops two integers answering true against one double.
+      return std::is_eq(PlaceIntegerAgainstDouble(*int_v, value.ValueDouble()));
     }
     case Type::DOUBLE: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // As above, a number of either numeric type can equal a stored double.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto double_v = ReadDoubleAs(reader, payload_size);
       if (!double_v) return false;
-      if (value.IsDouble()) {
-        return value.ValueDouble() == double_v;
+      if (value.IsInt()) {
+        return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), *double_v));
       }
-      return value.ValueInt() == double_v;
+      // Read through the one comparison the decoded values use, so this answers
+      // as `operator==` does. IEEE equality would part from it over a NaN, which
+      // it holds equal to nothing and an index holds alike.
+      return CompareDoublesNaNLast(value.ValueDouble(), *double_v) == std::weak_ordering::equivalent;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -1679,13 +1688,20 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!x_opt) return false;
       auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
       if (!y_opt) return false;
+      // A coordinate is a double, so it is read through the comparison a double
+      // beside a point is read through, which answers for a NaN.
+      auto const alike = [](double lhs, double rhs) {
+        return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent;
+      };
       if (valid2d(crs) && value.IsPoint2d()) {
-        return value.ValuePoint2d() == Point2d{crs, *x_opt, *y_opt};
+        auto const &point = value.ValuePoint2d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt);
       }
       if (valid3d(crs) && value.IsPoint3d()) {
         auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
         if (!z_opt) return false;
-        return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
+        auto const &point = value.ValuePoint3d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt) && alike(point.z(), *z_opt);
       }
       return false;
     }
@@ -2660,42 +2676,52 @@ class ReaderPropPositionHistory {
   std::vector<History> history_;
 };
 
+namespace {
+// Single forward pass over `reader`, exploiting the PropertyId-sorted order of
+// `ordered_properties`, handing each extracted value (or nullopt for missing)
+// to `sink`. Shared by the vector-returning and into-buffer overloads.
+template <typename Sink>
+void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath const> ordered_properties, Sink sink) {
+  auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
+  ReaderPropPositionHistory history{max_history_depth};
+
+  auto const get_value =
+      [&](Reader &reader, PropertyPath const &path) -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
+    auto result = history.ScanToPropertyPathParent(reader, path);
+    if (result != ExpectedPropertyStatus::EQUAL) {
+      return {result, std::nullopt};
+    }
+    return MatchSpecificProperty(&reader, path.back());
+  };
+
+  auto safe_reader = SafeReader{reader, get_value, std::move(sink), std::nullopt};
+  for (auto &&path : ordered_properties) {
+    safe_reader(std::forward_as_tuple(path), std::tuple{});
+  }
+}
+}  // namespace
+
 std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
     std::span<PropertyPath const> ordered_properties) const {
-  auto get_properties = [&](Reader &reader) -> std::vector<PropertyValue> {
+  return WithReader([&](Reader &reader) -> std::vector<PropertyValue> {
     auto values = std::vector<PropertyValue>{};
     values.reserve(ordered_properties.size());
-
-    auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
-    ReaderPropPositionHistory history{max_history_depth};
-
-    auto const get_value =
-        [&](Reader &reader,
-            PropertyPath const &path) -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
-      auto result = history.ScanToPropertyPathParent(reader, path);
-      if (result != ExpectedPropertyStatus::EQUAL) {
-        return {result, std::nullopt};
-      }
-
-      auto leaf_property_id = path.back();
-      return MatchSpecificProperty(&reader, leaf_property_id);
-    };
-
-    auto const insert_value = [&](std::optional<PropertyValue> value) {
-      if (value) {
-        values.emplace_back(*std::move(value));
-      } else {
-        values.emplace_back();
-      }
-    };
-
-    auto safe_reader = SafeReader{reader, get_value, insert_value, std::nullopt};
-    for (auto &&path : ordered_properties) {
-      safe_reader(std::forward_as_tuple(path), std::tuple{});
-    }
+    ForEachExtractedValueMissingAsNull(reader, ordered_properties, [&](std::optional<PropertyValue> value) {
+      values.emplace_back(value ? *std::move(value) : PropertyValue{});
+    });
     return values;
-  };
-  return WithReader(get_properties);
+  });
+}
+
+void PropertyStore::ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                                       std::span<PropertyValue> out) const {
+  DMG_ASSERT(out.size() == ordered_properties.size(), "Output buffer size must match the number of properties");
+  WithReader([&](Reader &reader) {
+    auto it = out.begin();
+    ForEachExtractedValueMissingAsNull(reader, ordered_properties, [&](std::optional<PropertyValue> value) {
+      *it++ = value ? *std::move(value) : PropertyValue{};
+    });
+  });
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
@@ -2711,15 +2737,16 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   return WithReader(property_equal);
 }
 
-auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
+void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
-                                       std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+                                       std::span<std::size_t const> position_lookup, std::vector<bool> &result) const {
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
-  auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
-    auto result = std::vector<bool>(ordered_properties.size(), false);
+  // assign rather than construct: a reused buffer keeps its capacity
+  result.assign(ordered_properties.size(), false);
 
+  auto properties_are_equal = [&](Reader &reader) {
     auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
       auto const orig_reader = reader;
 
@@ -2749,9 +2776,8 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
       auto const &value = values[position_lookup[pos]];
       safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
     }
-    return result;
   };
-  return WithReader(properties_are_equal);
+  WithReader(properties_are_equal);
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
@@ -2998,10 +3024,16 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   return true;
 }
 
-std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties) {
+namespace {
+struct NoDecode {
+  void DecodeProperty(PropertyValue & /*value*/) const {}
+};
+}  // namespace
+
+template <typename TDecoder>
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::DoUpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder) {
   auto old_properties = Properties();
-  ClearProperties();
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
   id_old_new_change.reserve(properties.size() + old_properties.size());
@@ -3011,17 +3043,35 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
     }
   }
 
-  for (const auto &[old_key, old_value] : old_properties) {
+  for (auto &[old_key, old_value] : old_properties) {
     auto [it, inserted] = properties.emplace(old_key, old_value);
     if (!inserted) {
       auto &new_value = it->second;
-      id_old_new_change.emplace_back(it->first, old_value, new_value);
+      decoder.DecodeProperty(old_value);
+      id_old_new_change.emplace_back(it->first, std::move(old_value), new_value);
     }
   }
 
+  ClearProperties();
   MG_ASSERT(InitProperties(properties));
   return id_old_new_change;
 }
+
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties) {
+  return DoUpdateProperties(properties, NoDecode{});
+}
+
+template <typename T>
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder) {
+  return DoUpdateProperties(properties, decoder);
+}
+
+template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Vertex> &);
+template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Edge> &);
 
 template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
     const std::map<PropertyId, PropertyValue> &);
