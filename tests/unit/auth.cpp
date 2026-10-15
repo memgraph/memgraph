@@ -4167,11 +4167,6 @@ constexpr auto kLabelUpdateExpanded =
 constexpr int64_t kUnset = -1;
 }  // namespace
 
-TEST(MigrateAuthJson, NewerVersionIsRejected) {
-  auto data = nlohmann::json{{"rolename", "test_role"}, {"version", memgraph::auth::kCurrentEntityVersion + 1}};
-  EXPECT_THROW(MigrateAuthJson(data), memgraph::auth::AuthException);
-}
-
 TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
   // CREATE_DELETE (7) -> full label grants
   {

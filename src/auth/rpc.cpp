@@ -15,6 +15,8 @@
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
+#include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -51,13 +53,21 @@ namespace memgraph::slk {
 void Save(const auth::Role &self, Builder *builder) { memgraph::slk::Save(self.Serialize().dump(), builder); }
 
 namespace {
+nlohmann::json ParseAuthJson(std::string const &str) {
+  auto json = nlohmann::json::parse(str);
+  if (auto const version = json.value("version", 0); version > auth::kCurrentEntityVersion) {
+    throw auth::AuthException(
+        "Auth entity has version {}, newer than the supported version {}", version, auth::kCurrentEntityVersion);
+  }
+  auth::MigrateAuthJson(json);
+  return json;
+}
+
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   try {
-    auto json = nlohmann::json::parse(tmp);
-    memgraph::auth::MigrateAuthJson(json);
-    return memgraph::auth::Role::Deserialize(json);
+    return memgraph::auth::Role::Deserialize(ParseAuthJson(tmp));
   } catch (nlohmann::json::exception const &e) {
     throw auth::AuthException("Failed to deserialize role from RPC: {}", e.what());
   }
@@ -94,9 +104,7 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   try {
-    auto json = nlohmann::json::parse(tmp);
-    memgraph::auth::MigrateAuthJson(json);
-    *self = memgraph::auth::User::Deserialize(json);
+    *self = memgraph::auth::User::Deserialize(ParseAuthJson(tmp));
   } catch (nlohmann::json::exception const &e) {
     throw auth::AuthException("Failed to deserialize user from RPC: {}", e.what());
   }
