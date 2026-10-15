@@ -4172,7 +4172,7 @@ class KShortestPathsCursor : public Cursor {
         blocked_vertices_(mem),
         in_edges_(mem),
         out_edges_(mem),
-        trie_(1, TrieRoot(), mem),  // node 0 is the empty root, valid from construction
+        trie_(1, TrieRoot(), mem),  // valid from construction
         path_nodes_(mem),
         bfs_source_frontier_(mem),
         bfs_target_frontier_(mem),
@@ -4323,7 +4323,7 @@ class KShortestPathsCursor : public Cursor {
     explicit SpurPath(utils::MemoryResource *mem) : edges(mem) {}
   };
 
-  struct PathComparator {
+  struct CandidateComparator {
     bool operator()(const Candidate &a, const Candidate &b) const {
       if constexpr (Cost::kWeighted) {
         // Reversed, as below: the heap serves the cheapest path, and the shortest of those.
@@ -4381,9 +4381,9 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
 
-  // Trie of the found paths' edges, the only copy of them: a found path is its leaf, and a root
-  // prefix's children are exactly the edges a deviation there must block. Children form an
-  // intrusive sibling list, so a node holds no container.
+  // Trie of the found paths' edges, the only copy of them: a root prefix's children are exactly
+  // the edges a deviation there must block. Children form an intrusive sibling list, so a node
+  // holds no container.
   static constexpr uint64_t kNoNode = std::numeric_limits<uint64_t>::max();
 
   struct TrieNode {
@@ -4395,6 +4395,7 @@ class KShortestPathsCursor : public Cursor {
     uint64_t next_sibling;
   };
 
+  /// Node 0 of `trie_`: the empty root every path starts from.
   static TrieNode TrieRoot() {
     return {.edge = std::nullopt,
             .gid = storage::kInvalidGid,
@@ -4404,7 +4405,7 @@ class KShortestPathsCursor : public Cursor {
   }
 
   utils::pmr::vector<TrieNode> trie_;
-  // A found path's trie nodes, root to leaf.
+  // Scratch: the base path's trie nodes, root to leaf, filled by `CollectPathNodes`.
   utils::pmr::vector<uint64_t> path_nodes_;
 
   // The inner search's scratch, reused across the searches Yen's runs for one input row instead
@@ -4443,8 +4444,8 @@ class KShortestPathsCursor : public Cursor {
   };
 
   struct WeightedQueueComparator {
-    // Reversed, like `PathComparator`: the heap serves its maximum, and the cheapest entry has to
-    // come out first.
+    // Reversed, like `CandidateComparator`: the heap serves its maximum, and the cheapest entry has
+    // to come out first.
     bool operator()(const WeightedQueueEntry &lhs, const WeightedQueueEntry &rhs) const {
       if (const auto order = CostCompare(lhs.priority, rhs.priority); std::is_neq(order)) return std::is_gt(order);
       return lhs.depth > rhs.depth;
@@ -4538,7 +4539,7 @@ class KShortestPathsCursor : public Cursor {
 
     // Find the best candidate path
     while (!candidate_paths_.empty()) {
-      std::ranges::pop_heap(candidate_paths_, PathComparator{});
+      std::ranges::pop_heap(candidate_paths_, CandidateComparator{});
       // `const` here would bind the `std::move` below to the copy constructor rather than the
       // move, which is the copy this operator exists to avoid. The check cannot see that through
       // a pmr container's allocator-aware construction.
@@ -4571,7 +4572,7 @@ class KShortestPathsCursor : public Cursor {
     if constexpr (Cost::kWeighted) candidate.cost.total = std::move(spur_path.cost.total);
 
     candidate_paths_.push_back(std::move(candidate));
-    std::ranges::push_heap(candidate_paths_, PathComparator{});
+    std::ranges::push_heap(candidate_paths_, CandidateComparator{});
   }
 
   SpurPath ReconstructPath(const VertexAccessor &midpoint, utils::MemoryResource *memory) const {
@@ -5090,11 +5091,11 @@ class KShortestPathsCursor : public Cursor {
     n_returned_paths_ = 0;
   }
 
-  // Gives the found paths, the candidates and the trie back when a row's search ends. `clear()`
-  // would keep the capacity, and the last row, or one followed only by skipped rows, has no next
-  // search to reuse it.
+  // Gives the found paths, the candidates and the trie back: when the next searched row starts, and
+  // once after the last row. `clear()` would keep the capacity, and the last row, or one followed
+  // only by skipped rows, has no next search to reuse it.
   void ReleasePathStorage() {
-    trie_.assign(1, TrieRoot());  // node 0 is the empty root
+    trie_.assign(1, TrieRoot());
     trie_.shrink_to_fit();
     shortest_paths_.clear();
     shortest_paths_.shrink_to_fit();
