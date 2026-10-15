@@ -1601,16 +1601,24 @@ TypedValue operator!(const TypedValue &a) {
 }
 
 /**
- * Turns a numeric or string value into a string.
+ * Appends @p value to @p out in the form string concatenation gives it.
  *
- * @param value a value.
- * @return A string.
+ * Appends rather than returning a string so that the only buffer the result passes through is the
+ * one it ends up in, allocated from the allocator the result will carry.
  */
-std::string ValueToString(const TypedValue &value) {
-  // TODO: Should this allocate a string through value.alloc_?
-  if (value.IsString()) return std::string(value.ValueString());
-  if (value.IsInt()) return std::to_string(value.ValueInt());
-  if (value.IsDouble()) return fmt::format("{}", value.ValueDouble());
+void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
+  if (value.IsString()) {
+    out.append(value.ValueString());
+    return;
+  }
+  if (value.IsInt()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueInt());
+    return;
+  }
+  if (value.IsDouble()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueDouble());
+    return;
+  }
   // unsupported situations
   throw TypedValueException("Unsupported TypedValue::Type conversion to string");
 }
@@ -1761,7 +1769,19 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
-  if (a.IsString() || b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.alloc_);
+  if (a.IsString() || b.IsString()) {
+    // Reserved up front and appended into, so a long accumulator is copied once, into the buffer
+    // the result keeps. A non-string operand is a number, and the reserve covers its digits.
+    constexpr size_t kRoomForANumber = 32;
+    auto const appended_size = [](TypedValue const &v) -> size_t {
+      return v.IsString() ? v.ValueString().size() : kRoomForANumber;
+    };
+    TypedValue::TString result(a.alloc_);
+    result.reserve(appended_size(a) + appended_size(b));
+    AppendValueTo(result, a);
+    AppendValueTo(result, b);
+    return TypedValue(std::move(result), a.alloc_);
+  }
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
