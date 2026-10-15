@@ -95,6 +95,70 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   int in_subquery_depth_{0};
 };
 
+/// The symbols an operator has to put back on the frame for every row it replays, and the only
+/// way to work one out.
+///
+/// An OrderBy or Accumulate rebuilds each replayed row from this list alone. A symbol something
+/// above reads but the list omits is not a crash: the slot reads as Null and the row comes back
+/// wrong. So the list is built by naming what will read the rebuilt rows, rather than assembled
+/// from whichever symbols the caller had to hand. Over-covering only copies a Null, so a source
+/// that may read nothing is still worth naming.
+///
+class RestoreList {
+ public:
+  RestoreList(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols)
+      : symbol_table_(symbol_table), bound_symbols_(bound_symbols) {}
+
+  /// Symbols an operator above reads directly rather than through an expression, in the order it
+  /// expects them. Taken as given: the caller names these because it knows the operator below
+  /// writes them.
+  void ReadDirectly(std::span<const Symbol> symbols) {
+    for (auto const &symbol : symbols) Add(symbol);
+  }
+
+  /// Everything @p expressions read, keeping only what was bound before this clause. An expression
+  /// may also name a symbol the clause itself writes, and that one is written above the operator
+  /// this list is for, so restoring a stale value would overwrite the fresh one.
+  /// Accepts any range of things an expression visitor can visit.
+  void ReadBy(auto &&expressions) {
+    SubqueryReadSymbolsCollector collector{symbol_table_};
+    for (auto &&expression : expressions) AcceptOne(expression, collector);
+    // The collector answers in hash order, and these symbols become frame slots rebuilt in list
+    // order, so an unsorted append would make plans for the same query differ run to run.
+    std::vector<Symbol> collected(collector.symbols_.begin(), collector.symbols_.end());
+    std::ranges::sort(collected, std::less<>{}, &Symbol::position);
+    for (auto const &symbol : collected) {
+      if (bound_symbols_.contains(symbol)) Add(symbol);
+    }
+  }
+
+  std::vector<Symbol> Take() && { return std::move(symbols_); }
+
+ private:
+  static void AcceptOne(SortItem const &sort_item, SubqueryReadSymbolsCollector &collector) {
+    sort_item.expression->Accept(collector);
+  }
+
+  static void AcceptOne(Expression *expression, SubqueryReadSymbolsCollector &collector) {
+    expression->Accept(collector);
+  }
+
+  static void AcceptOne(NamedExpression *named_expression, SubqueryReadSymbolsCollector &collector) {
+    named_expression->Accept(collector);
+  }
+
+  void Add(Symbol const &symbol) {
+    if (std::ranges::contains(symbols_, symbol)) return;
+    symbols_.push_back(symbol);
+  }
+
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const SymbolTable &symbol_table_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const std::unordered_set<Symbol> &bound_symbols_;
+  std::vector<Symbol> symbols_;
+};
+
 /// Visitor to collect correlated-subquery result symbols from expressions.
 /// Used to track which subqueries appear inside aggregate expressions, and which ones a MERGE branch reads.
 class SubqueryResultSymbolCollector : public HierarchicalTreeVisitor {
@@ -1004,16 +1068,12 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   }();
 
   if (can_sink_order_by_below_produce) {
-    // OrderBy replays each row from what it was told to remember, so that has to cover everything
-    // the projection above it will read. The check above established that all of it is bound.
-    UsedSymbolsCollector collector(body.symbol_table());
-    for (auto *named_expression : body.named_expressions()) named_expression->Accept(collector);
-    std::vector<Symbol> remember(collector.symbols_.begin(), collector.symbols_.end());
-    // The frame slots are rebuilt in this order on every replayed row, so a run-to-run difference
-    // in it would make plans for the same query compare unequal.
-    std::ranges::sort(remember, std::less<>{}, &Symbol::position);
+    // Only the projection reads the rows this OrderBy replays: Skip and Limit count them without
+    // looking, and nothing else sits between.
+    RestoreList restore{body.symbol_table(), body.bound_symbols()};
+    restore.ReadBy(body.named_expressions());
 
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), remember);
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(restore).Take());
     if (body.skip()) {
       last_op = std::make_unique<Skip>(std::move(last_op), body.skip());
     }
@@ -1032,19 +1092,14 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
-    // OrderBy restores only what it is given, and Filter(where) sits above it, so add what the WHERE reads.
-    auto remember = body.output_symbols();
+    // Whatever consumes this clause reads the projected columns, and a Filter(where) above reads
+    // its own expression.
+    RestoreList restore{body.symbol_table(), body.bound_symbols()};
+    restore.ReadDirectly(body.output_symbols());
     if (body.where()) {
-      SubqueryReadSymbolsCollector collector(body.symbol_table());
-      body.where()->expression_->Accept(collector);
-      for (const auto &symbol : collector.symbols_) {
-        // Only symbols bound before this clause; the rest are written above OrderBy anyway.
-        if (body.bound_symbols().contains(symbol) && !std::ranges::contains(remember, symbol)) {
-          remember.push_back(symbol);
-        }
-      }
+      restore.ReadBy(std::array{body.where()->expression_});
     }
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), remember);
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(restore).Take());
   }
   // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {

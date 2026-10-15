@@ -800,6 +800,40 @@ TYPED_TEST(TestPlanner, OrderByLimitWithDistinctStaysAboveProduce) {
       planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectDistinct(), ExpectOrderBy(), ExpectLimit());
 }
 
+TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
+  // Test MATCH (n) RETURN n.a AS a, n.b AS b ORDER BY n.c LIMIT 10
+  // An OrderBy rebuilds each row it replays from the symbols it was told to restore. Sinking the
+  // projection above one means the projection reads from a rebuilt row, so a symbol it reads and
+  // the OrderBy does not restore reads as Null and the row comes out wrong. Assert the coverage
+  // rather than the operator order, because the order is what makes the coverage necessary.
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto b = dba.Property("b");
+  auto c = dba.Property("c");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", a),
+                                          AS("a"),
+                                          PROPERTY_LOOKUP(dba, "n", b),
+                                          AS("b"),
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "n", c)),
+                                          LIMIT(LITERAL(10)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *order_by = FindOpOfType<OrderBy>(&plan);
+  ASSERT_NE(order_by, nullptr) << "expected an OrderBy";
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "expected the projection to have sunk above the Limit";
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  for (auto *named_expression : produce->named_expressions_) named_expression->Accept(collector);
+  for (auto const &read : collector.symbols_) {
+    EXPECT_TRUE(std::ranges::contains(order_by->output_symbols_, read))
+        << "the projection reads " << read.name() << ", which the OrderBy below it does not restore";
+  }
+}
+
 TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
   // Test MATCH (n) RETURN n.prop AS n ORDER BY n LIMIT 10
   // openCypher 9, ORDER BY scope: "When the projection clause shadows already existing variables,
