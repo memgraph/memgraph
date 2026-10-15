@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <system_error>
 
@@ -163,6 +166,20 @@ inline uint64_t GetMemoryRES() {
     }
   }
   return memory;
+}
+
+/// Returns the number of memory mappings of the process, one per line of /proc/self/maps. Counted in chunks rather
+/// than read into lines: a process near vm.max_map_count has hundreds of thousands of them.
+inline std::optional<uint64_t> GetMemoryMappingsCount() {
+  std::ifstream maps("/proc/self/maps", std::ios::binary);
+  if (!maps.is_open()) return std::nullopt;
+  uint64_t count = 0;
+  std::array<char, 1 << 16> buffer{};
+  while (maps.read(buffer.data(), buffer.size()) || maps.gcount() > 0) {
+    auto const *begin = buffer.data();
+    count += static_cast<uint64_t>(std::count(begin, begin + maps.gcount(), '\n'));
+  }
+  return count;
 }
 
 /// Returns the size of vm.max_map_count
