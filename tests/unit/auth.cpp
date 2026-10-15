@@ -2618,6 +2618,39 @@ TEST(AuthWithFineGrainedTest, SerializeWeakDeny) {
   ASSERT_EQ(legacy.GetRules()[0].weak_denies, FineGrainedPermission::NONE);
 }
 
+TEST(AuthWithFineGrainedTest, SerializeWeakDenyOnlyRule) {
+  FineGrainedAccessPermissions perms;
+  perms.Deny({"Secret"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  ASSERT_EQ(FineGrainedAccessPermissions::Deserialize(perms.Serialize()), perms);
+}
+
+TEST(AuthWithFineGrainedTest, RevokeClearsWeakDenies) {
+  FineGrainedAccessPermissions labels;
+  labels.Deny({"Secret"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  labels.DenyGlobal(FineGrainedPermission::CREATE, DenyStrength::WEAK);
+  labels.Revoke({"Secret"}, FineGrainedPermission::READ);
+  labels.RevokeGlobal(FineGrainedPermission::CREATE);
+  ASSERT_EQ(labels, FineGrainedAccessPermissions{});
+
+  PropertyAccessPermissions props;
+  props.Deny({"Employee"}, "salary", PropertyPermissionType::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  props.DenyGlobal("ssn", PropertyPermissionType::READ, DenyStrength::WEAK);
+  props.Revoke({"Employee"}, "salary", PropertyPermissionType::READ);
+  props.RevokeGlobal("ssn", PropertyPermissionType::READ);
+  ASSERT_EQ(props, PropertyAccessPermissions{});
+}
+
+TEST(AuthWithFineGrainedTest, DeserializeIgnoresNonNumericWeakDenies) {
+  FineGrainedAccessPermissions perms;
+  perms.Deny({"Person"}, FineGrainedPermission::READ);
+  auto json = perms.Serialize();
+  json["global_weak_denies"] = "corrupt";
+  json["permissions"][0]["weak_denied"] = "corrupt";
+  auto const loaded = FineGrainedAccessPermissions::Deserialize(json);
+  ASSERT_EQ(loaded.GetGlobalWeakDenies(), 0);
+  ASSERT_EQ(loaded.GetRules()[0].weak_denies, FineGrainedPermission::NONE);
+}
+
 TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
   FineGrainedAccessPermissions label_perms;
   FineGrainedAccessPermissions edge_perms;
@@ -4415,6 +4448,19 @@ constexpr auto kLabelUpdateExpanded =
     std::to_underlying(memgraph::auth::kVertexLabelUpdatePermissions | FineGrainedPermission::READ);
 constexpr int64_t kUnset = -1;
 }  // namespace
+
+TEST(MigrateAuthJson, V4MigrationToCurrentVersion) {
+  auto data = nlohmann::json::parse(R"({
+    "rolename": "r",
+    "permissions": {"grants": 0, "denies": 2},
+    "version": 4
+  })");
+  MigrateAuthJson(data);
+  ASSERT_EQ(data["version"], kCurrentEntityVersion);
+  auto const role = Role::Deserialize(data);
+  ASSERT_EQ(role.permissions().strong_denies(), 2);
+  ASSERT_EQ(role.permissions().weak_denies(), 0);
+}
 
 TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
   // CREATE_DELETE (7) -> full label grants
