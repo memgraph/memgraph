@@ -11,25 +11,7 @@
 
 #pragma once
 
-#include <cstdint>
-#include <optional>
-
 namespace memgraph::memory {
-
-// Process-wide allocator counters, in bytes. allocated is what the application holds, active adds the
-// unused parts of slabs, resident adds dirty and muzzy pages not yet returned to the OS, mapped is
-// everything the allocator has mapped, retained is unmapped-but-reserved address space, metadata is the
-// allocator's own bookkeeping. Nullopt when the allocator is not jemalloc or the counters cannot be read.
-struct AllocatorStats {
-  uint64_t allocated{0};
-  uint64_t active{0};
-  uint64_t metadata{0};
-  uint64_t resident{0};
-  uint64_t mapped{0};
-  uint64_t retained{0};
-};
-
-std::optional<AllocatorStats> GetAllocatorStats();
 
 // Purges every arena's dirty and muzzy pages. Stops jemalloc's background threads first, so none is
 // mid-decay on an arena when it is purged, and restarts them afterwards; if they cannot be stopped it

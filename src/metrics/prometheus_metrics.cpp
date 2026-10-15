@@ -26,7 +26,7 @@
 #include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
-#include "memory/global_memory_control.hpp"
+#include "memory/allocator_stats.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/stat.hpp"
