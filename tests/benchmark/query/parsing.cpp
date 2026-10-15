@@ -18,6 +18,7 @@
 // in use: under a single LL pass a label test beside a comprehension's projection is the expensive shape,
 // while a parser that tries SLL first parses that one outright and instead pays twice for the shapes SLL
 // cannot parse, which are the ones naming a top-level disjunction.
+// The last rows measure the statement-level choice between a plain query and a conditional statement.
 
 #include <benchmark/benchmark.h>
 
@@ -70,7 +71,7 @@ const Shape kShapes[] = {
      "MATCH (n:$p)-[e]->(m) WHERE n.a > n.b AND m.c IN n.list "
      "WITH n, m, n.a + n.b AS s, count(*) AS c ORDER BY n.a + n.b, m.c "
      "RETURN n.a, n.b, m.c, s, c ORDER BY s", true},
-    // A statement may also start a conditional query, so these prefixes now predict between two rules.
+    // These prefixes also start a conditionalStatement, so the parser predicts between it and cypherQuery.
     {"periodic_commit",        "USING PERIODIC COMMIT 10 UNWIND range(1, 10) AS i CREATE (:T)"},
     {"explain_union",          "EXPLAIN MATCH (n) RETURN n UNION MATCH (m) RETURN m AS n"},
     {"profile_union",          "PROFILE RETURN 1 AS x UNION ALL RETURN 2 AS x"},
