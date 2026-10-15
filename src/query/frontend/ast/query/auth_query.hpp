@@ -125,7 +125,7 @@ class AuthQuery : public memgraph::query::Query {
 
   enum class LabelMatchingMode { ANY, EXACTLY };
 
-  enum class DenyStrength { STRONG, WEAK };
+  enum class DenyStrength { WEAK, STRONG };
 
   enum class UserOrRoleType {
     UNSPECIFIED,  // Neither USER nor ROLE was explicitly specified; both are checked and an error is thrown if
