@@ -325,19 +325,7 @@ INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
                                           testing::Values(0.3, 0.5)));
 
 // Hop count and weights.
-class KShortestMemoryTest : public ::testing::TestWithParam<bool> {
- public:
-  using StorageType = memgraph::storage::InMemoryStorage;
-
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
-
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
-
-std::unique_ptr<VertexDb<KShortestMemoryTest::StorageType>> KShortestMemoryTest::db_{nullptr};
+class KShortestMemoryTest : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::TestWithParam<bool>> {};
 
 // Found paths and candidates share one trie, so the ladder's shared prefixes are stored once: the
 // peak stays under 1.5x the bytes of the returned edge lists, where a vector per path took about 3x.

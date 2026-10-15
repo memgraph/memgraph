@@ -1877,7 +1877,7 @@ class Database {
   // `(source, sink, |k)`. The cursor and its evaluation both allocate through one counter. Rows are
   // counted and dropped, so beyond the cursor the counter sees only the current row's values.
   // Weighted runs read `e.weight`, set to 1 on every edge so both cursors return the same paths
-  // and one bound fits both.
+  // and one bound fits both. A literal weight would take the hop-count search.
   MemoryRun KShortestLadderMemory(Database *db, bool weighted, int rungs,
                                   const std::vector<std::tuple<int, int, int64_t>> &input_rows) {
     auto storage_dba = db->Access();
@@ -1888,8 +1888,6 @@ class Database {
     auto limit_sym = context.symbol_table.CreateSymbol("limit", true);
     auto edges_sym = context.symbol_table.CreateSymbol("edges", true);
     auto total_sym = context.symbol_table.CreateSymbol("total", true);
-    auto inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
-    auto inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
 
     // Rails `0..rungs-1` and `rungs..2*rungs-1`, joined at every step.
     std::vector<std::tuple<int, int, std::string>> ladder;
@@ -1922,7 +1920,7 @@ class Database {
                                   true,
                                   nullptr,
                                   nullptr,
-                                  memgraph::query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, nullptr},
+                                  FilterLambda(context, nullptr),
                                   IDENT("limit")->MapTo(limit_sym),
                                   weighted ? std::optional(MakeWeightLambda(dba, context)) : std::nullopt,
                                   weighted ? std::optional(total_sym) : std::nullopt);
