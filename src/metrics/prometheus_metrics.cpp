@@ -528,6 +528,14 @@ PrometheusMetrics::PrometheusMetrics()
                                   .Name("memgraph_peak_memory_res_bytes")
                                   .Help("Peak resident memory usage in bytes")
                                   .Register(registry_)},
+      vm_mappings_family_{prometheus::BuildGauge()
+                              .Name("memgraph_vm_mappings")
+                              .Help("Number of memory mappings of the process (lines of /proc/self/maps)")
+                              .Register(registry_)},
+      vm_max_map_count_family_{prometheus::BuildGauge()
+                                   .Name("memgraph_vm_max_map_count")
+                                   .Help("Kernel limit on memory mappings per process (vm.max_map_count)")
+                                   .Register(registry_)},
       // Hot/cold databases (global)
       database_suspends_family_{prometheus::BuildCounter()
                                     .Name("memgraph_database_suspends_total")
@@ -825,6 +833,8 @@ PrometheusMetrics::PrometheusMetrics()
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+  global.vm_mappings = &vm_mappings_family_.Add(no_labels);
+  global.vm_max_map_count = &vm_max_map_count_family_.Add(no_labels);
 
   global.database_suspends = &database_suspends_family_.Add(no_labels);
   global.database_resumes = &database_resumes_family_.Add(no_labels);
@@ -1307,6 +1317,8 @@ void PrometheusMetrics::UpdateGauges() {
   }
 
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
+  global.vm_mappings->Set(static_cast<double>(utils::GetMemoryMappingsCount().value_or(0)));
+  global.vm_max_map_count->Set(static_cast<double>(utils::GetVmMaxMapCount().value_or(0)));
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
@@ -2101,6 +2113,14 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  .type = "Memory",
                  .metric_type = "Gauge",
                  .value = static_cast<int64_t>(UpdateAndGetPeakMemoryRes(memory_res))});
+  out.push_back({.name = "VmMappings",
+                 .type = "Memory",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(utils::GetMemoryMappingsCount().value_or(0))});
+  out.push_back({.name = "VmMaxMapCount",
+                 .type = "Memory",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(utils::GetVmMaxMapCount().value_or(0))});
 
   // Hot/cold databases (global only)
   out.push_back({"DatabaseSuspends", "HotCold", "Counter", static_cast<int64_t>(global.database_suspends->Value())});

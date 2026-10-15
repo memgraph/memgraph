@@ -158,6 +158,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "MemoryRes", "type": "Memory", "metric type": "Gauge"},
         {"name": "PeakMemoryRes", "type": "Memory", "metric type": "Gauge"},
         {"name": "UnreleasedDeltaObjects", "type": "Memory", "metric type": "Gauge"},
+        {"name": "VmMappings", "type": "Memory", "metric type": "Gauge"},
+        {"name": "VmMaxMapCount", "type": "Memory", "metric type": "Gauge"},
         {"name": "GCLatency_us_50p", "type": "Memory", "metric type": "Histogram"},
         {"name": "GCLatency_us_90p", "type": "Memory", "metric type": "Histogram"},
         {"name": "GCLatency_us_99p", "type": "Memory", "metric type": "Histogram"},

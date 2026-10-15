@@ -252,6 +252,8 @@ EXPECTED_JSON_METRICS = {
     "Memory": {
         "PeakMemoryRes",
         "UnreleasedDeltaObjects",
+        "VmMappings",
+        "VmMaxMapCount",
         "GCLatency_us_50p",
         "GCLatency_us_90p",
         "GCLatency_us_99p",
