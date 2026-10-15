@@ -802,10 +802,9 @@ TYPED_TEST(TestPlanner, OrderByLimitWithDistinctStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
   // Test MATCH (n) RETURN n.a AS a, n.b AS b ORDER BY n.c LIMIT 10
-  // An OrderBy rebuilds each row it replays from the symbols it was told to restore. Sinking the
-  // projection above one means the projection reads from a rebuilt row, so a symbol it reads and
-  // the OrderBy does not restore reads as Null and the row comes out wrong. Assert the coverage
-  // rather than the operator order, because the order is what makes the coverage necessary.
+  // Asserts the coverage rather than the operator order, because the order is what makes the
+  // coverage necessary: a symbol the projection reads and the OrderBy does not restore reads as
+  // Null, and the row comes back wrong rather than the query failing.
   FakeDbAccessor dba;
   auto a = dba.Property("a");
   auto b = dba.Property("b");
@@ -851,11 +850,7 @@ TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, OrderByLimitWithAnyProjectedBranchStaysAboveProduce) {
   // Test MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS e ORDER BY n.prop LIMIT 10
-  // A branch in the projection is planned as its own operator below the projection, and it writes
-  // its answer once per row that reaches it. Sinking the sort between the two would leave the
-  // projection reading whichever row ran last. The symbol it writes is not an Identifier the sort
-  // keys or the named expressions name, so the collector that decides the sink cannot see it and
-  // the presence of the branch has to be checked on its own.
+  // A projection reading a planned branch stays above it, whatever the sort keys allow.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
@@ -874,9 +869,8 @@ TYPED_TEST(TestPlanner, OrderByLimitWithAnyProjectedBranchStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, OrderByLimitWithProjectedPatternComprehensionStaysAboveProduce) {
   // Test MATCH (n) RETURN [(n)-[]-(m) | 1] AS c ORDER BY n.prop LIMIT 10
-  // The sort key reads only `n`, but the projection reads a list the RollUpApply beneath it
-  // writes during this clause. An OrderBy under the projection replays each row from the symbols
-  // it was told to remember, and that list is not among the ones bound when the clause began.
+  // The same rule where the branch is a pattern comprehension and the sort key would otherwise
+  // allow the sink: the sort keys read only `n`.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto *pattern_comp = PATTERN_COMPREHENSION(
@@ -889,8 +883,6 @@ TYPED_TEST(TestPlanner, OrderByLimitWithProjectedPatternComprehensionStaysAboveP
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   auto &plan = planner.plan();
 
-  // The projection has to stay below the sort, because the sort can only replay the symbols bound
-  // before the clause and the list it would have to carry is not one of them.
   auto *order_by = FindOpOfType<OrderBy>(&plan);
   ASSERT_NE(order_by, nullptr) << "expected an OrderBy";
   EXPECT_NE(dynamic_cast<Produce *>(order_by->input_.get()), nullptr)
