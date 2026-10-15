@@ -5098,6 +5098,7 @@ class KShortestPathsCursor : public Cursor {
   /// Fills `path_nodes_` with the trie nodes from the root down to `leaf`.
   void CollectPathNodes(uint64_t leaf) {
     if (path_nodes_leaf_ == leaf) return;
+    path_nodes_leaf_ = kNoNode;
     path_nodes_.clear();
     for (uint64_t node = leaf; node != kNoNode; node = trie_[node].parent) path_nodes_.push_back(node);
     std::ranges::reverse(path_nodes_);
@@ -5139,10 +5140,11 @@ class KShortestPathsCursor : public Cursor {
   // reallocating it every row cost more than the search on many cheap rows.
   static constexpr size_t kKeptBfsCapacity = 1024;
 
-  // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
-  // table's bucket array and a vector's capacity, so without this one expensive row would leave
-  // every later search sweeping buckets sized for a search it never runs, and hold that memory for
-  // the life of the cursor. Called per row, so the reuse within a row still stands.
+  // Releases the inner search's scratch, except a BFS table within `kKeptBfsCapacity`, instead of
+  // just emptying it. `clear()` keeps a hash table's bucket array and a vector's capacity, so
+  // without this one expensive row would leave every later search sweeping buckets sized for a
+  // search it never runs, and hold that memory for the life of the cursor. Called per row, so the
+  // reuse within a row still stands.
   void ReleaseInnerSearchState() {
     for (auto *frontier : {&bfs_source_frontier_, &bfs_target_frontier_, &bfs_source_next_, &bfs_target_next_}) {
       frontier->clear();
