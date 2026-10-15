@@ -1163,7 +1163,7 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
 #endif
 
-constexpr int kCurrentEntityVersion = 4;
+constexpr int kCurrentEntityVersion = 5;
 
 /// Migrate a single user or role JSON object to the latest format in-place.
 void MigrateAuthJson(nlohmann::json &data);
