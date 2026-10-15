@@ -4186,6 +4186,7 @@ class KShortestPathsCursor : public Cursor {
         reverse_dist_(mem),
         weighted_entries_(mem),
         weighted_pq_(mem),
+        weighted_free_(mem),
         search_tree_(mem),
         settled_(mem) {}
 
@@ -4471,9 +4472,11 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
   // The frontier: entries stay put, and the heap orders their indices, so a sift moves 4 bytes, not
-  // two `TypedValue`s. Popped entries stay until the search ends; `uint32_t` covers any search that fits in memory.
+  // two `TypedValue`s. A popped entry's slot is reused, so the entries never outnumber the peak
+  // frontier; `uint32_t` covers any frontier that fits in memory.
   utils::pmr::vector<WeightedQueueEntry> weighted_entries_;
   utils::pmr::vector<uint32_t> weighted_pq_;
+  utils::pmr::vector<uint32_t> weighted_free_;
 
   struct WeightedIndexComparator {
     const utils::pmr::vector<WeightedQueueEntry> *entries;
@@ -4482,16 +4485,26 @@ class KShortestPathsCursor : public Cursor {
   };
 
   void PushWeighted(WeightedQueueEntry &&entry) {
-    weighted_entries_.push_back(std::move(entry));
-    weighted_pq_.push_back(static_cast<uint32_t>(weighted_entries_.size() - 1));
+    uint32_t slot = 0;
+    if (weighted_free_.empty()) {
+      slot = static_cast<uint32_t>(weighted_entries_.size());
+      weighted_entries_.push_back(std::move(entry));
+    } else {
+      slot = weighted_free_.back();
+      weighted_free_.pop_back();
+      weighted_entries_[slot] = std::move(entry);
+    }
+    weighted_pq_.push_back(slot);
     std::push_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
   }
 
   WeightedQueueEntry PopWeighted() {
     std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
+    const uint32_t slot = weighted_pq_.back();
     // NOLINTNEXTLINE(misc-const-correctness)
-    WeightedQueueEntry entry = std::move(weighted_entries_[weighted_pq_.back()]);
+    WeightedQueueEntry entry = std::move(weighted_entries_[slot]);
     weighted_pq_.pop_back();
+    weighted_free_.push_back(slot);
     return entry;
   }
 
@@ -4892,6 +4905,7 @@ class KShortestPathsCursor : public Cursor {
   void ClearWeightedSearchState() {
     weighted_pq_.clear();
     weighted_entries_.clear();
+    weighted_free_.clear();
     search_tree_.clear();
     settled_.clear();
   }
@@ -5136,6 +5150,7 @@ class KShortestPathsCursor : public Cursor {
     ClearWeightedSearchState();
     weighted_pq_.shrink_to_fit();
     weighted_entries_.shrink_to_fit();
+    weighted_free_.shrink_to_fit();
     search_tree_.shrink_to_fit();
     settled_.rehash(0);
   }
