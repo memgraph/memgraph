@@ -207,56 +207,41 @@ class TypedValue {
    */
   TypedValue(TypedValue &&other, allocator_type alloc);
 
-  explicit TypedValue(bool value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Bool) {
-    held_inline_.bool_v = value;
-  }
+  explicit TypedValue(bool value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.bool_v = value}, type_(Type::Bool) {}
 
-  explicit TypedValue(int value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) {
-    held_inline_.int_v = value;
-  }
+  explicit TypedValue(int value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.int_v = value}, type_(Type::Int) {}
 
-  explicit TypedValue(int64_t value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) {
-    held_inline_.int_v = value;
-  }
+  explicit TypedValue(int64_t value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.int_v = value}, type_(Type::Int) {}
 
-  explicit TypedValue(double value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Double) {
-    held_inline_.double_v = value;
-  }
+  explicit TypedValue(double value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.double_v = value}, type_(Type::Double) {}
 
-  explicit TypedValue(storage::Enum value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Enum) {
-    held_inline_.enum_v = value;
-  }
+  explicit TypedValue(storage::Enum value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.enum_v = value}, type_(Type::Enum) {}
 
-  explicit TypedValue(const utils::Date &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Date) {
-    held_inline_.date_v = value;
-  }
+  explicit TypedValue(const utils::Date &value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.date_v = value}, type_(Type::Date) {}
 
   explicit TypedValue(const utils::LocalTime &value, allocator_type alloc = {})
-      : alloc_{alloc}, type_(Type::LocalTime) {
-    held_inline_.local_time_v = value;
-  }
+      : alloc_{alloc}, held_inline_{.local_time_v = value}, type_(Type::LocalTime) {}
 
   explicit TypedValue(const utils::LocalDateTime &value, allocator_type alloc = {})
-      : alloc_{alloc}, type_(Type::LocalDateTime) {
-    held_inline_.local_date_time_v = value;
-  }
+      : alloc_{alloc}, held_inline_{.local_date_time_v = value}, type_(Type::LocalDateTime) {}
 
   explicit TypedValue(const utils::ZonedDateTime &value, allocator_type alloc = {})
-      : alloc_{alloc}, type_(Type::ZonedDateTime) {
-    held_inline_.zoned_date_time_v = value;
-  }
+      : alloc_{alloc}, held_inline_{.zoned_date_time_v = value}, type_(Type::ZonedDateTime) {}
 
-  explicit TypedValue(const utils::Duration &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Duration) {
-    held_inline_.duration_v = value;
-  }
+  explicit TypedValue(const utils::Duration &value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.duration_v = value}, type_(Type::Duration) {}
 
-  explicit TypedValue(const storage::Point2d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point2d) {
-    held_inline_.point_2d_v = value;
-  }
+  explicit TypedValue(const storage::Point2d &value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.point_2d_v = value}, type_(Type::Point2d) {}
 
-  explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point3d) {
-    held_inline_.point_3d_v = value;
-  }
+  explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {})
+      : alloc_{alloc}, held_inline_{.point_3d_v = value}, type_(Type::Point3d) {}
 
   // conversion function to storage::ExternalPropertyValue
   explicit operator storage::ExternalPropertyValue() const;
@@ -798,11 +783,17 @@ class TypedValue {
   /// alone, because a copy and a move assignment reach this having already set it or needing to set
   /// it afterwards.
   ///
-  /// Every member of the union is trivially copyable, so assigning the whole of it copies
-  /// whichever one is active without having to know which. Choosing the member by type instead
-  /// would make this a jump table, and large enough that the copy and the move assignment would
-  /// stop being inlined into their callers, which is the whole point of asking first.
-  void AssignValueHeldInline(TypedValue const &other) { held_inline_ = other.held_inline_; }
+  /// Every member of the union is trivially copyable, so copying the whole of it copies whichever
+  /// one is active without having to know which. Choosing the member by type instead would make
+  /// this a jump table, and large enough that the copy and the move assignment would stop being
+  /// inlined into their callers, which is the whole point of asking first.
+  ///
+  /// It constructs rather than assigns because the destination need not hold a value yet: a copy
+  /// constructor arrives with nothing built, and a Null holds no member of the union at all. An
+  /// assignment begins the lifetime of the member it writes only when that member's type has a
+  /// trivial default constructor that is not deleted, which a union of these types does not have.
+  /// Constructing copies the same bytes and begins the lifetime, so it costs nothing to be right.
+  void AssignValueHeldInline(TypedValue const &other) { std::construct_at(&held_inline_, other.held_inline_); }
 
   /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
   /// type being destroyed or copied, and neither is reached for a type handled inline above.

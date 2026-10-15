@@ -110,15 +110,15 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       return;
     case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      held_inline_.bool_v = value.ValueBool();
+      alloc_trait::construct(alloc_, &held_inline_.bool_v, value.ValueBool());
       return;
     case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
-      held_inline_.int_v = value.ValueInt();
+      alloc_trait::construct(alloc_, &held_inline_.int_v, value.ValueInt());
       return;
     case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
-      held_inline_.double_v = value.ValueDouble();
+      alloc_trait::construct(alloc_, &held_inline_.double_v, value.ValueDouble());
       return;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
@@ -252,15 +252,15 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       break;
     case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      held_inline_.bool_v = other.ValueBool();
+      alloc_trait::construct(alloc_, &held_inline_.bool_v, other.ValueBool());
       break;
     case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
-      held_inline_.int_v = other.ValueInt();
+      alloc_trait::construct(alloc_, &held_inline_.int_v, other.ValueInt());
       break;
     case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
-      held_inline_.double_v = other.ValueDouble();
+      alloc_trait::construct(alloc_, &held_inline_.double_v, other.ValueDouble());
       break;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
@@ -397,15 +397,15 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       return;
     case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      held_inline_.bool_v = value.ValueBool();
+      alloc_trait::construct(alloc_, &held_inline_.bool_v, value.ValueBool());
       return;
     case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
-      held_inline_.int_v = value.ValueInt();
+      alloc_trait::construct(alloc_, &held_inline_.int_v, value.ValueInt());
       return;
     case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
-      held_inline_.double_v = value.ValueDouble();
+      alloc_trait::construct(alloc_, &held_inline_.double_v, value.ValueDouble());
       return;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
@@ -528,15 +528,15 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       break;
     case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      held_inline_.bool_v = other.ValueBool();
+      alloc_trait::construct(alloc_, &held_inline_.bool_v, other.ValueBool());
       break;
     case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
-      held_inline_.int_v = other.ValueInt();
+      alloc_trait::construct(alloc_, &held_inline_.int_v, other.ValueInt());
       break;
     case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
-      held_inline_.double_v = other.ValueDouble();
+      alloc_trait::construct(alloc_, &held_inline_.double_v, other.ValueDouble());
       break;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
