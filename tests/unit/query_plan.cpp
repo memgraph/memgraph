@@ -741,9 +741,6 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
 
 TYPED_TEST(TestPlanner, OrderByLimitSinkBelowProduce) {
   // Test MATCH (n) RETURN n.a AS a ORDER BY n.b LIMIT 10
-  // The sort key reads only `n`, which is bound before the projection, and Produce emits one row
-  // per row it reads, so sorting and limiting underneath it selects the same rows while leaving
-  // `n.a` to be evaluated for the ten that survive.
   FakeDbAccessor dba;
   auto a = dba.Property("a");
   auto b = dba.Property("b");
@@ -772,7 +769,6 @@ TYPED_TEST(TestPlanner, OrderByOnProjectedAliasStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, OrderByWithoutLimitStaysAboveProduce) {
   // Test MATCH (n) RETURN n.a AS a ORDER BY n.b
-  // Every row is projected either way, so moving the sort below Produce would buy nothing.
   FakeDbAccessor dba;
   auto a = dba.Property("a");
   auto b = dba.Property("b");
@@ -786,7 +782,6 @@ TYPED_TEST(TestPlanner, OrderByWithoutLimitStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, OrderByLimitWithDistinctStaysAboveProduce) {
   // Test MATCH (n) RETURN DISTINCT n.a AS a ORDER BY n.b LIMIT 10
-  // Distinct drops rows, so the count the Limit sees differs either side of it.
   FakeDbAccessor dba;
   auto a = dba.Property("a");
   auto b = dba.Property("b");
@@ -802,9 +797,8 @@ TYPED_TEST(TestPlanner, OrderByLimitWithDistinctStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
   // Test MATCH (n) RETURN n.a AS a, n.b AS b ORDER BY n.c LIMIT 10
-  // Asserts the coverage rather than the operator order, because the order is what makes the
-  // coverage necessary: a symbol the projection reads and the OrderBy does not restore reads as
-  // Null, and the row comes back wrong rather than the query failing.
+  // Asserts the coverage rather than the operator order: an omission reads as Null and the row
+  // comes back wrong rather than the query failing.
   FakeDbAccessor dba;
   auto a = dba.Property("a");
   auto b = dba.Property("b");
@@ -850,9 +844,7 @@ TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
 
 TYPED_TEST(TestPlanner, OrderByLimitWithAggregationStaysAboveProduce) {
   // Test MATCH (n) RETURN n.prop1 AS a, sum(n.prop2) AS s ORDER BY 1 LIMIT 10
-  // A projection reading an aggregate stays above it. A constant sort key names no symbol, so
-  // nothing about the keys refuses the sink, and the aggregate's result reaches the projection
-  // without being named by an Identifier either.
+  // A constant sort key names no symbol, so only the aggregate itself can refuse here.
   FakeDbAccessor dba;
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");

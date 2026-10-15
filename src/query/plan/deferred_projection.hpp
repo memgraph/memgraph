@@ -15,26 +15,19 @@
 
 namespace memgraph::query::plan {
 
-/// Whether a return body may leave its projection until after the sort and the limit, and when it
-/// may not, which single thing stops it.
+/// Why a return body cannot leave its projection until after the sort and the limit.
 ///
-/// A projection emits one row for every row it reads and keeps their order, so sorting and
-/// limiting underneath it selects the same rows in the same order while leaving the projected
-/// expressions to run only for the survivors. That is worth doing when a projected expression is
-/// costly, and it is wrong whenever a row reaching the projection could not be rebuilt from what
-/// the sort replays.
-///
-/// The reason is carried rather than reduced to a yes or no so that a test can name the rule it
-/// is checking. A test that asserts only the resulting plan passes whichever rule refused, which
-/// has twice let a rule ship with no test behind it.
+/// A projection emits one row per row it reads and keeps their order, so sorting and limiting
+/// underneath it selects the same rows while leaving the projected expressions to run only for
+/// the survivors. It is wrong whenever a row reaching the projection could not be rebuilt from
+/// what the sort replays. Carrying the reason rather than a yes or no is what lets a test name
+/// the rule it checks.
 enum class NoDeferReason : uint8_t {
-  /// The projection may be deferred.
   kDeferred,
-  /// No sort, so there is no sort for the projection to move past.
   kNoOrderBy,
-  /// No limit, so every row is projected either way and deferring saves nothing.
+  /// Every row is projected either way, so deferring saves nothing.
   kNoLimit,
-  /// DISTINCT or a trailing WHERE changes how many rows reach the limit.
+  /// DISTINCT or a trailing WHERE: both change how many rows reach the limit.
   kCardinalityChanges,
   /// A branch under the ORDER BY reads what the projection writes.
   kOrderByBranch,
@@ -42,19 +35,17 @@ enum class NoDeferReason : uint8_t {
   kProjectionBranch,
   /// An aggregate writes one row per group, and the sort cannot replay it.
   kAggregation,
-  /// A sort key names something not yet bound when the clause began, such as a projected alias.
+  /// A sort key names something not bound when the clause began, such as a projected alias.
   kSortKeyNotBound,
-  /// A projected expression reads something not yet bound when the clause began.
+  /// A projected expression reads something not bound when the clause began.
   kProjectionReadsUnbound,
 };
 
-/// What a return body looks like to the decision above. Gathered by the planner, which owns the
-/// shapes these are read off; kept apart from the decision so the decision stays a total function
-/// over its inputs and can be checked without planning a query.
+/// What a return body looks like to the decision below, gathered by the planner. Kept apart from
+/// the decision so that one stays a total function and can be checked without planning a query.
 struct ProjectionFacts {
   bool has_order_by{false};
   bool has_limit{false};
-  /// DISTINCT or a trailing WHERE: either changes how many rows reach the limit.
   bool changes_cardinality{false};
   bool has_order_by_branch{false};
   bool has_projection_branch{false};
@@ -63,9 +54,8 @@ struct ProjectionFacts {
   bool projection_reads_all_bound{true};
 };
 
-/// The first reason that applies, in the order the fields above are listed. The order is not
-/// arbitrary: a cheaper fact is checked before one that needs a walk over the expressions, and a
-/// caller reporting the reason gets the same answer whatever else is also true.
+/// The first reason that applies. Cheap facts are checked before ones needing a walk over the
+/// expressions, and the answer does not depend on what else is also true.
 constexpr NoDeferReason WhyProjectionCannotDefer(ProjectionFacts const &facts) {
   if (!facts.has_order_by) return NoDeferReason::kNoOrderBy;
   if (!facts.has_limit) return NoDeferReason::kNoLimit;

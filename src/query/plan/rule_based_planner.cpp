@@ -96,36 +96,30 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   int in_subquery_depth_{0};
 };
 
-/// The symbols read above an operator that replays rows, which are exactly the ones it has to put
-/// back on the frame for each row it replays.
+/// The symbols an OrderBy or Accumulate puts back on the frame for each row it replays.
 ///
-/// An OrderBy or Accumulate rebuilds each replayed row from this list alone. A symbol something
-/// above reads but the list omits is not a crash: the slot reads as Null and the row comes back
-/// wrong. Membership is therefore stated as a question with an answer, is anything above reading
-/// this, and the list is built by naming the readers rather than assembled from whichever symbols
-/// the caller had to hand. Over-covering only copies a Null, so a reader that may read nothing is
-/// still worth naming.
+/// It rebuilds each replayed row from this list alone, and a symbol something above reads but the
+/// list omits is not a crash: the slot reads as Null and the row comes back wrong. Over-covering
+/// only copies a Null, so a reader that may read nothing is still worth naming.
 class SymbolsReadAbove {
  public:
   SymbolsReadAbove(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols)
       : symbol_table_(symbol_table), bound_symbols_(bound_symbols) {}
 
-  /// Symbols an operator above reads directly rather than through an expression, in the order it
-  /// expects them. Taken as given: the caller names these because it knows the operator below
-  /// writes them.
+  /// Symbols read as frame slots rather than through an expression, in the order the reader
+  /// expects them. Unfiltered: the caller names these knowing the operator below writes them.
   void ReadDirectly(std::span<const Symbol> symbols) {
     for (auto const &symbol : symbols) Add(symbol);
   }
 
-  /// Everything @p expressions read, keeping only what was bound before this clause. An expression
-  /// may also name a symbol the clause itself writes, and that one is written above the operator
-  /// this list is for, so restoring a stale value would overwrite the fresh one.
-  /// Accepts any range of things an expression visitor can visit.
+  /// Everything @p expressions read, keeping only what was bound before this clause. A symbol the
+  /// clause writes itself is written above this operator, so restoring a stale one would overwrite
+  /// the fresh value.
   void ReadBy(auto &&expressions) {
     SubqueryReadSymbolsCollector collector{symbol_table_};
     for (auto &&expression : expressions) AcceptOne(expression, collector);
-    // The collector answers in hash order, and these symbols become frame slots rebuilt in list
-    // order, so an unsorted append would make plans for the same query differ run to run.
+    // The collector answers in hash order, so an unsorted append would make plans for the same
+    // query differ run to run.
     std::vector<Symbol> collected(collector.symbols_.begin(), collector.symbols_.end());
     std::ranges::sort(collected, std::less<>{}, &Symbol::position);
     for (auto const &symbol : collected) {
@@ -949,22 +943,18 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   SubqueryContext *subquery_ctx_ = nullptr;
 };
 
-/// Puts the projection and the ordering that goes with it on top of @p input_op: Produce,
-/// Distinct, OrderBy, Skip, Limit and the trailing Filter, each in the one position it can
-/// occupy. Two orders are possible and the rule in `deferred_projection.hpp` picks between
-/// them, so the orders sit next to each other rather than being spread through the caller.
+/// Puts the projection and the ordering on top of @p input_op, in one of the two orders the rule
+/// in `deferred_projection.hpp` picks between.
 std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<LogicalOperator> input_op,
                                                            const ReturnBodyContext &body, auto &&splice_branches) {
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto last_op = std::move(input_op);
-  // What this body looks like to `WhyProjectionCannotDefer`, which holds the rule and names the
-  // one thing that refuses. A branch and an aggregate are read off the body rather than found by
-  // walking the expressions: both are planned below the projection and write per row, and neither
-  // names its result through an Identifier a symbol sweep would report.
   auto const all_bound = [&](UsedSymbolsCollector const &collector) {
     return std::ranges::all_of(collector.symbols_,
                                [&](Symbol const &symbol) { return body.bound_symbols().contains(symbol); });
   };
+  // Branches and aggregates are read off the body rather than swept for: both write per row below
+  // the projection, and neither names its result through an Identifier a sweep would report.
   auto facts = ProjectionFacts{
       .has_order_by = !body.order_by().empty(),
       .has_limit = body.limit() != nullptr,
@@ -973,8 +963,8 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
       .has_projection_branch = body.has_branches_at(BodyPosition::kProjection),
       .has_aggregation = !body.aggregations().empty(),
   };
-  // The two sweeps are the expensive facts, and they default to not refusing, so asking once with
-  // the cheap facts alone says whether they are worth gathering.
+  // The sweeps default to not refusing, so asking with the cheap facts alone says whether they
+  // are worth walking.
   if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
     UsedSymbolsCollector sort_keys(body.symbol_table());
     for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(sort_keys);
@@ -986,8 +976,7 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
   }
 
   if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
-    // Only the projection reads the rows this OrderBy replays: Skip and Limit count them without
-    // looking, and nothing else sits between.
+    // Only the projection reads these replayed rows: Skip and Limit count without looking.
     SymbolsReadAbove read_above{body.symbol_table(), body.bound_symbols()};
     read_above.ReadBy(body.named_expressions());
 

@@ -9,17 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Accumulating a string with `reduce(acc = "", x IN list | acc + x)` copies the whole accumulator
-// several times per element, so the work is quadratic in the list length rather than linear.
+// `reduce(acc = "", x IN list | acc + x)` copies the whole accumulator several times per element,
+// making the work quadratic in the list length.
 //
-// `ReduceStringAccumulate` measures the whole expression and reports `ns_per_byte_of_result`, which
-// stays flat if the cost is linear in the result size and grows with the list length if it is not.
-// `pmr_bytes_per_element` counts only what the evaluation memory resource sees, so it is a lower
-// bound on the copying: the temporaries inside `operator+` are `std::allocator` strings and never
-// reach it. Divided by the average accumulator size, it gives the number of copies that do.
+// `ns_per_byte_of_result` stays flat while the cost is linear in the result and rises with the
+// list length when it is not. `pmr_bytes_per_element` divided by the average accumulator size
+// gives the number of copies the evaluation resource sees; it is a lower bound, because the
+// temporaries inside `operator+` are `std::allocator` strings that never reach it.
 //
-// `StringConcatOperator` isolates one `acc + element` step against `StringConcatIdeal`, the same
-// concatenation done with a single allocation, so the per-step multiple is visible on its own.
+// `StringConcatOperator` against `StringConcatIdeal` shows one step's multiple over the same
+// concatenation done in a single allocation.
 
 #include <algorithm>
 #include <cstddef>
@@ -41,8 +40,7 @@ namespace {
 
 constexpr size_t kElementSize = 64;
 
-// Forwards to the real resource and records the total it is asked for, so a benchmark can report
-// allocation volume alongside time.
+// Reports allocation volume alongside time.
 class CountingResource final : public memgraph::utils::MemoryResource {
  public:
   size_t bytes_allocated() const { return bytes_allocated_; }
@@ -126,7 +124,6 @@ void ReduceStringAccumulate(benchmark::State &state) {
   state.counters["result_bytes"] = static_cast<double>(result_size);
   state.counters["pmr_bytes_per_element"] =
       static_cast<double>(memory.bytes_allocated()) / iterations / static_cast<double>(list_length);
-  // Flat across list lengths iff the cost is linear in the size of the string being built.
   state.counters["ns_per_byte_of_result"] = benchmark::Counter(
       static_cast<double>(result_size), benchmark::Counter::kIsIterationInvariantRate | benchmark::Counter::kInvert);
 }
@@ -154,7 +151,7 @@ void StringConcatOperator(benchmark::State &state) {
 
 BENCHMARK(StringConcatOperator)->RangeMultiplier(8)->Range(1024, 1U << 19U)->Unit(benchmark::kMicrosecond);
 
-// The same concatenation with one allocation and one pass over each input, as a floor to compare against.
+// The floor the step above is measured against: one allocation, one pass over each input.
 // NOLINTNEXTLINE(google-runtime-references)
 void StringConcatIdeal(benchmark::State &state) {
   auto const acc_size = static_cast<size_t>(state.range(0));

@@ -1600,12 +1600,8 @@ TypedValue operator!(const TypedValue &a) {
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
-/**
- * Appends @p value to @p out in the form string concatenation gives it.
- *
- * Appends rather than returning a string so that the only buffer the result passes through is the
- * one it ends up in, allocated from the allocator the result will carry.
- */
+/// Appends @p value to @p out as string concatenation renders it. Appends rather than returns so
+/// the only buffer it passes through is the one it ends up in.
 void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
   if (value.IsString()) {
     out.append(value.ValueString());
@@ -1762,8 +1758,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.alloc_);
   }
 
-  // Moved out, not copied: copying a TypedValue selects the default resource for the copy, so
-  // returning the optional's value by copy would discard the allocator the helper just gave it.
+  // Moved out, not copied: copying a TypedValue selects the default resource, discarding the
+  // allocator the helper just gave it.
   if (auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
     return *std::move(maybe_add);
   }
@@ -1772,8 +1768,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   // no more Bool nor Null, summing works on anything from here onward
 
   if (a.IsString() || b.IsString()) {
-    // Reserved up front and appended into, so a long accumulator is copied once, into the buffer
-    // the result keeps. A non-string operand is a number, and the reserve covers its digits.
+    // Reserved and appended into, so a long accumulator is copied once. A non-string operand is a
+    // number, which fits the allowance below.
     constexpr size_t kRoomForANumber = 32;
     auto const appended_size = [](TypedValue const &v) -> size_t {
       return v.IsString() ? v.ValueString().size() : kRoomForANumber;
