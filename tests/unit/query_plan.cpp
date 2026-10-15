@@ -800,6 +800,21 @@ TYPED_TEST(TestPlanner, OrderByLimitWithDistinctStaysAboveProduce) {
       planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectDistinct(), ExpectOrderBy(), ExpectLimit());
 }
 
+TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
+  // Test MATCH (n) RETURN n.prop AS n ORDER BY n LIMIT 10
+  // openCypher 9, ORDER BY scope: "When the projection clause shadows already existing variables,
+  // only the new variables are available." The sort key is the projected property, not the node it
+  // was read from, so the sort cannot run before the projection that computes it.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *as_n = NEXPR("n", PROPERTY_LOOKUP(dba, "n", prop));
+  auto *ident_n = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n, ORDER_BY(ident_n), LIMIT(LITERAL(10)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
+}
+
 TYPED_TEST(TestPlanner, OrderByLimitWithProjectedPatternComprehensionStaysAboveProduce) {
   // Test MATCH (n) RETURN [(n)-[]-(m) | 1] AS c ORDER BY n.prop LIMIT 10
   // The sort key reads only `n`, but the projection reads a list the RollUpApply beneath it
