@@ -13,6 +13,7 @@
 
 #include <variant>
 
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
@@ -20,6 +21,7 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/enum.hpp"
 
 namespace {
@@ -56,8 +58,10 @@ namespace {
 nlohmann::json ParseAuthJson(std::string const &str) {
   auto json = nlohmann::json::parse(str);
   if (auto const version = json.value("version", 0); version > auth::kCurrentEntityVersion) {
-    throw auth::AuthException(
-        "Auth entity has version {}, newer than the supported version {}", version, auth::kCurrentEntityVersion);
+    auto message = fmt::format(
+        "Auth entity has version {}, later than the supported version {}", version, auth::kCurrentEntityVersion);
+    spdlog::warn(message);
+    throw auth::AuthException(std::move(message));
   }
   auth::MigrateAuthJson(json);
   return json;

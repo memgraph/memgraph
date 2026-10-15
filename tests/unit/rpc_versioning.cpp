@@ -12,6 +12,11 @@
 #include "gtest/gtest.h"
 
 #include <filesystem>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -653,6 +658,10 @@ void ExpectLoadRejectsLaterVersion(TEntity const &entity) {
   memgraph::slk::Builder builder(
       [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
   memgraph::slk::Save(json.dump(), &builder);
+  if constexpr (std::is_same_v<TEntity, memgraph::auth::User>) {
+    memgraph::slk::Save(std::vector<memgraph::auth::Role>{}, &builder);
+    memgraph::slk::Save(std::unordered_map<std::string, std::unordered_set<std::string>>{}, &builder);
+  }
   builder.Finalize();
 
   memgraph::slk::Reader reader(buf.data(), buf.size());
