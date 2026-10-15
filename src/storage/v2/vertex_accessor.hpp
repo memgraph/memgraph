@@ -106,6 +106,15 @@ class VertexAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// Reads a fixed set of properties into `out`, one slot per property, in a single pass over the
+  /// record. A property the vertex does not carry reads as Null rather than being left out, so the
+  /// caller's slots line up with `ordered_properties` whatever the vertex holds.
+  ///
+  /// `ordered_properties` has to be in the order the record holds its properties, which is the order
+  /// their ids sort. A caller that keeps a buffer between rows reads a row without allocating.
+  Result<void> ReadPropertyValues(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue> out,
+                                  View view) const;
+
   /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
   std::vector<PropertyId> VectorIndexedProperties(std::span<LabelId const> labels) const;
 
