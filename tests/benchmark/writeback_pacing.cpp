@@ -69,9 +69,9 @@ std::filesystem::path ScratchDir() {
 
 // Returns why the directory cannot carry this measurement, or an empty string if it can.
 std::string ScratchDirUnusable(std::filesystem::path const &dir) {
-  struct statfs fs{};
-  if (::statfs(dir.c_str(), &fs) != 0) return "statfs failed on " + dir.string();
-  auto const magic = static_cast<uint32_t>(fs.f_type);
+  struct statfs mounted_on{};
+  if (::statfs(dir.c_str(), &mounted_on) != 0) return "statfs failed on " + dir.string();
+  auto const magic = static_cast<uint32_t>(mounted_on.f_type);
   if (magic == kOverlayfsMagic) return dir.string() + " is overlayfs, where sync_file_range does nothing";
   if (magic == kTmpfsMagic) return dir.string() + " is tmpfs, which has no writeback at all";
   return {};
@@ -102,7 +102,7 @@ void RunArm(benchmark::State &state, auto &&window_for) {
   auto const threads = static_cast<size_t>(state.range(0));
   auto const dir = ScratchDir();
   if (auto const reason = ScratchDirUnusable(dir); !reason.empty()) {
-    state.SkipWithError(reason.c_str());
+    state.SkipWithError(reason);
     return;
   }
 
@@ -151,7 +151,7 @@ void PacingSplitBudget(benchmark::State &state) {
 
 constexpr int kThreadCounts[] = {1, 4, 8, 16};
 
-void AddThreadCounts(benchmark::internal::Benchmark *bench) {
+void AddThreadCounts(benchmark::Benchmark *bench) {
   for (auto const threads : kThreadCounts) bench->Arg(threads);
   bench->UseManualTime()->Unit(benchmark::kMillisecond)->Iterations(2);
 }

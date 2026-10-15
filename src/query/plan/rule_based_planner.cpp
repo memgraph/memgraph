@@ -841,6 +841,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   /// consumes them. kWhere: above the OrderBy, which restores only its own output symbols, and below the Filter.
   BranchesAt branches_at(BodyPosition position) const { return branches_[static_cast<size_t>(position)]; }
 
+  /// Whether anything is spliced at @p position, without the copy @c branches_at owes its caller.
+  bool has_branches_at(BodyPosition position) const {
+    auto const &branches = branches_[static_cast<size_t>(position)];
+    return !branches.comprehensions.empty() || !branches.subqueries.empty();
+  }
+
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
   const auto &bound_symbols() const { return bound_symbols_; }
 
@@ -959,14 +965,12 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
     return std::ranges::all_of(collector.symbols_,
                                [&](Symbol const &symbol) { return body.bound_symbols().contains(symbol); });
   };
-  auto const order_by_branches = body.branches_at(BodyPosition::kOrderBy);
-  auto const projection_branches = body.branches_at(BodyPosition::kProjection);
   auto facts = ProjectionFacts{
       .has_order_by = !body.order_by().empty(),
       .has_limit = body.limit() != nullptr,
       .changes_cardinality = body.distinct() || body.where() != nullptr,
-      .has_order_by_branch = !order_by_branches.comprehensions.empty() || !order_by_branches.subqueries.empty(),
-      .has_projection_branch = !projection_branches.comprehensions.empty() || !projection_branches.subqueries.empty(),
+      .has_order_by_branch = body.has_branches_at(BodyPosition::kOrderBy),
+      .has_projection_branch = body.has_branches_at(BodyPosition::kProjection),
       .has_aggregation = !body.aggregations().empty(),
   };
   // The two sweeps are the expensive facts, and they default to not refusing, so asking once with

@@ -30,6 +30,8 @@ namespace memgraph::query::plan {
 enum class NoDeferReason : uint8_t {
   /// The projection may be deferred.
   kDeferred,
+  /// No sort, so there is no sort for the projection to move past.
+  kNoOrderBy,
   /// No limit, so every row is projected either way and deferring saves nothing.
   kNoLimit,
   /// DISTINCT or a trailing WHERE changes how many rows reach the limit.
@@ -65,7 +67,8 @@ struct ProjectionFacts {
 /// arbitrary: a cheaper fact is checked before one that needs a walk over the expressions, and a
 /// caller reporting the reason gets the same answer whatever else is also true.
 constexpr NoDeferReason WhyProjectionCannotDefer(ProjectionFacts const &facts) {
-  if (!facts.has_order_by || !facts.has_limit) return NoDeferReason::kNoLimit;
+  if (!facts.has_order_by) return NoDeferReason::kNoOrderBy;
+  if (!facts.has_limit) return NoDeferReason::kNoLimit;
   if (facts.changes_cardinality) return NoDeferReason::kCardinalityChanges;
   if (facts.has_order_by_branch) return NoDeferReason::kOrderByBranch;
   if (facts.has_projection_branch) return NoDeferReason::kProjectionBranch;

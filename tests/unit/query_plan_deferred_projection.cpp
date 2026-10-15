@@ -43,7 +43,7 @@ TEST(DeferredProjection, DefersWhenNothingStopsIt) {
 TEST(DeferredProjection, EachFactRefusesInItsOwnName) {
   auto without_order_by = Deferrable();
   without_order_by.has_order_by = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(without_order_by), NoDeferReason::kNoLimit);
+  EXPECT_EQ(WhyProjectionCannotDefer(without_order_by), NoDeferReason::kNoOrderBy);
 
   auto without_limit = Deferrable();
   without_limit.has_limit = false;
@@ -80,6 +80,7 @@ TEST(DeferredProjection, EachFactRefusesInItsOwnName) {
 TEST(DeferredProjection, NoReasonIsUnreachable) {
   constexpr NoDeferReason kEveryReason[] = {
       NoDeferReason::kDeferred,
+      NoDeferReason::kNoOrderBy,
       NoDeferReason::kNoLimit,
       NoDeferReason::kCardinalityChanges,
       NoDeferReason::kOrderByBranch,
@@ -128,6 +129,11 @@ TEST(DeferredProjection, ReportsTheFirstReasonWhenSeveralApply) {
   no_limit_and_more.has_limit = false;
   no_limit_and_more.has_aggregation = true;
   EXPECT_EQ(WhyProjectionCannotDefer(no_limit_and_more), NoDeferReason::kNoLimit);
+
+  auto neither_sort_nor_limit = Deferrable();
+  neither_sort_nor_limit.has_order_by = false;
+  neither_sort_nor_limit.has_limit = false;
+  EXPECT_EQ(WhyProjectionCannotDefer(neither_sort_nor_limit), NoDeferReason::kNoOrderBy);
 }
 
 }  // namespace
