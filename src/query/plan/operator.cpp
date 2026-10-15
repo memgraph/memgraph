@@ -4301,8 +4301,6 @@ class KShortestPathsCursor : public Cursor {
     uint64_t leaf;
     size_t length;
     size_t root_length;  // of the candidate it was accepted as
-    // Empty under hop count.
-    [[no_unique_address]] Cost::Payload cost;
   };
 
   /// A found path's first `root_length` edges - the trie node `root` - followed by a spur search's result.
@@ -4495,9 +4493,7 @@ class KShortestPathsCursor : public Cursor {
     // Seeds Yen's with the shortest path; the rest are deviations from it.
     auto shortest_path = ComputeShortestPath(source, target, upper_bound_, TypedValue(), frame, evaluator, context);
     if (shortest_path.edges.empty()) return false;
-    AcceptCandidate(Candidate{
-        .root = 0, .root_length = 0, .spur = std::move(shortest_path.edges), .cost = std::move(shortest_path.cost)});
-    return true;
+    return AcceptCandidate(Candidate{.root = 0, .root_length = 0, .spur = std::move(shortest_path.edges), .cost = {}});
   }
 
   bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
@@ -4540,15 +4536,13 @@ class KShortestPathsCursor : public Cursor {
     // Find the best candidate path
     while (!candidate_paths_.empty()) {
       std::ranges::pop_heap(candidate_paths_, CandidateComparator{});
-      // `const` here would bind the `std::move` below to the copy constructor rather than the
-      // move, which is the copy this operator exists to avoid. The check cannot see that through
-      // a pmr container's allocator-aware construction.
-      // NOLINTNEXTLINE(misc-const-correctness)
-      Candidate candidate = std::move(candidate_paths_.back());
-      candidate_paths_.pop_back();
+      // `AcceptCandidate` writes only the trie and the found paths, so `back()` stays valid through it.
+      const auto &candidate = candidate_paths_.back();
       // Every search is capped at the hops left over, so no candidate is longer than the bound.
       DMG_ASSERT(std::cmp_less_equal(candidate.length(), upper_bound_), "a KSHORTEST candidate exceeds the hop bound");
-      if (AcceptCandidate(std::move(candidate))) return true;
+      const bool accepted = AcceptCandidate(candidate);
+      candidate_paths_.pop_back();
+      if (accepted) return true;
     }
     return false;
   }
@@ -5042,15 +5036,13 @@ class KShortestPathsCursor : public Cursor {
   /// Adds the candidate to the trie and the found paths. A walk that creates no node is a duplicate:
   /// the candidate is then a prefix of a found path, which is simple and ends at the target, so it
   /// is that path.
-  bool AcceptCandidate(Candidate &&candidate) {
+  bool AcceptCandidate(const Candidate &candidate) {
     const auto trie_size = trie_.size();
     uint64_t node = candidate.root;
     for (const auto &edge : candidate.spur) node = TrieDescendOrCreate(node, edge);
     if (trie_.size() == trie_size) return false;
-    shortest_paths_.push_back(FoundPath{.leaf = node,
-                                        .length = candidate.length(),
-                                        .root_length = candidate.root_length,
-                                        .cost = std::move(candidate.cost)});
+    shortest_paths_.push_back(
+        FoundPath{.leaf = node, .length = candidate.length(), .root_length = candidate.root_length});
     return true;
   }
 
