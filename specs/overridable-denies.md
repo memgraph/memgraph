@@ -86,7 +86,7 @@ nothing arrives unprompted either.
 7. As an administrator, I want a strong deny to win over a grant of the same thing, whatever else weak-denies it, so that a genuine prohibition cannot be relaxed by a second role.
 8. As an administrator, I want the result to be the same no matter what order a user's roles were assigned in, so that access is reproducible.
 9. As an auditor, I want `SHOW PRIVILEGES` to distinguish weak denies from strong ones, so that I do not read a weak deny as a protection it is not.
-10. As an auditor, I want two roles denying the same thing at different strengths to appear as separate entries, so that the weaker one is visible.
+10. As an auditor, I want two roles denying the same label, edge type, or property at different strengths to appear as separate entries, so that the weaker one is visible.
 11. As an administrator, I want `REVOKE` to remove a deny whatever its strength, so that there is nothing new to learn about removing permissions.
 12. As an administrator, I want weak denies available on labels, edge types, and privileges as well as properties, so that the same overlap problem has the same answer everywhere.
 13. As an administrator, I want a grant of the same thing that I give a user directly to override a weak deny on one of their roles, so that I can make an exception for one person without editing a shared role.
@@ -127,6 +127,12 @@ A weak deny given to a user directly is overridden by a grant of the same thing
 from any of that user's roles. The user level is another source, not a
 privileged one.
 
+One exception: on a database the user reaches only through a role, the user's
+own privileges such as `CREATE` are left out, while their own label, edge-type,
+and property permissions are kept. So a user grant there does not override a
+role's weak deny of a privilege, although it does for the others. This
+difference predates weak denies and is tracked as a separate issue.
+
 ### An override can differ between databases
 
 A role can be scoped to particular databases, and only the roles a user holds on
@@ -164,7 +170,10 @@ is why `SHOW PRIVILEGES` showing the strength matters.
 A property wildcard also overwrites within its rule, as it does today: denying
 `{*}` clears the role's named denies on that rule. So `STRONG DENY {salary}`
 then `WEAK DENY {*}` on one role leaves `salary` covered only by the weak
-wildcard deny.
+wildcard deny. Granting `{*}` likewise clears the role's named grants on that
+rule, so `GRANT {salary}` then `GRANT {*}` leaves no grant of `salary` to
+override another role's `WEAK DENY {salary}`. Issued the other way round, the
+named grant survives and overrides it.
 
 These rules look like one question and are not. All belong in the documentation.
 
@@ -227,8 +236,9 @@ Weak denies are stored in a new optional field beside the existing grant and
 deny records. The existing deny record keeps its meaning and holds strong
 denies, so an auth store written by an earlier version has no weak field and
 loads with every deny strong. A deny present in both records counts as strong,
-the stronger of the two, so every combination has a meaning. The stored format
-is versioned by `kCurrentEntityVersion` and migrated by `MigrateAuthJson`.
+the stronger of the two, so every combination has a meaning. The stored entity
+version, `kCurrentEntityVersion`, goes from 4 to 5. No migration step is needed:
+a version 4 record has no weak fields, so it loads with every deny strong.
 
 ## Testing Decisions
 
@@ -270,6 +280,11 @@ nothing:
   other wildcard, so nothing structural prevents it; it is left out because
   nobody has asked for it. Adding it later is additive and changes nothing
   specified here.
+- **Weak denies of impersonation targets.** `DENY IMPERSONATE_USER alice TO ...`,
+  which names the users who may not be impersonated, takes no strength and stays
+  absolute, for the same reason. The `IMPERSONATE_USER` privilege itself, written
+  without targets, is a privilege like any other and can be weak-denied:
+  `WEAK DENY IMPERSONATE_USER TO ROLE support`.
 - **Detecting conflicting roles.** Nothing warns that two roles disagree, either when
   the roles are assigned or when a query hits the disagreement. That is a separate
   feature which would compose with this one. The consequence for users is described
