@@ -1869,6 +1869,8 @@ class Database {
     // Edges over every returned path.
     size_t total_length = 0;
     size_t peak = 0;
+    // Bytes held as the last row's last path is served.
+    size_t current_at_last_path = 0;
     // Bytes still held once `Pull` has returned false.
     size_t current_after_last_row = 0;
   };
@@ -1941,6 +1943,7 @@ class Database {
       while (cursor->Pull(frame, context)) {
         ++out.rows;
         out.total_length += frame[edges_sym].ValueList().size();
+        out.current_at_last_path = memory.current();
       }
       out.current_after_last_row = memory.current();
       out.peak = memory.peak();
