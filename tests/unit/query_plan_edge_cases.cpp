@@ -253,3 +253,38 @@ TYPED_TEST(QueryExecution, EqualityWithinOnePatternSurvivesAnUnrelatedPrecedingM
   ASSERT_EQ(as_one_clause.size(), 1U);
   EXPECT_EQ(as_one_clause[0][0].ValueInt(), 1);
 }
+
+TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
+  // A variable-length expansion keeps one expansion per depth on a stack it grows as it descends,
+  // and a walk this deep grows that stack several times over. What marks how far the walk has got
+  // into each depth has to still mean the same thing afterwards.
+  //
+  // It starts in the middle of the path and is undirected, so that it walks away in both
+  // directions. Each step away from the middle is a relationship followed against its direction on
+  // one side and along it on the other, which is what makes the direction each edge was found in
+  // load-bearing rather than incidental: it decides which end of the relationship the walk
+  // arrives at. Starting at an end of the path would not, because uniqueness would turn the one
+  // relationship pointing the other way away before its direction was used for anything.
+  constexpr auto kReach = 8;
+
+  this->Execute("CREATE (:P {id: 0})");
+  for (auto i = 1; i <= 2 * kReach; ++i) {
+    this->Execute("MATCH (prev:P {id: " + std::to_string(i - 1) +
+                  "}) CREATE (prev)-[:R]->(:P {id: " + std::to_string(i) + "})");
+  }
+
+  auto const results = this->Execute("MATCH (:P {id: 8})-[*1..8]-(other) RETURN other.id AS id ORDER BY id");
+
+  // Where the walk arrives, rather than how far it went. The lengths alone would be the same
+  // whichever end of a relationship the walk took, so they do not say that it took the right one.
+  auto expected = std::vector<int64_t>{};
+  for (auto id = int64_t{0}; id <= 2 * kReach; ++id) {
+    if (id != kReach) expected.push_back(id);
+  }
+
+  auto reached = std::vector<int64_t>{};
+  reached.reserve(results.size());
+  for (auto const &row : results) reached.push_back(row[0].ValueInt());
+
+  EXPECT_EQ(reached, expected);
+}
