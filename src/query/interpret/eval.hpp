@@ -873,7 +873,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
     for (auto &element : list) {
-      frame_writer_.WriteAt(accumulator_symbol, accumulator);
+      // `accumulator` is reassigned below without being read again, so the frame can take it.
+      frame_writer_.WriteAt(accumulator_symbol, std::move(accumulator));
       frame_writer_.WriteAt(element_symbol, std::move(element));
       accumulator = reduce.expression_->Accept(*this);
     }

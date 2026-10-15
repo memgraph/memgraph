@@ -1761,7 +1761,23 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
-  if (a.IsString() || b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.alloc_);
+  if (a.IsString() || b.IsString()) {
+    // Building the result in place keeps a long accumulator out of the two `std::allocator` strings
+    // that `ValueToString(a) + ValueToString(b)` would copy it through on the way here.
+    auto const appended_size = [](TypedValue const &v) -> size_t { return v.IsString() ? v.ValueString().size() : 32; };
+    TypedValue::TString result(a.alloc_);
+    result.reserve(appended_size(a) + appended_size(b));
+    auto append = [&result](TypedValue const &v) {
+      if (v.IsString()) {
+        result.append(v.ValueString());
+      } else {
+        result.append(ValueToString(v));
+      }
+    };
+    append(a);
+    append(b);
+    return TypedValue(std::move(result), a.alloc_);
+  }
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
