@@ -4410,6 +4410,8 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::vector<TrieNode> trie_;
   // Scratch: the base path's trie nodes, root to leaf, filled by `CollectPathNodes`.
   utils::pmr::vector<uint64_t> path_nodes_;
+  // The leaf `path_nodes_` holds, so serving a path and then deviating from it walks the trie once.
+  uint64_t path_nodes_leaf_ = kNoNode;
 
   // The inner search's scratch, reused across the searches Yen's runs for one input row instead
   // of being rebuilt per call. This saves the allocation and the regrowth; it does not fix a leak,
@@ -5024,10 +5026,8 @@ class KShortestPathsCursor : public Cursor {
     auto *memory = evaluator.GetMemoryResource();
     auto edge_list = TypedValue::TVector(memory);
     edge_list.reserve(path.length);
-    for (uint64_t node = path.leaf; node != 0; node = trie_[node].parent) {
-      edge_list.emplace_back(*trie_[node].edge);
-    }
-    std::ranges::reverse(edge_list);
+    CollectPathNodes(path.leaf);
+    for (const auto node : path_nodes_ | std::views::drop(1)) edge_list.emplace_back(*trie_[node].edge);
     if constexpr (Cost::kWeighted) {
       // Added again, in path order: the search's cost only orders, and an overflow is an error only here.
       TypedValue total;
@@ -5080,6 +5080,8 @@ class KShortestPathsCursor : public Cursor {
 
   /// Fills `path_nodes_` with the trie nodes from the root down to `leaf`.
   void CollectPathNodes(uint64_t leaf) {
+    if (path_nodes_leaf_ == leaf) return;
+    path_nodes_leaf_ = leaf;
     path_nodes_.clear();
     for (uint64_t node = leaf; node != kNoNode; node = trie_[node].parent) path_nodes_.push_back(node);
     std::ranges::reverse(path_nodes_);
@@ -5112,6 +5114,7 @@ class KShortestPathsCursor : public Cursor {
     candidate_paths_.shrink_to_fit();
     path_nodes_.clear();
     path_nodes_.shrink_to_fit();
+    path_nodes_leaf_ = kNoNode;
     current_path_index_ = 0;
   }
 
