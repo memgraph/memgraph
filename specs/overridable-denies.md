@@ -167,13 +167,11 @@ grant or deny already overwrites today. `WEAK DENY` then `STRONG DENY` on one
 role leaves `STRONG`; the reverse leaves `WEAK`. The overwrite is silent, which
 is why `SHOW PRIVILEGES` showing the strength matters.
 
-A property wildcard also overwrites within its rule, as it does today: denying
-`{*}` clears the role's named denies on that rule. So `STRONG DENY {salary}`
-then `WEAK DENY {*}` on one role leaves `salary` covered only by the weak
-wildcard deny. Granting `{*}` likewise clears the role's named grants on that
-rule, so `GRANT {salary}` then `GRANT {*}` leaves no grant of `salary` to
-override another role's `WEAK DENY {salary}`. Issued the other way round, the
-named grant survives and overrides it.
+A property wildcard does not overwrite named properties. Granting or denying
+`{*}` on a role changes only the role's `{*}` entry, so `STRONG DENY {salary}`
+then `WEAK DENY {*}` leaves `salary` strongly denied, and `GRANT {salary}` then
+`GRANT {*}` keeps the named grant that overrides another role's
+`WEAK DENY {salary}`. `REVOKE {*}` still removes every property on the rule.
 
 These rules look like one question and are not. All belong in the documentation.
 
