@@ -3630,6 +3630,8 @@ struct PullPlan {
 #endif
   }
 
+  bool LazyVectorRefs() const { return ctx_.evaluation_context.lazy_vector_refs; }
+
   PullPlan(const PullPlan &) = delete;
   PullPlan(PullPlan &&) = delete;
   PullPlan &operator=(const PullPlan &) = delete;
@@ -3705,6 +3707,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
+  ctx_.evaluation_context.lazy_vector_refs =
+      dba != nullptr && plan->rw_type() == plan::ReadWriteTypeChecker::RWType::R && dba->IsSnapshotStable();
   // Nothing a plan without an accessor can evaluate resolves an id, so there is nothing to resolve.
   if (dba != nullptr) {
     ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
@@ -4202,6 +4206,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
+  const bool lazy_vector_refs = pull_plan->LazyVectorRefs();
   // The one way a client can tell; such a query is otherwise reported like any other.
   if (skipped_transaction) summary->insert_or_assign("graph_free", true);
 
@@ -4221,7 +4226,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       .db = current_db.db_acc_->get()->name(),
       // Short, and usually a client's health check, so it does not queue behind data queries.
       .priority = skipped_transaction ? utils::Priority::HIGH : utils::Priority::LOW,
-      .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
+      .slow_query_plan_renderer = std::move(slow_query_plan_renderer),
+      .lazy_vector_refs = lazy_vector_refs};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
@@ -10398,6 +10404,22 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
   if (!current_db_.db_transactional_accessor_) return false;
   const auto *txn = current_db_.db_transactional_accessor_->GetTransaction();
   return txn->deltas.empty() && txn->md_deltas.empty();
+}
+
+// An explicit transaction can hold several open result streams. A finished execution is reset in Pull, so a
+// non-null one with a prepared query is still pulling.
+void Interpreter::ThrowIfLazyVectorReaderOpen(int writer_qid) const {
+  const auto &writer = query_executions_[writer_qid];
+  if (!writer || !writer->prepared_query || !IsQueryWrite(writer->prepared_query->rw_type)) return;
+  for (size_t i = 0; i < query_executions_.size(); ++i) {
+    const auto &qe = query_executions_[i];
+    if (std::cmp_equal(i, writer_qid) || !qe || !qe->prepared_query || !qe->prepared_query->lazy_vector_refs) {
+      continue;
+    }
+    throw QueryException(
+        "Cannot run a write query while a previous query of this transaction that reads vector-index embeddings "
+        "still has unconsumed results. Consume or discard it first.");
+  }
 }
 
 void Interpreter::ResetInterpreter() {

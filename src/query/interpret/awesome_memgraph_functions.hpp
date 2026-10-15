@@ -47,6 +47,7 @@ struct FunctionContext {
   const QueryUserOrRole *user_or_role{nullptr};
   const QueryUserOrRole *triggering_user{nullptr};
   FineGrainedAuthChecker const *auth_checker{nullptr};
+  bool lazy_vector_refs{false};
 };
 
 using func_impl =

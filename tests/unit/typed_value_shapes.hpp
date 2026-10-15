@@ -33,16 +33,17 @@ inline constexpr std::array kEveryTypedValueType{
     query::TypedValue::Type::LocalDateTime, query::TypedValue::Type::ZonedDateTime,
     query::TypedValue::Type::Duration,      query::TypedValue::Type::Enum,
     query::TypedValue::Type::Point2d,       query::TypedValue::Type::Point3d,
-    query::TypedValue::Type::String,        query::TypedValue::Type::List,
-    query::TypedValue::Type::Map,           query::TypedValue::Type::Path,
-    query::TypedValue::Type::Graph,         query::TypedValue::Type::VirtualGraph,
-    query::TypedValue::Type::Function,      query::TypedValue::Type::VirtualEdge,
-    query::TypedValue::Type::VirtualNode,
+    query::TypedValue::Type::VectorRef,     query::TypedValue::Type::String,
+    query::TypedValue::Type::List,          query::TypedValue::Type::Map,
+    query::TypedValue::Type::Path,          query::TypedValue::Type::Graph,
+    query::TypedValue::Type::VirtualGraph,  query::TypedValue::Type::Function,
+    query::TypedValue::Type::VirtualEdge,   query::TypedValue::Type::VirtualNode,
 };
 
 /// The types whose value is held in the union outright, owning nothing that has to be released:
 /// the numbers, the two accessors, which name a record and the transaction reading it, and the
-/// temporals, the enum and the points.
+/// temporals, the enum and the points. A lazy embedding owns nothing either, but `TypedValue` keeps
+/// it past this group so the group's inline copy stays narrow, so it is not listed.
 ///
 /// `TypedValue` answers this from where a type sits in the declaration, which is what makes the
 /// question one comparison. Listing the types here by name gives the test an account of its own to
@@ -66,9 +67,11 @@ inline constexpr std::array kTypesWithoutAnAllocation{
 };
 
 /// The types no shape is made of. A function is bound to a call rather than
-/// held as a value a test can write down, and the three virtual types are made
-/// by a projection out of values it has already produced.
+/// held as a value a test can write down, the three virtual types are made
+/// by a projection out of values it has already produced, and a lazy embedding
+/// names a stored vector the index holds.
 inline constexpr std::array kUnshapedTypedValueTypes{
+    query::TypedValue::Type::VectorRef,
     query::TypedValue::Type::Function,
     query::TypedValue::Type::VirtualGraph,
     query::TypedValue::Type::VirtualEdge,

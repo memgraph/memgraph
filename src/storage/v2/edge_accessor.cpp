@@ -406,7 +406,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, bool with_vector_reconstruction) const {
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
@@ -415,10 +415,14 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    value.emplace(edge_.ptr->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Edge>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    // Without reconstruction, an embedding stays a compact VectorIndexId reference (see VertexAccessor).
+    value.emplace(with_vector_reconstruction
+                      ? edge_.ptr->properties.GetProperty(
+                            property,
+                            IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
+                                                         .name_id_mapper = storage_->name_id_mapper_.get(),
+                                                         .entity = edge_.ptr})
+                      : edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
@@ -473,7 +477,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, bool with_vector_reconstruction) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
@@ -482,8 +486,13 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    // Without reconstruction, embeddings come back as compact VectorIndexId references (empty float
+    // list) — the caller keeps them lazy instead of paying an O(dim) reconstruction per property.
+    properties = with_vector_reconstruction ? edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+                                                  .indices = &storage_->indices_,
+                                                  .name_id_mapper = storage_->name_id_mapper_.get(),
+                                                  .entity = edge_.ptr})
+                                            : edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -524,6 +533,31 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
+}
+
+bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
+  // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
+  // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
+  // the usearch index, which is written at SetProperty time and so is only correct for the live value.
+  const auto maybe_value = GetProperty(property, view, /*with_vector_reconstruction=*/false);
+  if (!maybe_value) return false;
+  if (maybe_value->IsVectorIndexId()) {
+    if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
+      out.assign(floats.begin(), floats.end());
+      return true;
+    }
+    const auto &ids = maybe_value->ValueVectorIndexIds();
+    if (ids.empty()) return false;
+    const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
+    return storage_->indices_.vector_edge_index_.GetVectorInto(
+        edge_.ptr, index_name, storage_->name_id_mapper_.get(), out);
+  }
+  // Left the index (e.g. index drop) and was rewritten to a plain numeric list.
+  if (!maybe_value->IsAnyList()) return false;
+  const auto floats = TryListToVector(*maybe_value);
+  if (!floats) return false;
+  out.assign(floats->begin(), floats->end());
+  return true;
 }
 
 std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {
