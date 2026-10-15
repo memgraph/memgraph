@@ -1169,30 +1169,67 @@ class SortStandsInCheck {
   /// Asked of a vertex or of an edge: both carry the properties a sort reads
   /// and answer to the same question about them.
   void operator()(RecordAccessor auto const &entity, ExecutionContext &context) {
-    auto read = std::vector<TypedValue>{};
-    read.reserve(columns_.size());
-    for (auto const &column : columns_) read.push_back(ValueOf(entity, column, context));
+    current_.clear();
+    for (auto const &column : columns_) current_.push_back(*entity.GetProperty(view_, column.front()));
 
-    if (!previous_.empty()) {
-      for (auto const &[before, after] : rv::zip(previous_, read)) {
-        // Refuses the pair a sort has no order for, as the sort would have.
-        std::ignore = relations::orderability::Compare(before, after);
-      }
-    }
-    previous_ = std::move(read);
+    if (held_a_row_ && CouldHoldARefusedPair()) AskWhatTheSortWouldHave(context);
+
+    // Two buffers traded rather than one built, so that walking a column costs
+    // no allocation once the first row has sized them.
+    previous_.swap(current_);
+    held_a_row_ = true;
   }
 
   /// Forgets the row the next one would have been asked against, for a walk
   /// starting over.
-  void Reset() { previous_.clear(); }
+  void Reset() { held_a_row_ = false; }
 
  private:
-  /// The value the sort read, which is the property this column indexes, and
-  /// then whatever the rest of the path names within it.
-  TypedValue ValueOf(RecordAccessor auto const &entity, storage::PropertyPath const &path,
+  /// Whether any column holds a pair that could be one a sort declines. A pair
+  /// is only ever declined where both sides carry a type with no order.
+  bool CouldHoldARefusedPair() const {
+    for (auto const &[before, after] : rv::zip(previous_, current_)) {
+      if (CouldBeRefused(before) && CouldBeRefused(after)) return true;
+    }
+    return false;
+  }
+
+  /// Whether a stored value could take part in a pair a sort has no order for.
+  ///
+  /// Conservative in one direction on purpose: answering yes where the answer
+  /// is no spends a comparison that was going to run anyway, where answering no
+  /// where the answer is yes would withdraw a refusal. A type this has not been
+  /// taught about is therefore answered yes.
+  /// @see relations::orderability::ValidFor, which decides what a sort declines.
+  static bool CouldBeRefused(auto const &value) {
+    if (value.IsList()) {
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return CouldBeRefused(element); });
+    }
+    // The numeric list kinds hold no nested value, so no element of one can
+    // reach a type a sort declines.
+    return !(value.IsNull() || value.IsBool() || value.IsInt() || value.IsDouble() || value.IsString() ||
+             value.IsTemporalData() || value.IsZonedTemporalData() || value.IsEnum() || value.IsPoint2d() ||
+             value.IsPoint3d() || value.IsIntList() || value.IsDoubleList() || value.IsNumericList());
+  }
+
+  /// Puts the pair the sort would have been handed, column by column, and stops
+  /// where the sort would have stopped.
+  void AskWhatTheSortWouldHave(ExecutionContext &context) const {
+    for (auto const &[path, before, after] : rv::zip(columns_, previous_, current_)) {
+      auto const placed =
+          relations::orderability::Compare(ValueOf(before, path, context), ValueOf(after, path, context));
+      // A sort reads a column only for a pair every column before it placed
+      // alike, so one it stops short of is not a column to refuse for.
+      if (!std::is_eq(placed)) break;
+    }
+  }
+
+  /// The value the sort read, which is the stored property this column indexes,
+  /// and then whatever the rest of the path names within it.
+  TypedValue ValueOf(storage::PropertyValue const &stored, storage::PropertyPath const &path,
                      ExecutionContext &context) const {
     auto *mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
-    auto value = TypedValue{*entity.GetProperty(view_, path.front()), mapper};
+    auto value = TypedValue{stored, mapper};
     for (auto const step : path | rv::drop(1)) {
       if (!value.IsMap()) return TypedValue{};
       TypedValue::TString const name{context.db_accessor->GetStorageAccessor()->PropertyToName(step),
@@ -1206,7 +1243,9 @@ class SortStandsInCheck {
 
   std::vector<storage::PropertyPath> columns_;
   storage::View view_;
-  std::vector<TypedValue> previous_;
+  std::vector<storage::PropertyValue> previous_;
+  std::vector<storage::PropertyValue> current_;
+  bool held_a_row_{false};
 };
 
 }  // namespace

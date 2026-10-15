@@ -401,19 +401,91 @@ class OrderByEliminator {
   }
 };
 
-/// Does every row handed to this operator reach the one above it, carrying the
-/// value a sort would have read?
+/// Withdraws a walk's refusal wherever something between it and the sort it
+/// stands in for may keep a row from that sort.
 ///
 /// Narrower than keeping the order, and asked for a different reason. An
 /// operator may drop a row and leave the rest in order, which is enough to drop
 /// the sort and not enough to refuse in its place: a pair the walk beneath
-/// reaches would be one the sort was never asked about. A mutation is excluded
-/// for the other half of the question, since it can rewrite the very value the
-/// walk compared.
-inline bool EveryRowIsHandedOn(const utils::TypeInfo &type_info) {
-  return type_info == ConstructNamedPath::kType || type_info == Produce::kType || type_info == Accumulate::kType ||
-         type_info == SetLabels::kType || type_info == RemoveLabels::kType;
-}
+/// reaches would be one the sort was never asked about. A mutation counts for
+/// the other half of the question, since it can rewrite the very value the walk
+/// compared.
+///
+/// Every branch is walked rather than the one chain of inputs. A subquery and a
+/// union branch each carry a sort of their own, and the rows reaching it are the
+/// ones that branch hands up, so a walk inside one answers to what stands above
+/// it there.
+class RefusalWithdrawnWhereARowMayBeDropped final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(Once &) override { return true; }
+
+  // The operators that hand on every row they are given, carrying the value a
+  // sort reads. They are the whole of what a walk may stand under and still
+  // refuse. Everything else reaches the count below.
+  bool PreVisit(ConstructNamedPath &) override { return true; }
+
+  bool PostVisit(ConstructNamedPath &) override { return true; }
+
+  bool PreVisit(Produce &) override { return true; }
+
+  bool PostVisit(Produce &) override { return true; }
+
+  bool PreVisit(Accumulate &) override { return true; }
+
+  bool PostVisit(Accumulate &) override { return true; }
+
+  bool PreVisit(SetLabels &) override { return true; }
+
+  bool PostVisit(SetLabels &) override { return true; }
+
+  bool PreVisit(RemoveLabels &) override { return true; }
+
+  bool PostVisit(RemoveLabels &) override { return true; }
+
+  // The four walks that can stand in for a sort. Each is asked before it counts
+  // itself, so that what stands above it decides and it does not answer for
+  // itself.
+  bool PreVisit(ScanAllByLabelProperties &op) override {
+    if (a_row_may_be_dropped_ != 0) op.sort_columns_.clear();
+    return DefaultPreVisit();
+  }
+
+  bool PreVisit(ScanAllByVertexProperty &op) override {
+    if (a_row_may_be_dropped_ != 0) op.stands_in_for_a_sort_ = false;
+    return DefaultPreVisit();
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    if (a_row_may_be_dropped_ != 0) op.stands_in_for_a_sort_ = false;
+    return DefaultPreVisit();
+  }
+
+  bool PreVisit(ScanAllByEdgeProperty &op) override {
+    if (a_row_may_be_dropped_ != 0) op.stands_in_for_a_sort_ = false;
+    return DefaultPreVisit();
+  }
+
+ protected:
+  bool DefaultPreVisit() override {
+    ++a_row_may_be_dropped_;
+    return true;
+  }
+
+  bool DefaultPostVisit() override {
+    --a_row_may_be_dropped_;
+    return true;
+  }
+
+ private:
+  /// How many operators standing between the root and here may keep a row from
+  /// a sort, counted rather than latched so that leaving a branch forgets what
+  /// only that branch stood under.
+  int a_row_may_be_dropped_{0};
+};
 
 /// Leaves a walk refusing in a sort's place only where every row it hands up
 /// reaches that place.
@@ -423,26 +495,8 @@ inline bool EveryRowIsHandedOn(const utils::TypeInfo &type_info) {
 /// reading the plan then would withdraw the refusal from exactly the queries it
 /// exists for.
 inline std::unique_ptr<LogicalOperator> KeepTheRefusalWhereNothingDropsARow(std::unique_ptr<LogicalOperator> root) {
-  auto a_row_may_be_dropped = false;
-
-  for (auto *op = root.get(); op != nullptr;) {
-    if (a_row_may_be_dropped) {
-      if (auto *scan = dynamic_cast<ScanAllByLabelProperties *>(op)) {
-        scan->sort_columns_.clear();
-      } else if (auto *vertex_scan = dynamic_cast<ScanAllByVertexProperty *>(op)) {
-        vertex_scan->stands_in_for_a_sort_ = false;
-      } else if (auto *edge_type_scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(op)) {
-        edge_type_scan->stands_in_for_a_sort_ = false;
-      } else if (auto *edge_scan = dynamic_cast<ScanAllByEdgeProperty *>(op)) {
-        edge_scan->stands_in_for_a_sort_ = false;
-      }
-    }
-
-    if (!EveryRowIsHandedOn(op->GetTypeInfo())) a_row_may_be_dropped = true;
-    if (!op->HasSingleInput()) break;
-    op = op->input().get();
-  }
-
+  auto withdrawal = RefusalWithdrawnWhereARowMayBeDropped{};
+  root->Accept(withdrawal);
   return root;
 }
 

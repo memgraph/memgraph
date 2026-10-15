@@ -570,6 +570,85 @@ TEST_F(IndexDifferentialTest, AFilterAboveAWalkKeepsThePairsItDropsFromTheRefusa
   EXPECT_EQ(with_index, without_index) << "an index refused a pair the filter keeps from the sort";
 }
 
+TEST_F(IndexDifferentialTest, AFilterInsideASubqueryKeepsThePairsItDropsFromTheRefusal) {
+  // The same question as the filter above a walk, asked where the sort and the
+  // filter both sit inside a subquery. Which rows reach the sort is settled
+  // within the branch holding it, so a walk inside one answers to what stands
+  // above it there rather than to what stands above the branch.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:O {k: 0, p: 1}), (:O {k: 1, p: {a: 1}}), (:O {k: 2, p: {a: 2}});");
+
+  auto const query =
+      std::string{"CALL { MATCH (n:O) WHERE n.p IS NOT NULL AND n.k = 0 RETURN n.p AS v ORDER BY n.p } RETURN v;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE INDEX ON :O(p);");
+  auto const with_index = Answer(query);
+  Run("DROP INDEX ON :O(p);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1"})) << "one row reaches the sort inside the subquery";
+  EXPECT_EQ(with_index, without_index) << "an index refused a pair the subquery's filter keeps from the sort";
+}
+
+TEST_F(IndexDifferentialTest, AFilterInsideAUnionBranchKeepsThePairsItDropsFromTheRefusal) {
+  // A union branch carries its own sort, so the rows that reach it are the ones
+  // its own branch hands up.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:O {k: 0, p: 1}), (:O {k: 1, p: {a: 1}}), (:O {k: 2, p: {a: 2}});");
+
+  auto const query =
+      std::string{"MATCH (n:O) WHERE n.p IS NOT NULL AND n.k = 0 RETURN n.p AS v ORDER BY n.p UNION RETURN 99 AS v;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE INDEX ON :O(p);");
+  auto const with_index = Answer(query);
+  Run("DROP INDEX ON :O(p);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1", "99"})) << "one row reaches the sort in the left branch";
+  EXPECT_EQ(with_index, without_index) << "an index refused a pair the branch's filter keeps from the sort";
+}
+
+TEST_F(IndexDifferentialTest, ACompositeWalkRefusesOnlyTheColumnsTheSortRead) {
+  // A sort reads the second column only for a pair its first column places
+  // alike, so a walk standing in for one answers for the second column only
+  // where the first ties. A pair the first column separates never reaches the
+  // second, whatever that one holds.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:O {a: 1, b: {x: 1}}), (:O {a: 2, b: {x: 2}});");
+
+  auto const query =
+      std::string{"MATCH (n:O) WHERE n.a IS NOT NULL AND n.b IS NOT NULL RETURN n.a AS v ORDER BY n.a, n.b;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE INDEX ON :O(a, b);");
+  auto const with_index = Answer(query);
+  Run("DROP INDEX ON :O(a, b);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1", "2"})) << "the first column places both rows";
+  EXPECT_EQ(with_index, without_index) << "a composite index refused a column the sort never read";
+}
+
+TEST_F(IndexDifferentialTest, ACompositeWalkRefusesTheSecondColumnWhereTheFirstTies) {
+  // The other side of the same rule, and what keeps the first from being
+  // satisfied by refusing nothing: a pair its first column places alike is one
+  // the sort does read the second column of.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:O {a: 1, b: {x: 1}}), (:O {a: 1, b: {x: 2}});");
+
+  auto const query =
+      std::string{"MATCH (n:O) WHERE n.a IS NOT NULL AND n.b IS NOT NULL RETURN n.a AS v ORDER BY n.a, n.b;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE INDEX ON :O(a, b);");
+  auto const with_index = Answer(query);
+  Run("DROP INDEX ON :O(a, b);");
+
+  ASSERT_EQ(without_index.size(), 1U);
+  EXPECT_TRUE(without_index.front().starts_with("refused:"))
+      << "the sort reads a pair of maps, and answered " << without_index.front();
+  EXPECT_EQ(with_index, without_index) << "an index placed a pair of maps the sort refuses";
+}
+
 TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {
   // One stored type carries four of the date and time kinds and tells them apart
   // before anything else, so a column of all four is walked kind by kind. A sort
