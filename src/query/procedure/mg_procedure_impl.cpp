@@ -2947,7 +2947,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
         maybe_edges.error(), ForIn ? "get the inbound edges of" : "get the outbound edges of", ObjectKind::Vertex);
   }
 
-  auto &rc = it->cursor.emplace<mgp_edges_iterator::RealCursor>(std::move(maybe_edges->edges), ForIn);
+  auto &rc = it->cursor.emplace<mgp_edges_iterator::RealCursor>(maybe_edges->edges.Materialise(), ForIn);
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {

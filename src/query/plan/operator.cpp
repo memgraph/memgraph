@@ -2062,14 +2062,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(
-              vertex.InEdgesDeferred(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
           context.number_of_hops += edges_result.expanded_count;
           in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.InEdgesDeferred(self_.view_, self_.common_.edge_types, &context.hops_limit));
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += edges_result.expanded_count;
         in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
@@ -2085,14 +2085,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(
-              vertex.OutEdgesDeferred(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
           context.number_of_hops += edges_result.expanded_count;
           out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.OutEdgesDeferred(self_.view_, self_.common_.edge_types, &context.hops_limit));
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += edges_result.expanded_count;
         out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
@@ -2183,14 +2183,14 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   };
 
   storage::View view = storage::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, vertex.InEdges(view, edge_types).value().edges))> chain_elements(
-      memory);
+  utils::pmr::vector<decltype(wrapper(direction, vertex.InEdges(view, edge_types).value().edges.Materialise()))>
+      chain_elements(memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges_result = UnwrapEdgesResult(vertex.InEdges(view, edge_types, &context->hops_limit));
     context->number_of_hops += edges_result.expanded_count;
     if (!edges_result.edges.empty()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges_result.edges)));
+      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, edges_result.edges.Materialise()));
     }
   }
 
@@ -2198,7 +2198,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
     auto edges_result = UnwrapEdgesResult(vertex.OutEdges(view, edge_types, &context->hops_limit));
     context->number_of_hops += edges_result.expanded_count;
     if (!edges_result.edges.empty()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges_result.edges)));
+      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, edges_result.edges.Materialise()));
     }
   }
 
@@ -4255,8 +4255,8 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
   // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
-  // post-filter results wrong. Copied into an arena vector because `EdgeVertexAccessorResult` is not
-  // allocator-aware and would escape this query's memory accounting.
+  // post-filter results wrong. Copied into an arena vector because what the expansion hands back is
+  // not allocator-aware and would escape this query's memory accounting.
   // Pre-existing gap: a cursor can outlive its command epoch, so the cache can go stale.
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;

@@ -182,48 +182,30 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
   return impl_.GetProperty(view, key);
 }
 
-storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
-  std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto const &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
-    if (graph_edges.contains(edge_q)) {
-      filteredOutEdges.push_back(edge);
-    }
-  }
+  // Which edges belong is decided by looking at each one, but what is kept is still the
+  // triples, so the subgraph's edges are built on dereference like any other expansion.
+  auto kept = maybe_edges->edges.Filtered(
+      [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
 
-  std::vector<EdgeAccessor> resulting_edges;
-  resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(
-      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = maybe_edges->expanded_count};
 }
 
-storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.InEdges(view, {});
   if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
-  std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto const &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
-    if (graph_edges.contains(edge_q)) {
-      filteredOutEdges.push_back(edge);
-    }
-  }
+  // Which edges belong is decided by looking at each one, but what is kept is still the
+  // triples, so the subgraph's edges are built on dereference like any other expansion.
+  auto kept = maybe_edges->edges.Filtered(
+      [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
 
-  std::vector<EdgeAccessor> resulting_edges;
-  resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(
-      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = maybe_edges->expanded_count};
 }
 
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
