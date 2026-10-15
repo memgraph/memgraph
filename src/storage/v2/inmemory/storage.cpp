@@ -805,9 +805,11 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInterna
                             from_state,
                             to_state]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
+    if (from_state == DeltaChainState::NON_SEQUENTIAL) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
+    if (to_state == DeltaChainState::NON_SEQUENTIAL) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
