@@ -60,10 +60,10 @@ constexpr auto mg_enterprise_no_license_json_str = R"({
 
 constexpr auto community_json_str = R"({
       "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
-      "permissions":{"denies":0,"grants":134217727},
+      "permissions":{"denies":0,"grants":134217727,"weak_denies":0},
       "username":"a",
       "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226],
-      "version":4
+      "version":5
       })";
 
 constexpr auto community_saved_with_license_json_str = R"({
@@ -97,28 +97,28 @@ TEST(AuthModule, Deserialization) {
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object.uuid()), hash);
     ASSERT_TRUE(auth_object.CheckPasswordExplicit("password"));
     ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object.permissions().denies(), 0);
+    ASSERT_EQ(auth_object.permissions().strong_denies(), 0);
 
     auto auth_object_no_license = memgraph::auth::User::Deserialize(mg_enterprise_no_license_json);
     ASSERT_EQ(auth_object_no_license.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_no_license.uuid()), hash);
     ASSERT_TRUE(auth_object_no_license.CheckPasswordExplicit("password"));
     ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_no_license.permissions().strong_denies(), 0);
 
     auto auth_object_community = memgraph::auth::User::Deserialize(community_json);
     ASSERT_EQ(auth_object_community.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community.uuid()), hash);
     ASSERT_TRUE(auth_object_community.CheckPasswordExplicit("password"));
     ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_community.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_community.permissions().strong_denies(), 0);
 
     auto auth_object_community_resaved = memgraph::auth::User::Deserialize(community_saved_with_license_json);
     ASSERT_EQ(auth_object_community_resaved.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community_resaved.uuid()), hash);
     ASSERT_TRUE(auth_object_community_resaved.CheckPasswordExplicit("password"));
     ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_community_resaved.permissions().strong_denies(), 0);
   }
 
   // Empty JSON (throw)
@@ -235,10 +235,10 @@ TEST(AuthModule, UserSerialization) {
 
   auto json = nlohmann::json::parse(R"({
           "password_hash":null,
-          "permissions":{"denies":0,"grants":0},
+          "permissions":{"denies":0,"grants":0,"weak_denies":0},
           "username":"",
           "uuid":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
-          "version":4
+          "version":5
           })");
 
   // Empty user
@@ -271,7 +271,7 @@ TEST(AuthModule, UserSerialization) {
 
   // User with permissions
   user.GetPermissions().Deny(memgraph::auth::Permission::CONSTRAINT);
-  json[kPermissions][kDenies] = user.GetPermissions().denies();
+  json[kPermissions][kDenies] = user.GetPermissions().strong_denies();
   ASSERT_EQ(json, user.Serialize());
   user.GetPermissions().Grant(memgraph::auth::Permission::DELETE);
   user.GetPermissions().Grant(memgraph::auth::Permission::AUTH);

@@ -2517,6 +2517,9 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
 antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivilegeContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
+  if (ctx->denyStrength() && ctx->denyStrength()->WEAK()) {
+    auth->deny_strength_ = AuthQuery::DenyStrength::WEAK;
+  }
   std::tie(auth->user_or_role_, auth->entity_type_) =
       std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   if (ctx->systemPrivileges) {
@@ -2725,13 +2728,17 @@ antlrcpp::Any CypherMainVisitor::visitGrantPropertyPermission(MemgraphCypher::Gr
 }
 
 antlrcpp::Any CypherMainVisitor::visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) {
-  return BuildPropertyPermissionQuery(storage_,
-                                      AuthQuery::Action::DENY_PROPERTY_PERMISSION,
-                                      ctx->permTypes,
-                                      ctx->propList,
-                                      ctx->entityTypeSpec(),
-                                      ctx->target,
-                                      this);
+  auto *auth = BuildPropertyPermissionQuery(storage_,
+                                            AuthQuery::Action::DENY_PROPERTY_PERMISSION,
+                                            ctx->permTypes,
+                                            ctx->propList,
+                                            ctx->entityTypeSpec(),
+                                            ctx->target,
+                                            this);
+  if (ctx->denyStrength() && ctx->denyStrength()->WEAK()) {
+    auth->deny_strength_ = AuthQuery::DenyStrength::WEAK;
+  }
+  return auth;
 }
 
 antlrcpp::Any CypherMainVisitor::visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) {

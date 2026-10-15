@@ -125,6 +125,8 @@ class AuthQuery : public memgraph::query::Query {
 
   enum class LabelMatchingMode { ANY, EXACTLY };
 
+  enum class DenyStrength { WEAK, STRONG };
+
   enum class UserOrRoleType {
     UNSPECIFIED,  // Neither USER nor ROLE was explicitly specified; both are checked and an error is thrown if
                   // ambiguous.
@@ -172,6 +174,7 @@ class AuthQuery : public memgraph::query::Query {
   PropertyEntityKind property_entity_kind_{PropertyEntityKind::NODE};
   LabelMatchingMode property_matching_mode_{LabelMatchingMode::ANY};
   PropertyPermissionType property_permission_types_{PropertyPermissionType::NONE};
+  DenyStrength deny_strength_{DenyStrength::STRONG};
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -200,6 +203,7 @@ class AuthQuery : public memgraph::query::Query {
     object->property_entity_kind_ = property_entity_kind_;
     object->property_matching_mode_ = property_matching_mode_;
     object->property_permission_types_ = property_permission_types_;
+    object->deny_strength_ = deny_strength_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;
     return object;
