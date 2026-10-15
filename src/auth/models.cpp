@@ -384,8 +384,8 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
     return r::any_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
   };
 
-  // DENYs take priority over GRANTs, and specific rules on labels or edge types
-  // take priority over global rules. Finally, if no rules apply, this is a
+  // A matching rule that resolves to DENY wins, and specific rules on labels or
+  // edge types take priority over global rules. Finally, if no rules apply, this is a
   // silent DENY.
 
   bool any_rule_matched = false;
@@ -636,7 +636,10 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
         }
       }
 
-      auto const weak_denies = static_cast<FineGrainedPermission>(rule_json.value(kWeakDenied, uint64_t{0}));
+      auto weak_denies = FineGrainedPermission::NONE;
+      if (rule_json.contains(kWeakDenied) && rule_json[kWeakDenied].is_number_unsigned()) {
+        weak_denies = static_cast<FineGrainedPermission>(rule_json[kWeakDenied].get<uint64_t>());
+      }
       if (grants == FineGrainedPermission::NONE && denies == FineGrainedPermission::NONE &&
           weak_denies == FineGrainedPermission::NONE) {
         continue;
@@ -645,7 +648,10 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     }
   }
 
-  auto const global_weak_denies = data.value(kGlobalWeakDenies, uint64_t{0});
+  uint64_t global_weak_denies = 0;
+  if (data.contains(kGlobalWeakDenies) && data[kGlobalWeakDenies].is_number_unsigned()) {
+    global_weak_denies = data[kGlobalWeakDenies].get<uint64_t>();
+  }
   return FineGrainedAccessPermissions(global_grants, global_denies, std::move(rules), global_weak_denies);
 }
 
