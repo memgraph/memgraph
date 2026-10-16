@@ -808,8 +808,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == pending.end()) {
       return;
     }
-    auto op = subquery_ctx_->planner->Plan(
-        it->second, SubqueryView(it->second, subquery_ctx_->write_occurred), BranchBoundSymbols());
+    auto op =
+        subquery_ctx_->planner->Plan(it->second, ViewAfterWrite(subquery_ctx_->write_occurred), BranchBoundSymbols());
     Bucket(position_).comprehensions.emplace_back(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
   }
@@ -880,7 +880,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
                                                const ReturnBodyContext &body, bool accumulate,
-                                               Expression *commit_frequency) {
+                                               Expression *commit_frequency, storage::View read_view) {
   std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
   auto last_op = std::move(input_op);
   if (accumulate) {
@@ -952,7 +952,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       }
     }
 
-    last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+    auto aggregate = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+    aggregate->view_ = read_view;
+    last_op = std::move(aggregate);
   }
 
   // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
@@ -978,7 +980,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
   }
 
-  last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  auto produce = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  produce->view_ = read_view;
+  last_op = std::move(produce);
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
   if (body.distinct()) {
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
@@ -1066,21 +1070,56 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
   return symbols;
 }
 
-storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
-                                       const std::unordered_set<Symbol> &bound_symbols,
-                                       const std::unordered_set<Symbol> &write_bound_symbols) {
-  if (!HasVariableLengthExpansion(pc)) return preferred;
-  // View::OLD cannot see a node a write clause of this query part bound, and View::NEW is not available here.
-  auto const unseeable = std::ranges::find_if(pc.expansion_symbols, [&](const Symbol &sym) {
-    return bound_symbols.contains(sym) && write_bound_symbols.contains(sym);
-  });
-  if (unseeable != pc.expansion_symbols.end()) {
-    throw QueryException(
-        "A variable-length pattern cannot expand from '{}', which a write clause of this query part binds. Close that "
-        "clause with a WITH before the pattern.",
-        unseeable->name());
+namespace {
+
+/// Sets View::NEW on every read in a plan: a writing CALL body tree reads its own earlier rows' writes.
+class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(Once & /*op*/) override { return true; }
+
+#define MG_READ_NEW(Op)            \
+  bool PreVisit(Op &op) override { \
+    op.view_ = storage::View::NEW; \
+    return true;                   \
   }
-  return storage::View::OLD;
+  MG_READ_NEW(ScanAll)
+  MG_READ_NEW(ScanAllByLabel)
+  MG_READ_NEW(ScanAllByLabelProperties)
+  MG_READ_NEW(ScanAllById)
+  MG_READ_NEW(ScanAllByEdge)
+  MG_READ_NEW(ScanAllByEdgeType)
+  MG_READ_NEW(ScanAllByEdgeTypeProperty)
+  MG_READ_NEW(ScanAllByEdgeProperty)
+  MG_READ_NEW(ScanAllByEdgeId)
+  MG_READ_NEW(ScanAllByVertexProperty)
+  MG_READ_NEW(Expand)
+  MG_READ_NEW(ExpandVariable)
+  MG_READ_NEW(Filter)
+  MG_READ_NEW(Produce)
+  MG_READ_NEW(Aggregate)
+  MG_READ_NEW(OrderBy)
+  MG_READ_NEW(Unwind)
+  MG_READ_NEW(HashJoin)
+  MG_READ_NEW(CreateNode)
+  MG_READ_NEW(CreateExpand)
+  MG_READ_NEW(CallProcedure)
+#undef MG_READ_NEW
+
+  bool PreVisit(Conditional &op) override {
+    op.predicate_view_ = storage::View::NEW;
+    return true;
+  }
+};
+
+}  // namespace
+
+void ReadNewThroughout(LogicalOperator &plan) {
+  ReadNewViewSetter setter;
+  plan.Accept(setter);
 }
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
@@ -1168,7 +1207,8 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency) {
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
+                                           bool is_root_query, storage::View read_view) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -1177,31 +1217,35 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // final result of 'k' increments.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  bool advance_command = false;
+  // At the root the drain also advances, so ORDER BY, a fold and a later UNION leg read every write through
+  // View::OLD. A body's RETURN runs once per outer row, and an advance there would change the outer scan mid-way.
+  bool const advance_command = is_root_query;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
-  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
+  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports) {
+                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
+                                         storage::View read_view, bool may_advance) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
   // RETURN clause.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  // No need to advance the command if we only performed reads.
-  bool advance_command = is_write;
+  // No need to advance the command if we only performed reads. A writing CALL body never advances: it runs once per
+  // outer row, and an advance would change what the outer scan still has to visit.
+  bool advance_command = is_write && may_advance;
   // Split into the clause that owns the expression, because planning runs once per start node the
   // variable-start planner tries.
   if (with.where_) {
     with.where_->expression_ = SplitLabelsTests(with.where_->expression_, storage);
   }
   const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
-  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
+  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
 
   // In EXISTS subqueries, we need to preserve outer scope variables
   if (in_subquery_body) {

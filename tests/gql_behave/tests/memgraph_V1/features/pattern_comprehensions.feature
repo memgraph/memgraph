@@ -880,14 +880,17 @@ Feature: Pattern comprehensions
             | n | counts |
             | 1 | [[1]]  |
 
-    Scenario: Variable-length pattern comprehension over a node its own query part creates is rejected
+    # The RETURN drain advances the command, so View::OLD sees the nodes and the edge the CREATE made.
+    Scenario: Variable-length pattern comprehension over a node its own query part creates sees the created path
         Given an empty graph
         When executing query:
             """
             CREATE (a:Person)-[:FRIEND]->(:Person)
-            RETURN [(a)-[:FRIEND*1..2]->(x) | x] AS reachable
+            RETURN size([(a)-[:FRIEND*1..2]->(x) | x]) AS reachable
             """
-        Then an error should be raised
+        Then the result should be:
+            | reachable |
+            | 1         |
 
     Scenario: Pattern comprehension may not reuse an already bound relationship variable
         Given an empty graph

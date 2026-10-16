@@ -884,6 +884,7 @@ std::unique_ptr<LogicalOperator> CreateNode::Clone(AstStorage *storage) const {
   auto object = std::make_unique<CreateNode>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->node_info_ = node_info_.Clone(storage);
+  object->view_ = view_;
   return object;
 }
 
@@ -897,8 +898,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   AbortCheck(context);
 
-  ExpressionEvaluator evaluator =
-      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
+  ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
@@ -969,6 +969,7 @@ std::unique_ptr<LogicalOperator> CreateExpand::Clone(AstStorage *storage) const 
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
   object->existing_node_ = existing_node_;
+  object->view_ = view_;
   return object;
 }
 
@@ -1047,8 +1048,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
-  ExpressionEvaluator evaluator =
-      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
+  ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
   auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
@@ -2175,14 +2175,13 @@ namespace {
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
                       const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
-                      ExecutionContext *context) {
+                      ExecutionContext *context, storage::View view) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
                       std::forward<decltype(edges)>(edges));
   };
 
-  storage::View view = storage::View::OLD;
   utils::pmr::vector<decltype(wrapper(direction, vertex.InEdges(view, edge_types).value().edges))> chain_elements(
       memory);
 
@@ -2272,7 +2271,7 @@ class ExpandVariableCursor : public Cursor {
   // the expansion currently being Pulled
   using ExpandEdges =
       decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
-                                utils::NewDeleteResource(), std::declval<ExecutionContext *>()));
+                                utils::NewDeleteResource(), std::declval<ExecutionContext *>(), storage::View::OLD));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -2304,7 +2303,7 @@ class ExpandVariableCursor : public Cursor {
 
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator =
-          ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
@@ -2318,7 +2317,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().resource();
         edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context, self_.view_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -2368,8 +2367,7 @@ class ExpandVariableCursor : public Cursor {
    * vertex and another Pull from the input cursor should be performed.
    */
   bool Expand(Frame &frame, ExecutionContext &context) {
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
@@ -2407,7 +2405,7 @@ class ExpandVariableCursor : public Cursor {
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(current_edge.first, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(
-                current_vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                current_vertex, self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         return false;
       }
 #endif
@@ -2441,8 +2439,8 @@ class ExpandVariableCursor : public Cursor {
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size()) && !context.hops_limit.IsLimitReached()) {
         auto *memory = edges_.get_allocator().resource();
-        edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+        edges_.emplace_back(ExpandFromVertex(
+            current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context, self_.view_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -2491,8 +2489,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
     AbortCheck(context);
 
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     while (input_cursor_->Pull(frame, context)) {
       if (context.hops_limit.IsLimitReached()) return false;
@@ -2612,14 +2609,14 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges_result =
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
           for (const auto &edge : out_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
@@ -2639,14 +2636,14 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges_result =
-              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
           for (const auto &edge : in_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
@@ -2681,14 +2678,14 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges_result =
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
           for (const auto &edge : out_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
@@ -2708,14 +2705,14 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto in_edges_result =
-              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
           for (const auto &edge : in_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
@@ -2762,8 +2759,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("SingleSourceShortestPath");
 
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -2776,8 +2772,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (processed_.contains(vertex)) return false;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(
-                vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+          !(context.auth_checker->Has(vertex, self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         return false;
       }
@@ -2829,7 +2824,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += out_edges_result.expanded_count;
         for (const auto &edge : out_edges_result.edges) {
           bool was_expanded = expand_pair(edge, edge.To());
@@ -2838,7 +2833,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges_result =
-            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += in_edges_result.expanded_count;
         for (const auto &edge : in_edges_result.edges) {
           bool was_expanded = expand_pair(edge, edge.From());
@@ -2982,8 +2977,7 @@ class PruningBFSCursor : public query::plan::Cursor {
     }
     SCOPED_PROFILE_OP(profile_name_ ? profile_name_->c_str() : "PruningBFSExpand");
 
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -3039,9 +3033,8 @@ class PruningBFSCursor : public query::plan::Cursor {
           // Following edges one way, the source is met again only over an edge
           // leading back into it. Settling that here rather than per edge keeps
           // the search over an acyclic graph as cheap as it was.
-          auto const returning = self_.common_.direction == EdgeAtom::Direction::IN
-                                     ? vertex.OutDegree(storage::View::OLD)
-                                     : vertex.InDegree(storage::View::OLD);
+          auto const returning = self_.common_.direction == EdgeAtom::Direction::IN ? vertex.OutDegree(self_.view_)
+                                                                                    : vertex.InDegree(self_.view_);
           if (returning && *returning == 0) source_decided_ = true;
         }
 
@@ -3148,7 +3141,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(
-                next_vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                next_vertex, self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         return;
       }
@@ -3182,7 +3175,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
     if (self_.common_.direction != EdgeAtom::Direction::IN) {
       auto out_edges_result =
-          UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+          UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
       context.number_of_hops += out_edges_result.expanded_count;
       for (auto const &edge : out_edges_result.edges) {
         try_visit(edge, edge.To());
@@ -3190,7 +3183,7 @@ class PruningBFSCursor : public query::plan::Cursor {
     }
     if (self_.common_.direction != EdgeAtom::Direction::OUT) {
       auto in_edges_result =
-          UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+          UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
       context.number_of_hops += in_edges_result.expanded_count;
       for (auto const &edge : in_edges_result.edges) {
         try_visit(edge, edge.From());
@@ -3262,7 +3255,7 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
   /// the same question for EXPLAIN output.
   bool BoundPermitsPruning(Frame &frame, ExecutionContext &context) const {
     if (!self_.lower_bound_) return true;
-    ExpressionEvaluator evaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
     TypedValue const bound = self_.lower_bound_->Accept(evaluator);
     return bound.IsInt() && bound.ValueInt() <= 1;
   }
@@ -3340,8 +3333,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -3406,12 +3398,12 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &context, &expand_pair, &restore_frame_state_after_expansion](
                                   const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(
-                    edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
             continue;
           }
@@ -3421,12 +3413,12 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(
-                    edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
             continue;
           }
@@ -3651,8 +3643,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     auto *memory = context.evaluation_context.memory;
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
@@ -3749,12 +3740,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_vertex, &context, &restore_frame_state_after_expansion](
                                   const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(
-                    edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
             continue;
           }
@@ -3764,12 +3755,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
           if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(
-                    edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
             continue;
           }
@@ -4071,8 +4062,7 @@ class KShortestPathsCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("KShortestPaths");
 
-    ExpressionEvaluator evaluator =
-        ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
     // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
     fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
@@ -4541,7 +4531,7 @@ class KShortestPathsCursor : public Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           if (!out_edges_.contains(vertex)) {
             auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+                UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += out_edges_result.expanded_count;
             out_edges_.emplace(vertex,
                                CachedEdges(out_edges_result.edges.begin(),
@@ -4562,7 +4552,7 @@ class KShortestPathsCursor : public Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           if (!in_edges_.contains(vertex)) {
             auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+                UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += in_edges_result.expanded_count;
             in_edges_.emplace(
                 vertex,
@@ -4598,7 +4588,7 @@ class KShortestPathsCursor : public Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           if (!out_edges_.contains(vertex)) {
             auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+                UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += out_edges_result.expanded_count;
             out_edges_.emplace(vertex,
                                CachedEdges(out_edges_result.edges.begin(),
@@ -4619,7 +4609,7 @@ class KShortestPathsCursor : public Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           if (!in_edges_.contains(vertex)) {
             auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+                UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
             context.number_of_hops += in_edges_result.expanded_count;
             in_edges_.emplace(
                 vertex,
@@ -4801,6 +4791,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   }
   object->total_weight_ = total_weight_;
   object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
+  object->view_ = view_;
   return object;
 }
 
@@ -4982,6 +4973,7 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
     object->pattern_filters_[i1] = pattern_filters_[i1] ? pattern_filters_[i1]->Clone(storage) : nullptr;
   }
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->view_ = view_;
   return object;
 }
 
@@ -5195,8 +5187,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
-  ExpressionEvaluator evaluator{
-      &frame, context, storage::View::OLD, context.frame_change_collector, &context.number_of_hops};
+  ExpressionEvaluator evaluator{&frame, context, self_.view_, context.frame_change_collector, &context.number_of_hops};
 
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
@@ -5327,6 +5318,7 @@ std::unique_ptr<LogicalOperator> Produce::Clone(AstStorage *storage) const {
   for (auto i2 = 0; i2 < named_expressions_.size(); ++i2) {
     object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Clone(storage) : nullptr;
   }
+  object->view_ = view_;
   return object;
 }
 
@@ -5348,7 +5340,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator{
-        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+        &frame, context, self_.view_, context.frame_change_collector, &context.number_of_hops};
 
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);
@@ -7225,7 +7217,7 @@ class AggregateCursor : public Cursor {
       throw QueryRuntimeException("Aggregation expects a current DB transaction.");
     }
     ExpressionEvaluator evaluator =
-        ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
+        ExpressionEvaluator{frame, *context, self_.view_, nullptr, &context->number_of_hops};
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
@@ -7705,6 +7697,7 @@ std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
     object->group_by_[i5] = group_by_[i5] ? group_by_[i5]->Clone(storage) : nullptr;
   }
   object->remember_ = remember_;
+  object->view_ = view_;
   return object;
 }
 
@@ -7760,7 +7753,7 @@ class OrderByCursor : public Cursor {
 
     if (!did_pull_all_) [[unlikely]] {
       ExpressionEvaluator evaluator =
-          ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
       // auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
@@ -7868,6 +7861,7 @@ std::unique_ptr<LogicalOperator> OrderBy::Clone(AstStorage *storage) const {
   }
   object->output_symbols_ = output_symbols_;
   object->parallel_execution_ = parallel_execution_;
+  object->view_ = view_;
   return object;
 }
 
@@ -8096,7 +8090,7 @@ class UnwindCursor : public Cursor {
         if (!input_cursor_->Pull(frame, context)) return false;
 
         // successful pull from input, initialize value and iterator
-        ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, storage::View::OLD};
+        ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_};
 
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
@@ -8142,6 +8136,7 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_expression_ = input_expression_ ? input_expression_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
   return object;
 }
 
@@ -8959,7 +8954,7 @@ class CallProcedureCursor : public Cursor {
       }
       result_.rows.clear();
 
-      const auto graph_view = proc_->info.graph_access == GraphAccess::Write ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc_->info.graph_access == GraphAccess::Write ? storage::View::NEW : self_->view_;
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
 
@@ -9102,6 +9097,7 @@ std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const
   object->graph_access_ = graph_access_;
   object->procedure_id_ = procedure_id_;
   object->void_procedure_ = void_procedure_;
+  object->view_ = view_;
   return object;
 }
 
@@ -9891,7 +9887,7 @@ class HashJoinCursor : public Cursor {
 
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator =
-            ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+            ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         // The rule the table was built under, asked again of the side probing it.
@@ -9941,7 +9937,7 @@ class HashJoinCursor : public Cursor {
     // Pull all left_op_ frames
     while (left_op_cursor_->Pull(frame, context)) {
       ExpressionEvaluator evaluator =
-          ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       // A join keeps a pair only where the equality it stands for is true, and a
@@ -9983,6 +9979,7 @@ std::unique_ptr<LogicalOperator> HashJoin::Clone(AstStorage *storage) const {
   object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
   object->right_symbols_ = right_symbols_;
   object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
+  object->view_ = view_;
   return object;
 }
 
@@ -10186,6 +10183,7 @@ std::unique_ptr<LogicalOperator> Conditional::Clone(AstStorage *storage) const {
     cloned.columns = branch.columns;
   }
   object->output_symbols_ = output_symbols_;
+  object->predicate_view_ = predicate_view_;
   return object;
 }
 
@@ -10231,9 +10229,9 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
 
     if (!input_->Pull(frame, context)) return false;
 
-    // Unlike a `Filter`, a predicate sees the writes earlier rows' branches made (View::NEW).
+    // In a writing body a predicate sees the writes earlier rows' branches made (View::NEW).
     ExpressionEvaluator evaluator{
-        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+        &frame, context, self_.predicate_view_, context.frame_change_collector, &context.number_of_hops};
     for (size_t i = 0; i < self_.branches_.size(); ++i) {
       for (const auto &fold : branches_[i].pattern_filters) {
         fold->Pull(frame, context);

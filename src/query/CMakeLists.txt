@@ -73,6 +73,7 @@ target_sources(mg-query
     plan/preprocess.cpp
     plan/pretty_print.cpp
     plan/profile.cpp
+    plan/read_write_set.cpp
     plan/read_write_type_checker.cpp
     plan/rewrite/general.cpp
     plan/rewrite/index_lookup.cpp

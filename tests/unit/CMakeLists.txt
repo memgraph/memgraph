@@ -161,6 +161,11 @@ add_unit_test(query_plan
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_plan_write_visibility
+    SOURCES query_plan_write_visibility.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query
