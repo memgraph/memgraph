@@ -827,6 +827,23 @@ TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
   }
 }
 
+TYPED_TEST(TestPlanner, OrderByLimitReturningAVariableStaysAboveProduce) {
+  // Test MATCH (n) RETURN n ORDER BY n.b LIMIT 10
+  // `RETURN n` means `RETURN n AS n`, and the alias is its own symbol in its own frame slot, so
+  // the sort key reads a slot nothing fills until the projection runs. The projected value is the
+  // one the sort key came from, so running the sort first would be correct, and reaching that
+  // needs the sort key pointed at the source symbol rather than at the alias. Until something
+  // does that, returning a variable under its own name keeps the projection below the sort.
+  FakeDbAccessor dba;
+  auto b = dba.Property("b");
+  auto *as_n = NEXPR("n", IDENT("n"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(as_n, ORDER_BY(PROPERTY_LOOKUP(dba, "n", b)), LIMIT(LITERAL(10)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
+}
+
 TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
   // Test MATCH (n) RETURN n.prop AS n ORDER BY n LIMIT 10
   // openCypher 9, ORDER BY scope: "When the projection clause shadows already existing variables,

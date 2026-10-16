@@ -971,7 +971,10 @@ bool CanDeferProjection(const ReturnBodyContext &body) {
       body.branches_at(BodyPosition::kOrderBy).empty() && body.branches_at(BodyPosition::kProjection).empty() &&
       body.aggregations().empty() &&
       // A sort key or a projected expression naming something not bound when the clause began,
-      // such as a projected alias, which the sort cannot replay.
+      // such as a projected alias, which the sort cannot replay. This also turns down the case
+      // where the alias carries its source unchanged, as `RETURN n` does: the two are separate
+      // symbols in separate frame slots, so admitting it means pointing the sort key at the
+      // source rather than at the alias, which this cannot do by inspection alone.
       sort_keys_all_bound() && projection_reads_all_bound();
 }
 
