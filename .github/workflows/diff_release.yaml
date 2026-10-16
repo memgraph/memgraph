@@ -905,7 +905,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph stress-plain
+          test-memgraph stress-plain-parallel
 
       - name: Run stress test (SSL)
         run: |
