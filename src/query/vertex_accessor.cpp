@@ -23,44 +23,43 @@ namespace memgraph::query {
 static_assert(std::ranges::forward_range<ExpandedEdges>);
 static_assert(std::ranges::sized_range<ExpandedEdges>);
 
+namespace {
+
+/// The same expansion, read as the accessors this layer deals in rather than the ones below it.
+/// The edges move across whole, so this is a change of type and not of what was found: an edge of
+/// this layer is an edge of that one, and answers with vertices of this layer rather than that.
+auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(result.edges)}, .expanded_count = result.expanded_count};
+}
+
+}  // namespace
+
 storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view) const { return InEdges(view, {}); }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view,
                                                              const std::vector<storage::EdgeTypeId> &edge_types,
                                                              storage::HopsLimit *hops_limit) const {
-  auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
-                             .expanded_count = (*maybe_result).expanded_count};
+  return impl_.InEdges(view, edge_types, nullptr, hops_limit).transform(AsQueryResult);
 }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view,
                                                              const std::vector<storage::EdgeTypeId> &edge_types,
                                                              const VertexAccessor &dest,
                                                              storage::HopsLimit *hops_limit) const {
-  auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
-                             .expanded_count = (*maybe_result).expanded_count};
+  return impl_.InEdges(view, edge_types, &dest.impl_, hops_limit).transform(AsQueryResult);
 }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view,
                                                               const std::vector<storage::EdgeTypeId> &edge_types,
                                                               storage::HopsLimit *hops_limit) const {
-  auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
-                             .expanded_count = (*maybe_result).expanded_count};
+  return impl_.OutEdges(view, edge_types, nullptr, hops_limit).transform(AsQueryResult);
 }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view,
                                                               const std::vector<storage::EdgeTypeId> &edge_types,
                                                               const VertexAccessor &dest,
                                                               storage::HopsLimit *hops_limit) const {
-  auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move((*maybe_result).edges)},
-                             .expanded_count = (*maybe_result).expanded_count};
+  return impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit).transform(AsQueryResult);
 }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view) const { return OutEdges(view, {}); }

@@ -182,30 +182,29 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
   return impl_.GetProperty(view, key);
 }
 
+namespace {
+
+/// Narrows an expansion to the edges `graph` holds.
+///
+/// Which edges belong is decided by looking at each one, but what is kept is still the triples, so
+/// a subgraph's edges are built on dereference like any other expansion.
+auto KeptIn(Graph const *graph) {
+  return [graph](storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
+    auto const &graph_edges = graph->edges();
+    auto kept = result.edges.Filtered(
+        [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
+    return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = result.expanded_count};
+  };
+}
+
+}  // namespace
+
 storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
-  auto maybe_edges = impl_.impl_.OutEdges(view, {});
-  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  const auto &graph_edges = graph_->edges();
-
-  // Which edges belong is decided by looking at each one, but what is kept is still the
-  // triples, so the subgraph's edges are built on dereference like any other expansion.
-  auto kept = maybe_edges->edges.Filtered(
-      [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
-
-  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = maybe_edges->expanded_count};
+  return impl_.impl_.OutEdges(view, {}).transform(KeptIn(graph_));
 }
 
 storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
-  auto maybe_edges = impl_.impl_.InEdges(view, {});
-  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  const auto &graph_edges = graph_->edges();
-
-  // Which edges belong is decided by looking at each one, but what is kept is still the
-  // triples, so the subgraph's edges are built on dereference like any other expansion.
-  auto kept = maybe_edges->edges.Filtered(
-      [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
-
-  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = maybe_edges->expanded_count};
+  return impl_.impl_.InEdges(view, {}).transform(KeptIn(graph_));
 }
 
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
