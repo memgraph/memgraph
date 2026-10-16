@@ -963,8 +963,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
     if (view == View::OLD && !edges_modified_in_tx) {
-      return EdgesVertexAccessorResult{.edges = ExpandedEdges{disk_edges},
-                                       .expanded_count = static_cast<int64_t>(disk_edges.size())};
+      // Counted before the move, because the move leaves nothing to count.
+      auto const expanded_count = static_cast<int64_t>(disk_edges.size());
+      return EdgesVertexAccessorResult{.edges = ExpandedEdges{std::move(disk_edges)}, .expanded_count = expanded_count};
     }
   }
 
@@ -1057,8 +1058,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view, hops_limit);
 
     if (view == View::OLD && !edges_modified_in_tx) {
-      return EdgesVertexAccessorResult{.edges = ExpandedEdges{disk_edges},
-                                       .expanded_count = static_cast<int64_t>(disk_edges.size())};
+      // Counted before the move, because the move leaves nothing to count.
+      auto const expanded_count = static_cast<int64_t>(disk_edges.size());
+      return EdgesVertexAccessorResult{.edges = ExpandedEdges{std::move(disk_edges)}, .expanded_count = expanded_count};
     }
   }
 
