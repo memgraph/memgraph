@@ -936,12 +936,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   SubqueryContext *subquery_ctx_ = nullptr;
 };
 
-/// Puts the projection and the ordering on top of @p input_op, in one of two orders depending on
-/// whether the projection can wait until after the limit.
-std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<LogicalOperator> input_op,
-                                                           const ReturnBodyContext &body, auto &&splice_branches) {
+/// Whether @p body may leave its projection until after the sort and the limit, which runs its
+/// projected expressions only for the rows that come back.
+///
+/// Each term is either a reason there is nothing to gain, or a reason a row reaching the
+/// projection could not be rebuilt from what the sort replays. The two walks over the expressions
+/// come last, so they run only when nothing cheaper has already said no.
+bool CanDeferProjection(const ReturnBodyContext &body) {
   using BodyPosition = ReturnBodyContext::BodyPosition;
-  auto last_op = std::move(input_op);
   auto const all_bound = [&](UsedSymbolsCollector const &collector) {
     return std::ranges::all_of(collector.symbols_,
                                [&](Symbol const &symbol) { return body.bound_symbols().contains(symbol); });
@@ -957,12 +959,7 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
     return all_bound(collector);
   };
 
-  // The projection can wait until after the sort and the limit, which leaves its expressions to
-  // run only for the rows that come back. Each term below is either a reason there is nothing to
-  // gain, or a reason a row reaching the projection could not be rebuilt from what the sort
-  // replays. The two expression walks come last so that they run only when nothing cheaper has
-  // already said no.
-  auto const can_defer =
+  return
       // Nothing to move the projection past, or every row is projected either way.
       !body.order_by().empty() && body.limit() != nullptr &&
       // DISTINCT and a trailing WHERE each change how many rows reach the limit.
@@ -976,8 +973,16 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
       // A sort key or a projected expression naming something not bound when the clause began,
       // such as a projected alias, which the sort cannot replay.
       sort_keys_all_bound() && projection_reads_all_bound();
+}
 
-  if (can_defer) {
+/// Puts the projection and the ordering on top of @p input_op, in one of two orders depending on
+/// whether the projection can wait until after the limit.
+std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<LogicalOperator> input_op,
+                                                           const ReturnBodyContext &body, auto &&splice_branches) {
+  using BodyPosition = ReturnBodyContext::BodyPosition;
+  auto last_op = std::move(input_op);
+
+  if (CanDeferProjection(body)) {
     // Only the projection reads these replayed rows: Skip and Limit count without looking.
     SymbolsReadAbove read_above{body.symbol_table(), body.bound_symbols()};
     read_above.ReadBy(body.named_expressions());
