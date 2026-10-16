@@ -74,9 +74,9 @@ class VertexAccessor final {
   }
 
   /// The edges of this vertex, as a range that builds each accessor when it is looked at. See
-  /// `ExpandedEdges`. A caller that needs an array asks for one with `Materialise`, which for an
-  /// expansion of any size is the expensive part: for a vertex of high degree almost all of what it
-  /// costs is the kernel faulting in the pages to write it to.
+  /// `ExpandedEdges`. Collecting them into an array is the expensive part, and for a vertex of high
+  /// degree almost all of what that costs is the kernel faulting in the pages to write it to, so
+  /// nothing here does it.
   ///
   /// The read itself is not deferred. The edges are read and the vertex's lock released before any
   /// of these returns, so what a concurrent writer can do to the result is what it could do to an

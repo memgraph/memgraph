@@ -14,10 +14,12 @@
 
 #include <limits>
 
+#include "materialise_edges.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
+using memgraph::test::Materialise;
 using testing::UnorderedElementsAre;
 
 struct StorageEdgeConfig {
@@ -3488,7 +3490,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex1.InEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.InDegree(memgraph::storage::View::NEW), 2);
@@ -3508,7 +3510,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex1.OutEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.OutDegree(memgraph::storage::View::NEW), 2);
@@ -3528,7 +3530,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex2.InEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.InDegree(memgraph::storage::View::NEW), 2);
@@ -3548,7 +3550,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex2.OutEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.OutDegree(memgraph::storage::View::NEW), 2);
@@ -3600,7 +3602,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex1->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(memgraph::storage::View::OLD), 2);
@@ -3622,7 +3624,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex1->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(memgraph::storage::View::OLD), 2);
@@ -3644,7 +3646,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(memgraph::storage::View::OLD), 2);
@@ -3675,7 +3677,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = vertex2->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(memgraph::storage::View::OLD), 2);
@@ -4063,7 +4065,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1.InEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.InDegree(memgraph::storage::View::NEW), 2);
@@ -4083,7 +4085,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1.OutEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.OutDegree(memgraph::storage::View::NEW), 2);
@@ -4103,7 +4105,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2.InEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.InDegree(memgraph::storage::View::NEW), 2);
@@ -4123,7 +4125,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2.OutEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.OutDegree(memgraph::storage::View::NEW), 2);
@@ -4175,7 +4177,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(memgraph::storage::View::OLD), 2);
@@ -4197,7 +4199,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(memgraph::storage::View::OLD), 2);
@@ -4219,7 +4221,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(memgraph::storage::View::OLD), 2);
@@ -4250,7 +4252,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(memgraph::storage::View::OLD), 2);
@@ -4299,7 +4301,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(memgraph::storage::View::OLD), 2);
@@ -4319,7 +4321,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->InEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(memgraph::storage::View::NEW), 2);
@@ -4339,7 +4341,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(memgraph::storage::View::OLD), 2);
@@ -4359,7 +4361,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->OutEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(memgraph::storage::View::NEW), 2);
@@ -4379,7 +4381,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(memgraph::storage::View::OLD), 2);
@@ -4399,7 +4401,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->InEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(memgraph::storage::View::NEW), 2);
@@ -4419,7 +4421,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(memgraph::storage::View::OLD), 2);
@@ -4439,7 +4441,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->OutEdges(memgraph::storage::View::NEW);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(memgraph::storage::View::NEW), 2);
@@ -4491,7 +4493,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(memgraph::storage::View::OLD), 2);
@@ -4513,7 +4515,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex1->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(memgraph::storage::View::OLD), 2);
@@ -4535,7 +4537,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(memgraph::storage::View::OLD), 2);
@@ -4566,7 +4568,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = vertex2->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(ret.has_value());
-      auto edges = ret.value().edges.Materialise();
+      auto edges = Materialise(ret.value().edges);
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(memgraph::storage::View::OLD), 2);
@@ -5593,7 +5595,7 @@ TEST(StorageEdgeDeleteAbort, SerializationErrorMidDeleteLeavesNoDuplicateAdjacen
     ASSERT_TRUE(from);
     // DetachDelete takes pointers, so this is one of the few callers that needs the edges to
     // exist somewhere it can point at rather than be built as it looks at them.
-    auto edges = from->OutEdges(View::NEW)->edges.Materialise();
+    auto edges = Materialise(from->OutEdges(View::NEW)->edges);
     ASSERT_EQ(edges.size(), 3);
     std::vector<memgraph::storage::EdgeAccessor *> to_delete{&edges[0], &edges[1], &edges[2]};
     auto res = acc1->DetachDelete({}, to_delete, false);

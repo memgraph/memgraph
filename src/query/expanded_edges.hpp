@@ -14,7 +14,6 @@
 #include <cstddef>
 #include <iterator>
 #include <utility>
-#include <vector>
 
 #include "query/edge_accessor.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -74,22 +73,9 @@ class ExpandedEdges {
 
   auto size() const -> std::size_t { return storage_edges_.size(); }
 
-  auto empty() const -> bool { return size() == 0; }
-
-  /// The edge at `index`, built now. For a caller that holds a position rather than an iterator,
-  /// which is how it keeps that position across a call that hands control back to its own caller.
+  /// The edge at `index`, built now. For a caller reading one edge rather than walking them all.
   /// The edge comes back by value, because there is none to refer to until it is asked for.
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
-
-  /// The array, for a caller that needs one after all, which is every caller that has not moved to
-  /// taking this range. Nothing on a hot path should want it: building it is the cost this type
-  /// exists to avoid.
-  auto Materialise() const -> std::vector<EdgeAccessor> {
-    auto built = std::vector<EdgeAccessor>{};
-    built.reserve(size());
-    for (auto const &edge : *this) built.emplace_back(edge);
-    return built;
-  }
 
  private:
   auto At(std::size_t index) const -> EdgeAccessor { return EdgeAccessor{storage_edges_.At(index)}; }
