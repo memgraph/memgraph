@@ -60,12 +60,13 @@ on:
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
 
-# Manual dispatches are spread over five lanes by the last digit of the run number, so up to five can run at
-# once; a sixth queues behind the lane it lands in. Each lane still needs its own runner host, because a
+# Manual dispatches are spread over ten lanes by the last digit of the run number, so up to ten can run at
+# once; an eleventh queues behind the lane it lands in. Each lane still needs its own runner host, because a
 # Jepsen cluster uses fixed container names and a host can hold only one. The nightly run has its own group.
-# The lane names differ from the slot names older commits use, so runs from both schemes never share a group.
+# The lane names are unique to this scheme, so runs dispatched from commits with an older scheme never share
+# a group with these and cannot block them.
 concurrency:
-  group: ${{ github.event_name != 'workflow_dispatch' && 'jepsen-scheduled' || (endsWith(github.run_number, '0') || endsWith(github.run_number, '5')) && 'jepsen-manual-lane-0' || (endsWith(github.run_number, '1') || endsWith(github.run_number, '6')) && 'jepsen-manual-lane-1' || (endsWith(github.run_number, '2') || endsWith(github.run_number, '7')) && 'jepsen-manual-lane-2' || (endsWith(github.run_number, '3') || endsWith(github.run_number, '8')) && 'jepsen-manual-lane-3' || 'jepsen-manual-lane-4' }}
+  group: ${{ github.event_name != 'workflow_dispatch' && 'jepsen-scheduled' || endsWith(github.run_number, '0') && 'jepsen-manual-wide-lane-0' || endsWith(github.run_number, '1') && 'jepsen-manual-wide-lane-1' || endsWith(github.run_number, '2') && 'jepsen-manual-wide-lane-2' || endsWith(github.run_number, '3') && 'jepsen-manual-wide-lane-3' || endsWith(github.run_number, '4') && 'jepsen-manual-wide-lane-4' || endsWith(github.run_number, '5') && 'jepsen-manual-wide-lane-5' || endsWith(github.run_number, '6') && 'jepsen-manual-wide-lane-6' || endsWith(github.run_number, '7') && 'jepsen-manual-wide-lane-7' || endsWith(github.run_number, '8') && 'jepsen-manual-wide-lane-8' || 'jepsen-manual-wide-lane-9' }}
   cancel-in-progress: false
 
 jobs:
