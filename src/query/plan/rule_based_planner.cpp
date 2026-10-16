@@ -880,7 +880,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
                                                const ReturnBodyContext &body, bool accumulate,
-                                               Expression *commit_frequency) {
+                                               Expression *commit_frequency, storage::View read_view) {
   std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
   auto last_op = std::move(input_op);
   if (accumulate) {
@@ -952,7 +952,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       }
     }
 
-    last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+    auto aggregate = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+    aggregate->view_ = read_view;
+    last_op = std::move(aggregate);
   }
 
   // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
@@ -978,7 +980,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
   }
 
-  last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  auto produce = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  produce->view_ = read_view;
+  last_op = std::move(produce);
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
   if (body.distinct()) {
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
@@ -1169,7 +1173,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool is_root_query) {
+                                           bool is_root_query, storage::View read_view) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -1182,14 +1186,15 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // View::OLD. A body's RETURN runs once per outer row, and an advance there would change the outer scan mid-way.
   bool const advance_command = is_root_query;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
-  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
+  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports) {
+                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
+                                         storage::View read_view) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
@@ -1204,7 +1209,7 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
     with.where_->expression_ = SplitLabelsTests(with.where_->expression_, storage);
   }
   const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
-  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
+  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
 
   // In EXISTS subqueries, we need to preserve outer scope variables
   if (in_subquery_body) {

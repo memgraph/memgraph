@@ -247,13 +247,14 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool is_root_query);
+                                           bool is_root_query, storage::View read_view);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports);
+                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
+                                         storage::View read_view = storage::View::NEW);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -348,6 +349,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     uint64_t procedure_id = 1;
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
+    auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
+    if (is_root_query && !context.in_subquery_body) {
+      read_scope_ = HasBatching(query_parts) ? ReadScope::kBatching : ReadScope::kRoot;
+    }
 
     // in CALL with scoped variables, we immediately have some bound variables to work with
     auto const initial_bound_symbols = context.bound_symbols;
@@ -494,7 +499,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        *context.ast_storage,
                                        subquery_ctx,
                                        query_parts.commit_frequency,
-                                       is_root_query);
+                                       is_root_query,
+                                       ScopeView());
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
@@ -527,14 +533,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                      subquery_ctx,
                                      nullptr,
                                      context.in_subquery_body,
-                                     context.scoped_call_imports);
+                                     context.scoped_call_imports,
+                                     ScopeView());
             // WITH clause advances the command, so reset the flag.
             wrote_since_with = false;
           } else if (IsWriteClause(clause)) {
             wrote_since_with = true;
             write_occurred = true;
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
-            auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols);
+            auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, ScopeView());
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
           } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
@@ -768,6 +775,35 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   TPlanningContext *context_;
+
+  /// Where the reads being planned sit, which decides their view.
+  enum class ReadScope : uint8_t {
+    kRoot,          ///< the root query: reads use View::OLD behind a barrier
+    kReadOnlyTree,  ///< a CALL body tree that writes nothing: View::OLD, it runs before any later write
+    kWritingTree,   ///< a root-level CALL body tree that writes: View::NEW, to see its own earlier rows
+    kBatching,      ///< periodic commit or IN TRANSACTIONS anywhere: master's views, no barriers
+  };
+  ReadScope read_scope_{ReadScope::kRoot};
+
+  /// The view of a read whose master view is View::NEW and that follows the scope rule.
+  storage::View ScopeView() const {
+    return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kReadOnlyTree ? storage::View::OLD
+                                                                                      : storage::View::NEW;
+  }
+
+  static bool HasBatching(const QueryParts &query_parts) {
+    if (query_parts.commit_frequency) return true;
+    return std::ranges::any_of(query_parts.query_parts, [](const QueryPart &part) {
+      return std::ranges::any_of(part.single_query_parts,
+                                 [](const SingleQueryPart &single_part) {
+                                   return std::ranges::any_of(single_part.subqueries,
+                                                              [](const auto &sub) { return HasBatching(*sub); });
+                                 }) ||
+             (part.conditional && std::ranges::any_of(part.conditional->branches,
+                                                      [](const auto &branch) { return HasBatching(branch.body); }));
+    });
+  }
+
   /// Whether the EXISTS subquery branch currently being planned is spliced after a write in its enclosing query part.
   /// The recursive plan of a subquery body starts a fresh query part with no write history, so without this its
   /// matchings would read View::OLD and miss a write the branch is supposed to see. Every view decision inside the
@@ -887,18 +923,20 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   std::unique_ptr<LogicalOperator> GenCreate(Create &create, std::unique_ptr<LogicalOperator> input_op,
-                                             const SymbolTable &symbol_table,
-                                             std::unordered_set<Symbol> &bound_symbols) {
+                                             const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
+                                             storage::View view) {
     auto last_op = std::move(input_op);
     for (auto pattern : create.patterns_) {
-      last_op = GenCreateForPattern(*pattern, std::move(last_op), symbol_table, bound_symbols);
+      last_op = GenCreateForPattern(*pattern, std::move(last_op), symbol_table, bound_symbols, view);
     }
     return last_op;
   }
 
+  /// @param view what the property maps read: a MERGE or a FOREACH body sees its own earlier rows (View::NEW).
   std::unique_ptr<LogicalOperator> GenCreateForPattern(Pattern &pattern, std::unique_ptr<LogicalOperator> input_op,
                                                        const SymbolTable &symbol_table,
-                                                       std::unordered_set<Symbol> &bound_symbols) {
+                                                       std::unordered_set<Symbol> &bound_symbols,
+                                                       storage::View view = storage::View::NEW) {
     auto node_to_creation_info = [&](const NodeAtom &node) {
       const auto &node_symbol = symbol_table.at(*node.identifier_);
 
@@ -928,7 +966,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       const auto &node_symbol = symbol_table.at(*node->identifier_);
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);
-        return std::make_unique<CreateNode>(std::move(input_op), node_info);
+        auto create_node = std::make_unique<CreateNode>(std::move(input_op), node_info);
+        create_node->view_ = view;
+        return create_node;
       }
       return std::move(input_op);
     };
@@ -962,7 +1002,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
       MG_ASSERT(edge->edge_types_.size() == 1, "Creating an edge with a single type should be required by syntax");
       EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeIds(edge->edge_types_)[0], edge->direction_};
-      return std::make_unique<CreateExpand>(node_info, edge_info, std::move(last_op), input_symbol, node_existing);
+      auto create_expand =
+          std::make_unique<CreateExpand>(node_info, edge_info, std::move(last_op), input_symbol, node_existing);
+      create_expand->view_ = view;
+      return create_expand;
     };
 
     auto last_op = impl::ReducePattern<std::unique_ptr<LogicalOperator>>(pattern, base, collect);
@@ -1020,11 +1063,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   // Generate an operator for a clause which writes to the database. Ownership
   // of input_op is transferred to the newly created operator. If the clause
   // isn't handled, returns nullptr and input_op is left as is.
+  /// @param create_view what a CREATE's property maps read; see @c GenCreateForPattern.
   std::unique_ptr<LogicalOperator> HandleWriteClause(Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
                                                      const SymbolTable &symbol_table,
-                                                     std::unordered_set<Symbol> &bound_symbols) {
+                                                     std::unordered_set<Symbol> &bound_symbols,
+                                                     storage::View create_view = storage::View::NEW) {
     if (auto *create = utils::Downcast<Create>(clause)) {
-      return GenCreate(*create, std::move(input_op), symbol_table, bound_symbols);
+      return GenCreate(*create, std::move(input_op), symbol_table, bound_symbols, create_view);
     } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
@@ -1762,6 +1807,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       context_->scoped_call_imports.clear();
     }
 
+    auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
+    if (commit_frequency != nullptr) {
+      read_scope_ = ReadScope::kBatching;
+    } else if (read_scope_ == ReadScope::kRoot) {
+      read_scope_ = subquery->writes ? ReadScope::kWritingTree : ReadScope::kReadOnlyTree;
+    }
     auto subquery_op = Plan(*subquery);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
     // `OPTIONAL CALL` nulls out what the branch introduces, never what it imported: `RETURN *` projects the
