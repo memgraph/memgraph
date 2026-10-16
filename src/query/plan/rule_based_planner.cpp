@@ -238,6 +238,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   struct BranchesAt {
     std::vector<PatternComprehensionData> comprehensions;
     std::vector<SubqueryBranch> subqueries;
+
+    /// Whether this position has no branch of either kind. A branch whose operator was never
+    /// planned still counts as one, so a caller deciding what a branch rules out is told about it.
+    bool empty() const { return comprehensions.empty() && subqueries.empty(); }
   };
 
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
@@ -830,10 +834,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   BranchesAt branches_at(BodyPosition position) const { return branches_[static_cast<size_t>(position)]; }
 
   /// Whether anything is spliced at @p position, without the copy @c branches_at owes its caller.
-  bool has_branches_at(BodyPosition position) const {
-    auto const &branches = branches_[static_cast<size_t>(position)];
-    return !branches.comprehensions.empty() || !branches.subqueries.empty();
-  }
+  bool has_branches_at(BodyPosition position) const { return !branches_[static_cast<size_t>(position)].empty(); }
 
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
   const auto &bound_symbols() const { return bound_symbols_; }
