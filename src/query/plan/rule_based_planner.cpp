@@ -104,9 +104,8 @@ concept VisitableRange =
 
 /// The symbols an OrderBy or Accumulate puts back on the frame for each row it replays.
 ///
-/// It rebuilds each replayed row from this list alone, and a symbol something above reads but the
-/// list omits is not a crash: the slot reads as Null and the row comes back wrong. Over-covering
-/// only copies a Null, so a reader that may read nothing is still worth naming.
+/// A replayed row is rebuilt from this list alone. Omitting a symbol something above reads is not
+/// a crash: the slot reads as Null and the row comes back wrong. Over-covering only copies a Null.
 class SymbolsReadAbove {
  public:
   SymbolsReadAbove(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols)
@@ -119,13 +118,12 @@ class SymbolsReadAbove {
   }
 
   /// Everything @p expressions read, keeping only what was bound before this clause. A symbol the
-  /// clause writes itself is written above this operator, so restoring a stale one would overwrite
-  /// the fresh value.
+  /// clause writes itself is written above this operator, so restoring it would overwrite the
+  /// fresh value with a stale one.
   void ReadBy(VisitableRange auto &&expressions) {
     SubqueryReadSymbolsCollector collector{symbol_table_};
     for (auto &&expression : expressions) expression->Accept(collector);
-    // The collector answers in hash order, so an unsorted append would make plans for the same
-    // query differ run to run.
+    // The collector answers in hash order; sorting keeps plans for one query identical run to run.
     std::vector<Symbol> collected(collector.symbols_.begin(), collector.symbols_.end());
     std::ranges::sort(collected, std::less<>{}, &Symbol::position);
     for (auto const &symbol : collected) {
@@ -239,8 +237,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     std::vector<PatternComprehensionData> comprehensions;
     std::vector<SubqueryBranch> subqueries;
 
-    /// Whether this position has no branch of either kind. A branch whose operator was never
-    /// planned still counts as one, so a caller deciding what a branch rules out is told about it.
+    /// A branch whose operator was never planned still counts as one, so a caller deciding what a
+    /// branch rules out is told about it.
     bool empty() const { return comprehensions.empty() && subqueries.empty(); }
   };
 
@@ -830,8 +828,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   /// The branches to splice at @p position. Splicing moves the operators out, so a caller that
   /// splices takes a copy; one that only asks what is there does not.
   ///
-  /// kProjection: below the Produce. kOrderBy: after the Produce whose symbols they read, below the OrderBy that
-  /// consumes them. kWhere: above the OrderBy, which restores only its own output symbols, and below the Filter.
+  /// kProjection: below the Produce. kOrderBy: after the Produce whose symbols they read, below the
+  /// OrderBy that consumes them. kWhere: above the OrderBy, which restores only its own output
+  /// symbols, and below the Filter.
   BranchesAt const &branches_at(BodyPosition position) const { return branches_[static_cast<size_t>(position)]; }
 
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
@@ -940,8 +939,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 /// projected expressions only for the rows that come back.
 ///
 /// Each term is either a reason there is nothing to gain, or a reason a row reaching the
-/// projection could not be rebuilt from what the sort replays. The two walks over the expressions
-/// come last, so they run only when nothing cheaper has already said no.
+/// projection could not be rebuilt from what the sort replays. The two expression walks come last,
+/// so they run only when nothing cheaper has already said no.
 bool CanDeferProjection(const ReturnBodyContext &body) {
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto const all_bound = [&](UsedSymbolsCollector const &collector) {
@@ -965,16 +964,14 @@ bool CanDeferProjection(const ReturnBodyContext &body) {
       // DISTINCT and a trailing WHERE each change how many rows reach the limit.
       !body.distinct() && body.where() == nullptr &&
       // A branch under the ORDER BY reads what the projection writes. A branch under the
-      // projection, and an aggregate, are planned below it and write per row, and neither names
-      // its result through an Identifier that the walks below would report, so both are asked
-      // about rather than swept for.
+      // projection, and an aggregate, write per row below it, and neither is visible to the walks
+      // below, so both are asked about rather than swept for.
       body.branches_at(BodyPosition::kOrderBy).empty() && body.branches_at(BodyPosition::kProjection).empty() &&
       body.aggregations().empty() &&
-      // A sort key or a projected expression naming something not bound when the clause began,
-      // such as a projected alias, which the sort cannot replay. This also turns down the case
-      // where the alias carries its source unchanged, as `RETURN n` does: the two are separate
-      // symbols in separate frame slots, so admitting it means pointing the sort key at the
-      // source rather than at the alias, which this cannot do by inspection alone.
+      // A sort key or projected expression naming something unbound when the clause began, such as
+      // a projected alias, which the sort cannot replay. That holds even where the alias carries
+      // its source unchanged, as `RETURN n` does: alias and source are separate frame slots, so
+      // admitting it means pointing the sort key at the source, which inspection alone cannot do.
       sort_keys_all_bound() && projection_reads_all_bound();
 }
 
@@ -1006,8 +1003,7 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
   }
   // They read the named expression symbols, and OrderBy reads them in its collection sweep - so directly below it.
   last_op = splice_branches(std::move(last_op), body.branches_at(BodyPosition::kOrderBy));
-  // Like Where, OrderBy can read from symbols established by named expressions
-  // in Produce, so it must come after it.
+  // Like Where, OrderBy can read symbols the named expressions establish, so it comes after Produce.
   if (!body.order_by().empty()) {
     // Whatever consumes this clause reads the projected columns, and a Filter(where) above reads
     // its own expression.
@@ -1018,16 +1014,13 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
     }
     last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), std::move(read_above).Take());
   }
-  // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {
     last_op = std::make_unique<Skip>(std::move(last_op), body.skip());
   }
-  // Limit is always after Skip.
   if (body.limit()) {
     last_op = std::make_unique<Limit>(std::move(last_op), body.limit());
   }
-  // Where may see new symbols so it comes after we generate Produce and in
-  // general, comes after any OrderBy, Skip or Limit.
+  // Where may see new symbols, so it comes after Produce and after any OrderBy, Skip or Limit.
   if (body.where()) {
     // Below the Filter, not the OrderBy: spliced lower, it would hand the Filter one frozen value per replayed row.
     last_op = splice_branches(std::move(last_op), body.branches_at(BodyPosition::kWhere));

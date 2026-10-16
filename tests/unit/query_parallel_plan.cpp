@@ -825,10 +825,8 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithSkipLimit) {
 TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithDeferredProjection) {
   LicenseWrapper license_wrapper;
   // Test USING PARALLEL EXECUTION MATCH (n) RETURN n.a AS a ORDER BY n.b LIMIT 10
-  // The projection is deferred past the limit and the sort is parallelised, so OrderByParallel
-  // merges branches whose OrderBy carries the symbols the projection reads rather than the
-  // columns it produces. `RETURN n` cannot reach this shape: the alias shadows `n`, which keeps
-  // the projection below the sort.
+  // With the projection deferred past the limit, OrderByParallel merges branches whose OrderBy
+  // carries the symbols the projection reads rather than the columns it produces.
   FakeDbAccessor dba;
   auto a = dba.Property("a");
   auto b = dba.Property("b");

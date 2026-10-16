@@ -16,9 +16,6 @@
 // list length when it is not. `pmr_bytes_per_element` divided by the average accumulator size
 // gives the number of copies the evaluation resource sees; it is a lower bound, because the
 // temporaries inside `operator+` are `std::allocator` strings that never reach it.
-//
-// `StringConcatOperator` against `StringConcatIdeal` shows one step's multiple over the same
-// concatenation done in a single allocation.
 
 #include <algorithm>
 #include <cstddef>

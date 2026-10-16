@@ -829,11 +829,9 @@ TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
 
 TYPED_TEST(TestPlanner, OrderByLimitReturningAVariableStaysAboveProduce) {
   // Test MATCH (n) RETURN n ORDER BY n.b LIMIT 10
-  // `RETURN n` means `RETURN n AS n`, and the alias is its own symbol in its own frame slot, so
-  // the sort key reads a slot nothing fills until the projection runs. The projected value is the
-  // one the sort key came from, so running the sort first would be correct, and reaching that
-  // needs the sort key pointed at the source symbol rather than at the alias. Until something
-  // does that, returning a variable under its own name keeps the projection below the sort.
+  // `RETURN n` means `RETURN n AS n`, and the alias has its own frame slot, so the sort key reads a
+  // slot nothing fills until the projection runs. Sinking the sort would be correct here, but only
+  // once the sort key points at the source symbol rather than the alias.
   FakeDbAccessor dba;
   auto b = dba.Property("b");
   auto *as_n = NEXPR("n", IDENT("n"));

@@ -1658,7 +1658,6 @@ void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
     fmt::format_to(std::back_inserter(out), "{}", value.ValueDouble());
     return;
   }
-  // unsupported situations
   throw TypedValueException("Unsupported TypedValue::Type conversion to string");
 }
 

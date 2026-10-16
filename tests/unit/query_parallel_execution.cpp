@@ -32,8 +32,7 @@ namespace {
 
 constexpr uint16_t kBranches = 4;
 
-/// Plans @p query the way the interpreter does, including the rewrite that turns a scan and a sort
-/// into their parallel forms.
+/// Plans @p query as the interpreter does, including the rewrite into parallel operators.
 std::unique_ptr<LogicalOperator> PlanQuery(memgraph::query::CypherQuery *query, AstStorage &ast,
                                            SymbolTable &symbol_table, memgraph::query::DbAccessor *dba) {
   auto planning_context = MakePlanningContext(&ast, &symbol_table, query, dba);
@@ -44,8 +43,7 @@ std::unique_ptr<LogicalOperator> PlanQuery(memgraph::query::CypherQuery *query, 
   return post_processor.Rewrite(std::move(plan), &planning_context);
 }
 
-/// The projection in @p plan. The root is only the projection when the sort sank below it;
-/// otherwise the ordering sits on top.
+/// The projection in @p plan. It is the root only where the sort sank below it.
 Produce *FindProduce(LogicalOperator *op) {
   while (op != nullptr) {
     if (auto *produce = dynamic_cast<Produce *>(op)) return produce;
@@ -55,7 +53,7 @@ Produce *FindProduce(LogicalOperator *op) {
   return nullptr;
 }
 
-/// Pulls @p plan to exhaustion and reads the columns its projection names off each row.
+/// Reads the columns the projection names off every row @p plan produces.
 std::vector<std::vector<TypedValue>> CollectRows(LogicalOperator &plan, ExecutionContext *context) {
   auto *produce = FindProduce(&plan);
   EXPECT_NE(produce, nullptr) << "plan has no projection to read";
@@ -94,8 +92,8 @@ class ParallelExecution : public ::testing::Test {
     memgraph::license::global_license_checker.DisableTesting();
   }
 
-  /// A context a parallel branch can run under: the branches need somewhere to run and a flag to
-  /// publish an escaping exception through.
+  /// Adds what a parallel branch needs: somewhere to run, and a flag to publish an escaping
+  /// exception through.
   ExecutionContext MakeParallelContext(const SymbolTable &symbol_table, memgraph::query::DbAccessor *dba) {
     auto context = MakeContext(storage, symbol_table, dba);
     context.worker_pool = &pool;
@@ -121,8 +119,8 @@ TYPED_TEST(ParallelExecution, OrderByLimitBelowTheProjectionTakesTheTopRowsInOrd
   auto prop_a = dba.NameToProperty("a");
   auto prop_b = dba.NameToProperty("b");
 
-  // The sort keys are a scattered permutation, so returning rows in scan order cannot pass by luck,
-  // and they are distinct, so the rows the limit keeps are the same whichever branch sorted them.
+  // Distinct keys in scattered order: scan order cannot pass by luck, and which branch sorted a row
+  // cannot change which rows the limit keeps.
   constexpr int64_t kRows = 97;
   constexpr int64_t kStride = 37;
   for (int64_t i = 0; i < kRows; ++i) {
@@ -144,8 +142,7 @@ TYPED_TEST(ParallelExecution, OrderByLimitBelowTheProjectionTakesTheTopRowsInOrd
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto plan = PlanQuery(query, this->storage, symbol_table, &dba);
 
-  // The deferred shape is what this exercises, so a plan that kept the projection below the sort
-  // would make the rest of the test meaningless.
+  // Without this shape the row assertions below prove nothing.
   auto *produce = dynamic_cast<Produce *>(plan.get());
   ASSERT_NE(produce, nullptr);
   auto *limit = dynamic_cast<Limit *>(produce->input_.get());
@@ -181,8 +178,7 @@ TYPED_TEST(ParallelExecution, OrderBySkipLimitBelowTheProjectionTakesTheMiddleRo
   dba.AdvanceCommand();
 
   // Test USING PARALLEL EXECUTION MATCH (n:P) RETURN n.a AS a ORDER BY n.b DESC SKIP 5 LIMIT 7
-  // Both the skip and the limit evaluate above the merged sort, so this pins that the rows they
-  // count are the sorted ones rather than the branch-local ones.
+  // Skip and limit evaluate above the merge, so they must count merged rows, not branch-local ones.
   constexpr int64_t kSkip = 5;
   constexpr int64_t kLimit = 7;
   auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "P"))),
@@ -219,8 +215,8 @@ TYPED_TEST(ParallelExecution, OrderByLimitBelowTheProjectionSortsWhenBranchesHav
   auto prop_a = dba.NameToProperty("a");
   auto prop_b = dba.NameToProperty("b");
 
-  // Fewer rows than branches, so the merge is built from a mix of empty and non-empty branches, and
-  // the limit asks for more rows than exist.
+  // Fewer rows than branches, so the merge is built partly from empty branches, and the limit asks
+  // for more rows than exist.
   constexpr int64_t kRows = 2;
   for (int64_t i = 0; i < kRows; ++i) {
     auto vertex = dba.InsertVertex();
@@ -262,8 +258,8 @@ TYPED_TEST(ParallelExecution, OrderByLimitBelowTheProjectionRestoresEverythingTh
   auto prop_b = dba.NameToProperty("b");
   auto prop_c = dba.NameToProperty("c");
 
-  // The projection reads two symbols and the sort key reads one of them, so the merged rows have to
-  // carry the expanded vertex as well as the scanned one.
+  // The projection reads two symbols and the sort key one of them, so a merged row has to carry the
+  // expanded vertex as well as the scanned one.
   constexpr int64_t kRows = 61;
   constexpr int64_t kStride = 23;
   for (int64_t i = 0; i < kRows; ++i) {
@@ -316,8 +312,8 @@ TYPED_TEST(ParallelExecution, OrderByLimitBelowTheProjectionKeepsTheSmallestKeys
   auto label = dba.NameToLabel("P");
   auto prop_b = dba.NameToProperty("b");
 
-  // Repeated sort keys leave which row of a tied group the limit keeps up to the branches, so this
-  // asserts over the keys, which are determined whatever the branches did.
+  // With tied keys, which row of a group the limit keeps is up to the branches, so assert over the
+  // keys instead.
   constexpr int64_t kRows = 64;
   constexpr int64_t kDistinctKeys = 8;
   for (int64_t i = 0; i < kRows; ++i) {
@@ -342,8 +338,7 @@ TYPED_TEST(ParallelExecution, OrderByLimitBelowTheProjectionKeepsTheSmallestKeys
   auto context = this->MakeParallelContext(symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
 
-  // Each key appears kRows / kDistinctKeys times, so the smallest kLimit keys are the first
-  // kLimit / (kRows / kDistinctKeys) keys, each in full.
+  // Every key has the same number of rows, so the limit takes whole groups of keys.
   ASSERT_EQ(results.size(), kLimit);
   constexpr int64_t kRowsPerKey = kRows / kDistinctKeys;
   for (int64_t i = 0; i < kLimit; ++i) {
@@ -359,8 +354,7 @@ TYPED_TEST(ParallelExecution, OrderByLimitOverAnAggregateGivesEachGroupItsOwnVal
   auto prop_g = dba.NameToProperty("g");
   auto prop_v = dba.NameToProperty("v");
 
-  // Groups of equal size with distinct sums: a plan that sorted before aggregating, or that let one
-  // group's total stand in for another, reports a total belonging to the wrong group.
+  // Equal-sized groups with distinct sums, so a total reported against the wrong group shows up.
   constexpr int64_t kGroups = 6;
   constexpr int64_t kRowsPerGroup = 7;
   for (int64_t g = 0; g < kGroups; ++g) {
@@ -403,8 +397,8 @@ TYPED_TEST(ParallelExecution, OrderByLimitOverAProjectedBranchEvaluatesTheBranch
   auto edge_type = dba.NameToEdgeType("E");
   auto prop_b = dba.NameToProperty("b");
 
-  // Each scanned vertex has as many outgoing edges as its sort key, so a branch evaluated once and
-  // reused, or evaluated against a row the sort replayed without it, gives a visibly wrong count.
+  // Each vertex has as many out-edges as its sort key, so a branch evaluated once and reused, or
+  // evaluated against a replayed row, gives a visibly wrong list length.
   constexpr int64_t kRows = 17;
   for (int64_t i = 0; i < kRows; ++i) {
     auto from = dba.InsertVertex();
