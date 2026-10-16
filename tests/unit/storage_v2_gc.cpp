@@ -188,7 +188,7 @@ TEST(StorageV2Gc, Sanity) {
         if (i % 5 != 4 && i % 3 != 2) {
           EXPECT_EQ(out_edges.size(), 1);
           EXPECT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 1);
-          EXPECT_EQ(out_edges.at(0).EdgeType().AsUint(), i);
+          EXPECT_EQ(out_edges[0].EdgeType().AsUint(), i);
         } else {
           EXPECT_TRUE(out_edges.empty());
         }
@@ -197,7 +197,7 @@ TEST(StorageV2Gc, Sanity) {
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.size(), 1);
           EXPECT_EQ(*vertex->InDegree(memgraph::storage::View::NEW), 1);
-          EXPECT_EQ(in_edges.at(0).EdgeType().AsUint(), (i + 999) % 1000);
+          EXPECT_EQ(in_edges[0].EdgeType().AsUint(), (i + 999) % 1000);
         } else {
           EXPECT_TRUE(in_edges.empty());
         }

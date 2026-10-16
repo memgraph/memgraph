@@ -3213,7 +3213,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
     auto out_edges = v1->OutEdges(View::NEW);
     ASSERT_TRUE(out_edges.has_value());
     ASSERT_FALSE(out_edges->edges.empty());
-    auto edge_accessor = out_edges->edges.front();
+    auto edge_accessor = out_edges->edges[0];
     ASSERT_TRUE(tx2->DeleteEdge(&edge_accessor).has_value());
 
     // Recreate the edge

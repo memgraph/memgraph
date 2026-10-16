@@ -121,7 +121,7 @@ TEST(ObjectRemoval, CommittedDeleteLeavesRemovalToGarbageCollection) {
     ASSERT_TRUE(from.has_value());
     auto out = from->OutEdges(View::NEW);
     ASSERT_TRUE(out.has_value());
-    for (auto &edge : out->edges) {
+    for (auto edge : out->edges) {
       ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
     }
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
