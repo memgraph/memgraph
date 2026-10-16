@@ -337,6 +337,46 @@ TEST_F(WriteVisibilityPlan, WritingConditionalPredicateReadsNew) {
   EXPECT_EQ(Views<Conditional>(plan), (std::vector{View::NEW}));
 }
 
+// ---------------------------------------------------------------- writing CALL bodies
+
+TEST_F(WriteVisibilityPlan, WritingBodyWithDoesNotAdvance) {
+  auto accumulates = Collect<Accumulate>(
+      Plan("MATCH (n) CALL (n) { SET n.p = n.p + 1 WITH n MATCH (m) RETURN count(m) AS k } RETURN k"));
+  // Top first: the root RETURN, the drain after the writing CALL, then the body's WITH.
+  ASSERT_EQ(accumulates.size(), 3);
+  EXPECT_TRUE(accumulates[0]->advance_command_);
+  EXPECT_TRUE(accumulates[1]->advance_command_);
+  EXPECT_FALSE(accumulates[2]->advance_command_);
+}
+
+TEST_F(WriteVisibilityPlan, WritingBodyReadsNew) {
+  auto &plan = Plan(
+      "UNWIND [1, 2] AS i CALL (i) { MATCH (b)-[*1..2]->(c) WHERE b.x = 0 SET b.x = i RETURN i AS r } "
+      "RETURN r");
+  auto *apply = Collect<Apply>(plan).front();
+  EXPECT_EQ(Views<ScanAll>(*apply->subquery_), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<ExpandVariable>(*apply->subquery_), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<Filter>(*apply->subquery_), (std::vector{View::NEW}));
+}
+
+TEST_F(WriteVisibilityPlan, ReadOnlyBodyReadsOld) {
+  auto &plan = Plan("MATCH (a) CALL (a) { MATCH (b) WHERE b.x = a.x RETURN count(b) AS c } SET a.c = c");
+  auto *apply = Collect<Apply>(plan).front();
+  EXPECT_EQ(Views<ScanAll>(*apply->subquery_), (std::vector{View::OLD}));
+  EXPECT_EQ(Views<Filter>(*apply->subquery_), (std::vector{View::OLD}));
+}
+
+TEST_F(WriteVisibilityPlan, WritingBodyDrainsBetweenAReadAndAWriteOfItsKey) {
+  auto &plan = Plan("UNWIND [1, 2] AS i CALL (i) { MATCH (b) WHERE b.x = 0 SET b.x = i } RETURN count(*) AS c");
+  auto *apply = Collect<Apply>(plan).front();
+  auto chain = Chain(*apply->subquery_);
+  ASSERT_GE(chain.size(), 3);
+  EXPECT_EQ(chain[1], "SetProperty");
+  EXPECT_EQ(chain[2], "Accumulate");
+  auto &twin = Plan("UNWIND [1, 2] AS i CALL (i) { MATCH (b) WHERE b.y = 0 SET b.x = i } RETURN count(*) AS c");
+  EXPECT_EQ(Collect<Accumulate>(*Collect<Apply>(twin).front()->subquery_).size(), 0);
+}
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {
