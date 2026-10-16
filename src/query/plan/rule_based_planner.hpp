@@ -801,6 +801,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
 
     auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
+    root->predicate_view_ = ScopeView();
     bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
     context_->bound_symbols = std::move(bound_symbols);
     return root;

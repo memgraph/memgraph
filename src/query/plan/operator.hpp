@@ -3133,6 +3133,8 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<Branch> branches_;
   std::vector<Symbol> output_symbols_;
+  /// The view the branch predicates read: View::OLD in a read-only CALL body, which runs before any later write.
+  storage::View predicate_view_{storage::View::NEW};
 
  private:
   class ConditionalCursor : public Cursor {
