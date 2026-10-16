@@ -257,7 +257,6 @@ symbolicName : UnescapedSymbolicName
              ;
 
 query : cypherQuery
-      | conditionalStatement
       | indexQuery
       | edgeIndexQuery
       | pointIndexQuery
@@ -318,13 +317,7 @@ query : cypherQuery
       | showMemoryInfo
       ;
 
-cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
-
-conditionalStatement : ( preQueryDirectives )? conditionalQuery ( queryMemoryLimit )? ;
-
-explainQuery : EXPLAIN ( cypherQuery | conditionalStatement ) ;
-
-profileQuery : PROFILE ( cypherQuery | conditionalStatement ) ;
+cypherQuery : ( preQueryDirectives )? regularQuery ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -436,7 +429,7 @@ periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
 scopeClause : ASTERISK | variable ( ',' variable )* ;
 
-callSubquery : OPTIONAL? CALL ( '(' scopeClause? ')' )? '{' ( conditionalQuery | cypherQuery ) '}' ( periodicSubquery )? ;
+callSubquery : OPTIONAL? CALL ( '(' scopeClause? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream

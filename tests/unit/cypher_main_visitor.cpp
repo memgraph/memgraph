@@ -9081,16 +9081,27 @@ TEST_P(CypherMainVisitorTest, ConditionalQueryRejectedShapes) {
   for (auto const *query : {"ELSE RETURN 1 AS x",
                             "WHEN $a THEN ELSE RETURN 1 AS x",
                             "WHEN $a THEN RETURN 1 AS x UNION RETURN 2 AS x",
-                            // Directives and a memory limit belong to the outermost statement only.
-                            "CALL () { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } RETURN x",
-                            "CALL () { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } RETURN x",
-                            "RETURN EXISTS { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } AS e",
                             // A nested WHEN needs braces, and the conditional is the whole statement.
                             "WHEN $a THEN WHEN $b THEN RETURN 1 AS x ELSE RETURN 2 AS x",
                             "WHEN $a THEN { RETURN 1 AS x } RETURN 2 AS y",
                             "MATCH (n) WHEN $a THEN RETURN 1 AS x"}) {
     TestInvalidQuery<SyntaxException>(query, ast_generator);
   }
+  // Directives and a memory limit belong to the outermost statement only.
+  for (auto const *query : {"CALL () { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } RETURN x",
+                            "RETURN EXISTS { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } AS e",
+                            "RETURN EXISTS { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } AS e"}) {
+    TestInvalidQueryWithMessage<SyntaxException>(
+        query, ast_generator, "USING and QUERY MEMORY LIMIT can only come with the outermost WHEN ... THEN.");
+  }
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "CALL () { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } RETURN x",
+      ast_generator,
+      "Memory limit cannot be set on subqueries!");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "WHEN $a THEN { USING HOPS LIMIT 1 WHEN $b THEN RETURN 1 AS x } ELSE RETURN 2 AS x",
+      ast_generator,
+      "USING cannot be put in a WHEN branch.");
   EXPECT_TRUE(dynamic_cast<CypherQuery *>(
       ast_generator.ParseQuery("CALL () { USING HOPS LIMIT 1 MATCH (n) RETURN n AS m } RETURN m")));
 }
@@ -11070,7 +11081,9 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
                             "PROFILE WHEN $a THEN RETURN 1 AS x",
                             "USING HOPS LIMIT 1 WHEN $a THEN RETURN 1 AS x",
                             "USING PERIODIC COMMIT 1 WHEN $a THEN CREATE (:T)",
-                            "WHEN $a THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB"}) {
+                            "WHEN $a THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB",
+                            "USING HOPS LIMIT 1 MATCH (n) RETURN n",
+                            "EXPLAIN MATCH (n) RETURN n UNION MATCH (m) RETURN m AS n"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;

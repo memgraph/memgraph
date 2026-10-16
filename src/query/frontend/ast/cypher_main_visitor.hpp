@@ -110,16 +110,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) override;
 
   /**
-   * @return CypherQuery*
-   */
-  antlrcpp::Any visitConditionalStatement(MemgraphCypher::ConditionalStatementContext *ctx) override;
-
-  /// Puts a query's USING directives and memory limit on its CypherQuery.
-  void SetQueryDirectives(CypherQuery *cypher_query,
-                          MemgraphCypher::PreQueryDirectivesContext *pre_query_directives_ctx,
-                          MemgraphCypher::QueryMemoryLimitContext *memory_limit_ctx);
-
-  /**
    * @return PreQueryDirectives*
    */
   antlrcpp::Any visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) override;
