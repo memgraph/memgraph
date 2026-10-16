@@ -190,6 +190,44 @@ TEST_F(WriteVisibilityPlan, CloneKeepsCreateView) {
   ExpectCloneKeepsView<CreateExpand>(plan, storage_);
 }
 
+// ---------------------------------------------------------------- root reads use View::OLD
+
+using memgraph::storage::View;
+
+template <class TOp>
+std::vector<View> Views(LogicalOperator &plan) {
+  std::vector<View> views;
+  for (auto *op : Collect<TOp>(plan)) views.push_back(op->view_);
+  return views;
+}
+
+TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
+  auto &plan = Plan("MATCH (a) WITH a, a.x AS v CREATE (b {v: v})-[:R {w: a.x}]->(c) RETURN count(*) AS c");
+  EXPECT_EQ(Views<Produce>(plan), (std::vector{View::OLD, View::OLD}));
+  EXPECT_EQ(Views<Aggregate>(plan), (std::vector{View::OLD}));
+  EXPECT_EQ(Views<CreateNode>(plan), (std::vector{View::OLD}));
+  EXPECT_EQ(Views<CreateExpand>(plan), (std::vector{View::OLD}));
+}
+
+TEST_F(WriteVisibilityPlan, BatchingKeepsMastersViews) {
+  auto &plan = Plan("USING PERIODIC COMMIT 10 UNWIND range(1, 3) AS i CREATE (b {v: i}) RETURN count(*) AS c");
+  EXPECT_EQ(Views<Produce>(plan), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<Aggregate>(plan), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<CreateNode>(plan), (std::vector{View::NEW}));
+}
+
+TEST_F(WriteVisibilityPlan, MergeAndForeachCreateReadNew) {
+  EXPECT_EQ(Views<CreateNode>(Plan("UNWIND [1, 2] AS i MERGE (n {v: i})")), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<CreateNode>(Plan("FOREACH (i IN [1, 2] | CREATE (n {v: i}))")), (std::vector{View::NEW}));
+}
+
+TEST_F(WriteVisibilityPlan, WritingCallBodyReadsNew) {
+  auto &plan = Plan("UNWIND [1, 2] AS i CALL (i) { CREATE (n {v: i}) RETURN n.v AS v } RETURN v");
+  // Top first: the root RETURN, then the body's RETURN and CREATE.
+  EXPECT_EQ(Views<Produce>(plan), (std::vector{View::OLD, View::NEW}));
+  EXPECT_EQ(Views<CreateNode>(plan), (std::vector{View::NEW}));
+}
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {
