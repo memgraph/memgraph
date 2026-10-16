@@ -1141,8 +1141,8 @@ Feature: Subquery expressions
 
   # A subquery expression nested in the body has to inherit the branch's view. Planned on demand from the body's own
   # WITH, it starts a query part with no write history of its own, so without the branch flag it reads View::OLD and
-  # disagrees with the body's MATCH about the write - silently, in the RETURN position, where no Accumulate advances
-  # the command.
+  # disagrees with the body's MATCH about the write - silently, in a CALL body's RETURN, where no Accumulate advances
+  # the command (a root RETURN advances, so it would see the write through View::OLD anyway).
   Scenario: Test EXISTS subquery nested in an EXISTS body in a RETURN projection after a write
       Given an empty graph
       And having executed:
@@ -1151,9 +1151,12 @@ Feature: Subquery expressions
           """
       When executing query:
           """
-          MATCH (r:Root) CREATE (:New)
-          RETURN EXISTS { MATCH (r) WITH r, EXISTS { MATCH (x:New) } AS i WHERE i } AS nested,
-                 EXISTS { MATCH (x:New) } AS flat;
+          CALL () {
+            MATCH (r:Root) CREATE (:New)
+            RETURN EXISTS { MATCH (r) WITH r, EXISTS { MATCH (x:New) } AS i WHERE i } AS nested,
+                   EXISTS { MATCH (x:New) } AS flat
+          }
+          RETURN nested, flat;
           """
       Then the result should be:
           | nested | flat |
@@ -1168,8 +1171,11 @@ Feature: Subquery expressions
           """
       When executing query:
           """
-          MATCH (r:Root) CREATE (:New)
-          RETURN EXISTS { MATCH (r) WHERE EXISTS { MATCH (x:New) } } AS h;
+          CALL () {
+            MATCH (r:Root) CREATE (:New)
+            RETURN EXISTS { MATCH (r) WHERE EXISTS { MATCH (x:New) } } AS h
+          }
+          RETURN h;
           """
       Then the result should be:
           | h    |
@@ -1186,10 +1192,12 @@ Feature: Subquery expressions
           """
       When executing query:
           """
-          MATCH (p:P) CREATE (p)-[:Z]->(:New)
-          RETURN p.id AS id,
-                 EXISTS { MATCH (r:P) WITH r, [(r)-[:Z]->(x) | x] AS l WHERE size(l) > 0 } AS h
-          ORDER BY id;
+          CALL () {
+            MATCH (p:P) CREATE (p)-[:Z]->(:New)
+            RETURN p.id AS id,
+                   EXISTS { MATCH (r:P) WITH r, [(r)-[:Z]->(x) | x] AS l WHERE size(l) > 0 } AS h
+          }
+          RETURN id, h ORDER BY id;
           """
       Then the result should be:
           | id | h    |
@@ -1199,9 +1207,9 @@ Feature: Subquery expressions
   # The EXISTS matches only nodes this query just created, so it comes back all-false if the branch cannot see the
   # write. The `n.rank + 1` correlation keeps the two rows distinguishable, so an all-true answer is detected too.
   #
-  # It has to be a RETURN, not a WITH: GenWith advances the command in its Accumulate, which drains its input before
-  # the branch above it ever pulls, so a WITH sees the write through View::OLD anyway and the scenario would pass with
-  # the view rule reverted.
+  # It has to be a RETURN in a CALL body: a root WITH or RETURN advances the command in its Accumulate, which drains
+  # its input before the branch above it ever pulls, so it sees the write through View::OLD anyway and the scenario
+  # would pass with the view rule reverted.
   Scenario: Test EXISTS subquery in a projection reading what a CREATE just wrote
       Given an empty graph
       And having executed:
@@ -1211,8 +1219,11 @@ Feature: Subquery expressions
           """
       When executing query:
           """
-          MATCH (n:Person) CREATE (:Tag {v: n.rank + 1})
-          RETURN n.rank AS rank, EXISTS { MATCH (t:Tag) WHERE t.v = n.rank } AS e ORDER BY rank;
+          CALL () {
+            MATCH (n:Person) CREATE (:Tag {v: n.rank + 1})
+            RETURN n.rank AS rank, EXISTS { MATCH (t:Tag) WHERE t.v = n.rank } AS e
+          }
+          RETURN rank, e ORDER BY rank;
           """
       Then the result should be:
           | rank | e     |

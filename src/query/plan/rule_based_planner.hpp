@@ -246,7 +246,8 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency);
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
+                                           bool is_root_query);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
@@ -492,7 +493,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
-                                       query_parts.commit_frequency);
+                                       query_parts.commit_frequency,
+                                       is_root_query);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
@@ -555,9 +557,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             for (const auto &sym : result_symbols) {
               context.bound_symbols.insert(sym);
             }
-            // TODO: When we add support for write and eager procedures, we will
-            // need to plan this operator with Accumulate and pass in
-            // storage::View::NEW.
+            // A write procedure writes like a write clause, so the RETURN after it must drain and advance.
+            if (call_proc->graph_access_ == GraphAccess::Write) {
+              wrote_since_with = true;
+              write_occurred = true;
+            }
             input_op = std::make_unique<plan::CallProcedure>(std::move(input_op),
                                                              call_proc->procedure_name_,
                                                              call_proc->arguments_,
