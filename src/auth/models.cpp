@@ -693,15 +693,6 @@ void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &ent
   auto &perm = rule.properties[property];
   perm.grants |= type;
   perm.denies &= ~type;
-  if (property == "*") {
-    for (auto &[key, p] : rule.properties) {
-      if (key != "*") p.grants &= ~type;
-    }
-    std::erase_if(rule.properties, [](auto const &kv) {
-      return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE &&
-             kv.second.denies == PropertyPermissionType::NONE;
-    });
-  }
 }
 
 void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
@@ -710,40 +701,30 @@ void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &enti
   auto &perm = rule.properties[property];
   perm.denies |= type;
   perm.grants &= ~type;
-  if (property == "*") {
-    for (auto &[key, p] : rule.properties) {
-      if (key != "*") p.denies &= ~type;
-    }
-    std::erase_if(rule.properties, [](auto const &kv) {
-      return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE &&
-             kv.second.denies == PropertyPermissionType::NONE;
-    });
-  }
 }
+
+namespace {
+// Revoking "*" clears the type from every property, not only from the "*" record.
+void RevokeProperty(std::unordered_map<std::string, PropertyPermission> &props, std::string const &property,
+                    PropertyPermissionType type) {
+  for (auto &[key, perm] : props) {
+    if (property == "*" || key == property) {
+      perm.grants &= ~type;
+      perm.denies &= ~type;
+    }
+  }
+  std::erase_if(props, [](auto const &kv) {
+    return kv.second.grants == PropertyPermissionType::NONE && kv.second.denies == PropertyPermissionType::NONE;
+  });
+}
+}  // namespace
 
 void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &entities, std::string const &property,
                                        PropertyPermissionType type, MatchingMode matching_mode) {
   auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
   if (it == rules_.end()) return;
-  if (property == "*") {
-    for (auto &[key, perm] : it->properties) {
-      perm.grants &= ~type;
-      perm.denies &= ~type;
-    }
-    std::erase_if(it->properties, [](auto const &kv) {
-      return kv.second.grants == PropertyPermissionType::NONE && kv.second.denies == PropertyPermissionType::NONE;
-    });
-  } else {
-    auto prop_it = it->properties.find(property);
-    if (prop_it == it->properties.end()) return;
-    prop_it->second.grants &= ~type;
-    prop_it->second.denies &= ~type;
-    if (prop_it->second.grants == PropertyPermissionType::NONE &&
-        prop_it->second.denies == PropertyPermissionType::NONE) {
-      it->properties.erase(prop_it);
-    }
-  }
+  RevokeProperty(it->properties, property, type);
   if (it->properties.empty()) {
     rules_.erase(it);
   }
@@ -762,14 +743,7 @@ void PropertyAccessPermissions::DenyGlobal(std::string const &property, Property
 }
 
 void PropertyAccessPermissions::RevokeGlobal(std::string const &property, PropertyPermissionType type) {
-  auto prop_it = global_.find(property);
-  if (prop_it == global_.end()) return;
-  prop_it->second.grants &= ~type;
-  prop_it->second.denies &= ~type;
-  if (prop_it->second.grants == PropertyPermissionType::NONE &&
-      prop_it->second.denies == PropertyPermissionType::NONE) {
-    global_.erase(prop_it);
-  }
+  RevokeProperty(global_, property, type);
 }
 
 namespace {
