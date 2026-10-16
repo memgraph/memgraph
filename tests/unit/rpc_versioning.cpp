@@ -12,6 +12,11 @@
 #include "gtest/gtest.h"
 
 #include <filesystem>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -642,6 +647,32 @@ TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
   EXPECT_EQ(role_label_perms.GetGlobalGrants().value(),
             static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
 }
+
+namespace {
+template <typename TEntity>
+void ExpectLoadRejectsLaterVersion(TEntity const &entity) {
+  auto json = entity.Serialize();
+  json["version"] = memgraph::auth::kCurrentEntityVersion + 1;
+
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  memgraph::slk::Save(json.dump(), &builder);
+  if constexpr (std::is_same_v<TEntity, memgraph::auth::User>) {
+    memgraph::slk::Save(std::vector<memgraph::auth::Role>{}, &builder);
+    memgraph::slk::Save(std::unordered_map<std::string, std::unordered_set<std::string>>{}, &builder);
+  }
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  TEntity loaded;
+  EXPECT_THROW(memgraph::slk::Load(&loaded, &reader), memgraph::auth::AuthException);
+}
+}  // namespace
+
+TEST(RpcVersioning, SlkLoadRole_RejectsLaterVersion) { ExpectLoadRejectsLaterVersion(memgraph::auth::Role{"myrole"}); }
+
+TEST(RpcVersioning, SlkLoadUser_RejectsLaterVersion) { ExpectLoadRejectsLaterVersion(memgraph::auth::User{"alice"}); }
 
 // UpdateAuthDataRpc V2 carries a whole auth transaction as one ordered batch, so a replica cannot apply a prefix
 // of it. V1 carried at most one user, role or profile per request; the upgrade wraps that single item into a
