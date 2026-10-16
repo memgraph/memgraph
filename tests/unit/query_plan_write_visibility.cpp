@@ -228,6 +228,70 @@ TEST_F(WriteVisibilityPlan, WritingCallBodyReadsNew) {
   EXPECT_EQ(Views<CreateNode>(plan), (std::vector{View::NEW}));
 }
 
+// ---------------------------------------------------------------- write-to-read barriers at the root
+
+/// The operator names on the input chain from the root down to Once, `Accumulate+` for an advancing one. A branching
+/// operator contributes its main input only.
+std::vector<std::string> Chain(LogicalOperator &plan) {
+  std::vector<std::string> names;
+  for (auto *op = &plan; op != nullptr;) {
+    std::string name{op->GetTypeInfo().name};
+    if (auto *acc = dynamic_cast<Accumulate *>(op); acc && acc->advance_command_) name += "+";
+    names.push_back(std::move(name));
+    if (dynamic_cast<Once *>(op)) break;
+    op = op->input().get();
+  }
+  return names;
+}
+
+using Names = std::vector<std::string>;
+
+TEST_F(WriteVisibilityPlan, BarrierBeforeSetThatReadsAnEarlierSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.z")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, TwoBarriersInOnePart) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x SET a.z = a.y")),
+            (Names{"EmptyResult",
+                   "SetProperty",
+                   "Accumulate+",
+                   "SetProperty",
+                   "Accumulate+",
+                   "SetProperty",
+                   "ScanAll",
+                   "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, BarrierBeforeCreateMapThatReadsAnEarlierSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x})")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.z})")),
+            (Names{"EmptyResult", "CreateNode", "SetProperty", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, BarrierBeforeForeachListThatReadsAnEarlierSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 FOREACH (i IN [a.x] | CREATE ())")),
+            (Names{"EmptyResult", "Foreach", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 FOREACH (i IN [a.z] | CREATE ())")),
+            (Names{"EmptyResult", "Foreach", "SetProperty", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
+            (Names{"Produce", "Apply", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.z AS v } RETURN v")),
+            (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
+  // OLD cannot see `a` at all until the command advances, whatever the edge type.
+  EXPECT_EQ(Chain(Plan("CREATE (a)-[:R]->(b) SET a.c = size([(a)-[:S*]->(x) | x])")),
+            (Names{"EmptyResult", "SetProperty", "RollUpApply", "Accumulate+", "CreateExpand", "CreateNode", "Once"}));
+}
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {

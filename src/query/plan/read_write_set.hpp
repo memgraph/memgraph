@@ -39,6 +39,9 @@ struct ReadWriteSet {
   bool nodes{false};
   /// A procedure, a DELETE or a graph-reading function: conflicts with any non-empty set.
   bool everything{false};
+  /// Reads only: the fine-grained access check of a label write reads the node's labels. It conflicts with a label
+  /// write and nothing else, so a DELETE before it changes nothing.
+  bool access_check_labels{false};
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;

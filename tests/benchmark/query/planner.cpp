@@ -14,6 +14,8 @@
 #include <variant>
 
 #include "query/db_accessor.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
@@ -72,6 +74,39 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
 }
 
 BENCHMARK(BM_PlanChainedMatches)->RangeMultiplier(2)->Range(50, 400)->Unit(benchmark::kMillisecond);
+
+// `MATCH (n) SET n.p0 = 0 SET n.p1 = n.p0 ...`: each SET reads the key the one before it wrote, so the planner
+// checks every clause against the pending writes and places a barrier before all but the first.
+static void BM_PlanWriteChain(benchmark::State &state) {
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  std::string query_string = "MATCH (n) SET n.p0 = 0";
+  for (int i = 1; i < state.range(0); ++i) {
+    query_string += " SET n.p" + std::to_string(i) + " = n.p" + std::to_string(i - 1);
+  }
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    memgraph::query::AstStorage storage;
+    memgraph::query::Parameters parameters;
+    memgraph::query::frontend::opencypher::Parser parser{query_string};
+    memgraph::query::frontend::ParsingContext parsing_context{.is_query_cached = false};
+    memgraph::query::frontend::CypherMainVisitor visitor{parsing_context, &storage, &parameters};
+    visitor.visit(parser.tree());
+    auto *query = memgraph::utils::Downcast<memgraph::query::CypherQuery>(visitor.query());
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
+    state.ResumeTiming();
+    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query, false);
+    auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
+        query_parts, &ctx);
+    for (const auto &plan : plans) {
+      benchmark::DoNotOptimize(plan.get());
+    }
+  }
+}
+
+BENCHMARK(BM_PlanWriteChain)->RangeMultiplier(4)->Range(4, 256)->Unit(benchmark::kMicrosecond);
 
 static memgraph::query::CypherQuery *AddIndexedMatches(int num_matches, const std::string &label,
                                                        const std::string &property,

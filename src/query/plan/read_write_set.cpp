@@ -273,7 +273,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     }
 #ifdef MG_ENTERPRISE
     // The fine-grained access check reads the labels the node already has.
-    result.reads.any_label = true;
+    result.reads.access_check_labels = true;
 #endif
   }
 
@@ -309,7 +309,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
 bool ReadWriteSet::Empty() const {
   return properties.empty() && !any_property && labels.empty() && !any_label && edge_types.empty() && !any_edge_type &&
-         !nodes && !everything && symbols.empty();
+         !nodes && !everything && !access_check_labels && symbols.empty();
 }
 
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
@@ -321,11 +321,15 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   any_edge_type |= other.any_edge_type;
   nodes |= other.nodes;
   everything |= other.everything;
+  access_check_labels |= other.access_check_labels;
   symbols.insert(other.symbols.begin(), other.symbols.end());
 }
 
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
-  if (reads.Empty() || writes.Empty()) return false;
+  if (reads.access_check_labels && (writes.any_label || !writes.labels.empty())) return true;
+  auto graph_reads = reads;
+  graph_reads.access_check_labels = false;
+  if (graph_reads.Empty() || writes.Empty()) return false;
   if (reads.everything || writes.everything) return true;
   // A pattern through a node this command created: View::OLD cannot see it at all.
   if (std::ranges::any_of(reads.symbols, [&writes](const auto &sym) { return writes.symbols.contains(sym); })) {
