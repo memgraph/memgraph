@@ -374,6 +374,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       bool wrote_since_with = false;
       // What this UNION part wrote since its last barrier; a read that meets it gets a barrier first.
       ReadWriteSet pending_writes;
+      // What its View::NEW readers read since the last barrier; a write that meets it gets a barrier first, or the
+      // reader would see that write for its earlier rows.
+      ReadWriteSet pending_new_reads;
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
       auto plan_barrier = [&]() {
         if (input_op) {
@@ -381,6 +384,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           input_op = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
         }
         pending_writes.Clear();
+        pending_new_reads.Clear();
         wrote_since_with = false;
         // View::OLD now sees what the clauses so far created.
         query_part_symbols_.write_bound.clear();
@@ -525,10 +529,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                   ? ReadsAndWrites{}
                   : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
           if (!utils::Downcast<query::Merge>(clause)) barrier_before(access.reads);
+          if (BarriersOn() && Conflicts(pending_new_reads, access.writes)) plan_barrier();
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
-            if (!advanced_after) pending_writes.Merge(access.writes);
+            if (advanced_after) return;
+            pending_writes.Merge(access.writes);
+            if (ReadsNewView(*clause) && !utils::Downcast<query::Merge>(clause)) pending_new_reads.Merge(access.reads);
           }};
 
           // A root WITH or RETURN after a write drains and advances below its body, so View::OLD sees what was created.
@@ -582,6 +589,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // WITH clause advances the command, so reset the flag.
             wrote_since_with = false;
             pending_writes.Clear();
+            pending_new_reads.Clear();
           } else if (IsWriteClause(clause)) {
             wrote_since_with = true;
             write_occurred = true;
