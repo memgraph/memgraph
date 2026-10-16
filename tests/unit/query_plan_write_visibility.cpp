@@ -377,6 +377,33 @@ TEST_F(WriteVisibilityPlan, WritingBodyDrainsBetweenAReadAndAWriteOfItsKey) {
   EXPECT_EQ(Collect<Accumulate>(*Collect<Apply>(twin).front()->subquery_).size(), 0);
 }
 
+// ---------------------------------------------------------------- MERGE
+
+TEST_F(WriteVisibilityPlan, BarrierBetweenTwoMergesOnOneLabel) {
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MERGE (a:L {id: i}) MERGE (b:L {id: i + 1})")),
+            (Names{"EmptyResult", "Merge", "Accumulate+", "Merge", "Unwind", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, BarrierKeepsTheSymbolsAMergeBinds) {
+  auto &plan = Plan("UNWIND [1, 2] AS i MERGE (a:L {id: i}) MERGE (b:L {id: i + 1}) RETURN a, b");
+  auto accumulates = Collect<Accumulate>(plan);
+  ASSERT_FALSE(accumulates.empty());
+  auto const &kept = accumulates.back()->symbols_;
+  EXPECT_TRUE(std::ranges::any_of(kept, [](const Symbol &sym) { return sym.name() == "a"; }));
+}
+
+TEST_F(WriteVisibilityPlan, TwoLabelImportShapeHasNoBarrier) {
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A {id: i}) MERGE (b:B {id: i}) MERGE (a)-[:R]->(b)")),
+            (Names{"EmptyResult", "Merge", "Merge", "Merge", "Unwind", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, DrainBetweenMergeAndALaterWriteOfWhatItMatched) {
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MERGE (a:L {id: i}) CREATE (:L)")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "Merge", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MERGE (a:L {id: i}) CREATE (:M)")),
+            (Names{"EmptyResult", "CreateNode", "Merge", "Unwind", "Once"}));
+}
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {
@@ -410,10 +437,11 @@ TEST_F(WriteVisibilityPlan, FoldBodyReads) {
   EXPECT_TRUE(access.writes.Empty());
 }
 
-TEST_F(WriteVisibilityPlan, CreateWritesLabelsAndKeys) {
+TEST_F(WriteVisibilityPlan, CreateWritesLabelsAndTypesNotKeys) {
+  // A created entity is reachable only through its labels, its type or its own symbol.
   auto access = Access("CREATE (:A:B {k: 1})-[:T {w: 2}]->()");
   EXPECT_EQ(access.writes.labels, (std::set<std::string>{"A", "B"}));
-  EXPECT_EQ(access.writes.properties, (std::set<std::string>{"k", "w"}));
+  EXPECT_TRUE(access.writes.properties.empty());
   EXPECT_EQ(access.writes.edge_types, (std::set<std::string>{"T"}));
   EXPECT_TRUE(access.writes.nodes);
 }

@@ -107,10 +107,12 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(NodeAtom &node) override {
-    result.reads.symbols.insert(symbol_table_.at(*node.identifier_));
+    auto const &symbol = symbol_table_.at(*node.identifier_);
+    result.reads.symbols.insert(symbol);
     if (node.label_term_) {
       ReadLabelTerm(*node.label_term_);
-    } else {
+    } else if (!bound_.contains(symbol)) {
+      // Only a node the pattern has to find reads which nodes exist.
       result.reads.nodes = true;
     }
     ReadPropertyKeys(node.properties_);
@@ -196,6 +198,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetLabels &set) override {
     WriteLabels(set.labels_);
+    ReadLabelsForAccessCheck();
     return false;
   }
 
@@ -206,6 +209,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(RemoveLabels &remove) override {
     WriteLabels(remove.labels_);
+    ReadLabelsForAccessCheck();
     return false;
   }
 
@@ -250,15 +254,12 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     }
   }
 
+  /// A created entity's properties are reachable only through its labels or edge type, or its own symbol, which the
+  /// other conflicts cover. Counting them as property writes would make `(b:B {id})` wait for `(a:A {id})`.
   template <class TProperties>
-  void WritePropertyKeys(const TProperties &properties) {
+  void ReadCreatedPropertyValues(const TProperties &properties) {
     if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
-      for (const auto &[key, value] : *map) {
-        result.writes.properties.insert(key.name);
-        value->Accept(*this);
-      }
-    } else {
-      result.writes.any_property = true;
+      for (const auto &[key, value] : *map) value->Accept(*this);
     }
   }
 
@@ -271,8 +272,11 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
         std::get<Expression *>(label)->Accept(*this);
       }
     }
+  }
+
+  /// The fine-grained access check of SET and REMOVE label reads the labels the node already has.
+  void ReadLabelsForAccessCheck() {
 #ifdef MG_ENTERPRISE
-    // The fine-grained access check reads the labels the node already has.
     result.reads.access_check_labels = true;
 #endif
   }
@@ -285,7 +289,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
       if (auto *node = utils::Downcast<NodeAtom>(atom)) {
         result.writes.nodes = true;
         if (auto labels = node->LabelConjunction()) WriteLabels(*labels);
-        WritePropertyKeys(node->properties_);
+        ReadCreatedPropertyValues(node->properties_);
       } else if (auto *edge = utils::Downcast<EdgeAtom>(atom)) {
         for (const auto &type : edge->edge_types_) {
           if (const auto *name = std::get_if<EdgeTypeIx>(&type)) {
@@ -295,7 +299,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
             std::get<Expression *>(type)->Accept(*this);
           }
         }
-        WritePropertyKeys(edge->properties_);
+        ReadCreatedPropertyValues(edge->properties_);
       }
     }
   }
@@ -350,9 +354,8 @@ ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &
 }
 
 ReadWriteSet CollectReads(const Matching &matching, const SymbolTable &symbol_table,
-                          const std::unordered_set<Symbol> &non_graph) {
-  const std::unordered_set<Symbol> no_bound;
-  ReadWriteCollector collector(symbol_table, no_bound, non_graph);
+                          const std::unordered_set<Symbol> &bound, const std::unordered_set<Symbol> &non_graph) {
+  ReadWriteCollector collector(symbol_table, bound, non_graph);
   for (const auto &expansion : matching.expansions) {
     if (expansion.node1) expansion.node1->Accept(collector);
     if (expansion.edge) expansion.edge->Accept(collector);
