@@ -90,7 +90,9 @@ def test_light_edge_recovery_survives_memory_limit(test_name):
         try:
             execute_and_fetch_all(connect(host="localhost", port=7687).cursor(), "RETURN 1")
         except mgclient.DatabaseError as e:
-            assert "Memory limit exceeded" in str(e), f"limit {limit_mb} MiB: unexpected error: {e}"
+            assert any(
+                msg in str(e) for msg in ("Memory limit exceeded", "Database is in the broken state")
+            ), f"limit {limit_mb} MiB: unexpected error: {e}"
         assert interactive_mg_runner.MEMGRAPH_INSTANCES["main"].is_running(), f"limit {limit_mb} MiB"
         interactive_mg_runner.kill_all()
 

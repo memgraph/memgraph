@@ -1549,7 +1549,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             // The emplace runs without OOM refusal (a refused rehash leaves the map inconsistent
             // for light_cleanup); the memory limit is checked once the edge is tracked.
             {
-              utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+              const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
               try {
                 light_edge_map.emplace(*gid, edge_ptr);
               } catch (...) {
