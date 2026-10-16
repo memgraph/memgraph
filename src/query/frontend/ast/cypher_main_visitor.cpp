@@ -4774,10 +4774,10 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   // Refused before its body is parsed, so the body's own checks cannot report first.
   if (subquery_fold_) ThrowFoldClauseRefused(SubqueryExpression::FoldName(*subquery_fold_));
+  auto *conditional = NestedConditional(ctx->cypherQuery());
   if (ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
-  auto *conditional = NestedConditional(ctx->cypherQuery());
   if (conditional && ctx->LPAREN() == nullptr) {
     throw SyntaxException("WHEN ... THEN ... is not allowed in 'CALL { ... }'. Use 'CALL () { ... }' instead.");
   }

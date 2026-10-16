@@ -9089,19 +9089,20 @@ TEST_P(CypherMainVisitorTest, ConditionalQueryRejectedShapes) {
   }
   // Directives and a memory limit belong to the outermost statement only.
   for (auto const *query : {"CALL () { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } RETURN x",
+                            "CALL () { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } RETURN x",
                             "RETURN EXISTS { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } AS e",
                             "RETURN EXISTS { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } AS e"}) {
     TestInvalidQueryWithMessage<SyntaxException>(
         query, ast_generator, "USING and QUERY MEMORY LIMIT can only come with the outermost WHEN ... THEN.");
   }
   TestInvalidQueryWithMessage<SyntaxException>(
-      "CALL () { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } RETURN x",
-      ast_generator,
-      "Memory limit cannot be set on subqueries!");
-  TestInvalidQueryWithMessage<SyntaxException>(
       "WHEN $a THEN { USING HOPS LIMIT 1 WHEN $b THEN RETURN 1 AS x } ELSE RETURN 2 AS x",
       ast_generator,
       "USING cannot be put in a WHEN branch.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "WHEN $a THEN { WHEN $b THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } ELSE RETURN 2 AS x",
+      ast_generator,
+      "Memory limit cannot be set on subqueries!");
   EXPECT_TRUE(dynamic_cast<CypherQuery *>(
       ast_generator.ParseQuery("CALL () { USING HOPS LIMIT 1 MATCH (n) RETURN n AS m } RETURN m")));
 }
