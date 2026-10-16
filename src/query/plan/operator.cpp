@@ -4471,24 +4471,23 @@ class KShortestPathsCursor : public Cursor {
   /// A vertex missing from it cannot reach the target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
-  // The frontier: entries stay put, and the heap orders their indices, so a sift moves 4 bytes, not
+  // The frontier: entries stay put, and the heap orders their indices, so a sift moves an index, not
   // two `TypedValue`s. A popped entry's slot is reused, so the entries never outnumber the peak
-  // frontier; `uint32_t` covers any frontier that fits in memory.
+  // frontier.
   utils::pmr::vector<WeightedQueueEntry> weighted_entries_;
-  utils::pmr::vector<uint32_t> weighted_pq_;
-  utils::pmr::vector<uint32_t> weighted_free_;
+  utils::pmr::vector<size_t> weighted_pq_;
+  utils::pmr::vector<size_t> weighted_free_;
 
   struct WeightedIndexComparator {
     const utils::pmr::vector<WeightedQueueEntry> *entries;
 
-    bool operator()(uint32_t l, uint32_t r) const { return WeightedQueueComparator{}((*entries)[l], (*entries)[r]); }
+    bool operator()(size_t l, size_t r) const { return WeightedQueueComparator{}((*entries)[l], (*entries)[r]); }
   };
 
   void PushWeighted(WeightedQueueEntry &&entry) {
-    uint32_t slot = 0;
+    size_t slot = 0;
     if (weighted_free_.empty()) {
-      DMG_ASSERT(weighted_entries_.size() < std::numeric_limits<uint32_t>::max(), "the frontier outgrew its index");
-      slot = static_cast<uint32_t>(weighted_entries_.size());
+      slot = weighted_entries_.size();
       weighted_entries_.push_back(std::move(entry));
     } else {
       slot = weighted_free_.back();
@@ -4501,7 +4500,7 @@ class KShortestPathsCursor : public Cursor {
 
   WeightedQueueEntry PopWeighted() {
     std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
-    const uint32_t slot = weighted_pq_.back();
+    const size_t slot = weighted_pq_.back();
     // NOLINTNEXTLINE(misc-const-correctness)
     WeightedQueueEntry entry = std::move(weighted_entries_[slot]);
     weighted_pq_.pop_back();
