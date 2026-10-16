@@ -14,6 +14,8 @@
 // Created by Florijan Stamenkovic on 24.01.17..
 //
 #include <cmath>
+#include <csetjmp>
+#include <csignal>
 #include <limits>
 #include <vector>
 
@@ -712,9 +714,44 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
 
 TYPED_TEST(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(memgraph::utils::Duration(1))); }
 
+namespace {
+
+// Without the guard, the native INT64_MIN / -1 (or % -1) operation traps SIGFPE and takes the test process
+// down before gtest can report anything. Adapt that trap into a failed assertion: the operation must raise
+// TypedValueException before executing the native division/modulo (contract A1), and every other outcome --
+// no throw (unguarded wrap) or SIGFPE (unguarded native trap) -- is a test failure.
+sigjmp_buf unrepresentable_op_env;
+
+extern "C" void SigfpeAsFailure(int) { siglongjmp(unrepresentable_op_env, 1); }
+
+template <typename F>
+void ExpectThrowsWithoutNativeTrap(F &&op, const char *what) {
+  struct sigaction sa{}, old_sa{};
+  sa.sa_handler = SigfpeAsFailure;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGFPE, &sa, &old_sa);
+  if (sigsetjmp(unrepresentable_op_env, 1) == 0) {
+    EXPECT_THROW(op(), TypedValueException);
+  } else {
+    ADD_FAILURE() << "Expected: TypedValueException thrown for " << what << "; the native operation trapped (SIGFPE)";
+  }
+  sigaction(SIGFPE, &old_sa, nullptr);
+}
+
+}  // namespace
+
 TYPED_TEST(TypedValueArithmeticTest, Divison) {
   this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
   EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
+  // INT64_MIN / -1 is unrepresentable in int64 ([expr.mul]/4); the guard must reject it before the native division.
+  ExpectThrowsWithoutNativeTrap([] { return TypedValue(std::numeric_limits<int64_t>::min()) / TypedValue(-1); },
+                                "INT64_MIN / -1");
+
+  // Representable boundary pairs stay exact and must not be caught by an over-broad guard.
+  EXPECT_PROP_EQ(TypedValue(std::numeric_limits<int64_t>::min()) / TypedValue(1),
+                 TypedValue(std::numeric_limits<int64_t>::min()));
+  EXPECT_PROP_EQ(TypedValue(std::numeric_limits<int64_t>::min() + 1) / TypedValue(-1),
+                 TypedValue(std::numeric_limits<int64_t>::max()));
 
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(2), TypedValue(5));
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(4), TypedValue(2));
@@ -738,6 +775,12 @@ TYPED_TEST(TypedValueArithmeticTest, Multiplication) {
 TYPED_TEST(TypedValueArithmeticTest, Modulo) {
   this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
   EXPECT_THROW(TypedValue(1) % TypedValue(0), TypedValueException);
+  // INT64_MIN % -1 is unrepresentable in int64 ([expr.mul]/4); the guard must reject it before the native modulo.
+  ExpectThrowsWithoutNativeTrap([] { return TypedValue(std::numeric_limits<int64_t>::min()) % TypedValue(-1); },
+                                "INT64_MIN % -1");
+
+  // Representable boundary pair stays exact and must not be caught by an over-broad guard.
+  EXPECT_PROP_EQ(TypedValue(std::numeric_limits<int64_t>::min()) % TypedValue(1), TypedValue(0));
 
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(2), TypedValue(0));
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(4), TypedValue(2));

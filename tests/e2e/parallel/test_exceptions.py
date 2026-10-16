@@ -142,6 +142,21 @@ def run_aggregation_query(memgraph) -> None:
     memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
 
 
+def captured_error(memgraph, query: str):
+    """
+    Run `query` and return the exception it raised, or None if it returned rows.
+
+    The INT64_MIN overflow tests judge the raised error's type (a client-visible
+    error, never a connection death), so they assert on the captured exception
+    instead of letting any error type pass.
+    """
+    try:
+        memgraph.fetch_all(query)
+    except Exception as e:  # noqa: BLE001 - the caller's assertions judge the type
+        return e
+    return None
+
+
 # =============================================================================
 # Test Classes
 # =============================================================================
@@ -316,6 +331,36 @@ class TestArithmeticExceptions:
             memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p / (n.p - 5) AS result"))
 
         assert "invalid types" in str(excinfo.value).lower()
+
+    def test_int64_min_division_overflow_is_client_error_and_server_survives(self, fresh_memgraph):
+        """(-9223372036854775807 - 1) / -1 raises a client-visible error; the server survives and / 1 stays exact."""
+        error = captured_error(fresh_memgraph, "RETURN (-9223372036854775807 - 1) / -1 AS o")
+        assert isinstance(error, (DatabaseError, ClientError, TransientError)), (
+            f"INT64_MIN / -1 must raise a client-visible error, got {error!r}"
+        )
+
+        result = fresh_memgraph.fetch_all("RETURN (-9223372036854775807 - 1) / 1 AS o")
+        assert result[0]["o"] == -9223372036854775808
+
+    def test_int64_min_modulo_overflow_is_client_error_and_server_survives(self, fresh_memgraph):
+        """(-9223372036854775807 - 1) % -1 raises a client-visible error; the server survives and % 1 stays exact."""
+        error = captured_error(fresh_memgraph, "RETURN (-9223372036854775807 - 1) % -1 AS o")
+        assert isinstance(error, (DatabaseError, ClientError, TransientError)), (
+            f"INT64_MIN % -1 must raise a client-visible error, got {error!r}"
+        )
+
+        result = fresh_memgraph.fetch_all("RETURN (-9223372036854775807 - 1) % 1 AS o")
+        assert result[0]["o"] == 0
+
+    def test_int64_min_division_overflow_tointeger_route_is_client_error_and_server_survives(self, fresh_memgraph):
+        """toInteger('-9223372036854775808') / -1 raises a client-visible error; the server survives; / 1 stays exact."""
+        error = captured_error(fresh_memgraph, "RETURN toInteger('-9223372036854775808') / -1 AS o")
+        assert isinstance(error, (DatabaseError, ClientError, TransientError)), (
+            f"toInteger(INT64_MIN) / -1 must raise a client-visible error, got {error!r}"
+        )
+
+        result = fresh_memgraph.fetch_all("RETURN toInteger('-9223372036854775808') / 1 AS o")
+        assert result[0]["o"] == -9223372036854775808
 
 
 class TestOrderByExceptions:
