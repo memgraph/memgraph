@@ -1406,29 +1406,31 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 // NOLINTNEXTLINE(google-default-arguments)
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
     CommitArgs commit_args) {
-  auto result = PrepareForCommitPhase(std::move(commit_args));
+  // A periodic commit runs inside the query's cursors, where a memory limit can refuse allocations.
+  // A refused allocation after the batch is published (e.g. while its deltas are fast-discarded), or
+  // between finalizing the batch and re-activating the accessor, would leave a half-committed
+  // transaction that the caller then aborts. As with a regular commit, nothing in here is refused;
+  // the memory limit is checked only once the next batch's transaction is active.
+  return utils::AtomicMemoryBlock([&]() -> std::expected<void, StorageManipulationError> {
+    auto result = PrepareForCommitPhase(std::move(commit_args));
 
-  const auto fatal_error = !result && std::visit(
-                                          [](const auto &e) {
-                                            using E = std::remove_cvref_t<decltype(e)>;
-                                            if constexpr (std::is_same_v<E, storage::ReplicationError>) {
-                                              // Replication errors are fatal only if the transaction was aborted
-                                              return !e.transaction_committed;
-                                            }
-                                            return true;  // all other errors are fatal
-                                          },
-                                          result.error());
+    const auto fatal_error = !result && std::visit(
+                                            [](const auto &e) {
+                                              using E = std::remove_cvref_t<decltype(e)>;
+                                              if constexpr (std::is_same_v<E, storage::ReplicationError>) {
+                                                // Replication errors are fatal only if the transaction was aborted
+                                                return !e.transaction_committed;
+                                              }
+                                              return true;  // all other errors are fatal
+                                            },
+                                            result.error());
 
-  if (fatal_error) {
-    // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
-    // The caller's cleanup path will call Abort() which handles is_transaction_active_=false gracefully.
-    return result;
-  }
+    if (fatal_error) {
+      // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
+      // The caller's cleanup path will call Abort() which handles is_transaction_active_=false gracefully.
+      return result;
+    }
 
-  // Between finalizing the committed batch and re-activating the accessor there is no active
-  // transaction, so a refused allocation here would leave one the caller then tries to abort.
-  // The memory limit is checked only once the next batch's transaction is active.
-  utils::AtomicMemoryBlock([this] {
     FinalizeTransaction();
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1448,9 +1450,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     // (procedures use it as a cache key across PERIODIC COMMIT).
 
     is_transaction_active_ = true;
-  });
 
-  return result;
+    return result;
+  });
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
