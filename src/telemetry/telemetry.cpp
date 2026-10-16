@@ -39,6 +39,7 @@ namespace {
 constexpr auto kFirstShotAfter = std::chrono::seconds{60};
 constexpr auto kEventStartup = "startup";
 constexpr auto kEventShutdown = "shutdown";
+constexpr auto kProduct = "memgraph-db";
 }  // namespace
 
 namespace memgraph::telemetry {
@@ -112,6 +113,7 @@ Telemetry::~Telemetry() noexcept {
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
   nlohmann::json payload = {{"run_id", uuid_},
                             {"type", "telemetry"},
+                            {"product", kProduct},
                             {"machine_id", machine_id_},
                             {"event", event},
                             {"data", data},

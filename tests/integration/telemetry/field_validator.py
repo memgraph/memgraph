@@ -52,6 +52,7 @@ def verify_execution_fields(item: dict) -> bool:
         ("run_id", str),
         ("timestamp", float),
         ("type", str),
+        ("product", str),
         ("ssl", bool),
         ("version", str),
     ]
