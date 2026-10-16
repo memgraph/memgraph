@@ -794,6 +794,22 @@ Feature: Conditional subqueries
             | r      |
             | 'seen' |
 
+    # The second row's EXISTS expands from the node the first row's branch deleted. Like any read of a node deleted
+    # earlier in the query, it raises instead of reading the node's old relationships.
+    Scenario: A subquery in a predicate of a writing CALL raises on a node an earlier row's branch deleted
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:T)-[:R]->(:U), (a)-[:R]->(:U)
+            """
+        When executing query:
+            """
+            MATCH (a:T)-[:R]->(b)
+            CALL (a) { WHEN EXISTS { MATCH (a)-[:R]->(:U) } THEN DETACH DELETE a }
+            RETURN count(*) AS c
+            """
+        Then an error should be raised
+
     Scenario: A branch seeks a label-property index on an imported value
         Given an empty graph
         And with new index :L(p)
