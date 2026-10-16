@@ -827,14 +827,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
-  /// The branches to splice at @p position. A copy, because @c GenReturnBody moves the operators out of it.
+  /// The branches to splice at @p position. Splicing moves the operators out, so a caller that
+  /// splices takes a copy; one that only asks what is there does not.
   ///
   /// kProjection: below the Produce. kOrderBy: after the Produce whose symbols they read, below the OrderBy that
   /// consumes them. kWhere: above the OrderBy, which restores only its own output symbols, and below the Filter.
-  BranchesAt branches_at(BodyPosition position) const { return branches_[static_cast<size_t>(position)]; }
-
-  /// Whether anything is spliced at @p position, without the copy @c branches_at owes its caller.
-  bool has_branches_at(BodyPosition position) const { return !branches_[static_cast<size_t>(position)].empty(); }
+  BranchesAt const &branches_at(BodyPosition position) const { return branches_[static_cast<size_t>(position)]; }
 
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
   const auto &bound_symbols() const { return bound_symbols_; }
@@ -973,7 +971,7 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
       // projection, and an aggregate, are planned below it and write per row, and neither names
       // its result through an Identifier that the walks below would report, so both are asked
       // about rather than swept for.
-      !body.has_branches_at(BodyPosition::kOrderBy) && !body.has_branches_at(BodyPosition::kProjection) &&
+      body.branches_at(BodyPosition::kOrderBy).empty() && body.branches_at(BodyPosition::kProjection).empty() &&
       body.aggregations().empty() &&
       // A sort key or a projected expression naming something not bound when the clause began,
       // such as a projected alias, which the sort cannot replay.
@@ -1113,8 +1111,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 
   // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
   // its own fold. Anything already spliced above has had its operator moved out and is skipped.
-  auto splice_branches = [&body, &fold_onto](std::unique_ptr<LogicalOperator> op,
-                                             auto &&branches) -> std::unique_ptr<LogicalOperator> {
+  auto splice_branches = [&body, &fold_onto](
+                             std::unique_ptr<LogicalOperator> op,
+                             ReturnBodyContext::BranchesAt branches) -> std::unique_ptr<LogicalOperator> {
     for (auto &data : branches.comprehensions) {
       if (!data.op) continue;
       auto list_collection_symbols = data.op->ModifiedSymbols(body.symbol_table());
@@ -1129,7 +1128,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   };
 
   // Plan remaining branches AFTER Aggregate (or when no aggregations)
-  last_op = splice_branches(std::move(last_op), projection);
+  last_op = splice_branches(std::move(last_op), std::move(projection));
 
   bool const has_periodic_commit = commit_frequency != nullptr;
   if (has_periodic_commit) {
