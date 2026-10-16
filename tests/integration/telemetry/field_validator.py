@@ -550,6 +550,7 @@ def verify_measurement_fields(item: dict) -> bool:
         ("run_id", str),
         ("timestamp", float),
         ("type", str),
+        ("product", str),
         ("ssl", bool),
         ("version", str),
     ]
