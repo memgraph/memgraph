@@ -1073,18 +1073,63 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
 storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
                                        const std::unordered_set<Symbol> &bound_symbols,
                                        const std::unordered_set<Symbol> &write_bound_symbols) {
-  if (!HasVariableLengthExpansion(pc)) return preferred;
-  // View::OLD cannot see a node a write clause of this query part bound, and View::NEW is not available here.
-  auto const unseeable = std::ranges::find_if(pc.expansion_symbols, [&](const Symbol &sym) {
+  // View::OLD cannot see a node a write clause of this command bound, where no barrier advanced past that write.
+  auto const unseeable = std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) {
     return bound_symbols.contains(sym) && write_bound_symbols.contains(sym);
   });
-  if (unseeable != pc.expansion_symbols.end()) {
-    throw QueryException(
-        "A variable-length pattern cannot expand from '{}', which a write clause of this query part binds. Close that "
-        "clause with a WITH before the pattern.",
-        unseeable->name());
+  return unseeable ? storage::View::NEW : preferred;
+}
+
+namespace {
+
+/// Sets View::NEW on every read in a plan: a writing CALL body tree reads its own earlier rows' writes.
+class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(Once & /*op*/) override { return true; }
+
+#define MG_READ_NEW(Op)            \
+  bool PreVisit(Op &op) override { \
+    op.view_ = storage::View::NEW; \
+    return true;                   \
   }
-  return storage::View::OLD;
+  MG_READ_NEW(ScanAll)
+  MG_READ_NEW(ScanAllByLabel)
+  MG_READ_NEW(ScanAllByLabelProperties)
+  MG_READ_NEW(ScanAllById)
+  MG_READ_NEW(ScanAllByEdge)
+  MG_READ_NEW(ScanAllByEdgeType)
+  MG_READ_NEW(ScanAllByEdgeTypeProperty)
+  MG_READ_NEW(ScanAllByEdgeProperty)
+  MG_READ_NEW(ScanAllByEdgeId)
+  MG_READ_NEW(ScanAllByVertexProperty)
+  MG_READ_NEW(Expand)
+  MG_READ_NEW(ExpandVariable)
+  MG_READ_NEW(Filter)
+  MG_READ_NEW(Produce)
+  MG_READ_NEW(Aggregate)
+  MG_READ_NEW(OrderBy)
+  MG_READ_NEW(Unwind)
+  MG_READ_NEW(HashJoin)
+  MG_READ_NEW(CreateNode)
+  MG_READ_NEW(CreateExpand)
+  MG_READ_NEW(CallProcedure)
+#undef MG_READ_NEW
+
+  bool PreVisit(Conditional &op) override {
+    op.predicate_view_ = storage::View::NEW;
+    return true;
+  }
+};
+
+}  // namespace
+
+void ReadNewThroughout(LogicalOperator &plan) {
+  ReadNewViewSetter setter;
+  plan.Accept(setter);
 }
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
@@ -1194,15 +1239,16 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                          bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
-                                         storage::View read_view) {
+                                         storage::View read_view, bool may_advance) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
   // RETURN clause.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  // No need to advance the command if we only performed reads.
-  bool advance_command = is_write;
+  // No need to advance the command if we only performed reads. A writing CALL body never advances: it runs once per
+  // outer row, and an advance would change what the outer scan still has to visit.
+  bool advance_command = is_write && may_advance;
   // Split into the clause that owns the expression, because planning runs once per start node the
   // variable-start planner tries.
   if (with.where_) {

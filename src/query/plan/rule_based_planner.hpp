@@ -76,8 +76,7 @@ inline bool HasVariableLengthExpansion(const Matching &matching) {
 /// The view rule for a correlated-subquery branch, shared by every splice point. A clause sees the effects of the
 /// clauses before it, and within one command no AdvanceCommand folds a write into View::OLD, so a branch planned
 /// after a write reads View::NEW - except where ExpandVariable cannot service it.
-inline storage::View SubqueryView(const Matching &matching, bool write_occurred) {
-  if (HasVariableLengthExpansion(matching)) return storage::View::OLD;
+inline storage::View SubqueryView(const Matching & /*matching*/, bool write_occurred) {
   return write_occurred ? storage::View::NEW : storage::View::OLD;
 }
 
@@ -255,7 +254,10 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                          bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
-                                         storage::View read_view = storage::View::NEW);
+                                         storage::View read_view = storage::View::NEW, bool may_advance = true);
+
+/// Sets View::NEW on every reading operator of @p plan, branches included.
+void ReadNewThroughout(LogicalOperator &plan);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -398,12 +400,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             [this, saved = std::move(query_part_symbols_)]() mutable { query_part_symbols_ = std::move(saved); }};
         query_part_symbols_ = {};
 
-        if (BarriersOn() && !pending_writes.Empty()) {
+        if (BarriersOn()) {
           auto reads = CollectReads(single_query_part.matching, *context.symbol_table, non_graph_symbols_);
           for (const auto &optional : single_query_part.optional_matching) {
             reads.Merge(CollectReads(optional, *context.symbol_table, non_graph_symbols_));
           }
           barrier_before(reads);
+          // Every read of a writing CALL body is a View::NEW read.
+          if (read_scope_ == ReadScope::kWritingTree) pending_new_reads.Merge(reads);
         }
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
 
@@ -524,18 +528,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
           // With and Return drain in their own Accumulate; MERGE's barrier comes with its match rule.
           auto const is_projection = utils::Downcast<Return>(clause) || utils::Downcast<query::With>(clause);
+          bool const reads_new = ReadsNewView(*clause) || read_scope_ == ReadScope::kWritingTree;
           auto const access =
-              is_projection
+              is_projection && !reads_new
                   ? ReadsAndWrites{}
                   : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
-          if (!utils::Downcast<query::Merge>(clause)) barrier_before(access.reads);
+          if (!is_projection && !utils::Downcast<query::Merge>(clause)) barrier_before(access.reads);
           if (BarriersOn() && Conflicts(pending_new_reads, access.writes)) plan_barrier();
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
-            if (ReadsNewView(*clause) && !utils::Downcast<query::Merge>(clause)) pending_new_reads.Merge(access.reads);
+            if (reads_new && !utils::Downcast<query::Merge>(clause)) pending_new_reads.Merge(access.reads);
           }};
 
           // A root WITH or RETURN after a write drains and advances below its body, so View::OLD sees what was created.
@@ -585,11 +590,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                      nullptr,
                                      context.in_subquery_body,
                                      context.scoped_call_imports,
-                                     ScopeView());
-            // WITH clause advances the command, so reset the flag.
+                                     ScopeView(),
+                                     read_scope_ != ReadScope::kWritingTree);
+            // WITH clause advances the command, so reset the flag. It drains only after a write, and only a drain
+            // ends what the reads before it can see.
+            if (wrote_since_with) {
+              pending_writes.Clear();
+              pending_new_reads.Clear();
+            }
             wrote_since_with = false;
-            pending_writes.Clear();
-            pending_new_reads.Clear();
           } else if (IsWriteClause(clause)) {
             wrote_since_with = true;
             write_occurred = true;
@@ -728,7 +737,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               if (!has_periodic_commit) {
                 input_op = std::make_unique<Accumulate>(
                     std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
-                advanced_after = is_root_query;
+                if (BarriersOn()) {
+                  pending_writes.Clear();
+                  pending_new_reads.Clear();
+                  advanced_after = true;
+                }
               }
             }
           } else {
@@ -846,7 +859,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// Symbols that hold a row of a file, never a graph entity: a lookup on them reads nothing from the graph.
   std::unordered_set<Symbol> non_graph_symbols_;
 
-  bool BarriersOn() const { return read_scope_ == ReadScope::kRoot; }
+  bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
 
   /// A clause that must see its own earlier rows, so it reads View::NEW: a SET/REMOVE right-hand side, MERGE and
   /// FOREACH.
@@ -1678,31 +1691,24 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         bound_symbols.insert(*total_weight);
       }
 
-      // Unreachable today: comprehensions are filtered through `impl::PatternComprehensionView`, a MERGE pattern
-      // cannot hold a variable-length edge, and MATCH plans View::OLD. Backstop for a routing mistake - throw rather
-      // than assert, which would abort the process from `EXPLAIN` alone.
-      if (view != storage::View::OLD) {
-        throw QueryException(
-            "A variable-length pattern cannot be evaluated after a write in the same query part. Separate them with a "
-            "WITH clause.");
-      }
-
       // TODO: Pass weight lambda.
-      last_op = std::make_unique<ExpandVariable>(std::move(last_op),
-                                                 node1_symbol,
-                                                 node_symbol,
-                                                 edge_symbol,
-                                                 edge->type_,
-                                                 expansion.direction,
-                                                 edge_types,
-                                                 expansion.is_flipped,
-                                                 edge->lower_bound_,
-                                                 edge->upper_bound_,
-                                                 existing_node,
-                                                 filter_lambda,
-                                                 weight_lambda,
-                                                 total_weight,
-                                                 edge->limit_);
+      auto expand_variable = std::make_unique<ExpandVariable>(std::move(last_op),
+                                                              node1_symbol,
+                                                              node_symbol,
+                                                              edge_symbol,
+                                                              edge->type_,
+                                                              expansion.direction,
+                                                              edge_types,
+                                                              expansion.is_flipped,
+                                                              edge->lower_bound_,
+                                                              edge->upper_bound_,
+                                                              existing_node,
+                                                              filter_lambda,
+                                                              weight_lambda,
+                                                              total_weight,
+                                                              edge->limit_);
+      expand_variable->view_ = view;
+      last_op = std::move(expand_variable);
     } else {
       last_op = std::make_unique<Expand>(std::move(last_op),
                                          node1_symbol,
@@ -1881,12 +1887,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
 
     auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
+    bool const from_root = read_scope_ == ReadScope::kRoot;
     if (commit_frequency != nullptr) {
       read_scope_ = ReadScope::kBatching;
     } else if (read_scope_ == ReadScope::kRoot) {
       read_scope_ = subquery->writes ? ReadScope::kWritingTree : ReadScope::kReadOnlyTree;
     }
+    bool const enters_writing_tree = from_root && read_scope_ == ReadScope::kWritingTree;
     auto subquery_op = Plan(*subquery);
+    if (enters_writing_tree) impl::ReadNewThroughout(*subquery_op);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
     // `OPTIONAL CALL` nulls out what the branch introduces, never what it imported: `RETURN *` projects the
     // imported variables straight back out, and those must keep the caller's values. Taken here because the move

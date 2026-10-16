@@ -8140,10 +8140,10 @@ TYPED_TEST(TestPlanner, MergeOnMatchPlansAVariableLengthComprehensionWithViewOld
   ExpectCorrelatedBranch<ExpandVariable>(rollup);
 }
 
-TYPED_TEST(TestPlanner, MergeOnMatchAfterAWriteStillRejectsAVariableLengthComprehension) {
+TYPED_TEST(TestPlanner, MergeOnMatchAfterAWritePlansAVariableLengthComprehensionWithViewNew) {
   // Test CREATE (x) MERGE (b) ON MATCH SET b.prop = [(b)-[*1..2]->(m) | 1]
   // MERGE's match branch reads View::NEW, so with a write earlier in the query part it can match a node that write
-  // created - which View::OLD cannot see. Narrowing unconditionally turned the rejection into a runtime failure.
+  // created - which View::OLD cannot see. ExpandVariable now reads View::NEW there instead of refusing.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
 
@@ -8157,12 +8157,7 @@ TYPED_TEST(TestPlanner, MergeOnMatchAfterAWriteStillRejectsAVariableLengthCompre
                          MERGE(PATTERN(NODE("b")), ON_MATCH(SET(PROPERTY_LOOKUP(dba, "b", prop), pattern_comp)))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  try {
-    MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    FAIL() << "expected the query to be rejected";
-  } catch (const memgraph::query::QueryException &e) {
-    EXPECT_THAT(e.what(), ::testing::HasSubstr("'b'"));
-  }
+  EXPECT_NO_THROW(MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query));
 }
 
 TYPED_TEST(TestPlanner, VariableLengthComprehensionAfterAMergeIsPlannedAfterTheDrain) {
