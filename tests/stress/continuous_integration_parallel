@@ -1,0 +1,586 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Parallel Memgraph stress test runner (standalone/native only).
+
+Every dataset test and custom workload in the config gets its own memgraph
+instance (own bolt/monitoring/metrics ports, data directory, log directory)
+and the jobs are scheduled against a core budget:
+
+  * entries with a `cores:` key run concurrently while their core counts fit
+    in the budget;
+  * entries without `cores:` are assumed to need every core (the runner passes
+    `--worker-count <all cores>` to them, as the serial runner does) and run on
+    their own once nothing else is running.
+
+Usage:
+  ./continuous_integration_parallel --workload standalone/native/workloads/config_small.yaml
+  ./continuous_integration_parallel --workload ... --cores 16 --max-parallel 4
+  ./continuous_integration_parallel --workload ... --dry-run
+
+Each job's output lands in <log-dir>/<NN-name>/runner.log next to memgraph.log;
+on failure the tail of runner.log is echoed to stdout.
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import multiprocessing
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+import yaml
+from gqlalchemy import Memgraph
+from workers import get_worker_object, get_worker_steps
+
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
+
+def _load_serial_runner():
+    """Import ./continuous_integration (no .py suffix) so Config & co. are shared."""
+    path = os.path.join(SCRIPT_DIR, "continuous_integration")
+    loader = importlib.machinery.SourceFileLoader("continuous_integration", path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+ci = _load_serial_runner()
+
+SUPPORTED_DEPLOYMENT = "standalone/native"
+BASE_BOLT_PORT = 7687
+BASE_MONITORING_PORT = 7444
+BASE_METRICS_PORT = 9091
+MAX_SLOTS = 200  # keeps the three port ranges from overlapping
+DEFAULT_LOG_DIR = os.path.join(SCRIPT_DIR, "stress_logs", "parallel")
+# Extra time the parent allows a job beyond its own timeout_min (memgraph start/stop, import).
+PARENT_GRACE_SEC = 600
+RESULT_FILE = "result.json"
+RUNNER_LOG = "runner.log"
+
+
+# =============================================================================
+# Jobs
+# =============================================================================
+
+
+@dataclass
+class Job:
+    index: int
+    kind: str  # "test" (dataset.tests) or "workload" (customWorkloads.tests)
+    name: str
+    key: str  # measurement key, same scheme as the serial runner
+    spec: Dict[str, Any]
+    cores: Optional[int]  # None -> exclusive
+    timeout_min: int
+
+    @property
+    def slug(self) -> str:
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in self.name)
+        return f"{self.index:02d}-{safe}"
+
+    @property
+    def exclusive(self) -> bool:
+        return self.cores is None
+
+
+def build_jobs(config) -> List[Job]:
+    jobs: List[Job] = []
+    for test in config.tests:
+        name = test["name"]
+        jobs.append(
+            Job(
+                index=len(jobs),
+                kind="test",
+                name=name,
+                key=os.path.splitext(name)[0],
+                spec=test,
+                cores=_parse_cores(test, name),
+                timeout_min=test["timeout_min"],
+            )
+        )
+    for workload in config.custom_workloads:
+        name = workload["name"]
+        jobs.append(
+            Job(
+                index=len(jobs),
+                kind="workload",
+                name=name,
+                key=name,
+                spec=workload,
+                cores=_parse_cores(workload, name),
+                timeout_min=workload.get("timeout_min", 10),
+            )
+        )
+    return jobs
+
+
+def _parse_cores(spec: Dict[str, Any], name: str) -> Optional[int]:
+    cores = spec.get("cores")
+    if cores is None:
+        return None
+    if not isinstance(cores, int) or cores <= 0:
+        raise ValueError(f"'{name}': cores must be a positive integer, got {cores!r}")
+    return cores
+
+
+def load_config(config_file: str):
+    raw = yaml.safe_load(open(config_file))
+    config = ci.Config(raw, config_file)
+    if config.deployment_type != SUPPORTED_DEPLOYMENT:
+        raise SystemExit(f"Only {SUPPORTED_DEPLOYMENT} configs are supported, got '{config.deployment_type}'")
+    if not config.manage_deployment:
+        raise SystemExit("Externally managed deployments cannot be run in parallel (single shared instance)")
+    if not os.path.exists(config.deployment_script):
+        raise SystemExit(f"Deployment script not found: {config.deployment_script}")
+    return config
+
+
+# =============================================================================
+# Child: run one job against its own memgraph instance
+# =============================================================================
+
+
+class JobInterrupted(Exception):
+    pass
+
+
+def _raise_interrupted(signum, frame):
+    raise JobInterrupted(f"received signal {signum}")
+
+
+def _ports_for_slot(slot: int) -> Dict[str, int]:
+    return {
+        "bolt": BASE_BOLT_PORT + slot,
+        "monitoring": BASE_MONITORING_PORT + slot,
+        "metrics": BASE_METRICS_PORT + slot,
+    }
+
+
+def _rewrite_port_args(tokens: List[str], old_port: int, new_port: int) -> List[str]:
+    """Replace a hardcoded bolt port in script args: 'host:7687', '--port=7687', '--port 7687'."""
+    old, new = str(old_port), str(new_port)
+    out: List[str] = []
+    for i, tok in enumerate(tokens):
+        if tok.endswith(f":{old}"):
+            tok = tok[: -len(old)] + new
+        elif tok == old and i > 0 and tokens[i - 1].startswith("--") and tokens[i - 1].endswith("port"):
+            tok = new
+        elif tok.startswith("--") and tok.endswith(f"port={old}"):
+            tok = tok[: -len(old)] + new
+        out.append(tok)
+    return out
+
+
+def _start_instance(config, job: Job, ports: Dict[str, int], job_dir: str) -> None:
+    # memgraph.log already lands in job_dir; keep its stderr copy out of runner.log so the
+    # test's own output stays readable. Config args come later and can still override.
+    flags = (
+        ["--also-log-to-stderr=false"]
+        + config.memgraph_args
+        + job.spec.get("memgraph_args", [])
+        + [f"--monitoring-port={ports['monitoring']}", f"--metrics-port={ports['metrics']}"]
+    )
+    env = os.environ.copy()
+    for key, value in config.env.items():
+        if value:
+            env[key] = str(value)
+    env.update(
+        {
+            "BOLT_PORT": str(ports["bolt"]),
+            "DATA_DIR": os.path.join(job_dir, "data"),
+            "LOG_DIR": job_dir,
+            "PID_FILE": os.path.join(job_dir, "memgraph.pid"),
+        }
+    )
+    cmd = [config.deployment_script, "start"] + flags
+    print(f"Starting Memgraph with: {' '.join(cmd)}", flush=True)
+    subprocess.run(cmd, check=True, env=env, cwd=SCRIPT_DIR)
+    time.sleep(2)
+
+
+def _stop_instance(config, ports: Dict[str, int], job_dir: str) -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "BOLT_PORT": str(ports["bolt"]),
+            "DATA_DIR": os.path.join(job_dir, "data"),
+            "LOG_DIR": job_dir,
+            "PID_FILE": os.path.join(job_dir, "memgraph.pid"),
+        }
+    )
+    cmd = [config.deployment_script, "stop"]
+    print(f"Stopping Memgraph with: {' '.join(cmd)}", flush=True)
+    subprocess.run(cmd, check=True, env=env, cwd=SCRIPT_DIR)
+
+
+def _run_dataset_test(args, config, job: Job, cores: int, bolt_port: int) -> None:
+    test = job.name
+    binary = ci._find_test_binary(args, config, test)
+    if test.endswith(".py"):
+        endpoint = ["--endpoint", f"127.0.0.1:{bolt_port}"]
+    else:
+        endpoint = ["--port", str(bolt_port)]
+    # Config test_args come last so they override --worker-count, exactly as in the serial runner.
+    cmd = binary + ["--worker-count", str(cores)] + endpoint + job.spec["test_args"]
+    print(f"Running test '{test}': {' '.join(cmd)}", flush=True)
+    ret = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=job.timeout_min * 60)
+    if ret.returncode != 0:
+        raise Exception(f"Test '{test}' binary returned non-zero ({ret.returncode})!")
+
+
+def _run_custom_workload(args, config, job: Job, bolt_port: int) -> None:
+    workload = dict(job.spec)
+    querying = dict(workload.get("querying", {}))
+    query_host = querying.get("host", "127.0.0.1")
+    old_port = querying.get("port", BASE_BOLT_PORT)
+    querying["port"] = bolt_port
+    workload["querying"] = querying
+    if "script_args" in workload:
+        workload["script_args"] = _rewrite_port_args(list(workload["script_args"]), old_port, bolt_port)
+
+    print(f"Started import for workload '{job.name}'", flush=True)
+    memgraph = Memgraph(host=query_host, port=bolt_port)
+    for query in workload.get("import", {}).get("queries", []):
+        print(f"Executing query: {query}", flush=True)
+        memgraph.execute(query)
+    print(f"Finished import for workload '{job.name}'", flush=True)
+
+    timeout_sec = job.timeout_min * 60
+    if "script" in workload:
+        ci.run_workload_script(workload, args, timeout_sec, deployment_type=config.deployment_type)
+        return
+
+    processes = []
+    workers = workload.get("workers", [])
+    for step in get_worker_steps(workers):
+        print(f"Running step {step}.", flush=True)
+        for worker in [x for x in workers if x.get("step", 1) == step]:
+            worker = dict(worker)
+            worker["querying"] = {"host": query_host, "port": bolt_port}
+            worker_object = get_worker_object(worker)
+            for _ in range(worker.get("replicas", 1)):
+                process = multiprocessing.Process(target=worker_object.run)
+                processes.append(process)
+                process.start()
+        # As in the serial runner, a worker's exit code is not checked: some workloads
+        # (e.g. supernode-edge-abort) expect their query to fail.
+        for process in processes:
+            process.join(timeout_sec)
+            if process.is_alive():
+                print(f"Worker process exceeded timeout of {timeout_sec // 60} minutes. Terminating...", flush=True)
+                process.terminate()
+                process.join()
+
+
+def run_job(args) -> int:
+    """Child entry point: start an instance, run exactly one job against it, stop the instance."""
+    signal.signal(signal.SIGTERM, _raise_interrupted)
+    signal.signal(signal.SIGINT, _raise_interrupted)
+
+    config = load_config(args.workload)
+    job = build_jobs(config)[args.job_index]
+    ports = _ports_for_slot(args.slot)
+    job_dir = args.job_dir
+    os.makedirs(job_dir, exist_ok=True)
+
+    result: Dict[str, Any] = {"name": job.name, "key": job.key, "status": "error", "runtime": None}
+    started = False
+    start = time.time()
+    try:
+        _start_instance(config, job, ports, job_dir)
+        started = True
+        if job.kind == "test":
+            _run_dataset_test(args, config, job, args.cores, ports["bolt"])
+        else:
+            _run_custom_workload(args, config, job, ports["bolt"])
+        result["status"] = "ok"
+    except BaseException as ex:  # noqa: BLE001 - we want the result file written for any failure
+        result["error"] = f"{type(ex).__name__}: {ex}"
+        print(f"Job '{job.name}' failed: {result['error']}", flush=True)
+    finally:
+        result["runtime"] = time.time() - start
+        if started:
+            try:
+                _stop_instance(config, ports, job_dir)
+            except Exception as ex:  # noqa: BLE001
+                print(f"Failed to stop Memgraph for '{job.name}': {ex}", flush=True)
+                if result["status"] == "ok":
+                    result["status"] = "error"
+                    result["error"] = f"stop_deployment failed: {ex}"
+        with open(os.path.join(job_dir, RESULT_FILE), "w") as f:
+            json.dump(result, f)
+
+    return 0 if result["status"] == "ok" else 1
+
+
+# =============================================================================
+# Parent: schedule jobs against the core budget
+# =============================================================================
+
+
+@dataclass
+class Running:
+    job: Job
+    cores: int
+    slot: int
+    process: subprocess.Popen
+    log: Any
+    started: float
+    deadline: float
+    terminated_at: Optional[float] = None
+
+
+def _ts() -> str:
+    return time.strftime("%H:%M:%S")
+
+
+def _tail(path: str, lines: int = 40) -> str:
+    try:
+        with open(path, errors="replace") as f:
+            return "".join(f.readlines()[-lines:])
+    except OSError:
+        return ""
+
+
+def _launch(args, job: Job, cores: int, slot: int, run_dir: str) -> Running:
+    job_dir = os.path.join(run_dir, job.slug)
+    os.makedirs(job_dir, exist_ok=True)
+    log = open(os.path.join(job_dir, RUNNER_LOG), "w")
+    cmd = [
+        sys.executable,
+        "-u",
+        os.path.realpath(__file__),
+        "--run-job",
+        "--workload",
+        args.workload,
+        "--job-index",
+        str(job.index),
+        "--slot",
+        str(slot),
+        "--cores",
+        str(cores),
+        "--job-dir",
+        job_dir,
+        "--python",
+        args.python,
+    ]
+    process = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=SCRIPT_DIR, start_new_session=True)
+    now = time.time()
+    return Running(job, cores, slot, process, log, now, now + job.timeout_min * 60 + PARENT_GRACE_SEC)
+
+
+def _signal_group(run: Running, sig: int) -> None:
+    try:
+        os.killpg(os.getpgid(run.process.pid), sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _describe_schedule(jobs: List[Job], total_cores: int, max_parallel: int) -> None:
+    concurrent = [j for j in jobs if not j.exclusive]
+    exclusive = [j for j in jobs if j.exclusive]
+    print(f"Parallel stress run: {len(jobs)} jobs, core budget {total_cores}, up to {max_parallel} instances")
+    print(f"  bolt ports {BASE_BOLT_PORT}-{BASE_BOLT_PORT + max_parallel - 1}")
+    print("  concurrent:", ", ".join(f"{j.name} ({j.cores})" for j in concurrent) or "-")
+    print("  exclusive :", ", ".join(j.name for j in exclusive) or "-")
+    print(flush=True)
+
+
+def run_parallel(args) -> int:
+    config = load_config(args.workload)
+    jobs = build_jobs(config)
+    if not jobs:
+        print("No tests or workloads found in config.")
+        return 1
+
+    total_cores = args.cores
+    max_parallel = args.max_parallel or min(len(jobs), total_cores)
+    max_parallel = max(1, min(max_parallel, MAX_SLOTS))
+
+    # Anything at or above the budget is effectively exclusive.
+    for job in jobs:
+        if job.cores is not None and job.cores >= total_cores:
+            job.cores = None
+
+    # Concurrent jobs first (largest first packs better), then the exclusive ones in config order.
+    concurrent = sorted((j for j in jobs if not j.exclusive), key=lambda j: -j.cores)
+    exclusive = [j for j in jobs if j.exclusive]
+    pending: List[Job] = concurrent + exclusive
+
+    _describe_schedule(pending, total_cores, max_parallel)
+    if args.dry_run:
+        return 0
+
+    run_dir = args.log_dir
+    if os.path.isdir(run_dir):
+        shutil.rmtree(run_dir)
+    os.makedirs(run_dir)
+
+    free_cores = total_cores
+    free_slots = list(range(max_parallel))
+    running: List[Running] = []
+    runtimes: Dict[str, float] = {}
+    failures: List[str] = []
+    skipped: List[Job] = []
+    wall_start = time.time()
+    aborting = False
+
+    def finish(run: Running) -> None:
+        nonlocal free_cores
+        run.log.close()
+        free_cores += run.cores
+        free_slots.append(run.slot)
+        free_slots.sort()
+        running.remove(run)
+        job_dir = os.path.join(run_dir, run.job.slug)
+        result_path = os.path.join(job_dir, RESULT_FILE)
+        result: Dict[str, Any] = {}
+        if os.path.exists(result_path):
+            with open(result_path) as f:
+                result = json.load(f)
+        elapsed = time.time() - run.started
+        if run.process.returncode == 0 and result.get("status") == "ok":
+            runtimes[run.job.key] = result.get("runtime", elapsed)
+            print(f"[{_ts()}] DONE   {run.job.name}  {elapsed:.0f}s  (free {free_cores}/{total_cores})", flush=True)
+            return
+        reason = result.get("error") or f"exit code {run.process.returncode}"
+        failures.append(f"{run.job.name}: {reason}")
+        print(f"[{_ts()}] FAIL   {run.job.name}  {elapsed:.0f}s  {reason}", flush=True)
+        print(f"--- last lines of {os.path.join(job_dir, RUNNER_LOG)} ---")
+        print(_tail(os.path.join(job_dir, RUNNER_LOG)), end="")
+        print("--- end ---", flush=True)
+
+    try:
+        while pending or running:
+            if not aborting:
+                for job in list(pending):
+                    cores = total_cores if job.exclusive else job.cores
+                    if cores <= free_cores and free_slots:
+                        slot = free_slots.pop(0)
+                        free_cores -= cores
+                        pending.remove(job)
+                        running.append(_launch(args, job, cores, slot, run_dir))
+                        print(
+                            f"[{_ts()}] START  {job.name}  cores={cores} port={BASE_BOLT_PORT + slot}"
+                            f"  (free {free_cores}/{total_cores})",
+                            flush=True,
+                        )
+            if not running:
+                break
+            time.sleep(1)
+            now = time.time()
+            for run in list(running):
+                if run.process.poll() is not None:
+                    finish(run)
+                elif run.terminated_at is not None and now - run.terminated_at > 30:
+                    _signal_group(run, signal.SIGKILL)
+                elif run.terminated_at is None and now > run.deadline:
+                    print(f"[{_ts()}] TIMEOUT {run.job.name}, terminating", flush=True)
+                    _signal_group(run, signal.SIGTERM)
+                    run.terminated_at = now
+            if failures and not aborting:
+                aborting = True
+                skipped = list(pending)
+                pending = []
+                if running:
+                    print(
+                        f"[{_ts()}] Failure detected: not starting new jobs, waiting for "
+                        f"{len(running)} running job(s)",
+                        flush=True,
+                    )
+    except KeyboardInterrupt:
+        print(f"\n[{_ts()}] Interrupted, stopping {len(running)} running job(s)...", flush=True)
+        for run in running:
+            _signal_group(run, signal.SIGTERM)
+        for run in running:
+            try:
+                run.process.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                _signal_group(run, signal.SIGKILL)
+                run.process.wait()
+            run.log.close()
+        return 130
+
+    wall = time.time() - wall_start
+    print()
+    print(f"{'job':40s} {'runtime':>10s}")
+    for key, runtime in runtimes.items():
+        print(f"{key:40s} {runtime:9.1f}s")
+    print(f"{'wall time':40s} {wall:9.1f}s  (sum of job runtimes {sum(runtimes.values()):.1f}s)")
+    if skipped:
+        print("Skipped after failure:", ", ".join(j.name for j in skipped))
+    if failures:
+        print("\nStress test failed:")
+        for failure in failures:
+            print(f"  {failure}")
+        return 1
+
+    ci.write_stats(runtimes)
+    print("\nSuccessfully ran stress tests!")
+    return 0
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+
+def _default_cores() -> int:
+    if "THREADS" in os.environ:
+        return int(os.environ["THREADS"])
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return multiprocessing.cpu_count()
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Run standalone/native stress tests in parallel, one memgraph instance per job.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("--workload", required=True, help="Path to a workload YAML file")
+    parser.add_argument(
+        "--cores",
+        type=int,
+        default=_default_cores(),
+        help="Core budget shared by concurrently running jobs (default: THREADS env or CPU affinity count)",
+    )
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=0,
+        help="Maximum number of concurrent memgraph instances (default: min(jobs, cores))",
+    )
+    parser.add_argument("--log-dir", default=DEFAULT_LOG_DIR, help=f"Per-job log root (default: {DEFAULT_LOG_DIR})")
+    parser.add_argument("--dry-run", action="store_true", help="Print the schedule and exit")
+    parser.add_argument("--python", default="python3", type=str, help="Path to Python interpreter")
+
+    # Internal: child-process mode.
+    parser.add_argument("--run-job", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--job-index", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--slot", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--job-dir", help=argparse.SUPPRESS)
+
+    args = parser.parse_args()
+    if not os.path.isabs(args.workload):
+        args.workload = os.path.join(SCRIPT_DIR, args.workload)
+    if args.cores <= 0:
+        parser.error("--cores must be positive")
+    return args
+
+
+if __name__ == "__main__":
+    args = parse_arguments()
+    if args.run_job:
+        sys.exit(run_job(args))
+    sys.exit(run_parallel(args))
