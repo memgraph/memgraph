@@ -11,6 +11,7 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 #include <range/v3/all.hpp>
+#include <ranges>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -40,6 +41,11 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+/// An expansion is read more than once, by a traversal that reaches the same vertex again, and it
+/// is asked how many edges it found without being walked to count them.
+static_assert(std::ranges::forward_range<ExpandedEdges>);
+static_assert(std::ranges::sized_range<ExpandedEdges>);
 
 namespace {
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {

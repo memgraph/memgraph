@@ -39,7 +39,8 @@ class ExpandedEdges {
 
   class Iterator {
    public:
-    using iterator_category = std::forward_iterator_tag;
+    using iterator_concept = std::forward_iterator_tag;
+    using iterator_category = std::input_iterator_tag;
     using value_type = EdgeAccessor;
     using difference_type = std::ptrdiff_t;
 

@@ -2176,7 +2176,8 @@ class VertexExpansion {
 
   class Iterator {
    public:
-    using iterator_category = std::forward_iterator_tag;
+    using iterator_concept = std::forward_iterator_tag;
+    using iterator_category = std::input_iterator_tag;
     using value_type = std::pair<EdgeAccessor, EdgeAtom::Direction>;
     using difference_type = std::ptrdiff_t;
 
@@ -2221,6 +2222,10 @@ class VertexExpansion {
   ExpandedEdges in_;
   ExpandedEdges out_;
 };
+
+/// A depth-first walk holds an iterator per depth and reads each of them across many pulls, so a
+/// range that can only be passed over once would not do.
+static_assert(std::ranges::forward_range<VertexExpansion>);
 
 /// Expands `vertex` in `direction`, giving the edges found and which direction each was found in.
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,

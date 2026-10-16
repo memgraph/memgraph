@@ -11,11 +11,17 @@
 
 #include "query/vertex_accessor.hpp"
 
+#include <ranges>
 #include <utility>
 
 #include "query/edge_accessor.hpp"
 
 namespace memgraph::query {
+
+/// An expansion is read more than once, by a traversal that reaches the same vertex again, and it
+/// is asked how many edges it found without being walked to count them.
+static_assert(std::ranges::forward_range<ExpandedEdges>);
+static_assert(std::ranges::sized_range<ExpandedEdges>);
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view) const { return InEdges(view, {}); }
 
