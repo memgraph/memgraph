@@ -1516,6 +1516,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() { Abort({}); }
 void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progress) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
+  // Undo must run to completion: a refused allocation would leave the transaction half rolled back
+  // (and the undo containers inconsistent), and a later Abort would replay the already undone deltas.
+  // Allocations stay tracked; the limit is enforced at the next allocation outside of Abort.
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+
   // An analytical abort undoes nothing, so its writes -- and whatever they left for a sweep to
   // collect -- are still there.
   PublishIndexArming();
