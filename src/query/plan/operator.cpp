@@ -4386,8 +4386,8 @@ class KShortestPathsCursor : public Cursor {
 
   struct TrieNode {
     std::optional<EdgeAccessor> edge;  // empty at the root
-    // The edge's, so the sibling scan does not read through the accessor.
-    storage::Gid gid;
+    // Cached so the sibling scan does not read through the accessor.
+    storage::Gid edge_gid;
     uint64_t parent;
     uint64_t first_child;
     uint64_t next_sibling;
@@ -4396,7 +4396,7 @@ class KShortestPathsCursor : public Cursor {
   /// Node 0 of `trie_`: the empty root every path starts from.
   static TrieNode TrieRoot() {
     return {.edge = std::nullopt,
-            .gid = storage::kInvalidGid,
+            .edge_gid = storage::kInvalidGid,
             .parent = kNoNode,
             .first_child = kNoNode,
             .next_sibling = kNoNode};
@@ -4515,7 +4515,7 @@ class KShortestPathsCursor : public Cursor {
       if (i >= first_deviation) {
         blocked_edges_.clear();
         for (uint64_t c = trie_[root].first_child; c != kNoNode; c = trie_[c].next_sibling) {
-          blocked_edges_.insert(trie_[c].gid);
+          blocked_edges_.insert(trie_[c].edge_gid);
         }
         GenerateCandidatesFromDeviation(target, root, i, deviation_vertex, root_weight, frame, evaluator, context);
       }
@@ -5050,13 +5050,16 @@ class KShortestPathsCursor : public Cursor {
   uint64_t TrieDescendOrCreate(uint64_t node, const EdgeAccessor &edge) {
     const auto gid = edge.Gid();
     for (uint64_t c = trie_[node].first_child; c != kNoNode; c = trie_[c].next_sibling) {
-      if (trie_[c].gid == gid) return c;
+      if (trie_[c].edge_gid == gid) return c;
     }
     // Ids are as wide as the vector's own index, so `fresh` cannot narrow and the only ceiling
     // left is the sentinel - which a vector of these cannot reach before the allocator gives out.
     const auto fresh = static_cast<uint64_t>(trie_.size());
-    trie_.push_back(TrieNode{
-        .edge = edge, .gid = gid, .parent = node, .first_child = kNoNode, .next_sibling = trie_[node].first_child});
+    trie_.push_back(TrieNode{.edge = edge,
+                             .edge_gid = gid,
+                             .parent = node,
+                             .first_child = kNoNode,
+                             .next_sibling = trie_[node].first_child});
     trie_[node].first_child = fresh;
     return fresh;
   }
