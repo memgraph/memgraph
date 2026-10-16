@@ -207,6 +207,17 @@ TEST_F(WriteVisibilityPlan, CloneKeepsProduceAndAggregateView) {
   ExpectCloneKeepsView<Aggregate>(plan, storage_);
 }
 
+TEST_F(WriteVisibilityPlan, CloneKeepsReadViews) {
+  auto &plan = Plan("MATCH (a)-[*1..2]->(b) WHERE a.x = 1 UNWIND [a.y] AS u WITH a, u ORDER BY a.z RETURN a, u");
+  ExpectCloneKeepsView<Filter>(plan, storage_);
+  ExpectCloneKeepsView<memgraph::query::plan::Unwind>(plan, storage_);
+  ExpectCloneKeepsView<OrderBy>(plan, storage_);
+  ExpectCloneKeepsView<ExpandVariable>(plan, storage_);
+  ExpectCloneKeepsView<HashJoin>(Plan("MATCH (a), (b) WHERE a.x = b.y RETURN a"), storage_);
+  ExpectCloneKeepsView<ExpandVariable>(Plan("MATCH p = (a)-[*BFS]->(b) RETURN p"), storage_);
+  ExpectCloneKeepsView<ExpandVariable>(Plan("MATCH p = (a)-[*WSHORTEST (r, n | 1)]->(b) RETURN p"), storage_);
+}
+
 TEST_F(WriteVisibilityPlan, CloneKeepsCreateView) {
   auto &plan = Plan("CREATE (a {v: 1})-[:R {w: 2}]->(b)");
   ExpectCloneKeepsView<CreateNode>(plan, storage_);
