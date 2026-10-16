@@ -1168,7 +1168,8 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency) {
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
+                                           bool is_root_query) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -1177,7 +1178,9 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // final result of 'k' increments.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  bool advance_command = false;
+  // At the root the drain also advances, so ORDER BY, a fold and a later UNION leg read every write through
+  // View::OLD. A body's RETURN runs once per outer row, and an advance there would change the outer scan mid-way.
+  bool const advance_command = is_root_query;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 }
