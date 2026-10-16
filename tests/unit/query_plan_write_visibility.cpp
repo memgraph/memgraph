@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -167,15 +168,37 @@ TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n) RETURN n.x AS x ORDER BY x")).empty());
 }
 
+// ---------------------------------------------------------------- root reads use View::OLD
+
+using memgraph::storage::View;
+
+template <class TOp>
+View &ViewOf(TOp &op) {
+  if constexpr (std::is_same_v<TOp, Conditional>) {
+    return op.predicate_view_;
+  } else {
+    return op.view_;
+  }
+}
+
+template <class TOp>
+std::vector<View> Views(LogicalOperator &plan) {
+  std::vector<View> views;
+  for (auto *op : Collect<TOp>(plan)) views.push_back(ViewOf(*op));
+  return views;
+}
+
 // ---------------------------------------------------------------- view fields survive Clone
 
 template <class TOp>
 void ExpectCloneKeepsView(LogicalOperator &plan, AstStorage &storage) {
   auto ops = Collect<TOp>(plan);
   ASSERT_FALSE(ops.empty());
-  for (auto *op : ops) op->view_ = memgraph::storage::View::OLD;
+  // Not the planned view, so a Clone that drops the field reads back the default.
+  auto const flipped = ViewOf(*ops.front()) == View::NEW ? View::OLD : View::NEW;
+  for (auto *op : ops) ViewOf(*op) = flipped;
   auto clone = plan.Clone(&storage);
-  for (auto *op : Collect<TOp>(*clone)) EXPECT_EQ(op->view_, memgraph::storage::View::OLD);
+  for (auto *op : Collect<TOp>(*clone)) EXPECT_EQ(ViewOf(*op), flipped);
 }
 
 TEST_F(WriteVisibilityPlan, CloneKeepsProduceAndAggregateView) {
@@ -188,17 +211,6 @@ TEST_F(WriteVisibilityPlan, CloneKeepsCreateView) {
   auto &plan = Plan("CREATE (a {v: 1})-[:R {w: 2}]->(b)");
   ExpectCloneKeepsView<CreateNode>(plan, storage_);
   ExpectCloneKeepsView<CreateExpand>(plan, storage_);
-}
-
-// ---------------------------------------------------------------- root reads use View::OLD
-
-using memgraph::storage::View;
-
-template <class TOp>
-std::vector<View> Views(LogicalOperator &plan) {
-  std::vector<View> views;
-  for (auto *op : Collect<TOp>(plan)) views.push_back(op->view_);
-  return views;
 }
 
 TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
@@ -299,6 +311,19 @@ TEST_F(WriteVisibilityPlan, DrainBetweenSetThatReadsAndALaterSetOfTheKey) {
             (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "Cartesian"}));
   EXPECT_EQ(Chain(Plan("MATCH (a), (b) SET a.y = b.x SET b.z = 0")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "Cartesian"}));
+}
+
+// ---------------------------------------------------------------- CALL bodies at the root
+
+TEST_F(WriteVisibilityPlan, ReadOnlyConditionalPredicateReadsOld) {
+  auto &plan = Plan("MATCH (b) CALL (b) { WHEN b.x = 1 THEN RETURN 1 AS r } SET b.c = r");
+  EXPECT_EQ(Views<Conditional>(plan), (std::vector{View::OLD}));
+  ExpectCloneKeepsView<Conditional>(plan, storage_);
+}
+
+TEST_F(WriteVisibilityPlan, WritingConditionalPredicateReadsNew) {
+  auto &plan = Plan("MATCH (b) CALL (b) { WHEN b.x = 1 THEN SET b.c = 1 RETURN 1 AS r } RETURN r");
+  EXPECT_EQ(Views<Conditional>(plan), (std::vector{View::NEW}));
 }
 
 // ---------------------------------------------------------------- read and write sets
