@@ -382,7 +382,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
       auto plan_barrier = [&]() {
         if (input_op) {
-          auto symbols = input_op->ModifiedSymbols(*context.symbol_table);
+          // Every bound symbol: an operator's ModifiedSymbols can miss one (Merge reports none of its pattern's).
+          std::vector<Symbol> symbols(context.bound_symbols.begin(), context.bound_symbols.end());
           input_op = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
         }
         pending_writes.Clear();
@@ -401,9 +402,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         query_part_symbols_ = {};
 
         if (BarriersOn()) {
-          auto reads = CollectReads(single_query_part.matching, *context.symbol_table, non_graph_symbols_);
+          auto reads = CollectReads(
+              single_query_part.matching, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
           for (const auto &optional : single_query_part.optional_matching) {
-            reads.Merge(CollectReads(optional, *context.symbol_table, non_graph_symbols_));
+            reads.Merge(CollectReads(optional, *context.symbol_table, context.bound_symbols, non_graph_symbols_));
           }
           barrier_before(reads);
           // Every read of a writing CALL body is a View::NEW read.
@@ -526,21 +528,26 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .planner = this,
                                        .write_occurred = clause_sees_write};
 
-          // With and Return drain in their own Accumulate; MERGE's barrier comes with its match rule.
+          // With and Return drain in their own Accumulate.
           auto const is_projection = utils::Downcast<Return>(clause) || utils::Downcast<query::With>(clause);
           bool const reads_new = ReadsNewView(*clause) || read_scope_ == ReadScope::kWritingTree;
           auto const access =
               is_projection && !reads_new
                   ? ReadsAndWrites{}
                   : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
-          if (!is_projection && !utils::Downcast<query::Merge>(clause)) barrier_before(access.reads);
+          if (!is_projection) {
+            auto reads = access.reads;
+            // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
+            if (reads_new) reads.symbols.clear();
+            barrier_before(reads);
+          }
           if (BarriersOn() && Conflicts(pending_new_reads, access.writes)) plan_barrier();
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
-            if (reads_new && !utils::Downcast<query::Merge>(clause)) pending_new_reads.Merge(access.reads);
+            if (reads_new) pending_new_reads.Merge(access.reads);
           }};
 
           // A root WITH or RETURN after a write drains and advances below its body, so View::OLD sees what was created.

@@ -52,7 +52,8 @@ struct ReadWriteSet {
   void Clear() { *this = ReadWriteSet{}; }
 };
 
-/// Whether @p reads can observe any of @p writes.
+/// Whether @p reads can observe any of @p writes. A pattern through a symbol @p writes binds conflicts too, which
+/// matters only to a View::OLD reader: clear `reads.symbols` for a View::NEW one.
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
 struct ReadsAndWrites {
@@ -69,6 +70,7 @@ ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &
 
 /// The reads of a planned MATCH: its pattern atoms and its filters.
 ReadWriteSet CollectReads(const Matching &matching, const SymbolTable &symbol_table,
+                          const std::unordered_set<Symbol> &bound = {},
                           const std::unordered_set<Symbol> &non_graph = {});
 
 }  // namespace memgraph::query::plan
