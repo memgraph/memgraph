@@ -489,9 +489,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
   auto *conditional = regular_query->conditionalQuery();
   CypherQuery *cypher_query = nullptr;
   if (conditional) {
-    auto const old_in_when_body = std::exchange(in_when_body_, true);
+    in_when_body_ = true;
     cypher_query = BuildConditionalQuery(conditional).query;
-    in_when_body_ = old_in_when_body;
   } else {
     cypher_query = storage_->Create<CypherQuery>();
     MG_ASSERT(regular_query->singleQuery(), "Expected single query.");
