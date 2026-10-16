@@ -1805,12 +1805,10 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
 
 namespace {
 // [expr.mul]/4: a/b and a%b are undefined unless the quotient is representable,
-// i.e. b != 0 and (a,b) != (INT64_MIN,-1). Check-before-native-op (cf.
-// Duration::operator+, src/utils/temporal.hpp:100-110); layer's own error type.
+// i.e. b != 0 and (a,b) != (INT64_MIN,-1). Checked before the native op (cf. Duration::operator+).
 void EnsureIntDivModDefined(int64_t a, int64_t b, const char *zero_msg) {
   if (b == 0) throw TypedValueException(zero_msg);
-  if (a == std::numeric_limits<int64_t>::min() && b == -1)
-    throw TypedValueException("Integer overflow");  // quotient/remainder unrepresentable
+  if (a == std::numeric_limits<int64_t>::min() && b == -1) throw TypedValueException("Integer overflow");
 }
 }  // namespace
 
