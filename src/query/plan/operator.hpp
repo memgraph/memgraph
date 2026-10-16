@@ -462,6 +462,8 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   memgraph::query::plan::NodeCreationInfo node_info_;
+  /// The view its expressions read. The planner sets it; master's default is View::NEW.
+  storage::View view_{storage::View::NEW};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -555,6 +557,8 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   Symbol input_symbol_;
   /// if the given node atom refers to an existing node (either matched or created)
   bool existing_node_;
+  /// The view its expressions read. The planner sets it; master's default is View::NEW.
+  storage::View view_{storage::View::NEW};
 
   std::string ToString(const DbAccessor *dba) const override;
 
@@ -1284,6 +1288,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<NamedExpression *> named_expressions_;
+  /// The view its expressions read. The planner sets it; master's default is View::NEW.
+  storage::View view_{storage::View::NEW};
 
   std::string ToString(const DbAccessor *dba) const override;
 
@@ -1866,6 +1872,8 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   std::vector<memgraph::query::plan::Aggregate::Element> aggregations_;
   std::vector<Expression *> group_by_;
   std::vector<Symbol> remember_;
+  /// The view its expressions read. The planner sets it; master's default is View::NEW.
+  storage::View view_{storage::View::NEW};
 
   std::string ToString(const DbAccessor *dba) const override;
 
