@@ -131,14 +131,13 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
 
 /// What an expansion costs in memory rather than in time.
 ///
-/// Minor faults are the direct measure: a collection that is built, read once and discarded still
-/// costs the kernel a page supplied and zeroed for every page of it, and that cost does not show up
-/// in a latency figure because the work is the kernel's rather than the query's.
+/// Minor faults are the direct measure: a collection built, read once and discarded still costs
+/// the kernel a page supplied and zeroed for every page of it, and that does not show up in a
+/// latency figure because the work is the kernel's.
 ///
-/// The peak is read from the allocation tracker above the level the graph itself rests at, so it
-/// reports what the query added rather than what the fixture built. It is a high-water mark over
-/// the whole process, so it describes the largest excursion any arm made: run one arm per process
-/// to attribute it to that arm.
+/// The peak is read above the level the graph itself rests at, so it reports what the query added
+/// rather than what the fixture built. It is a high-water mark over the process, so run one arm per
+/// process to attribute it to that arm.
 class ExpansionCost {
  public:
   static ExpansionCost Take() {

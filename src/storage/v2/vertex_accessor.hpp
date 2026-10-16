@@ -161,6 +161,9 @@ static_assert(std::is_trivially_copyable_v<memgraph::storage::VertexAccessor>,
 
 struct EdgesVertexAccessorResult {
   ExpandedEdges edges;
+
+  /// How many edges were looked at, not how many came back: an expansion naming an edge type or a
+  /// destination looks at every edge the vertex has, and what a hops limit bounds is the looking.
   int64_t expanded_count;
 };
 

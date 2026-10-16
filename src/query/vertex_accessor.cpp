@@ -18,16 +18,13 @@
 
 namespace memgraph::query {
 
-/// An expansion is read more than once, by a traversal that reaches the same vertex again, and it
-/// is asked how many edges it found without being walked to count them.
 static_assert(std::ranges::forward_range<ExpandedEdges>);
 static_assert(std::ranges::sized_range<ExpandedEdges>);
 
 namespace {
 
-/// The same expansion, read as the accessors this layer deals in rather than the ones below it.
-/// The edges move across whole, so this is a change of type and not of what was found: an edge of
-/// this layer is an edge of that one, and answers with vertices of this layer rather than that.
+/// The same expansion as the accessors this layer deals in. The edges move across whole, so this
+/// changes their type and not what was found.
 auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
   return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(result.edges)}, .expanded_count = result.expanded_count};
 }

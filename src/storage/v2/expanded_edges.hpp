@@ -27,24 +27,17 @@ struct Transaction;
 
 /// The edges one expansion found, kept as the triples the vertex itself stores.
 ///
-/// Expanding built a second array as long as the vertex's degree, holding one `EdgeAccessor` per
-/// edge. Every field of those accessors except the triple is the same for all of them, so the array
-/// was one shared context repeated a degree number of times. For a supernode that is half a
-/// gigabyte, and what it costs is mostly the kernel faulting in the pages to write it to: asking
-/// `perf` for page faults rather than cycles put every one of them in the function that built it.
+/// An array of accessors repeats, once per edge, the context that every edge of one expansion
+/// shares. That context is held once here, and an accessor built from it on dereference.
 ///
-/// The accessor is made when the iterator is dereferenced instead, from the triple and the context
-/// held once here.
+/// The `Vertex *` and `EdgeRef` are the ones an accessor would hold, read under the same lock and
+/// for the same span, so a concurrent writer can do to this what it could do to those. In
+/// analytical mode an edge can leave adjacency at once, so a snapshot can name edges that no longer
+/// exist; the memory behind them outlives the read, because analytical GC takes a WRITE hold on the
+/// storage's main lock and an accessor in flight holds a shared one.
 ///
-/// This holds the same `Vertex *` and `EdgeRef` the accessors held, taken under the same lock, for
-/// the same span - so what a concurrent writer can do to it is exactly what it could do before. In
-/// analytical mode that is: delete an edge and have it vanish from adjacency straight away, so a
-/// snapshot can name edges that no longer exist. The memory behind them survives the read, because
-/// analytical GC needs a WRITE hold on the storage's main lock and an accessor in flight holds a
-/// shared one.
-///
-/// The disk engine filters its edges for visibility as it collects them, so by the time it is done
-/// it has accessors rather than triples. Those are carried as they are.
+/// The disk engine filters for visibility as it collects, so it has accessors rather than triples
+/// by the time it is done, and those are carried as they are.
 class ExpandedEdges {
  public:
   ExpandedEdges() = default;
@@ -63,11 +56,9 @@ class ExpandedEdges {
 
   class Iterator {
    public:
-    /// Walking this twice gives the same edges, which is what forward means, and the two tags
-    /// disagree only because dereferencing builds the edge rather than finding one to refer to.
-    /// The older category promises a reference to something that outlives the dereference, so
-    /// claiming more than input there would let an algorithm take the address of a temporary. The
-    /// concept asks for no such thing, so it gets the honest answer.
+    /// Dereferencing builds the edge, so the older category claims only input: it promises a
+    /// reference that outlives the dereference and there is none. Walking twice gives the same
+    /// edges, which is all the concept asks of forward.
     using iterator_concept = std::forward_iterator_tag;
     using iterator_category = std::input_iterator_tag;
     using value_type = EdgeAccessor;
@@ -119,15 +110,12 @@ class ExpandedEdges {
                                             : EdgeAccessor{edge, edge_type, other, from_, storage_, transaction_};
   }
 
-  /// So a caller after one edge reads like it is holding a sequence of them. The edge comes back by
-  /// value, because there is none to refer to until it is asked for, which is the point of this
-  /// type and the one way it does not substitute for the vector it replaced: `auto &edge =
-  /// edges[0]` has nothing to bind to and must be `auto`.
+  /// The edge comes back by value, because there is none to refer to until it is asked for, so
+  /// `auto &edge = edges[0]` has nothing to bind to and must be `auto`.
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
 
-  /// The edges `keep` accepts, held the same way this holds them: a caller that has to look at
-  /// every edge to decide which ones belong still hands on something that builds an accessor when
-  /// it is looked at, rather than an array it had to fill.
+  /// The edges `keep` accepts, held the same way: deciding means looking at every edge, but what
+  /// comes back still builds its accessors when they are looked at.
   template <typename Predicate>
   auto Filtered(Predicate keep) const -> ExpandedEdges {
     if (!from_triples_) [[unlikely]] {
@@ -151,11 +139,9 @@ class ExpandedEdges {
   Storage *storage_{nullptr};
   Transaction *transaction_{nullptr};
   EdgeDirection direction_{EdgeDirection::OUT};
-  /// Which of the two above holds the edges. The in-memory engine is the one to expect, and
-  /// defaulting to it means an expansion that found nothing reads the same way as one that found
-  /// something, rather than taking the branch kept for the engine that cannot hold triples. An
-  /// expansion holding nothing never reaches the context the triples would need, because there is
-  /// no edge to ask for.
+  /// Which of the two above holds the edges. Defaulting to the triples puts an expansion that
+  /// found nothing on the same arm as one that found something; holding nothing, it never reaches
+  /// the context the triples would need.
   bool from_triples_{true};
 };
 

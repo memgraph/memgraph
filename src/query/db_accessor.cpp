@@ -184,10 +184,8 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
 
 namespace {
 
-/// Narrows an expansion to the edges `graph` holds.
-///
-/// Which edges belong is decided by looking at each one, but what is kept is still the triples, so
-/// a subgraph's edges are built on dereference like any other expansion.
+/// Narrows an expansion to the edges `graph` holds, keeping it a range that builds its accessors
+/// when they are looked at.
 auto KeptIn(Graph const *graph) {
   return [graph](storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
     auto const &graph_edges = graph->edges();

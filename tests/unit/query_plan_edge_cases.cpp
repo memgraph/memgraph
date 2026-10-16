@@ -255,16 +255,12 @@ TYPED_TEST(QueryExecution, EqualityWithinOnePatternSurvivesAnUnrelatedPrecedingM
 }
 
 TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
-  // A variable-length expansion keeps one expansion per depth on a stack it grows as it descends,
-  // and a walk this deep grows that stack several times over. What marks how far the walk has got
-  // into each depth has to still mean the same thing afterwards.
-  //
-  // It starts in the middle of the path and is undirected, so that it walks away in both
-  // directions. Each step away from the middle is a relationship followed against its direction on
-  // one side and along it on the other, which is what makes the direction each edge was found in
-  // load-bearing rather than incidental: it decides which end of the relationship the walk
-  // arrives at. Starting at an end of the path would not, because uniqueness would turn the one
-  // relationship pointing the other way away before its direction was used for anything.
+  // The stack of one expansion per depth is grown several times over by a walk this deep, and how
+  // far the walk has got into each depth has to survive that. Starting in the middle and going
+  // undirected makes each step away follow a relationship against its direction on one side and
+  // along it on the other, so the direction an edge was found in decides which end the walk
+  // arrives at. From an end of the path, uniqueness would reject the one backward relationship
+  // before its direction mattered.
   constexpr auto kReach = 8;
 
   this->Execute("CREATE (:P {id: 0})");
