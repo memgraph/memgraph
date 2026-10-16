@@ -59,7 +59,7 @@ class ExpandedEdges {
         from_triples_(true) {}
 
   /// The form the disk engine already has.
-  explicit ExpandedEdges(std::vector<EdgeAccessor> edges) : materialised_(std::move(edges)) {}
+  explicit ExpandedEdges(std::vector<EdgeAccessor> edges) : materialised_(std::move(edges)), from_triples_(false) {}
 
   class Iterator {
    public:
@@ -101,13 +101,18 @@ class ExpandedEdges {
 
   auto end() const -> Iterator { return Iterator{this, size()}; }
 
-  auto size() const -> std::size_t { return from_triples_ ? triples_.size() : materialised_.size(); }
+  auto size() const -> std::size_t {
+    if (from_triples_) [[likely]]
+      return triples_.size();
+    return materialised_.size();
+  }
 
   auto empty() const -> bool { return size() == 0; }
 
   /// The edge at `index`, built now. Public so a layer above can wrap without materialising.
   auto At(std::size_t index) const -> EdgeAccessor {
-    if (!from_triples_) return materialised_[index];
+    if (!from_triples_) [[unlikely]]
+      return materialised_[index];
     auto const &[edge_type, other, edge] = triples_[index];
     // The triple names the far end of the edge; which end that is, is what the direction says.
     return direction_ == EdgeDirection::OUT ? EdgeAccessor{edge, edge_type, from_, other, storage_, transaction_}
@@ -125,7 +130,7 @@ class ExpandedEdges {
   /// it is looked at, rather than an array it had to fill.
   template <typename Predicate>
   auto Filtered(Predicate keep) const -> ExpandedEdges {
-    if (!from_triples_) {
+    if (!from_triples_) [[unlikely]] {
       auto kept = std::vector<EdgeAccessor>{};
       for (auto const &edge : materialised_) {
         if (keep(edge)) kept.push_back(edge);
@@ -146,7 +151,12 @@ class ExpandedEdges {
   Storage *storage_{nullptr};
   Transaction *transaction_{nullptr};
   EdgeDirection direction_{EdgeDirection::OUT};
-  bool from_triples_{false};
+  /// Which of the two above holds the edges. The in-memory engine is the one to expect, and
+  /// defaulting to it means an expansion that found nothing reads the same way as one that found
+  /// something, rather than taking the branch kept for the engine that cannot hold triples. An
+  /// expansion holding nothing never reaches the context the triples would need, because there is
+  /// no edge to ask for.
+  bool from_triples_{true};
 };
 
 }  // namespace memgraph::storage
