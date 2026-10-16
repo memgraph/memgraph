@@ -739,6 +739,184 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
 }
 
+TYPED_TEST(TestPlanner, OrderByLimitSinkBelowProduce) {
+  // Test MATCH (n) RETURN n.a AS a ORDER BY n.b LIMIT 10
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto b = dba.Property("b");
+  auto *node_n = NODE("n");
+  auto ret = RETURN(PROPERTY_LOOKUP(dba, "n", a), AS("a"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", b)), LIMIT(LITERAL(10)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectOrderBy(), ExpectLimit(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, OrderByOnProjectedAliasStaysAboveProduce) {
+  // Test MATCH (n) RETURN n.a AS a ORDER BY a LIMIT 10
+  // The sort key is the projected alias, which only exists once Produce has run.
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto *node_n = NODE("n");
+  auto *as_a = NEXPR("a", PROPERTY_LOOKUP(dba, "n", a));
+  auto *ident_a = IDENT("a");
+  auto ret = RETURN(as_a, ORDER_BY(ident_a), LIMIT(LITERAL(10)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
+}
+
+TYPED_TEST(TestPlanner, OrderByWithoutLimitStaysAboveProduce) {
+  // Test MATCH (n) RETURN n.a AS a ORDER BY n.b
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto b = dba.Property("b");
+  auto *node_n = NODE("n");
+  auto ret = RETURN(PROPERTY_LOOKUP(dba, "n", a), AS("a"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", b)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, OrderByLimitWithDistinctStaysAboveProduce) {
+  // Test MATCH (n) RETURN DISTINCT n.a AS a ORDER BY n.b LIMIT 10
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto b = dba.Property("b");
+  auto *node_n = NODE("n");
+  auto ret = RETURN_DISTINCT(
+      PROPERTY_LOOKUP(dba, "n", a), AS("a"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", b)), LIMIT(LITERAL(10)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectDistinct(), ExpectOrderBy(), ExpectLimit());
+}
+
+TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
+  // Test MATCH (n) RETURN n.a AS a, n.b AS b ORDER BY n.c LIMIT 10
+  // Asserts the coverage rather than the operator order: an omission reads as Null and the row
+  // comes back wrong rather than the query failing.
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto b = dba.Property("b");
+  auto c = dba.Property("c");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", a),
+                                          AS("a"),
+                                          PROPERTY_LOOKUP(dba, "n", b),
+                                          AS("b"),
+                                          ORDER_BY(PROPERTY_LOOKUP(dba, "n", c)),
+                                          LIMIT(LITERAL(10)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *order_by = FindOpOfType<OrderBy>(&plan);
+  ASSERT_NE(order_by, nullptr) << "expected an OrderBy";
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "expected the projection to have sunk above the Limit";
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  for (auto *named_expression : produce->named_expressions_) named_expression->Accept(collector);
+  for (auto const &read : collector.symbols_) {
+    EXPECT_TRUE(std::ranges::contains(order_by->output_symbols_, read))
+        << "the projection reads " << read.name() << ", which the OrderBy below it does not restore";
+  }
+}
+
+TYPED_TEST(TestPlanner, OrderByLimitReturningAVariableStaysAboveProduce) {
+  // Test MATCH (n) RETURN n ORDER BY n.b LIMIT 10
+  // `RETURN n` means `RETURN n AS n`, and the alias has its own frame slot, so the sort key reads a
+  // slot nothing fills until the projection runs. Sinking the sort would be correct here, but only
+  // once the sort key points at the source symbol rather than the alias.
+  FakeDbAccessor dba;
+  auto b = dba.Property("b");
+  auto *as_n = NEXPR("n", IDENT("n"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(as_n, ORDER_BY(PROPERTY_LOOKUP(dba, "n", b)), LIMIT(LITERAL(10)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
+}
+
+TYPED_TEST(TestPlanner, OrderByLimitOnShadowedVariableStaysAboveProduce) {
+  // Test MATCH (n) RETURN n.prop AS n ORDER BY n LIMIT 10
+  // openCypher 9, ORDER BY scope: "When the projection clause shadows already existing variables,
+  // only the new variables are available." The sort key is the projected property, not the node it
+  // was read from, so the sort cannot run before the projection that computes it.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *as_n = NEXPR("n", PROPERTY_LOOKUP(dba, "n", prop));
+  auto *ident_n = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n, ORDER_BY(ident_n), LIMIT(LITERAL(10)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
+}
+
+TYPED_TEST(TestPlanner, OrderByLimitWithAggregationStaysAboveProduce) {
+  // Test MATCH (n) RETURN n.prop1 AS a, sum(n.prop2) AS s ORDER BY 1 LIMIT 10
+  // A constant sort key names no symbol, so only the aggregate itself can refuse here.
+  FakeDbAccessor dba;
+  auto prop1 = dba.Property("prop1");
+  auto prop2 = dba.Property("prop2");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop2), false);
+  auto *group = PROPERTY_LOOKUP(dba, "n", prop1);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(group, AS("a"), sum, AS("s"), ORDER_BY(LITERAL(1)), LIMIT(LITERAL(10)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  EXPECT_EQ(dynamic_cast<Produce *>(&plan), nullptr)
+      << "the projection sank above the Limit, leaving the aggregate that feeds it below the sort";
+}
+
+TYPED_TEST(TestPlanner, OrderByLimitWithAnyProjectedBranchStaysAboveProduce) {
+  // Test MATCH (n) RETURN EXISTS { MATCH (n)-[r]->(m) } AS e ORDER BY n.prop LIMIT 10
+  // A projection reading a planned branch stays above it, whatever the sort keys allow.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(
+          EXISTS_SUBQUERY(exists_subquery), AS("e"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop)), LIMIT(LITERAL(10)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  EXPECT_EQ(dynamic_cast<Produce *>(&plan), nullptr)
+      << "the projection sank above the Limit, leaving the branch that feeds it below the sort";
+}
+
+TYPED_TEST(TestPlanner, OrderByLimitWithProjectedPatternComprehensionStaysAboveProduce) {
+  // Test MATCH (n) RETURN [(n)-[]-(m) | 1] AS c ORDER BY n.prop LIMIT 10
+  // The same rule where the branch is a pattern comprehension and the sort key would otherwise
+  // allow the sink: the sort keys read only `n`.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(pattern_comp, AS("c"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop)), LIMIT(LITERAL(10)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *order_by = FindOpOfType<OrderBy>(&plan);
+  ASSERT_NE(order_by, nullptr) << "expected an OrderBy";
+  EXPECT_NE(dynamic_cast<Produce *>(order_by->input_.get()), nullptr)
+      << "OrderBy sank below the Produce that reads the pattern comprehension";
+}
+
 TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   // Test CREATE (n) -[r :r]-> (m)
   //      WITH n AS new ORDER BY new.prop, r.prop WHERE m.prop < 42

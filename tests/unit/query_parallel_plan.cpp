@@ -822,6 +822,30 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithSkipLimit) {
             ExpectLimit());
 }
 
+TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithDeferredProjection) {
+  LicenseWrapper license_wrapper;
+  // Test USING PARALLEL EXECUTION MATCH (n) RETURN n.a AS a ORDER BY n.b LIMIT 10
+  // With the projection deferred past the limit, OrderByParallel merges branches whose OrderBy
+  // carries the symbols the projection reads rather than the columns it produces.
+  FakeDbAccessor dba;
+  auto a = dba.Property("a");
+  auto b = dba.Property("b");
+  auto ret = RETURN(PROPERTY_LOOKUP(dba, "n", a), AS("a"), ORDER_BY(PROPERTY_LOOKUP(dba, "n", b)), LIMIT(LITERAL(10)));
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectOrderBy(),
+            ExpectOrderByParallel(),
+            ExpectLimit(),
+            ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, ParallelExecutionOrderByInSubquery) {
   LicenseWrapper license_wrapper;
   // Test MATCH (n) CALL { MATCH (m) RETURN m ORDER BY m.p } RETURN n, m

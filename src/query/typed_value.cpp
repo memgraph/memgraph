@@ -1235,7 +1235,7 @@ TypedValue &TypedValue::operator=(Path &&other) {
     if (path) {
       utils::Allocator<Path>(alloc_).delete_object(path);
     }
-    path_v = std::make_unique<Path>(std::move(other), alloc_);
+    path_v = std::unique_ptr<Path>(utils::Allocator<Path>(alloc_).new_object<Path>(std::move(other)));
   } else {
     *this = TypedValue(std::move(other), alloc_);
   }
@@ -1602,21 +1602,6 @@ TypedValue operator!(const TypedValue &a) {
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
-/**
- * Turns a numeric or string value into a string.
- *
- * @param value a value.
- * @return A string.
- */
-std::string ValueToString(const TypedValue &value) {
-  // TODO: Should this allocate a string through value.alloc_?
-  if (value.IsString()) return std::string(value.ValueString());
-  if (value.IsInt()) return std::to_string(value.ValueInt());
-  if (value.IsDouble()) return fmt::format("{}", value.ValueDouble());
-  // unsupported situations
-  throw TypedValueException("Unsupported TypedValue::Type conversion to string");
-}
-
 TypedValue operator-(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.alloc_);
   if (a.IsInt()) return TypedValue(-a.ValueInt(), a.alloc_);
@@ -1660,6 +1645,24 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
 
 namespace {
 
+/// Appends @p value to @p out as string concatenation renders it. Appends rather than returns so
+/// the only buffer it passes through is the one it ends up in.
+void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
+  if (value.IsString()) {
+    out.append(value.ValueString());
+    return;
+  }
+  if (value.IsInt()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueInt());
+    return;
+  }
+  if (value.IsDouble()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueDouble());
+    return;
+  }
+  throw TypedValueException("Unsupported TypedValue::Type conversion to string");
+}
+
 std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
@@ -1699,35 +1702,35 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
 std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return TypedValue(a.ValueDuration() - b.ValueDuration());
+    return TypedValue(a.ValueDuration() - b.ValueDuration(), a.get_allocator());
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() - b.ValueDuration());
+    return TypedValue(a.ValueDate() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDate() && b.IsDate()) {
-    return TypedValue(a.ValueDate() - b.ValueDate());
+    return TypedValue(a.ValueDate() - b.ValueDate(), a.get_allocator());
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueDuration());
+    return TypedValue(a.ValueLocalTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsLocalTime() && b.IsLocalTime()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime());
+    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime(), a.get_allocator());
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration());
+    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsLocalDateTime() && b.IsLocalDateTime()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime());
+    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime(), a.get_allocator());
   }
   // ZonedDateTime
   if (a.IsZonedDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration());
+    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration(), a.get_allocator());
   }
   if (a.IsZonedDateTime() && b.IsZonedDateTime()) {
-    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime());
+    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime(), a.get_allocator());
   }
   return std::nullopt;
 }
@@ -1756,14 +1759,28 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.alloc_);
   }
 
-  if (const auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
-    return *maybe_add;
+  // Moved out, not copied: copying a TypedValue selects the default resource, discarding the
+  // allocator the helper just gave it.
+  if (auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
+    return *std::move(maybe_add);
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
-  if (a.IsString() || b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.alloc_);
+  if (a.IsString() || b.IsString()) {
+    // Reserved and appended into, so a long accumulator is copied once. A non-string operand is a
+    // number, which fits the allowance below.
+    constexpr size_t kRoomForANumber = 32;
+    auto const appended_size = [](TypedValue const &v) -> size_t {
+      return v.IsString() ? v.ValueString().size() : kRoomForANumber;
+    };
+    TypedValue::TString result(a.alloc_);
+    result.reserve(appended_size(a) + appended_size(b));
+    AppendValueTo(result, a);
+    AppendValueTo(result, b);
+    return {std::move(result), a.alloc_};
+  }
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
@@ -1774,8 +1791,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
-  if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
-    return *maybe_sub;
+  if (auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
+    return *std::move(maybe_sub);
   }
   EnsureArithmeticallyOk(a, b, true, "subraction");
   // at this point we only have int and double
