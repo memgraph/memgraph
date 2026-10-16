@@ -1600,25 +1600,6 @@ TypedValue operator!(const TypedValue &a) {
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
-/// Appends @p value to @p out as string concatenation renders it. Appends rather than returns so
-/// the only buffer it passes through is the one it ends up in.
-void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
-  if (value.IsString()) {
-    out.append(value.ValueString());
-    return;
-  }
-  if (value.IsInt()) {
-    fmt::format_to(std::back_inserter(out), "{}", value.ValueInt());
-    return;
-  }
-  if (value.IsDouble()) {
-    fmt::format_to(std::back_inserter(out), "{}", value.ValueDouble());
-    return;
-  }
-  // unsupported situations
-  throw TypedValueException("Unsupported TypedValue::Type conversion to string");
-}
-
 TypedValue operator-(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.alloc_);
   if (a.IsInt()) return TypedValue(-a.ValueInt(), a.alloc_);
@@ -1661,6 +1642,25 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
 }
 
 namespace {
+
+/// Appends @p value to @p out as string concatenation renders it. Appends rather than returns so
+/// the only buffer it passes through is the one it ends up in.
+void AppendValueTo(TypedValue::TString &out, const TypedValue &value) {
+  if (value.IsString()) {
+    out.append(value.ValueString());
+    return;
+  }
+  if (value.IsInt()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueInt());
+    return;
+  }
+  if (value.IsDouble()) {
+    fmt::format_to(std::back_inserter(out), "{}", value.ValueDouble());
+    return;
+  }
+  // unsupported situations
+  throw TypedValueException("Unsupported TypedValue::Type conversion to string");
+}
 
 std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
   // Duration
@@ -1778,7 +1778,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     result.reserve(appended_size(a) + appended_size(b));
     AppendValueTo(result, a);
     AppendValueTo(result, b);
-    return TypedValue(std::move(result), a.alloc_);
+    return {std::move(result), a.alloc_};
   }
 
   // at this point we only have int and double
