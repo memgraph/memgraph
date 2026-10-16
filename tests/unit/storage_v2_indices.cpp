@@ -5730,6 +5730,24 @@ TEST(IndexAbortLookup, AnAbortSeesEdgeIndexesCreatedAfterAnEarlierAbortBuiltTheL
   }
 }
 
+TEST(EdgeTypeIndexPropertiesOnEdgesDisabled, CreateIsRefused) {
+  Config config{};
+  config.salient.items.properties_on_edges = false;
+  auto storage = std::make_unique<InMemoryStorage>(config);
+  {
+    auto acc = storage->Access(WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    ASSERT_TRUE(acc->CreateEdge(&from, &to, acc->NameToEdgeType("E")).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = storage->ReadOnlyAccess();
+  const auto res = acc->CreateIndex(storage->NameToEdgeType("E"));
+  ASSERT_FALSE(res.has_value());
+  EXPECT_TRUE(std::holds_alternative<IndexDefinitionConfigError>(res.error()));
+  EXPECT_FALSE(acc->EdgeTypeIndexReady(storage->NameToEdgeType("E")));
+}
+
 // An index on `m.k` keys a vertex on the value nested at `k` within its `m` property. A vertex
 // whose `m` has no value at `k` has a null key, and so takes no entry.
 class NestedIndexAnalytical : public testing::Test {
