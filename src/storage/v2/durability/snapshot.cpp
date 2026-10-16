@@ -53,6 +53,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/atomic_memory_block.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
@@ -1437,7 +1438,9 @@ struct LightEdgeLoader {
     EdgeVectorsCapture capture{.map = edge_vectors, .mutex = &edge_capture_mutex};
     EdgeVectorsCapture *capture_ptr = edge_vectors ? &capture : nullptr;
     if (use_light_edges) {
-      all_edges.reserve(total_edges);
+      // absl maps are left inconsistent if an allocation is refused mid-growth, and FreeAll()
+      // iterates them on failure. Grow without refusal; the limit is checked afterwards.
+      utils::AtomicMemoryBlock([&] { all_edges.reserve(total_edges); });
       per_batch.resize(edge_batches.size());
       RecoverOnMultipleThreads(
           thread_count,
@@ -1457,12 +1460,14 @@ struct LightEdgeLoader {
           edge_batches);
       // Merge per-batch maps into all_edges (already reserved). After this loop
       // every per_batch[i] is empty, so FreeAll() won't double-free.
-      for (auto &m : per_batch) {
-        all_edges.merge(m);
-        // If m is non-empty after merge, a GID appeared in two batches — corrupt snapshot.
-        MG_ASSERT(m.empty(), "Duplicate light-edge GID in snapshot — corrupt file");
-      }
-      per_batch.clear();
+      utils::AtomicMemoryBlock([&] {
+        for (auto &m : per_batch) {
+          all_edges.merge(m);
+          // If m is non-empty after merge, a GID appeared in two batches — corrupt snapshot.
+          MG_ASSERT(m.empty(), "Duplicate light-edge GID in snapshot — corrupt file");
+        }
+        per_batch.clear();
+      });
     } else {
       RecoverOnMultipleThreads(
           thread_count,
@@ -1541,12 +1546,18 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             if (!edge_ptr) throw RecoveryFailure("Failed to allocate a light edge!");
             // Guard the emplace: if it throws (e.g. rehash bad_alloc) the edge is not yet tracked
             // in light_edge_map, so light_cleanup would miss it. Free it here rather than leak it.
-            try {
-              light_edge_map.emplace(*gid, edge_ptr);
-            } catch (...) {
-              InMemoryStorage::LightEdgePool::Destroy(edge_ptr);
-              throw;
+            // The emplace runs without OOM refusal (a refused rehash leaves the map inconsistent
+            // for light_cleanup); the memory limit is checked once the edge is tracked.
+            {
+              const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+              try {
+                light_edge_map.emplace(*gid, edge_ptr);
+              } catch (...) {
+                InMemoryStorage::LightEdgePool::Destroy(edge_ptr);
+                throw;
+              }
             }
+            utils::total_memory_tracker.DoCheck();
           } else {
             auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
             if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
