@@ -167,6 +167,29 @@ TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n) RETURN n.x AS x ORDER BY x")).empty());
 }
 
+// ---------------------------------------------------------------- view fields survive Clone
+
+template <class TOp>
+void ExpectCloneKeepsView(LogicalOperator &plan, AstStorage &storage) {
+  auto ops = Collect<TOp>(plan);
+  ASSERT_FALSE(ops.empty());
+  for (auto *op : ops) op->view_ = memgraph::storage::View::OLD;
+  auto clone = plan.Clone(&storage);
+  for (auto *op : Collect<TOp>(*clone)) EXPECT_EQ(op->view_, memgraph::storage::View::OLD);
+}
+
+TEST_F(WriteVisibilityPlan, CloneKeepsProduceAndAggregateView) {
+  auto &plan = Plan("MATCH (n) RETURN n.x AS x, count(*) AS c");
+  ExpectCloneKeepsView<Produce>(plan, storage_);
+  ExpectCloneKeepsView<Aggregate>(plan, storage_);
+}
+
+TEST_F(WriteVisibilityPlan, CloneKeepsCreateView) {
+  auto &plan = Plan("CREATE (a {v: 1})-[:R {w: 2}]->(b)");
+  ExpectCloneKeepsView<CreateNode>(plan, storage_);
+  ExpectCloneKeepsView<CreateExpand>(plan, storage_);
+}
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {

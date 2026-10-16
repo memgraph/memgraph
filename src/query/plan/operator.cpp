@@ -886,6 +886,7 @@ std::unique_ptr<LogicalOperator> CreateNode::Clone(AstStorage *storage) const {
   auto object = std::make_unique<CreateNode>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->node_info_ = node_info_.Clone(storage);
+  object->view_ = view_;
   return object;
 }
 
@@ -899,8 +900,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   AbortCheck(context);
 
-  ExpressionEvaluator evaluator =
-      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
+  ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
@@ -971,6 +971,7 @@ std::unique_ptr<LogicalOperator> CreateExpand::Clone(AstStorage *storage) const 
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
   object->existing_node_ = existing_node_;
+  object->view_ = view_;
   return object;
 }
 
@@ -1049,8 +1050,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
-  ExpressionEvaluator evaluator =
-      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
+  ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
 
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
   auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
@@ -5817,6 +5817,7 @@ std::unique_ptr<LogicalOperator> Produce::Clone(AstStorage *storage) const {
   for (auto i2 = 0; i2 < named_expressions_.size(); ++i2) {
     object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Clone(storage) : nullptr;
   }
+  object->view_ = view_;
   return object;
 }
 
@@ -5838,7 +5839,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator{
-        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+        &frame, context, self_.view_, context.frame_change_collector, &context.number_of_hops};
 
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);
@@ -7867,7 +7868,7 @@ class AggregateCursor : public Cursor {
       throw QueryRuntimeException("Aggregation expects a current DB transaction.");
     }
     ExpressionEvaluator evaluator =
-        ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
+        ExpressionEvaluator{frame, *context, self_.view_, nullptr, &context->number_of_hops};
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
@@ -8349,6 +8350,7 @@ std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
     object->group_by_[i5] = group_by_[i5] ? group_by_[i5]->Clone(storage) : nullptr;
   }
   object->remember_ = remember_;
+  object->view_ = view_;
   return object;
 }
 
