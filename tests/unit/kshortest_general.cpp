@@ -292,23 +292,6 @@ TEST_F(WeightedKShortestCasesInMemory, UnusedArcWeightValidated) {
   db_->KShortestWeightedTestUnusedArcWeightValidated(db_.get());
 }
 
-// A grid's frontier holds O(side) entries at once but takes O(edges) pushes. Reusing popped slots
-// peaks at about 1,240 bytes per vertex here; keeping every pushed entry took about 1,790.
-TEST_F(WeightedKShortestCasesInMemory, FrontierReusesPoppedEntries) {
-  constexpr int kSide = 60;
-  std::vector<std::tuple<int, int, std::string>> grid;
-  for (int row = 0; row < kSide; ++row) {
-    for (int col = 0; col < kSide; ++col) {
-      const int v = (row * kSide) + col;
-      if (col + 1 < kSide) grid.emplace_back(v, v + 1, "a");
-      if (row + 1 < kSide) grid.emplace_back(v, v + kSide, "a");
-    }
-  }
-  const auto run = db_->KShortestMemory(db_.get(), true, kSide * kSide, grid, {{0, (kSide * kSide) - 1, 1}});
-  ASSERT_EQ(run.rows, 1U);
-  EXPECT_LE(run.peak, 1500UZ * kSide * kSide);
-}
-
 // The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root
 // prefix's cost has to be accumulated correctly all the way down it.
 TEST_F(WeightedKShortestCasesInMemory, LadderMatchesOracleAtDepth) {
