@@ -16,13 +16,13 @@
 
 #include "query/plan/deferred_projection.hpp"
 
-using memgraph::query::plan::NoDeferReason;
+using memgraph::query::plan::CanDeferProjection;
+using memgraph::query::plan::DeferBlocker;
 using memgraph::query::plan::ProjectionFacts;
-using memgraph::query::plan::WhyProjectionCannotDefer;
 
 namespace {
 
-/// A body that may defer, which each test below spoils in exactly one way.
+/// A body that can defer, which each test below spoils in exactly one way.
 constexpr ProjectionFacts Deferrable() {
   return ProjectionFacts{
       .has_order_by = true,
@@ -36,69 +36,69 @@ constexpr ProjectionFacts Deferrable() {
   };
 }
 
-TEST(DeferredProjection, DefersWhenNothingStopsIt) {
-  EXPECT_EQ(WhyProjectionCannotDefer(Deferrable()), NoDeferReason::kDeferred);
-}
+/// The blocker a body reports, for a test that expects one.
+constexpr DeferBlocker BlockerFor(ProjectionFacts const &facts) { return CanDeferProjection(facts).error(); }
 
-TEST(DeferredProjection, EachFactRefusesInItsOwnName) {
+TEST(DeferredProjection, DefersWhenNothingBlocksIt) { EXPECT_TRUE(CanDeferProjection(Deferrable())); }
+
+TEST(DeferredProjection, EachFactBlocksInItsOwnName) {
   auto without_order_by = Deferrable();
   without_order_by.has_order_by = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(without_order_by), NoDeferReason::kNoOrderBy);
+  EXPECT_EQ(BlockerFor(without_order_by), DeferBlocker::kNoOrderBy);
 
   auto without_limit = Deferrable();
   without_limit.has_limit = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(without_limit), NoDeferReason::kNoLimit);
+  EXPECT_EQ(BlockerFor(without_limit), DeferBlocker::kNoLimit);
 
   auto cardinality = Deferrable();
   cardinality.changes_cardinality = true;
-  EXPECT_EQ(WhyProjectionCannotDefer(cardinality), NoDeferReason::kCardinalityChanges);
+  EXPECT_EQ(BlockerFor(cardinality), DeferBlocker::kCardinalityChanges);
 
   auto order_by_branch = Deferrable();
   order_by_branch.has_order_by_branch = true;
-  EXPECT_EQ(WhyProjectionCannotDefer(order_by_branch), NoDeferReason::kOrderByBranch);
+  EXPECT_EQ(BlockerFor(order_by_branch), DeferBlocker::kOrderByBranch);
 
   auto projection_branch = Deferrable();
   projection_branch.has_projection_branch = true;
-  EXPECT_EQ(WhyProjectionCannotDefer(projection_branch), NoDeferReason::kProjectionBranch);
+  EXPECT_EQ(BlockerFor(projection_branch), DeferBlocker::kProjectionBranch);
 
   auto aggregation = Deferrable();
   aggregation.has_aggregation = true;
-  EXPECT_EQ(WhyProjectionCannotDefer(aggregation), NoDeferReason::kAggregation);
+  EXPECT_EQ(BlockerFor(aggregation), DeferBlocker::kAggregation);
 
   auto unbound_key = Deferrable();
   unbound_key.sort_keys_all_bound = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(unbound_key), NoDeferReason::kSortKeyNotBound);
+  EXPECT_EQ(BlockerFor(unbound_key), DeferBlocker::kSortKeyNotBound);
 
   auto unbound_projection = Deferrable();
   unbound_projection.projection_reads_all_bound = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(unbound_projection), NoDeferReason::kProjectionReadsUnbound);
+  EXPECT_EQ(BlockerFor(unbound_projection), DeferBlocker::kProjectionReadsUnbound);
 }
 
-// Every field has to be able to refuse on its own. A field whose reason is unreachable because an
-// earlier one always covers it would be a rule nothing can be written to exercise, which is how a
-// guard ends up shipping with no test behind it.
-TEST(DeferredProjection, NoReasonIsUnreachable) {
-  constexpr NoDeferReason kEveryReason[] = {
-      NoDeferReason::kDeferred,
-      NoDeferReason::kNoOrderBy,
-      NoDeferReason::kNoLimit,
-      NoDeferReason::kCardinalityChanges,
-      NoDeferReason::kOrderByBranch,
-      NoDeferReason::kProjectionBranch,
-      NoDeferReason::kAggregation,
-      NoDeferReason::kSortKeyNotBound,
-      NoDeferReason::kProjectionReadsUnbound,
+// Every field has to be able to block on its own. A blocker that is unreachable because an earlier
+// one always covers it is a rule nothing can be written to exercise, which is how a guard ends up
+// shipping with no test behind it.
+TEST(DeferredProjection, NoBlockerIsUnreachable) {
+  constexpr DeferBlocker kEveryBlocker[] = {
+      DeferBlocker::kNoOrderBy,
+      DeferBlocker::kNoLimit,
+      DeferBlocker::kCardinalityChanges,
+      DeferBlocker::kOrderByBranch,
+      DeferBlocker::kProjectionBranch,
+      DeferBlocker::kAggregation,
+      DeferBlocker::kSortKeyNotBound,
+      DeferBlocker::kProjectionReadsUnbound,
   };
 
-  // Spoil one field at a time, collecting the reasons that come back.
-  std::vector<NoDeferReason> reached{WhyProjectionCannotDefer(Deferrable())};
+  // Spoil one field at a time, collecting the blockers that come back.
+  std::vector<DeferBlocker> reached;
   for (auto field : {&ProjectionFacts::changes_cardinality,
                      &ProjectionFacts::has_order_by_branch,
                      &ProjectionFacts::has_projection_branch,
                      &ProjectionFacts::has_aggregation}) {
     auto facts = Deferrable();
     facts.*field = true;
-    reached.push_back(WhyProjectionCannotDefer(facts));
+    reached.push_back(BlockerFor(facts));
   }
   for (auto field : {&ProjectionFacts::has_order_by,
                      &ProjectionFacts::has_limit,
@@ -106,34 +106,34 @@ TEST(DeferredProjection, NoReasonIsUnreachable) {
                      &ProjectionFacts::projection_reads_all_bound}) {
     auto facts = Deferrable();
     facts.*field = false;
-    reached.push_back(WhyProjectionCannotDefer(facts));
+    reached.push_back(BlockerFor(facts));
   }
 
-  for (auto const reason : kEveryReason) {
-    EXPECT_NE(std::ranges::find(reached, reason), reached.end())
-        << "no single fact produces reason " << static_cast<int>(reason)
+  for (auto const blocker : kEveryBlocker) {
+    EXPECT_NE(std::ranges::find(reached, blocker), reached.end())
+        << "no single fact produces blocker " << static_cast<int>(blocker)
         << ", so nothing can be written to exercise it";
   }
 }
 
-// An earlier reason wins, so a caller reporting one gets the same answer however many apply.
-TEST(DeferredProjection, ReportsTheFirstReasonWhenSeveralApply) {
+// An earlier blocker wins, so a caller reporting one gets the same answer however many apply.
+TEST(DeferredProjection, ReportsTheFirstBlockerWhenSeveralApply) {
   auto everything_wrong = Deferrable();
   everything_wrong.changes_cardinality = true;
   everything_wrong.has_projection_branch = true;
   everything_wrong.has_aggregation = true;
   everything_wrong.sort_keys_all_bound = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(everything_wrong), NoDeferReason::kCardinalityChanges);
+  EXPECT_EQ(BlockerFor(everything_wrong), DeferBlocker::kCardinalityChanges);
 
   auto no_limit_and_more = Deferrable();
   no_limit_and_more.has_limit = false;
   no_limit_and_more.has_aggregation = true;
-  EXPECT_EQ(WhyProjectionCannotDefer(no_limit_and_more), NoDeferReason::kNoLimit);
+  EXPECT_EQ(BlockerFor(no_limit_and_more), DeferBlocker::kNoLimit);
 
   auto neither_sort_nor_limit = Deferrable();
   neither_sort_nor_limit.has_order_by = false;
   neither_sort_nor_limit.has_limit = false;
-  EXPECT_EQ(WhyProjectionCannotDefer(neither_sort_nor_limit), NoDeferReason::kNoOrderBy);
+  EXPECT_EQ(BlockerFor(neither_sort_nor_limit), DeferBlocker::kNoOrderBy);
 }
 
 }  // namespace

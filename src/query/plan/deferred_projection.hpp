@@ -12,18 +12,14 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 
 namespace memgraph::query::plan {
 
-/// Why a return body cannot leave its projection until after the sort and the limit.
-///
-/// A projection emits one row per row it reads and keeps their order, so sorting and limiting
-/// underneath it selects the same rows while leaving the projected expressions to run only for
-/// the survivors. It is wrong whenever a row reaching the projection could not be rebuilt from
-/// what the sort replays. Carrying the reason rather than a yes or no is what lets a test name
-/// the rule it checks.
-enum class NoDeferReason : uint8_t {
-  kDeferred,
+/// The one thing stopping a return body from leaving its projection until after the sort and the
+/// limit.
+enum class DeferBlocker : uint8_t {
+  /// No sort for the projection to move past.
   kNoOrderBy,
   /// Every row is projected either way, so deferring saves nothing.
   kNoLimit,
@@ -54,18 +50,27 @@ struct ProjectionFacts {
   bool projection_reads_all_bound{true};
 };
 
-/// The first reason that applies. Cheap facts are checked before ones needing a walk over the
-/// expressions, and the answer does not depend on what else is also true.
-constexpr NoDeferReason WhyProjectionCannotDefer(ProjectionFacts const &facts) {
-  if (!facts.has_order_by) return NoDeferReason::kNoOrderBy;
-  if (!facts.has_limit) return NoDeferReason::kNoLimit;
-  if (facts.changes_cardinality) return NoDeferReason::kCardinalityChanges;
-  if (facts.has_order_by_branch) return NoDeferReason::kOrderByBranch;
-  if (facts.has_projection_branch) return NoDeferReason::kProjectionBranch;
-  if (facts.has_aggregation) return NoDeferReason::kAggregation;
-  if (!facts.sort_keys_all_bound) return NoDeferReason::kSortKeyNotBound;
-  if (!facts.projection_reads_all_bound) return NoDeferReason::kProjectionReadsUnbound;
-  return NoDeferReason::kDeferred;
+/// Whether the projection can wait until after the sort and the limit, and the first blocker when
+/// it cannot.
+///
+/// A projection emits one row per row it reads and keeps their order, so sorting and limiting
+/// underneath it selects the same rows while leaving the projected expressions to run only for
+/// the survivors. Waiting is wrong whenever a row reaching the projection could not be rebuilt
+/// from what the sort replays.
+///
+/// Cheap facts are checked before ones needing a walk over the expressions, and the blocker
+/// reported does not depend on what else is also true. Naming the blocker rather than answering
+/// yes or no is what lets a test name the rule it checks.
+constexpr std::expected<void, DeferBlocker> CanDeferProjection(ProjectionFacts const &facts) {
+  if (!facts.has_order_by) return std::unexpected{DeferBlocker::kNoOrderBy};
+  if (!facts.has_limit) return std::unexpected{DeferBlocker::kNoLimit};
+  if (facts.changes_cardinality) return std::unexpected{DeferBlocker::kCardinalityChanges};
+  if (facts.has_order_by_branch) return std::unexpected{DeferBlocker::kOrderByBranch};
+  if (facts.has_projection_branch) return std::unexpected{DeferBlocker::kProjectionBranch};
+  if (facts.has_aggregation) return std::unexpected{DeferBlocker::kAggregation};
+  if (!facts.sort_keys_all_bound) return std::unexpected{DeferBlocker::kSortKeyNotBound};
+  if (!facts.projection_reads_all_bound) return std::unexpected{DeferBlocker::kProjectionReadsUnbound};
+  return {};
 }
 
 }  // namespace memgraph::query::plan

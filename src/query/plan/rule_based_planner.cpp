@@ -963,9 +963,9 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
       .has_projection_branch = body.has_branches_at(BodyPosition::kProjection),
       .has_aggregation = !body.aggregations().empty(),
   };
-  // The sweeps default to not refusing, so asking with the cheap facts alone says whether they
+  // The sweeps default to not blocking, so asking with the cheap facts alone says whether they
   // are worth walking.
-  if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
+  if (CanDeferProjection(facts)) {
     UsedSymbolsCollector sort_keys(body.symbol_table());
     for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(sort_keys);
     facts.sort_keys_all_bound = all_bound(sort_keys);
@@ -975,7 +975,7 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
     facts.projection_reads_all_bound = all_bound(projection);
   }
 
-  if (WhyProjectionCannotDefer(facts) == NoDeferReason::kDeferred) {
+  if (CanDeferProjection(facts)) {
     // Only the projection reads these replayed rows: Skip and Limit count without looking.
     SymbolsReadAbove read_above{body.symbol_table(), body.bound_symbols()};
     read_above.ReadBy(body.named_expressions());
