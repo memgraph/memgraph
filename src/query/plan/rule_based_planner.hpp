@@ -648,6 +648,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                      std::ranges::to<std::unordered_set<Symbol>>();
             });
             auto const &subquery = single_query_part.subqueries[subquery_id++];
+            // A periodic commit drops the Accumulate after a writing CALL.
+            bool const accumulates_after_call = !has_periodic_commit;
+            auto const restore_accumulated = utils::OnScopeExit{
+                [this, old = writes_accumulated_after_call_]() { writes_accumulated_after_call_ = old; }};
+            writes_accumulated_after_call_ = writes_accumulated_after_call_ && accumulates_after_call;
             input_op = HandleSubquery(std::move(input_op),
                                       subquery,
                                       *context.symbol_table,
@@ -657,7 +662,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                       scoped_variables);
             if (subquery->writes) {
               wrote_since_with = true;
-              if (!has_periodic_commit) {
+              if (accumulates_after_call) {
                 input_op = std::make_unique<Accumulate>(
                     std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
               }
@@ -704,6 +709,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::unordered_map<std::string, Symbol> output_by_name;
     for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
 
+    // A CALL's branches may write, and a later row's predicate must see that, so it reads View::NEW. A fold body
+    // cannot write: its predicate reads View::NEW only after a write in the caller's query part, else what a WHERE
+    // there would.
+    bool const sees_writes = !context_->in_subquery_body || subquery_branch_after_write_;
+    // A CALL's predicate subqueries scan under View::NEW only when a branch writes and an Accumulate follows, so NEW
+    // cannot show what a later clause writes for earlier rows.
+    bool const accumulated_branch_write =
+        writes_accumulated_after_call_ &&
+        std::ranges::any_of(conditional.branches, [](const auto &b) { return b.body.writes; });
+    bool const scans_see_writes = subquery_branch_after_write_ || accumulated_branch_write;
+
     std::vector<Conditional::Branch> branches;
     branches.reserve(conditional.branches.size());
     for (const auto &parts : conditional.branches) {
@@ -727,11 +743,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
       auto fold_bound_symbols = bound_symbols;
       branch.predicate = parts.predicate;
+      auto const restore =
+          utils::OnScopeExit{[this, old = subquery_branch_after_write_]() { subquery_branch_after_write_ = old; }};
+      subquery_branch_after_write_ = scans_see_writes;
       branch.pattern_filters =
           ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
     }
 
-    auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
+    auto root = std::make_unique<Conditional>(std::move(input),
+                                              std::move(branches),
+                                              conditional.output_symbols,
+                                              sees_writes ? storage::View::NEW : storage::View::OLD);
     bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
     context_->bound_symbols = std::move(bound_symbols);
     return root;
@@ -770,6 +792,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// branch consults it, not just the body's own MATCH: a body WITH/RETURN plans its comprehensions and nested EXISTS
   /// on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeSubqueryFilter`.
   bool subquery_branch_after_write_{false};
+
+  /// Whether an Accumulate follows the CALL being planned and every CALL around it, so a later clause's writes stay
+  /// hidden from View::NEW inside it.
+  bool writes_accumulated_after_call_{true};
 
   /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
   /// subquery re-enters `PlanQueryPart` on this same object.

@@ -1149,3 +1149,23 @@ Feature: Pattern comprehensions
         Then the result should be:
             | name            |
             | 'mg.procedures' |
+
+    # The first CREATE gives `n` two edges before the WITH. The second CREATE then adds one for each row, so a
+    # comprehension in the WITH that saw it would collect three for the second row.
+    Scenario: Pattern comprehension in a WITH after a write does not see a later clause's write for an earlier row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N)
+            """
+        When executing query:
+            """
+            MATCH (n:N) UNWIND [1, 2] AS x CREATE (n)-[:R]->(:M)
+            WITH n, x, size([(n)-[:R]->(m) | m]) AS c
+            CREATE (n)-[:R]->(:M)
+            RETURN x, c ORDER BY x;
+            """
+        Then the result should be, in order:
+            | x | c |
+            | 1 | 2 |
+            | 2 | 2 |
