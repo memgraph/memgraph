@@ -171,6 +171,11 @@ add_unit_test(query_parallel_plan
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_parallel_execution
+    SOURCES query_parallel_execution.cpp
+    LINK_TARGETS mg-query mg-glue
+)
+
 add_unit_test(query_plan_accumulate_aggregate
     SOURCES query_plan_accumulate_aggregate.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
