@@ -3283,3 +3283,66 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   ASSERT_NE(write_acc, nullptr);
   EXPECT_NO_THROW(write_acc->Abort());
 }
+
+// In analytical mode an expansion is only ever the copy taken under the vertex's lock, with no
+// deltas to replay over it afterwards.
+//
+// The filtered collect reserves room for the whole edge list before it starts. These pin that the
+// reservation changes how much room is asked for and nothing else: a selective filter still hands
+// back only what matches, and an unfiltered expansion still hands back everything.
+TEST(StorageV2Analytical, ExpansionFiltersByEdgeType) {
+  memgraph::storage::InMemoryStorage store;
+  store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto const wanted = acc->NameToEdgeType("wanted");
+  auto const other = acc->NameToEdgeType("other");
+
+  // Deliberately lopsided: the type asked for is the rare one, which is the case the reservation
+  // over-allocates for.
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, wanted).has_value());
+  for (int i = 0; i != 32; ++i) ASSERT_TRUE(acc->CreateEdge(&from, &to, other).has_value());
+
+  auto const all = from.OutEdges(memgraph::storage::View::NEW);
+  ASSERT_TRUE(all.has_value());
+  EXPECT_EQ(all->edges.size(), 33);
+  EXPECT_EQ(all->expanded_count, 33);
+
+  auto const filtered = from.OutEdges(memgraph::storage::View::NEW, {wanted});
+  ASSERT_TRUE(filtered.has_value());
+  ASSERT_EQ(filtered->edges.size(), 1);
+  EXPECT_EQ(filtered->edges.At(0).EdgeType(), wanted);
+  // Every edge is walked to decide, whether or not it is kept.
+  EXPECT_EQ(filtered->expanded_count, 33);
+
+  auto const none = from.OutEdges(memgraph::storage::View::NEW, {acc->NameToEdgeType("absent")});
+  ASSERT_TRUE(none.has_value());
+  EXPECT_EQ(none->edges.size(), 0);
+
+  auto const incoming = to.InEdges(memgraph::storage::View::NEW, {wanted});
+  ASSERT_TRUE(incoming.has_value());
+  ASSERT_EQ(incoming->edges.size(), 1);
+  EXPECT_EQ(incoming->edges.At(0).EdgeType(), wanted);
+}
+
+TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
+  memgraph::storage::InMemoryStorage store;
+  store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto const type = acc->NameToEdgeType("type");
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, type).has_value());
+
+  // Without deltas there is nothing to replay, so a write is visible because it is in the record
+  // rather than because a chain says so.
+  auto const edges = from.OutEdges(memgraph::storage::View::NEW);
+  ASSERT_TRUE(edges.has_value());
+  ASSERT_EQ(edges->edges.size(), 1);
+  EXPECT_EQ(edges->edges.At(0).EdgeType(), type);
+  EXPECT_EQ(edges->edges.At(0).ToVertex(), to);
+  EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
+}

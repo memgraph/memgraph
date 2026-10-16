@@ -182,48 +182,27 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
   return impl_.GetProperty(view, key);
 }
 
-storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
-  auto maybe_edges = impl_.impl_.OutEdges(view, {});
-  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  auto edges = std::move(maybe_edges->edges);
-  const auto &graph_edges = graph_->edges();
+namespace {
 
-  std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
-    if (graph_edges.contains(edge_q)) {
-      filteredOutEdges.push_back(edge);
-    }
-  }
-
-  std::vector<EdgeAccessor> resulting_edges;
-  resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(
-      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+/// Narrows an expansion to the edges `graph` holds, keeping it a range that builds its accessors
+/// when they are looked at.
+auto KeptIn(Graph const *graph) {
+  return [graph](storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
+    auto const &graph_edges = graph->edges();
+    auto kept = result.edges.Filtered(
+        [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
+    return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = result.expanded_count};
+  };
 }
 
-storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
-  auto maybe_edges = impl_.impl_.InEdges(view, {});
-  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  auto edges = std::move(maybe_edges->edges);
-  const auto &graph_edges = graph_->edges();
+}  // namespace
 
-  std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
-    if (graph_edges.contains(edge_q)) {
-      filteredOutEdges.push_back(edge);
-    }
-  }
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
+  return impl_.impl_.OutEdges(view, {}).transform(KeptIn(graph_));
+}
 
-  std::vector<EdgeAccessor> resulting_edges;
-  resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(
-      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
+  return impl_.impl_.InEdges(view, {}).transform(KeptIn(graph_));
 }
 
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
