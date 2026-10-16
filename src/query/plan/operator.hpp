@@ -1146,6 +1146,8 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
+  /// The view its expansion and lambdas read. The planner sets it; master's default is View::OLD.
+  storage::View view_{storage::View::OLD};
 
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
@@ -1235,6 +1237,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> pattern_filters_;
   Expression *expression_;
   memgraph::query::plan::Filters all_filters_;
+  /// The view its expressions read. The planner sets it; master's default is View::OLD.
+  storage::View view_{storage::View::OLD};
 
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter);
 
@@ -2402,6 +2406,8 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
   TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
   std::vector<Symbol> output_symbols_;
+  /// The view its expressions read. The planner sets it; master's default is View::OLD.
+  storage::View view_{storage::View::OLD};
   bool parallel_execution_{false};  // When true, OrderByCursor keeps order_by_cache_ for OrderByParallel merge
 
   std::string ToString(const DbAccessor *dba) const override;
@@ -2550,6 +2556,8 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *input_expression_;
   Symbol output_symbol_;
+  /// The view its expressions read. The planner sets it; master's default is View::OLD.
+  storage::View view_{storage::View::OLD};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -2766,6 +2774,8 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   size_t memory_scale_{1024U};
   /// Copied from the procedure's own declaration, by way of the AST clause.
   GraphAccess graph_access_{GraphAccess::Read};
+  /// The view of a read procedure; a write procedure always reads View::NEW.
+  storage::View view_{storage::View::OLD};
   int64_t procedure_id_;
   bool void_procedure_;
 
@@ -3035,6 +3045,8 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> left_symbols_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
   std::vector<Symbol> right_symbols_;
+  /// The view its join keys read. The planner sets it; master's default is View::OLD.
+  storage::View view_{storage::View::OLD};
   EqualOperator *hash_join_condition_;
 
   std::string ToString(const DbAccessor *dba) const override;

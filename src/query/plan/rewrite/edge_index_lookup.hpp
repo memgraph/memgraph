@@ -1187,6 +1187,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       edge_identifier->MapTo(common.edge_symbol);
       auto *test = ast_storage_->Create<EdgeTypesTest>(edge_identifier, std::move(valid_edge_types));
       auto filter = std::make_shared<Filter>(result, std::vector<std::shared_ptr<LogicalOperator>>{}, test);
+      // The edge-type test stands in for the scan it replaces, so it reads the scan's view.
+      filter->view_ = view;
 
       // Need to populate the all_filters
       auto all_filters = Filters::FromExpression(filter->expression_, *symbol_table_, *ast_storage_);
