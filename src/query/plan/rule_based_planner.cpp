@@ -95,6 +95,13 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
   int in_subquery_depth_{0};
 };
 
+/// A range of AST nodes a tree visitor can walk. `NamedExpression` is not an `Expression`, so the
+/// two reach this through the visitable base they share rather than through a common node type.
+template <typename Range>
+concept VisitableRange =
+    std::ranges::input_range<Range> && requires(std::ranges::range_reference_t<Range> node,
+                                                SubqueryReadSymbolsCollector &collector) { node->Accept(collector); };
+
 /// The symbols an OrderBy or Accumulate puts back on the frame for each row it replays.
 ///
 /// It rebuilds each replayed row from this list alone, and a symbol something above reads but the
@@ -114,9 +121,9 @@ class SymbolsReadAbove {
   /// Everything @p expressions read, keeping only what was bound before this clause. A symbol the
   /// clause writes itself is written above this operator, so restoring a stale one would overwrite
   /// the fresh value.
-  void ReadBy(auto &&expressions) {
+  void ReadBy(VisitableRange auto &&expressions) {
     SubqueryReadSymbolsCollector collector{symbol_table_};
-    for (auto &&expression : expressions) AcceptOne(expression, collector);
+    for (auto &&expression : expressions) expression->Accept(collector);
     // The collector answers in hash order, so an unsorted append would make plans for the same
     // query differ run to run.
     std::vector<Symbol> collected(collector.symbols_.begin(), collector.symbols_.end());
@@ -129,18 +136,6 @@ class SymbolsReadAbove {
   std::vector<Symbol> Take() && { return std::move(symbols_); }
 
  private:
-  static void AcceptOne(SortItem const &sort_item, SubqueryReadSymbolsCollector &collector) {
-    sort_item.expression->Accept(collector);
-  }
-
-  static void AcceptOne(Expression *expression, SubqueryReadSymbolsCollector &collector) {
-    expression->Accept(collector);
-  }
-
-  static void AcceptOne(NamedExpression *named_expression, SubqueryReadSymbolsCollector &collector) {
-    named_expression->Accept(collector);
-  }
-
   void Add(Symbol const &symbol) {
     if (std::ranges::contains(symbols_, symbol)) return;
     symbols_.push_back(symbol);
