@@ -146,6 +146,27 @@ TEST_F(WriteVisibilityPlan, EdgeIndexStillSeeksFilterBelowSet) {
   EXPECT_EQ(Collect<ScanAllByEdgeTypeProperty>(plan).size(), 1);
 }
 
+// ---------------------------------------------------------------- RETURN drain
+
+TEST_F(WriteVisibilityPlan, RootReturnDrainAdvances) {
+  auto accumulates = Collect<Accumulate>(Plan("MATCH (n) SET n.x = 1 RETURN n.x AS x ORDER BY x"));
+  ASSERT_EQ(accumulates.size(), 1);
+  EXPECT_TRUE(accumulates[0]->advance_command_);
+}
+
+TEST_F(WriteVisibilityPlan, BodyReturnDrainDoesNotAdvance) {
+  auto accumulates = Collect<Accumulate>(Plan("MATCH (n) CALL (n) { SET n.x = 1 RETURN n.x AS x } RETURN x"));
+  // Top first: the root RETURN, the drain after the writing CALL, then the body's RETURN.
+  ASSERT_EQ(accumulates.size(), 3);
+  EXPECT_TRUE(accumulates[0]->advance_command_);
+  EXPECT_TRUE(accumulates[1]->advance_command_);
+  EXPECT_FALSE(accumulates[2]->advance_command_);
+}
+
+TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
+  EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n) RETURN n.x AS x ORDER BY x")).empty());
+}
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {
