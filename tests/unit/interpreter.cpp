@@ -2135,6 +2135,7 @@ TYPED_TEST(InterpreterTest, ConditionalQueryPlanCache) {
     EXPECT_EQ(IntColumn(this->Interpret(query, {{"a", a}})), std::vector<int64_t>{x});
   }
   EXPECT_EQ(plan_cache_size(), 1U);
+#ifdef MG_ENTERPRISE
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) return;
   memgraph::license::global_license_checker.EnableTesting();
   this->Interpret("CREATE (), (), ()");
@@ -2143,6 +2144,7 @@ TYPED_TEST(InterpreterTest, ConditionalQueryPlanCache) {
   EXPECT_EQ(IntColumn(this->Interpret(parallel, {{"a", ExternalPropertyValue(true)}})), std::vector<int64_t>{3});
   // The thread count is part of the query, so its plan is not cached.
   EXPECT_EQ(plan_cache_size(), cached);
+#endif
 }
 
 TYPED_TEST(InterpreterTest, ConditionalQueryExplainAndProfile) {
