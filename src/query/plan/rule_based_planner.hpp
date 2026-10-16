@@ -67,16 +67,9 @@ struct SubqueryBranchPlanner {
                                                               const std::unordered_set<Symbol> &bound_symbols) = 0;
 };
 
-/// ExpandVariable requires View::OLD, so a branch whose pattern has a variable-length edge must use it.
-inline bool HasVariableLengthExpansion(const Matching &matching) {
-  return std::ranges::any_of(matching.expansions,
-                             [](const auto &expansion) { return expansion.edge && expansion.edge->IsVariable(); });
-}
-
-/// The view rule for a correlated-subquery branch, shared by every splice point. A clause sees the effects of the
-/// clauses before it, and within one command no AdvanceCommand folds a write into View::OLD, so a branch planned
-/// after a write reads View::NEW - except where ExpandVariable cannot service it.
-inline storage::View SubqueryView(const Matching & /*matching*/, bool write_occurred) {
+/// The view of a fold or comprehension branch: one planned after a write reads View::NEW. At the root and in a writing
+/// CALL body the planner passes `false` and `true` by scope; the write history decides only under batching.
+inline storage::View ViewAfterWrite(bool write_occurred) {
   return write_occurred ? storage::View::NEW : storage::View::OLD;
 }
 
@@ -87,7 +80,7 @@ struct SubqueryContext {
   /// as they are planned, like @c pending_comprehensions.
   std::unordered_map<Symbol, SubqueryMatching> &pending_subqueries;
   SubqueryBranchPlanner *planner;
-  /// Whether a write clause has already been planned in this query part; feeds @c SubqueryView.
+  /// Whether a write clause has already been planned in this query part; feeds @c ViewAfterWrite.
   bool write_occurred;
 };
 
@@ -287,21 +280,6 @@ std::unordered_set<Symbol> OriginatingIn(
 /// FOREACH bodies. `GenMerge` splices each onto the branch that evaluates it, so no chain above may drain them first.
 std::unordered_set<Symbol> MergeBranchComprehensions(query::Clause *clause, const SymbolTable &symbol_table);
 
-/// Applies the variable-length rule to the view a drain site would otherwise use, from the single place every
-/// comprehension - nested ones included - passes through, @c RuleBasedPlanner::PlanPatternComprehension.
-///
-/// `ExpandVariable` can only read View::OLD, so a variable-length pattern cannot take a View::NEW @p preferred.
-/// View::OLD serves it as long as its root exists there; when a write clause of this query part bound that root,
-/// neither view works and this throws rather than emit a plan that fails at runtime.
-///
-/// A fixed-length pattern keeps @p preferred, because sites legitimately differ in how they pick it.
-///
-/// @param preferred the view the site would use if the pattern were fixed-length.
-/// @param write_bound_symbols symbols a write clause of this query part bound, which View::OLD cannot see.
-storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
-                                       const std::unordered_set<Symbol> &bound_symbols,
-                                       const std::unordered_set<Symbol> &write_bound_symbols);
-
 /// Whether no part of a plan produces columns, so the plan runs only for its side effects and a CALL over it keeps
 /// the outer row count. Checked per UNION part, because Union::OutputSymbols lists only RETURN columns and so misses
 /// a part that ends in `CALL ... YIELD`.
@@ -389,8 +367,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         pending_writes.Clear();
         pending_new_reads.Clear();
         wrote_since_with = false;
-        // View::OLD now sees what the clauses so far created.
-        query_part_symbols_.write_bound.clear();
       };
       auto barrier_before = [&](const ReadWriteSet &reads) {
         if (BarriersOn() && Conflicts(reads, pending_writes)) plan_barrier();
@@ -447,18 +423,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           symbols_bound_by_query_part.insert(opt_matching.expansion_symbols.begin(),
                                              opt_matching.expansion_symbols.end());
         }
-        // A write clause re-uses names it does not declare, e.g. `a` in `MATCH (a) CREATE (a)-[:R]->(b)`, which
-        // View::OLD does see. Only a name it *first* binds counts; MATCH symbols are already collected above.
-        auto note_write_bound = [&](const Symbol &sym) {
-          if (!context.bound_symbols.contains(sym) && !symbols_bound_by_query_part.contains(sym)) {
-            query_part_symbols_.write_bound.insert(sym);
-          }
-        };
-        // Add symbols from merge matchings. MERGE may create its pattern, so View::OLD may not see it either.
+        // Add symbols from merge matchings.
         for (const auto &merge_matching : single_query_part.merge_matching) {
-          for (const auto &sym : merge_matching.expansion_symbols) {
-            note_write_bound(sym);
-          }
           symbols_bound_by_query_part.insert(merge_matching.expansion_symbols.begin(),
                                              merge_matching.expansion_symbols.end());
         }
@@ -472,7 +438,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           if (auto *create = utils::Downcast<Create>(clause)) {
             for (const auto *pattern : create->patterns_) {
               for (const PatternAtom *atom : pattern->atoms_) {
-                note_write_bound(context.symbol_table->at(*atom->identifier_));
                 symbols_bound_by_query_part.insert(context.symbol_table->at(*atom->identifier_));
               }
             }
@@ -550,8 +515,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             if (reads_new) pending_new_reads.Merge(access.reads);
           }};
 
-          // A root WITH or RETURN after a write drains and advances below its body, so View::OLD sees what was created.
-          if (is_projection && BarriersOn() && wrote_since_with) query_part_symbols_.write_bound.clear();
           if (auto *ret = utils::Downcast<Return>(clause)) {
             CheckSubqueryBodyInvariants(context, wrote_since_with, query_parts.commit_frequency);
             input_op = impl::GenReturn(*ret,
@@ -572,19 +535,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                           [branch = impl::MergeBranchComprehensions(clause, *context.symbol_table)](const Symbol &sym) {
                             return branch.contains(sym);
                           });
-            // GenMerge's ON MATCH narrowing asks whether a clause *before* this MERGE wrote.
-            bool const wrote_before_merge = write_occurred;
             // A MERGE may create, so it counts as a write - marked before its own drain, as at every other write
             // site, so a comprehension in its pattern sees what earlier rows created. Only an all-anonymous one
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
             wrote_since_with = true;
             write_occurred = true;
             plan_and_apply_comprehensions(eligible);
-            input_op = GenMerge(*merge,
-                                std::move(input_op),
-                                single_query_part.merge_matching[merge_id++],
-                                pending_comprehensions,
-                                wrote_before_merge);
+            input_op = GenMerge(
+                *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             CheckSubqueryBodyInvariants(context, wrote_since_with, /*commit_frequency=*/nullptr);
             input_op = impl::GenWith(*with,
@@ -830,13 +788,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// @brief Recursively plans a pattern comprehension including any nested pattern comprehensions.
   /// For nested pattern comprehensions (e.g., [()--() | [()--() | 1]]), the inner pattern
   /// comprehension is planned first and wrapped with RollUpApply before the outer one's Produce.
-  /// @param view Only a preference: this is the one place every comprehension, nested ones included, passes through,
-  /// so @c impl::PatternComprehensionView is applied here once rather than at each drain site.
   std::unique_ptr<LogicalOperator> PlanPatternComprehension(const PatternComprehensionMatching &matching,
                                                             const SymbolTable &symbol_table,
                                                             const std::unordered_set<Symbol> &bound_symbols,
                                                             storage::View view) {
-    view = impl::PatternComprehensionView(matching, view, bound_symbols, query_part_symbols_.write_bound);
     std::unique_ptr<LogicalOperator> new_input;
     // Create a copy of bound_symbols and add external symbols from the pattern comprehension.
     // External symbols are references to variables from outer scope (e.g., FOREACH variable `x`
@@ -909,8 +864,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   struct QueryPartSymbols {
     /// Everything the part binds, wherever in it. A comprehension waits for these - see `DepsSatisfied`.
     std::unordered_set<Symbol> all;
-    /// The subset a *write* clause first binds, which View::OLD cannot see - see `impl::PatternComprehensionView`.
-    std::unordered_set<Symbol> write_bound;
   };
 
   QueryPartSymbols query_part_symbols_;
@@ -979,11 +932,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                   const SingleQueryPart &single_query_part,
                                                   const SymbolTable &symbol_table,
                                                   std::unordered_set<Symbol> &bound_symbols) {
-    // Outside an EXISTS branch the flag is false and SubqueryView collapses to View::OLD.
-    MatchContext match_ctx{single_query_part.matching,
-                           symbol_table,
-                           bound_symbols,
-                           SubqueryView(single_query_part.matching, subquery_branch_after_write_)};
+    // Outside an EXISTS branch the flag is false, which reads View::OLD.
+    MatchContext match_ctx{
+        single_query_part.matching, symbol_table, bound_symbols, ViewAfterWrite(subquery_branch_after_write_)};
     last_op = PlanMatching(match_ctx, std::move(last_op));
     for (const auto &matching : single_query_part.optional_matching) {
       // Ensure that we have all the symbols from the original match
@@ -1004,7 +955,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
-      MatchContext opt_ctx{matching, symbol_table, bound_symbols, SubqueryView(matching, subquery_branch_after_write_)};
+      MatchContext opt_ctx{matching, symbol_table, bound_symbols, ViewAfterWrite(subquery_branch_after_write_)};
       auto once_with_symbols = std::make_unique<Once>(
           std::vector<Symbol>(bound_symbols_from_original_match.begin(), bound_symbols_from_original_match.end()));
       if (auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols))) {
@@ -1241,9 +1192,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
-  /// @param write_occurred whether a clause earlier in this query part has already written.
   auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,
-                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions, bool write_occurred) {
+                std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
@@ -1268,21 +1218,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           std::move(branch), pending_comprehensions, branch_bound_symbols, /*write_occurred=*/true, eligible);
     };
 
-    {
-      // ON MATCH runs only when the pattern was found, so View::OLD sees its symbols - unlike ON CREATE's, or the
-      // chain below the Merge, where the planner cannot know which branch ran. Only once nothing has written earlier
-      // in this part, though: the match branch reads View::NEW, so it can find a node such a write created, which
-      // View::OLD cannot see.
-      auto const restore = utils::OnScopeExit{[this, saved = query_part_symbols_.write_bound]() mutable {
-        query_part_symbols_.write_bound = std::move(saved);
-      }};
-      if (!write_occurred) {
-        for (const auto &sym : matching.expansion_symbols) {
-          query_part_symbols_.write_bound.erase(sym);
-        }
-      }
-      on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
-    }
+    on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
 
     once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
@@ -1808,7 +1744,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         ++it;
         continue;
       }
-      auto pc_op = Plan(pc, SubqueryView(pc, write_occurred), bound_symbols);
+      auto pc_op = Plan(pc, ViewAfterWrite(write_occurred), bound_symbols);
       auto symbols = pc_op->ModifiedSymbols(*context_->symbol_table);
       chain = std::make_unique<RollUpApply>(std::move(chain), std::move(pc_op), symbols, sym);
       it = pending_comprehensions.erase(it);
@@ -1827,10 +1763,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     // The body reads the caller's write history: a FOREACH is itself a write, and seeding false here let a
     // semantically inert correlation flip the view. `true` at both call sites, so the body always reads View::NEW;
-    // kept a parameter to state the view rule rather than assume it. Only GenMerge asks whether *this body* wrote, and
-    // it sees only this body - a first body clause erases the merge symbols even when an enclosing body wrote, costing
-    // a variable-length comprehension its plan-time throw. Master's behaviour too, tracked separately.
-    bool wrote_in_body = false;
+    // kept a parameter to state the view rule rather than assume it.
 
     // Plan comprehensions whose dependencies are now satisfied, onto the body's own chain. Restricted to the
     // originating FOREACH clause's own set, so a later clause's comprehension is not dragged into the body.
@@ -1854,14 +1787,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                  eligible,
                                  write_occurred);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        op = GenMerge(
-            *merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions, wrote_in_body);
+        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
       // A body clause can bind the symbol a pending comprehension expands from, so drain after each one, as the main
       // clause loop does. Without this it stays pending and is never planned.
-      wrote_in_body = true;
       plan_satisfied_comprehensions();
     }
     return std::make_unique<plan::Foreach>(
@@ -2012,7 +1943,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                             new_symbols,
                             named_paths,
                             filters,
-                            SubqueryView(matching, write_occurred));
+                            ViewAfterWrite(write_occurred));
   }
 
   /// The deferred fold: the branch plus the tail that installs a closure into the frame. Only usable as a

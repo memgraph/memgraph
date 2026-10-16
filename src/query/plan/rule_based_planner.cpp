@@ -808,8 +808,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == pending.end()) {
       return;
     }
-    auto op = subquery_ctx_->planner->Plan(
-        it->second, SubqueryView(it->second, subquery_ctx_->write_occurred), BranchBoundSymbols());
+    auto op =
+        subquery_ctx_->planner->Plan(it->second, ViewAfterWrite(subquery_ctx_->write_occurred), BranchBoundSymbols());
     Bucket(position_).comprehensions.emplace_back(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
   }
@@ -1068,16 +1068,6 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
     clause->Accept(collector);
   }
   return symbols;
-}
-
-storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
-                                       const std::unordered_set<Symbol> &bound_symbols,
-                                       const std::unordered_set<Symbol> &write_bound_symbols) {
-  // View::OLD cannot see a node a write clause of this command bound, where no barrier advanced past that write.
-  auto const unseeable = std::ranges::any_of(pc.expansion_symbols, [&](const Symbol &sym) {
-    return bound_symbols.contains(sym) && write_bound_symbols.contains(sym);
-  });
-  return unseeable ? storage::View::NEW : preferred;
 }
 
 namespace {
