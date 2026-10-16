@@ -238,7 +238,7 @@ std::vector<std::string> Chain(LogicalOperator &plan) {
     std::string name{op->GetTypeInfo().name};
     if (auto *acc = dynamic_cast<Accumulate *>(op); acc && acc->advance_command_) name += "+";
     names.push_back(std::move(name));
-    if (dynamic_cast<Once *>(op)) break;
+    if (dynamic_cast<Once *>(op) || dynamic_cast<Cartesian *>(op)) break;
     op = op->input().get();
   }
   return names;
@@ -290,6 +290,15 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
   // OLD cannot see `a` at all until the command advances, whatever the edge type.
   EXPECT_EQ(Chain(Plan("CREATE (a)-[:R]->(b) SET a.c = size([(a)-[:S*]->(x) | x])")),
             (Names{"EmptyResult", "SetProperty", "RollUpApply", "Accumulate+", "CreateExpand", "CreateNode", "Once"}));
+}
+
+// ---------------------------------------------------------------- read-to-write drains after View::NEW readers
+
+TEST_F(WriteVisibilityPlan, DrainBetweenSetThatReadsAndALaterSetOfTheKey) {
+  EXPECT_EQ(Chain(Plan("MATCH (a), (b) SET a.y = b.x SET b.x = 0")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "Cartesian"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a), (b) SET a.y = b.x SET b.z = 0")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Cartesian"}));
 }
 
 // ---------------------------------------------------------------- read and write sets
