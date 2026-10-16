@@ -26,12 +26,16 @@ Test patterns include:
     - Mixed expressions in lists
 """
 
+import re
 import sys
+import uuid
 from typing import Any, Dict, List
 
+import interactive_mg_runner
 import pytest
 from common import clear_database, pq, setup_thread_count_db
-from neo4j.exceptions import ClientError, DatabaseError, TransientError
+from conftest import E2E_ROOT, MemgraphWrapper
+from neo4j.exceptions import ClientError, DatabaseError, ServiceUnavailable, SessionExpired, TransientError
 
 # =============================================================================
 # Helper Functions
@@ -584,20 +588,84 @@ class TestInListCacheMergeUnderMemoryLimit:
     limit that refuses an allocation during that merge must fail the query with a memory limit
     error and leave the instance running. The limit is swept so the refusal lands at different
     points of the merge.
+
+    If the instance dies, the same sweep is repeated serially and in parallel with the IN lists
+    spelled out as equalities, so the failure says whether the crash needs the IN-list cache merge.
     """
 
     LIMITS_KB = range(1, 65)
+    PORT = 7690
 
     @pytest.fixture(autouse=True)
-    def setup(self, fresh_memgraph, num_workers):
-        self.memgraph = fresh_memgraph
-        fresh_memgraph.execute_query(
+    def setup(self, num_workers):
+        self.num_workers = num_workers
+        self.instance_name = f"inlist_merge_oom_{uuid.uuid4().hex[:8]}"
+        build_root = E2E_ROOT.parent.parent
+        interactive_mg_runner.MEMGRAPH_BINARY = str((build_root / "memgraph").resolve())
+        interactive_mg_runner.BUILD_DIR = str(build_root.resolve())
+        self.log_path = build_root / "e2e" / "logs" / f"{self.instance_name}.log"
+        self.config = {
+            self.instance_name: {
+                "args": [
+                    f"--bolt-port={self.PORT}",
+                    "--log-level=TRACE",
+                    "--storage-properties-on-edges=true",
+                    "--telemetry-enabled=false",
+                    f"--bolt-num-workers={num_workers}",
+                ],
+                "log_file": f"{self.instance_name}.log",
+                "data_directory": f"{self.instance_name}_data",
+            }
+        }
+        self._start()
+        yield
+        interactive_mg_runner.stop(self.config, self.instance_name, keep_directories=False)
+
+    def _start(self):
+        interactive_mg_runner.start(self.config, self.instance_name)
+        self.runner = interactive_mg_runner.MEMGRAPH_INSTANCES[self.instance_name]
+        self.memgraph = MemgraphWrapper(self.runner, self.PORT)
+        self.memgraph.execute_query(
             f"""
-            UNWIND range(1, {num_workers * 500}) AS i
-            CREATE (:Data {{id: i, bucket: i % {num_workers}, value: i % 200,
+            UNWIND range(1, {self.num_workers * 500}) AS i
+            CREATE (:Data {{id: i, bucket: i % {self.num_workers}, value: i % 200,
                             name: 'name_' + toString(i % 200) + '_padded_past_small_string'}})
             """
         )
+
+    def _restart(self):
+        instance = interactive_mg_runner.MEMGRAPH_INSTANCES.pop(self.instance_name)
+        instance.kill(keep_directories=False)
+        instance.safe_delete_data_directory()
+        self._start()
+
+    def _log_tail(self, lines=60):
+        try:
+            return "".join(self.log_path.read_text(errors="replace").splitlines(keepends=True)[-lines:])
+        except OSError as e:
+            return f"<log unavailable: {e}>"
+
+    def _sweep(self, query):
+        """Returns None if the instance survived every limit, otherwise a description of the crash."""
+        for limit_kb in self.LIMITS_KB:
+            try:
+                self.memgraph.fetch_all(f"{query} QUERY MEMORY LIMIT {limit_kb} KB")
+            except (ClientError, DatabaseError, TransientError) as e:
+                assert "memory limit exceeded" in str(e).lower(), f"limit {limit_kb} KB: unexpected error: {e}"
+            except (ServiceUnavailable, SessionExpired):
+                try:
+                    code = self.runner.proc_mg.wait(timeout=10)
+                except Exception:
+                    code = "still running"
+                return f"died at {limit_kb} KB, exit code {code}; log tail:\n{self._log_tail()}"
+        return None
+
+    @staticmethod
+    def _without_in_lists(query):
+        def spell_out(match):
+            return "(" + " OR ".join(f"{match[1]} = {value.strip()}" for value in match[2].split(",")) + ")"
+
+        return re.sub(r"(d\.\w+) IN \[([^\]]*)\]", spell_out, query)
 
     @pytest.mark.parametrize(
         "query",
@@ -613,13 +681,19 @@ class TestInListCacheMergeUnderMemoryLimit:
         ids=["int_list_count", "int_list_group_by", "int_list_order_by", "string_list_count"],
     )
     def test_merge_survives_query_memory_limit(self, query):
-        for limit_kb in self.LIMITS_KB:
-            try:
-                self.memgraph.fetch_all(pq(f"{query} QUERY MEMORY LIMIT {limit_kb} KB"))
-            except (ClientError, DatabaseError, TransientError) as e:
-                assert "memory limit exceeded" in str(e).lower(), f"limit {limit_kb} KB: unexpected error: {e}"
+        crash = self._sweep(pq(query))
+        if crash is None:
+            assert self.memgraph.fetch_all("RETURN 1 AS one") == [{"one": 1}]
+            return
 
-        assert self.memgraph.fetch_all("RETURN 1 AS one") == [{"one": 1}]
+        report = [f"parallel with IN lists: {crash}"]
+        for label, variant in (
+            ("serial with IN lists", query),
+            ("parallel without IN lists", pq(self._without_in_lists(query))),
+        ):
+            self._restart()
+            report.append(f"{label}: {self._sweep(variant) or 'survived every limit'}")
+        pytest.fail("\n\n".join(report))
 
 
 if __name__ == "__main__":
