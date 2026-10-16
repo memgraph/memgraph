@@ -3284,12 +3284,10 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   EXPECT_NO_THROW(write_acc->Abort());
 }
 
-// Analytical mode is the one where an expansion is only ever the copy taken under the vertex's
-// lock: there are no deltas to replay over it afterwards. The suites elsewhere cover in-memory
-// against disk, which is a different axis from the storage mode, so nothing was exercising this.
+// In analytical mode an expansion is only ever the copy taken under the vertex's lock, with no
+// deltas to replay over it afterwards.
 //
-// The filtered collect reserves room for the whole edge list before it starts, on the grounds that
-// a query naming the only type its vertices have will keep all of them. These pin that the
+// The filtered collect reserves room for the whole edge list before it starts. These pin that the
 // reservation changes how much room is asked for and nothing else: a selective filter still hands
 // back only what matches, and an unfiltered expansion still hands back everything.
 TEST(StorageV2Analytical, ExpansionFiltersByEdgeType) {

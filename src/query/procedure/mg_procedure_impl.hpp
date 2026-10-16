@@ -1008,9 +1008,8 @@ struct mgp_edges_iterator {
     RealCursor(memgraph::query::ExpandedEdges edges, bool for_in)
         : edges(std::move(edges)), it(this->edges.begin()), for_in(for_in) {}
 
-    /// `it` refers to `edges` beside it, so this has to stay where it was built. It is built in
-    /// place in an object handed out by pointer and never moved, and saying so here is what keeps
-    /// it that way.
+    /// `it` refers to `edges` beside it, so this has to stay where it was built, which it does:
+    /// the object holding it is only ever handed out by pointer.
     RealCursor(RealCursor const &) = delete;
     RealCursor(RealCursor &&) = delete;
     RealCursor &operator=(RealCursor const &) = delete;

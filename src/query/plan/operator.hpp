@@ -1011,8 +1011,6 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
-    // The expansion's own list, wrapped as query accessors only when looked at. A supernode's
-    // expansion no longer copies its whole edge list to change its type.
     using InEdgeT = ExpandedEdges;
     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
     using OutEdgeT = ExpandedEdges;

@@ -23,13 +23,8 @@ namespace memgraph::query {
 
 /// The edges one expansion found, wrapped as the query layer sees them only when looked at.
 ///
-/// A `query::EdgeAccessor` is a `storage::EdgeAccessor` and nothing else, so building a vector of
-/// the first from a vector of the second copies the whole list to change only its type. For a
-/// supernode that is half a gigabyte of pages the kernel has to fault in and zero before anything
-/// can be written to them, to hold values that are walked once and then thrown away.
-///
-/// The wrapping happens on dereference instead. What is held is the list the storage layer
-/// already built.
+/// A `query::EdgeAccessor` is a `storage::EdgeAccessor` and nothing else, so a vector of the first
+/// built from a vector of the second copies the whole list to change only its type.
 class ExpandedEdges {
  public:
   ExpandedEdges() = default;
@@ -73,8 +68,6 @@ class ExpandedEdges {
 
   auto size() const -> std::size_t { return storage_edges_.size(); }
 
-  /// The edge at `index`, built now. For a caller reading one edge rather than walking them all.
-  /// The edge comes back by value, because there is none to refer to until it is asked for.
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
 
  private:

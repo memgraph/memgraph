@@ -2160,14 +2160,10 @@ std::vector<Symbol> ExpandVariable::ModifiedSymbols(const SymbolTable &table) co
 
 namespace {
 
-/// The edges one vertex was expanded to, read as one range of `<edge, the direction it was found
-/// in>`: the edges coming in, then the edges going out. Either may be empty. Each is held as the
-/// expansion itself, so an edge is built when the range reaches it rather than when the vertex was
-/// expanded.
+/// The edges one vertex was expanded to, as one range of `<edge, the direction it was found in>`:
+/// the edges coming in, then the edges going out.
 ///
-/// An iterator of this refers to the range it came from, so the range has to outlive it and stay
-/// where it is. A depth-first expansion holds one of these per depth and an iterator into each, so
-/// it keeps them somewhere that does not move what it already holds.
+/// An iterator of this refers to the range, so the range has to outlive it and stay where it is.
 class VertexExpansion {
  public:
   VertexExpansion() = default;
@@ -2212,8 +2208,8 @@ class VertexExpansion {
   auto size() const -> std::size_t { return in_.size() + out_.size(); }
 
  private:
-  /// The direction given back here is what tells a walk which end of the relationship it has
-  /// arrived at, so which of the two an offset lands in decides where the walk goes next.
+  /// The direction decides which end of the relationship a walk arrives at, so which of the two
+  /// an offset lands in decides where it goes next.
   auto At(std::size_t index) const -> std::pair<EdgeAccessor, EdgeAtom::Direction> {
     if (index < in_.size()) return {in_[index], EdgeAtom::Direction::IN};
     return {out_[index - in_.size()], EdgeAtom::Direction::OUT};
@@ -2223,11 +2219,10 @@ class VertexExpansion {
   ExpandedEdges out_;
 };
 
-/// A depth-first walk holds an iterator per depth and reads each of them across many pulls, so a
-/// range that can only be passed over once would not do.
+/// A depth-first walk holds an iterator per depth and reads each across many pulls, so a range
+/// that can only be passed over once would not do.
 static_assert(std::ranges::forward_range<VertexExpansion>);
 
-/// Expands `vertex` in `direction`, giving the edges found and which direction each was found in.
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
                       const std::vector<storage::EdgeTypeId> &edge_types, ExecutionContext *context) {
   storage::View view = storage::View::OLD;
@@ -2311,9 +2306,8 @@ class ExpandVariableCursor : public Cursor {
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
 
-  // a stack of expansions corresponding to the level/depth of
-  // the expansion currently being Pulled. A deque rather than a vector, because the iterators
-  // below refer to what it holds, and pushing the next depth on must not move that.
+  // One expansion per level of the depth being walked. A deque, because the iterators below
+  // refer into what it holds and pushing the next level on must not move that.
   utils::pmr::deque<VertexExpansion> edges_;
   // an iterator indicating the position in the corresponding edges_ element
   utils::pmr::vector<VertexExpansion::Iterator> edges_it_;
@@ -4290,11 +4284,11 @@ class KShortestPathsCursor : public Cursor {
   // `PathComparator` orders by hop count.
   utils::pmr::unordered_set<storage::Gid> blocked_edges_;
   utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
-  // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
-  // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
-  // post-filter results wrong. Copied into an arena vector because what the expansion hands back is
-  // not allocator-aware and would escape this query's memory accounting.
-  // Pre-existing gap: a cursor can outlive its command epoch, so the cache can go stale.
+  // Raw storage adjacency, kept across input rows so Yen's repeated inner searches don't re-fetch.
+  // Must stay unfiltered: a lambda reading an outer-row value would make post-filter results wrong.
+  // Copied into an arena vector because what the expansion hands back is not allocator-aware and
+  // would escape this query's memory accounting. A cursor can outlive its command epoch, so the
+  // cache can go stale.
   using CachedEdges = utils::pmr::vector<EdgeAccessor>;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
