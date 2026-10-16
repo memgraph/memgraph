@@ -24,7 +24,6 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/deferred_projection.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"
@@ -943,8 +942,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   SubqueryContext *subquery_ctx_ = nullptr;
 };
 
-/// Puts the projection and the ordering on top of @p input_op, in one of the two orders the rule
-/// in `deferred_projection.hpp` picks between.
+/// Puts the projection and the ordering on top of @p input_op, in one of two orders depending on
+/// whether the projection can wait until after the limit.
 std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<LogicalOperator> input_op,
                                                            const ReturnBodyContext &body, auto &&splice_branches) {
   using BodyPosition = ReturnBodyContext::BodyPosition;
@@ -953,29 +952,38 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
     return std::ranges::all_of(collector.symbols_,
                                [&](Symbol const &symbol) { return body.bound_symbols().contains(symbol); });
   };
-  // Branches and aggregates are read off the body rather than swept for: both write per row below
-  // the projection, and neither names its result through an Identifier a sweep would report.
-  auto facts = ProjectionFacts{
-      .has_order_by = !body.order_by().empty(),
-      .has_limit = body.limit() != nullptr,
-      .changes_cardinality = body.distinct() || body.where() != nullptr,
-      .has_order_by_branch = body.has_branches_at(BodyPosition::kOrderBy),
-      .has_projection_branch = body.has_branches_at(BodyPosition::kProjection),
-      .has_aggregation = !body.aggregations().empty(),
+  auto const sort_keys_all_bound = [&] {
+    UsedSymbolsCollector collector(body.symbol_table());
+    for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(collector);
+    return all_bound(collector);
   };
-  // The sweeps default to not blocking, so asking with the cheap facts alone says whether they
-  // are worth walking.
-  if (CanDeferProjection(facts)) {
-    UsedSymbolsCollector sort_keys(body.symbol_table());
-    for (auto const &sort_item : body.order_by()) sort_item.expression->Accept(sort_keys);
-    facts.sort_keys_all_bound = all_bound(sort_keys);
+  auto const projection_reads_all_bound = [&] {
+    UsedSymbolsCollector collector(body.symbol_table());
+    for (auto *named_expression : body.named_expressions()) named_expression->Accept(collector);
+    return all_bound(collector);
+  };
 
-    UsedSymbolsCollector projection(body.symbol_table());
-    for (auto *named_expression : body.named_expressions()) named_expression->Accept(projection);
-    facts.projection_reads_all_bound = all_bound(projection);
-  }
+  // The projection can wait until after the sort and the limit, which leaves its expressions to
+  // run only for the rows that come back. Each term below is either a reason there is nothing to
+  // gain, or a reason a row reaching the projection could not be rebuilt from what the sort
+  // replays. The two expression walks come last so that they run only when nothing cheaper has
+  // already said no.
+  auto const can_defer =
+      // Nothing to move the projection past, or every row is projected either way.
+      !body.order_by().empty() && body.limit() != nullptr &&
+      // DISTINCT and a trailing WHERE each change how many rows reach the limit.
+      !body.distinct() && body.where() == nullptr &&
+      // A branch under the ORDER BY reads what the projection writes. A branch under the
+      // projection, and an aggregate, are planned below it and write per row, and neither names
+      // its result through an Identifier that the walks below would report, so both are asked
+      // about rather than swept for.
+      !body.has_branches_at(BodyPosition::kOrderBy) && !body.has_branches_at(BodyPosition::kProjection) &&
+      body.aggregations().empty() &&
+      // A sort key or a projected expression naming something not bound when the clause began,
+      // such as a projected alias, which the sort cannot replay.
+      sort_keys_all_bound() && projection_reads_all_bound();
 
-  if (CanDeferProjection(facts)) {
+  if (can_defer) {
     // Only the projection reads these replayed rows: Skip and Limit count without looking.
     SymbolsReadAbove read_above{body.symbol_table(), body.bound_symbols()};
     read_above.ReadBy(body.named_expressions());
