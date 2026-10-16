@@ -63,7 +63,13 @@ class ExpandedEdges {
 
   class Iterator {
    public:
-    using iterator_category = std::forward_iterator_tag;
+    /// Walking this twice gives the same edges, which is what forward means, and the two tags
+    /// disagree only because dereferencing builds the edge rather than finding one to refer to.
+    /// The older category promises a reference to something that outlives the dereference, so
+    /// claiming more than input there would let an algorithm take the address of a temporary. The
+    /// concept asks for no such thing, so it gets the honest answer.
+    using iterator_concept = std::forward_iterator_tag;
+    using iterator_category = std::input_iterator_tag;
     using value_type = EdgeAccessor;
     using difference_type = std::ptrdiff_t;
 
