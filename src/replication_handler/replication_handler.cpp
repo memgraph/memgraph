@@ -277,6 +277,10 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       locked_repl_state->GetReplicaRole().server->Shutdown();
     }
 
+    // Replica server is drained, so the LCTS is final. Resync the counter like storage's timestamp_ (STEP 4), but
+    // lazily under the system lock, since the caller may already hold it.
+    system_.ResyncTimestampOnNextTransaction();
+
     // Step 1) Destroy repl accessor. It is safe to do this from another thread
     // because server has already been stopped
     dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
