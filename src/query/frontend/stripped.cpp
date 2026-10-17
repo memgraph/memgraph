@@ -177,11 +177,10 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       case Token::UNMATCHED:
         LOG_FATAL("Shouldn't happen");
       case Token::KEYWORD: {
-        // name-reemittable token text (symbolicName admits cypherKeyword, Cypher.g4:517-521)
-        // keeps its original spelling in the stripped text; the VALUE stays in literals_
-        // (position-keyed) for visitLiteral's ParameterLookup (:4428-4434). Residual P
-        // violation NOT held by this contract, deferred (D3-excluded, BL-0207): the
-        // STRING/INT/REAL arms (:193/:196/:199) still feed visitReturnItem :3339 names.
+        // true/false are also valid names (symbolicName admits cypherKeyword, Cypher.g4), so
+        // the stripped text keeps the user's spelling; the value still lands in literals_ for
+        // visitLiteral. The STRING/INT/REAL arms below still normalize spelling -- names built
+        // from those literals keep the pre-existing placeholder loss.
         if (utils::IEquals(token.second, "true")) {
           replace_stripped(token_index, true, token.second);
         } else if (utils::IEquals(token.second, "false")) {
