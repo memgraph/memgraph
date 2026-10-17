@@ -26,7 +26,9 @@
 #include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "memory/allocator_stats.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/stat.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/include/coordination/instance_status.hpp"
@@ -528,6 +530,47 @@ PrometheusMetrics::PrometheusMetrics()
                                   .Name("memgraph_peak_memory_res_bytes")
                                   .Help("Peak resident memory usage in bytes")
                                   .Register(registry_)},
+      vm_mappings_family_{prometheus::BuildGauge()
+                              .Name("memgraph_vm_mappings")
+                              .Help("Number of memory mappings of the process (lines of /proc/self/maps)")
+                              .Register(registry_)},
+      vm_max_map_count_family_{prometheus::BuildGauge()
+                                   .Name("memgraph_vm_max_map_count")
+                                   .Help("Kernel limit on memory mappings per process (vm.max_map_count)")
+                                   .Register(registry_)},
+      memory_tracked_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_memory_tracked_bytes")
+                                 .Help("Memory counted by the process-wide memory tracker in bytes")
+                                 .Register(registry_)},
+      jemalloc_allocated_family_{prometheus::BuildGauge()
+                                     .Name("memgraph_jemalloc_allocated_bytes")
+                                     .Help("Bytes the application currently holds from jemalloc")
+                                     .Register(registry_)},
+      jemalloc_active_family_{prometheus::BuildGauge()
+                                  .Name("memgraph_jemalloc_active_bytes")
+                                  .Help("Bytes in pages jemalloc has handed out, including unused slab space")
+                                  .Register(registry_)},
+      jemalloc_metadata_family_{prometheus::BuildGauge()
+                                    .Name("memgraph_jemalloc_metadata_bytes")
+                                    .Help("Bytes of jemalloc's own bookkeeping")
+                                    .Register(registry_)},
+      jemalloc_resident_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_jemalloc_resident_bytes")
+              .Help("Bytes jemalloc keeps resident, including freed pages not yet returned to the OS")
+              .Register(registry_)},
+      jemalloc_mapped_family_{prometheus::BuildGauge()
+                                  .Name("memgraph_jemalloc_mapped_bytes")
+                                  .Help("Bytes of address space jemalloc has mapped")
+                                  .Register(registry_)},
+      jemalloc_retained_family_{prometheus::BuildGauge()
+                                    .Name("memgraph_jemalloc_retained_bytes")
+                                    .Help("Bytes of address space jemalloc has unmapped but still reserves")
+                                    .Register(registry_)},
+      threads_family_{prometheus::BuildGauge()
+                          .Name("memgraph_threads")
+                          .Help("Number of threads of the process")
+                          .Register(registry_)},
       // Hot/cold databases (global)
       database_suspends_family_{prometheus::BuildCounter()
                                     .Name("memgraph_database_suspends_total")
@@ -825,6 +868,16 @@ PrometheusMetrics::PrometheusMetrics()
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+  global.vm_mappings = &vm_mappings_family_.Add(no_labels);
+  global.vm_max_map_count = &vm_max_map_count_family_.Add(no_labels);
+  global.memory_tracked_bytes = &memory_tracked_family_.Add(no_labels);
+  global.jemalloc_allocated_bytes = &jemalloc_allocated_family_.Add(no_labels);
+  global.jemalloc_active_bytes = &jemalloc_active_family_.Add(no_labels);
+  global.jemalloc_metadata_bytes = &jemalloc_metadata_family_.Add(no_labels);
+  global.jemalloc_resident_bytes = &jemalloc_resident_family_.Add(no_labels);
+  global.jemalloc_mapped_bytes = &jemalloc_mapped_family_.Add(no_labels);
+  global.jemalloc_retained_bytes = &jemalloc_retained_family_.Add(no_labels);
+  global.threads = &threads_family_.Add(no_labels);
 
   global.database_suspends = &database_suspends_family_.Add(no_labels);
   global.database_resumes = &database_resumes_family_.Add(no_labels);
@@ -1307,6 +1360,17 @@ void PrometheusMetrics::UpdateGauges() {
   }
 
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
+  global.vm_mappings->Set(static_cast<double>(utils::GetMemoryMappingsCount().value_or(0)));
+  global.vm_max_map_count->Set(static_cast<double>(utils::GetVmMaxMapCount().value_or(0)));
+  global.memory_tracked_bytes->Set(static_cast<double>(utils::total_memory_tracker.Amount()));
+  auto const allocator = memory::GetAllocatorStats().value_or(memory::AllocatorStats{});
+  global.jemalloc_allocated_bytes->Set(static_cast<double>(allocator.allocated));
+  global.jemalloc_active_bytes->Set(static_cast<double>(allocator.active));
+  global.jemalloc_metadata_bytes->Set(static_cast<double>(allocator.metadata));
+  global.jemalloc_resident_bytes->Set(static_cast<double>(allocator.resident));
+  global.jemalloc_mapped_bytes->Set(static_cast<double>(allocator.mapped));
+  global.jemalloc_retained_bytes->Set(static_cast<double>(allocator.retained));
+  global.threads->Set(static_cast<double>(utils::GetThreadCount().value_or(0)));
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
@@ -2101,6 +2165,26 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  .type = "Memory",
                  .metric_type = "Gauge",
                  .value = static_cast<int64_t>(UpdateAndGetPeakMemoryRes(memory_res))});
+  out.push_back({.name = "VmMappings",
+                 .type = "Memory",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(utils::GetMemoryMappingsCount().value_or(0))});
+  out.push_back({.name = "VmMaxMapCount",
+                 .type = "Memory",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(utils::GetVmMaxMapCount().value_or(0))});
+  out.push_back({.name = "MemoryTracked",
+                 .type = "Memory",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(utils::total_memory_tracker.Amount())});
+  auto const allocator = memory::GetAllocatorStats().value_or(memory::AllocatorStats{});
+  out.push_back({"JemallocAllocated", "Memory", "Gauge", static_cast<int64_t>(allocator.allocated)});
+  out.push_back({"JemallocActive", "Memory", "Gauge", static_cast<int64_t>(allocator.active)});
+  out.push_back({"JemallocMetadata", "Memory", "Gauge", static_cast<int64_t>(allocator.metadata)});
+  out.push_back({"JemallocResident", "Memory", "Gauge", static_cast<int64_t>(allocator.resident)});
+  out.push_back({"JemallocMapped", "Memory", "Gauge", static_cast<int64_t>(allocator.mapped)});
+  out.push_back({"JemallocRetained", "Memory", "Gauge", static_cast<int64_t>(allocator.retained)});
+  out.push_back({"Threads", "Memory", "Gauge", static_cast<int64_t>(utils::GetThreadCount().value_or(0))});
 
   // Hot/cold databases (global only)
   out.push_back({"DatabaseSuspends", "HotCold", "Counter", static_cast<int64_t>(global.database_suspends->Value())});

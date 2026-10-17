@@ -1178,7 +1178,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   }
 
   auto res = commit_args.apply_if_main(
-      [&](DatabaseProtector const &protector) -> std::expected<void, StorageManipulationError> {
+      [&](DatabaseProtector const & /*protector*/) -> std::expected<void, StorageManipulationError> {
         // From this point on, only main executes this
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
@@ -1222,8 +1222,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
         // MVCC publish is deferred until after this call: before STRICT_SYNC replicas ack, failover
         // could still roll the commit back, so publishing earlier would expose a value that can vanish.
-        replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
+        replicating_txn.FinalizeTransaction(repl_prepare_phase_ok, mem_storage->uuid(), durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
 

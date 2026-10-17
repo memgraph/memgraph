@@ -29,6 +29,7 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/replication.hpp"
 #include "memory/db_arena.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
@@ -46,6 +47,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -864,6 +866,11 @@ TEST_F(ReplicationTest, RecoveryProcess) {
 }
 
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
+  auto const saved_interval = FLAGS_replication_async_recovery_interval_sec;
+  FLAGS_replication_async_recovery_interval_sec = 0;
+  memgraph::utils::OnScopeExit const restore_interval{
+      [saved_interval] { FLAGS_replication_async_recovery_interval_sec = saved_interval; }};
+
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);
 
@@ -889,12 +896,9 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     created_vertices.push_back(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
 
-    if (i == 0) {
-      ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
-    } else {
-      auto const state = main.db.storage()->GetReplicaState("REPLICA_ASYNC");
-      ASSERT_TRUE(state == ReplicaState::RECOVERY || state == ReplicaState::MAYBE_BEHIND);
-    }
+    // ASYNC transactions are not streamed or finalized on the client's thread pool. Every commit marks the replica
+    // behind so the periodic check catches it up from snapshot/WAL/current-WAL durability files.
+    ASSERT_NE(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
   }
 
   while (main.db.storage()->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
@@ -909,6 +913,67 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     EXPECT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     return exists;
   }));
+}
+
+TEST_F(ReplicationTest, AsyncRecoveryIntervalSpacesRounds) {
+  auto const saved_interval = FLAGS_replication_async_recovery_interval_sec;
+  memgraph::utils::OnScopeExit const restore_interval{
+      [saved_interval] { FLAGS_replication_async_recovery_interval_sec = saved_interval; }};
+  FLAGS_replication_async_recovery_interval_sec = 3600;
+
+  MinMemgraph main(main_conf);
+  MinMemgraph replica_async(repl_conf);
+
+  replica_async.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
+
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA_ASYNC",
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[1]),
+                  })
+                  .has_value());
+
+  auto const create_vertex = [&] {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto const gid = acc->CreateVertex().Gid();
+    EXPECT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    return gid;
+  };
+
+  auto const replica_has_vertex = [&](Gid const gid) {
+    const memgraph::memory::DbArenaScope arena_scope{&replica_async.db.Arena()};
+    auto acc = replica_async.db.Access(memgraph::storage::READ);
+    return acc->FindVertex(gid, View::OLD).has_value();
+  };
+
+  auto const wait_for_ready = [&] {
+    while (main.db.storage()->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  };
+
+  // No round has run yet, so the first commit is recovered without waiting for the interval.
+  auto const first = create_vertex();
+  wait_for_ready();
+  ASSERT_TRUE(replica_has_vertex(first));
+
+  // The next commit marks the replica behind, but a second round is held back by the interval.
+  auto const second = create_vertex();
+  auto const hold_until = std::chrono::steady_clock::now() + std::chrono::seconds{3};
+  while (std::chrono::steady_clock::now() < hold_until) {
+    ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::MAYBE_BEHIND);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  ASSERT_FALSE(replica_has_vertex(second));
+
+  // Dropping the interval lets the frequent check start the held-back round.
+  FLAGS_replication_async_recovery_interval_sec = 0;
+  wait_for_ready();
+  ASSERT_TRUE(replica_has_vertex(second));
 }
 
 TEST_F(ReplicationTest, EpochTest) {

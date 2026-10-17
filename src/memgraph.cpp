@@ -94,6 +94,7 @@
 #include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
@@ -463,15 +464,24 @@ int main(int argc, char **argv) {
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
+  // Logged as an error as well as printed: once the process reaches the limit, the allocator can no longer return
+  // memory to the OS and resident memory only grows, and the log is what reaches log collectors.
   const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
   if (vm_max_map_count) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
-      std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
-                << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
+      auto const message =
+          fmt::format("Max virtual memory areas vm.max_map_count {} is too low, increase to at least {}",
+                      vm_max_map_count.value(),
+                      kMgVmMaxMapCount);
+      std::cout << message << std::endl;
+      spdlog::error("{}", message);
     }
   } else {
-    std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
-              << kMgVmMaxMapCount << std::endl;
+    auto const message =
+        fmt::format("Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least {}",
+                    kMgVmMaxMapCount);
+    std::cout << message << std::endl;
+    spdlog::warn("{}", message);
   }
 
   if (nofile_result) {

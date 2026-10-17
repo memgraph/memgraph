@@ -49,12 +49,8 @@ auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFail
 }
 }  // namespace
 
-// For all replicas, we append transaction end
-// When handling STRICT_SYNC replica, we send deltas as part of the 1st phase of the 2PC protocol and wait for the
-// response.
-// When handling some other type of replica, it is checked whether there is another STRICT_SYNC replica. There are 2
-// possible cluster combinations: STRICT_SYNC and ASYNC or SYNC and ASYNC. If there are no STRICT_SYNC replicas in the
-// cluster, we send all deltas and commit immediately on replicas.
+// For replicas with a transaction stream, append transaction end. STRICT_SYNC sends deltas as part of the first 2PC
+// phase; SYNC finalizes and commits immediately. ASYNC has no stream and is caught up later from durability files.
 auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool {
   if (locked_clients->empty()) return true;
 
@@ -98,9 +94,6 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     }
     auto *raw_client = client.get();
     if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      // Even if it fails, we don't care, it's ASYNC
-      // NOLINTNEXTLINE(bugprone-unused-return-value)
-      ShipOne(raw_client, replica_stream, durability_commit_timestamp, db_acc);
       continue;
     }
     record_failure(raw_client, ShipOne(raw_client, replica_stream, durability_commit_timestamp, db_acc));
@@ -153,18 +146,14 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
   // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
   // RPC stream gets destroyed => RPC lock released.
   if (!ShouldRunTwoPC()) {
-    return raw_client->FinalizeTransactionReplication(
-        db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
+    return raw_client->FinalizeTransactionReplication(db_acc, std::move(replica_stream));
   }
-  // SYNC replica cannot be part of 2PC; an ASYNC replica in 2PC finalizes with the 2nd-phase decision.
+  // SYNC replica cannot be part of 2PC; an ASYNC replica has no transaction stream.
   return {};
 }
 
-// RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
-// We shouldn't execute this code for SYNC replicas, this is only executed if these replicas are part of STRICT_SYNC
-// cluster
+// Finalize the second phase for STRICT_SYNC replicas. SYNC has already finalized, and ASYNC has no transaction stream.
 auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid,
-                                                 DatabaseProtector const &protector,
                                                  uint64_t const durability_commit_timestamp) -> bool {
   std::vector<std::pair<ReplicationStorageClient *, std::future<bool>>> decisions;
   // Reserve first: an emplace_back that throws after its task was enqueued would orphan a running
@@ -204,16 +193,6 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
                                  return false;
                                }
                              }));
-    } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      if (decision) {
-        // NOLINTNEXTLINE(bugprone-unused-return-value)
-        client->FinalizeTransactionReplication(
-            protector, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
-      } else if (replica_stream) {
-        // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
-        // We should only do this if we own the RPC lock.
-        client->AbortRpcClient();
-      }
     }
   }
 
@@ -274,10 +253,12 @@ void TransactionReplication::UpdateCommitTsInfo() {
   CommitTsInfo const observed{.ldt_ = durability_commit_timestamp_, .num_committed_txns_ = commit_num_committed_txns_};
   for (auto const &client : *locked_clients) {
     if (failed_replicas_.contains(client->Name())) continue;
-    // ASYNC replicas update their own commit_ts_info_ inside the async task
-    // upon confirmed success — updating here would be optimistic and could
-    // overcount if the async replication later fails.
-    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+      // The main transaction committed. Trigger periodic durability-file recovery without interrupting recovery that
+      // is already in progress.
+      client->MarkForRecovery();
+      continue;
+    }
     // Advance-only merge to this txn's absolute value rather than a blind +1, so a heartbeat that already folded in
     // the replica's self-reported count for this txn can't be double-counted.
     atomic_struct_update<CommitTsInfo>(client->commit_ts_info_,
@@ -301,17 +282,18 @@ TransactionReplication::TransactionReplication(uint64_t const durability_commit_
     for (const auto &client : *locked_clients) {
       // If any client requires two phase commit, then we are running that phase
       run_two_phase_commit |= client->TwoPhaseCommit();
+      if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+        streams.emplace_back(std::nullopt);
+        continue;
+      }
       auto res = client->StartTransactionReplication(storage, db_acc, durability_commit_timestamp);
       if (res.has_value()) {
         streams.emplace_back(std::move(res.value()));
       } else {
         streams.emplace_back(std::nullopt);
-        // ASYNC replica errors are not reported — fire-and-forget
-        if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
-          replication_failures_.push_back({.name = client->Name(),
-                                           .mode = ReplicationModeToString(client->Mode()),
-                                           .reason = StartTxnErrorToReason(res.error())});
-        }
+        replication_failures_.push_back({.name = client->Name(),
+                                         .mode = ReplicationModeToString(client->Mode()),
+                                         .reason = StartTxnErrorToReason(res.error())});
       }
     }
   }
