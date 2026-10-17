@@ -79,6 +79,45 @@ TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   EXPECT_EQ(FindSample(families, "memgraph_committed_transactions_total", "db1"), 5.0);
 }
 
+TEST(PrometheusMetrics, ConstraintViolationCountersAreIsolatedAndDeregistered) {
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const first_uuid{};
+  auto first = pm.AddDatabase(first_uuid, "db1");
+  auto second = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
+
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_existence_constraint_violations_total", "db1"), 0.0);
+  EXPECT_EQ(FindSample(pm.CollectForScrape(), "memgraph_unique_constraint_violations_total", "db1"), 0.0);
+  first.handles().existence_constraint_violations.Increment(2);
+  second.handles().unique_constraint_violations.Increment(3);
+
+  const auto families = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(families, "memgraph_existence_constraint_violations_total", "db1"), 2.0);
+  EXPECT_EQ(FindSample(families, "memgraph_existence_constraint_violations_total", "db2"), 0.0);
+  EXPECT_EQ(FindSample(families, "memgraph_unique_constraint_violations_total", "db1"), 0.0);
+  EXPECT_EQ(FindSample(families, "memgraph_unique_constraint_violations_total", "db2"), 3.0);
+
+  auto find_counter = [](const auto &info, std::string_view name) -> std::optional<int64_t> {
+    const auto found = std::ranges::find(info, name, &memgraph::metrics::MetricInfo::name);
+    if (found == info.end()) return std::nullopt;
+    EXPECT_EQ(found->type, "Constraint");
+    EXPECT_EQ(found->metric_type, "Counter");
+    return std::get<int64_t>(found->value);
+  };
+  const auto db_info = pm.GetDbMetricsInfo(first_uuid);
+  ASSERT_TRUE(db_info.has_value());
+  EXPECT_EQ(find_counter(*db_info, "ExistenceConstraintViolations"), 2);
+  EXPECT_EQ(find_counter(*db_info, "UniqueConstraintViolations"), 0);
+  const auto global_info = pm.GetGlobalMetricsInfoForJson();
+  EXPECT_EQ(find_counter(global_info, "ExistenceConstraintViolations"), 2);
+  EXPECT_EQ(find_counter(global_info, "UniqueConstraintViolations"), 3);
+
+  first = {};
+  const auto remaining = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(remaining, "memgraph_existence_constraint_violations_total", "db1"), std::nullopt);
+  EXPECT_EQ(FindSample(remaining, "memgraph_unique_constraint_violations_total", "db1"), std::nullopt);
+  EXPECT_EQ(FindSample(remaining, "memgraph_unique_constraint_violations_total", "db2"), 3.0);
+}
+
 TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   memgraph::metrics::PrometheusMetrics pm;
   auto db1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");

@@ -511,9 +511,10 @@ namespace {
 template <typename>
 constexpr auto kAlwaysFalse = false;
 
-void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
+void HandlePeriodicCommitError(const storage::StorageManipulationError &error,
+                               const metrics::DatabaseMetricHandles *metric_handles) {
   std::visit(
-      []<typename T>(const T &arg) {
+      [metric_handles]<typename T>(const T &arg) {
         using ErrorType = std::remove_cvref_t<T>;
         if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
           if (!arg.transaction_committed) {
@@ -522,6 +523,13 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           }
           spdlog::warn("PeriodicCommit warning: {}", storage::FormatReplicationError(arg));
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+          if (metric_handles) {
+            if (arg.type == storage::ConstraintViolation::Type::EXISTENCE) {
+              metric_handles->existence_constraint_violations.Increment();
+            } else if (arg.type == storage::ConstraintViolation::Type::UNIQUE) {
+              metric_handles->unique_constraint_violations.Increment();
+            }
+          }
           throw PeriodicCommitException(
               "PeriodicCommit failed: Unable to commit due to constraint "
               "violation.");
@@ -10318,7 +10326,7 @@ class PeriodicCommitCursor : public Cursor {
     }
 
     if (!commit_result) {
-      HandlePeriodicCommitError(commit_result.error());
+      HandlePeriodicCommitError(commit_result.error(), context.metric_handles);
     }
 
     return pull_value;
@@ -10419,7 +10427,7 @@ class PeriodicSubqueryCursor : public Cursor {
             // do periodic commit for the rest of pulled items
             const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
             if (!commit_result) {
-              HandlePeriodicCommitError(commit_result.error());
+              HandlePeriodicCommitError(commit_result.error(), context.metric_handles);
             }
           }
           return false;
@@ -10435,7 +10443,7 @@ class PeriodicSubqueryCursor : public Cursor {
         // do periodic commit since we pulled that many times
         const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
         if (!commit_result) {
-          HandlePeriodicCommitError(commit_result.error());
+          HandlePeriodicCommitError(commit_result.error(), context.metric_handles);
         }
         pulled_ = 0;
       }
