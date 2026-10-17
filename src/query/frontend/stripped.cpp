@@ -160,7 +160,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   };
 
   // Copy original tokens because we need to use original case in named
-  // expressions and keywords in tokens will be lowercased in the next loop.
+  // expressions.
   auto original_tokens = tokens;
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
@@ -177,12 +177,15 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       case Token::UNMATCHED:
         LOG_FATAL("Shouldn't happen");
       case Token::KEYWORD: {
-        // We don't strip NULL, since it can appear in special expressions
-        // like IS NULL and IS NOT NULL, but we strip true and false keywords.
+        // name-reemittable token text (symbolicName admits cypherKeyword, Cypher.g4:517-521)
+        // keeps its original spelling in the stripped text; the VALUE stays in literals_
+        // (position-keyed) for visitLiteral's ParameterLookup (:4428-4434). Residual P
+        // violation NOT held by this contract, deferred (D3-excluded, BL-0207): the
+        // STRING/INT/REAL arms (:193/:196/:199) still feed visitReturnItem :3339 names.
         if (utils::IEquals(token.second, "true")) {
-          replace_stripped(token_index, true, kStrippedBooleanToken);
+          replace_stripped(token_index, true, token.second);
         } else if (utils::IEquals(token.second, "false")) {
-          replace_stripped(token_index, false, kStrippedBooleanToken);
+          replace_stripped(token_index, false, token.second);
         } else {
           token_strings.push_back(token.second);
         }
