@@ -193,6 +193,11 @@ TEST_F(TestPrivilegeExtractor, LockPathQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DURABILITY));
 }
 
+TEST_F(TestPrivilegeExtractor, ResetQueryPlanCacheQuery) {
+  auto *query = storage.Create<ResetQueryPlanCacheQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
+}
+
 TEST_F(TestPrivilegeExtractor, FreeMemoryQuery) {
   auto *query = storage.Create<FreeMemoryQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::FREE_MEMORY));
