@@ -27,6 +27,7 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -125,6 +126,10 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
     }
 
     return State::Idle;
+  } catch (const memgraph::query::CommitWouldBlockException &) {
+    // Commit() throws before mutating, so the parked PULL/DISCARD can be retried with the stashed n/qid.
+    session.StashPendingCommit(n, qid);
+    return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -236,6 +241,10 @@ State HandlePrepare(TSession &session) {
       return State::Close;
     }
     return State::Result;
+  } catch (const memgraph::query::BeginWouldBlockException &e) {
+    // SetupDatabaseTransaction throws before a storage txn opens, so re-running InterpretPrepare on wake is safe.
+    session.StashPendingBeginPrepare(e.deadline());
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -446,6 +455,10 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::BeginWouldBlockException &e) {
+    // Configure() already ran for this message; the retry repeats only BeginTransaction(extra) from the stash.
+    session.StashPendingBeginMessage(extra.ValueMap(), e.deadline());
+    return State::PendingBegin;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -472,6 +485,10 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
       return State::Close;
     }
     return State::Idle;
+  } catch (const memgraph::query::CommitWouldBlockException &) {
+    // Commit() throws before mutating, so the explicit txn stays staged and the COMMIT message can be retried.
+    session.StashPendingCommitMessage();
+    return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

@@ -24,6 +24,7 @@
 #include <system_error>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -1058,7 +1059,7 @@ void InMemoryStorage::InMemoryAccessor::PublishIndexArming() {
 }
 
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitArgs const commit_args) {
+    CommitArgs const commit_args, CommitLock preheld_commit_lock) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
@@ -1096,7 +1097,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Serialize committers across mint->publish: (1) mint order must equal watermark publish order;
   // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
   // publish, since its unpublished writes are invisible to MVCC.
-  auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+  // Interpreter::Commit may already hold commit_mutex_ (parkable try-lock); adopt it instead of re-locking.
+  auto commit_serializer = preheld_commit_lock.owns_lock() ? std::optional<CommitLock>{std::move(preheld_commit_lock)}
+                                                           : mem_storage->LockCommitMutexIfNarrowing();
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
@@ -5083,11 +5086,70 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
       this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
+std::unique_ptr<Storage::Accessor> InMemoryStorage::AccessorFromGuard(
+    utils::ResourceLockGuard guard, std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+}
+
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
                                                               std::optional<IsolationLevel> override_isolation_level) {
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+  return AccessorFromGuard(std::move(guard), override_isolation_level);
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessFor(StorageAccessType rw_type,
+                                                                 std::optional<IsolationLevel> override_isolation_level,
+                                                                 std::chrono::microseconds budget) {
+  utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::defer_lock};
+  if (!guard.try_lock_for(budget)) return nullptr;
+  return AccessorFromGuard(std::move(guard), override_isolation_level);
+}
+
+namespace {
+class InMemoryPendingAccess final : public Storage::PendingAccess {
+ public:
+  InMemoryPendingAccess(InMemoryStorage *storage, utils::ResourceLock &main_lock, StorageAccessType rw_type)
+      : storage_{storage}, rw_type_{rw_type} {
+    switch (rw_type) {
+      case StorageAccessType::UNIQUE:
+        scope_.emplace<utils::UniquePendingScope>(main_lock);
+        break;
+      case StorageAccessType::READ_ONLY:
+        scope_.emplace<utils::ReadOnlyPendingScope>(main_lock);
+        break;
+      default:
+        break;  // READ / WRITE gate nobody → no scope
+    }
+  }
+
+  StorageAccessType AccessType() const noexcept override { return rw_type_; }
+
+  std::unique_ptr<Storage::Accessor> TryAcquireFor(std::optional<IsolationLevel> iso,
+                                                   std::chrono::microseconds budget) override {
+    switch (rw_type_) {
+      case StorageAccessType::UNIQUE: {
+        auto g = std::get<utils::UniquePendingScope>(scope_).try_acquire_for(budget);
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      case StorageAccessType::READ_ONLY: {
+        auto g = std::get<utils::ReadOnlyPendingScope>(scope_).try_acquire_for(budget);
+        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
+      }
+      default:
+        return storage_->TryAccessFor(rw_type_, iso, budget);
+    }
+  }
+
+ private:
+  InMemoryStorage *storage_;
+  StorageAccessType rw_type_;
+  std::variant<std::monostate, utils::UniquePendingScope, utils::ReadOnlyPendingScope> scope_;
+};
+}  // namespace
+
+std::unique_ptr<Storage::PendingAccess> InMemoryStorage::MakePendingAccess(StorageAccessType rw_type) {
+  return std::make_unique<InMemoryPendingAccess>(this, main_lock_, rw_type);
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

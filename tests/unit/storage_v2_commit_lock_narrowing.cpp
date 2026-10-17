@@ -1107,3 +1107,77 @@ TEST_F(LockFreeReadSnapshotRecovery, NoTransactionBeginsInsideADdlCommitWindow_O
 
   PublishAndEnd(*store, index_commit);
 }
+
+TEST(MainLockNotifyHook, ClearIsPermanent_TrySetAfterClearDoesNotInstall) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  int fired = 0;
+
+  store->ClearMainLockNotifyHook();
+  EXPECT_TRUE(store->MainLockHookInstalled());
+  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_EQ(fired, 0);
+}
+
+TEST(MainLockNotifyHook, ClearAfterInstallStopsFiringAndStaysDisarmed) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  int fired = 0;
+
+  ASSERT_TRUE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_GT(fired, 0);
+
+  int second_fired = 0;
+  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&second_fired] { ++second_fired; }));
+  const int before_release = fired;
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_GT(fired, before_release);
+  EXPECT_EQ(second_fired, 0);
+
+  store->ClearMainLockNotifyHook();
+  const int after_clear = fired;
+  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_EQ(fired, after_clear);
+}
+
+TEST(PendingAccess, TimedAcquireHonoursTypeAndBudget) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  constexpr auto kBudget = std::chrono::milliseconds(50);
+  constexpr std::array kTypes = {memgraph::storage::StorageAccessType::UNIQUE,
+                                 memgraph::storage::StorageAccessType::READ_ONLY,
+                                 memgraph::storage::StorageAccessType::READ,
+                                 memgraph::storage::StorageAccessType::WRITE};
+
+  {
+    auto holder = store->UniqueAccess();
+    for (auto const type : kTypes) {
+      auto pending = store->MakePendingAccess(type);
+      ASSERT_NE(pending, nullptr);
+      EXPECT_EQ(pending->AccessType(), type);
+
+      auto const start = std::chrono::steady_clock::now();
+      auto acc = pending->TryAcquireFor(std::nullopt, kBudget);
+      auto const elapsed = std::chrono::steady_clock::now() - start;
+
+      EXPECT_EQ(acc, nullptr);
+      EXPECT_GE(elapsed, kBudget);
+    }
+  }
+
+  for (auto const type : kTypes) {
+    auto pending = store->MakePendingAccess(type);
+    ASSERT_NE(pending, nullptr);
+    auto acc = pending->TryAcquireFor(std::nullopt, std::chrono::seconds(5));
+    EXPECT_NE(acc, nullptr);
+  }
+}

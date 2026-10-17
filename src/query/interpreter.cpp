@@ -204,32 +204,97 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-    storage::StorageAccessType acc_type) {
+    storage::StorageAccessType acc_type, utils::PriorityThreadPool *pool) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
-  switch (acc_type) {
-    case storage::StorageAccessType::READ:
-      [[fallthrough]];
-    case storage::StorageAccessType::WRITE:
-      db_transactional_accessor_ = db_acc->Access(acc_type,
-                                                  override_isolation_level,
-                                                  /*allow timeout*/ timeout);
-      break;
-    case storage::StorageAccessType::UNIQUE:
-      db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
-      break;
-    case storage::StorageAccessType::READ_ONLY:
-      db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
-      break;
-    default:
-      // TODO: no access case
-      spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
-      throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
+
+  bool acquired = false;
+  if (db_acc->storage()->IsCommitSerialised()) {
+    // Arm the deadline before the first probe so every timed wait is charged against it; persists across park-retries.
+    if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
+    // A storage-mode switch between attempts can change the access type; a stale handle would gate the wrong mode.
+    if (pending_access_ && pending_access_->AccessType() != acc_type) pending_access_.reset();
+    if (!pending_access_) {
+      // Alloc-free one-probe TryAccess on the hot path; allocate a PendingAccess only on a miss.
+      if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {
+        db_transactional_accessor_ = std::move(acc);
+        acquired = true;
+        pending_begin_deadline_.reset();
+      } else {
+        pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);
+        if (!pending_access_) pending_begin_deadline_.reset();
+      }
+    }
+    if (pending_access_) {
+      auto const now = std::chrono::steady_clock::now();
+      auto const timed_out = [&] {
+        ClearPendingBegin();
+        storage::ThrowAccessTimeout(acc_type);
+      };
+      if (now >= *pending_begin_deadline_) {
+        timed_out();
+      } else {
+        // Clamp the budget to the time left so a probe can't overshoot the deadline. Null pool: finite cap,
+        // since microseconds::max overflows when converted to ns.
+        auto const base = pool ? pool->AdmissionTryBudget()
+                               : std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{24});
+        auto const budget =
+            std::min(base, std::chrono::duration_cast<std::chrono::microseconds>(*pending_begin_deadline_ - now));
+        if (auto acc = pending_access_->TryAcquireFor(override_isolation_level, budget)) {
+          db_transactional_accessor_ = std::move(acc);
+          acquired = true;
+          ClearPendingBegin();
+        } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
+          timed_out();
+        } else if (pool != nullptr &&
+                   (acc_type == storage::StorageAccessType::READ || acc_type == storage::StorageAccessType::WRITE)) {
+          // Only scope-free admissions park: a parked UNIQUE/READ_ONLY would keep its writer-preference scope gating
+          // others while holding no worker, so its retry could queue behind the BEGINs it blocks.
+          throw BeginWouldBlockException{*pending_begin_deadline_};
+        } else {
+          // No pool, or a scope-holding admission (UNIQUE/READ_ONLY): block on the same pending scope for the time
+          // left, so the total wait stays one deadline and writer preference holds.
+          auto const remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+              *pending_begin_deadline_ - std::chrono::steady_clock::now());
+          std::unique_ptr<storage::Storage::Accessor> acc;
+          if (remaining.count() > 0) acc = pending_access_->TryAcquireFor(override_isolation_level, remaining);
+          if (!acc) timed_out();
+          db_transactional_accessor_ = std::move(acc);
+          acquired = true;
+          ClearPendingBegin();
+        }
+      }
+    }
   }
+
+  if (!acquired) {
+    switch (acc_type) {
+      case storage::StorageAccessType::READ:
+        [[fallthrough]];
+      case storage::StorageAccessType::WRITE:
+        db_transactional_accessor_ = db_acc->Access(acc_type,
+                                                    override_isolation_level,
+                                                    /*allow timeout*/ timeout);
+        break;
+      case storage::StorageAccessType::UNIQUE:
+        db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
+        break;
+      case storage::StorageAccessType::READ_ONLY:
+        db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
+        break;
+      default:
+        // TODO: no access case
+        spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
+        throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
+    }
+    // Success on the legacy path (e.g. mode flipped to ANALYTICAL after a park) must leave no pending BEGIN state.
+    ClearPendingBegin();
+  }
+
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
@@ -248,6 +313,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+  ClearPendingBegin();
 }
 
 struct QueryLogWrapper {
@@ -3923,7 +3989,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
-        SetupInterpreterTransaction(extras);
+        SetupBeginAttempt(extras);
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
         current_timeout_deadline_ = CreateTimeoutDeadline(extras, interpreter_context_->config);
         in_explicit_transaction_ = true;
@@ -10402,6 +10468,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 
 void Interpreter::ResetInterpreter() {
   query_executions_.clear();
+  pending_autocommit_.reset();
   system_transaction_.reset();
   auth_transaction_.reset();
   transaction_queries_->clear();
@@ -10425,7 +10492,19 @@ void Interpreter::ResetInterpreter() {
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   if (!in_explicit_transaction_) ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
-  prepared_query.query_handler(nullptr, {});
+  begin_park_allowed_ = true;
+  utils::OnScopeExit const disallow_begin_park([this] { begin_park_allowed_ = false; });
+  try {
+    prepared_query.query_handler(nullptr, {});
+  } catch (const BeginWouldBlockException &) {
+    // PrepareTransactionQuery(BEGIN) sets in_explicit_transaction_ = true before calling
+    // SetupDatabaseTransaction (which throws here). Reset it so the Bolt retry doesn't hit the nested-txn guard.
+    in_explicit_transaction_ = false;
+    throw;
+  } catch (...) {
+    DropPendingBegin();
+    throw;
+  }
 }
 
 std::optional<Notification> Interpreter::CommitTransaction() {
@@ -10648,7 +10727,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     ResetInterpreter();
     transaction_queries_->push_back(std::move(shown_query));
 
-    SetupInterpreterTransaction(extras);
+    SetupBeginAttempt(extras);
     memgraph::logging::EmitSessionTraceEvent(
         "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
   }
@@ -10828,11 +10907,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
 
       if (transaction_requirements.access) {
-        if (transaction_requirements.isolation_override) {
+        if (transaction_requirements.isolation_override && !pinned_begin_isolation_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit,
-                                 ToStorageAccessType(*transaction_requirements.access));
+        {
+          begin_park_allowed_ = true;
+          utils::OnScopeExit const disallow_begin_park([this] { begin_park_allowed_ = false; });
+          SetupDatabaseTransaction(transaction_requirements.could_commit,
+                                   ToStorageAccessType(*transaction_requirements.access));
+        }
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
@@ -11230,6 +11313,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .privileges = query_execution->prepared_query->privileges,
             .qid = qid,
             .db = query_execution->prepared_query->db};
+  } catch (const BeginWouldBlockException &) {
+    // Parked autocommit BEGIN: stash the parse (not yet consumed) for ResumeParkedPrepare. No AbortCommand:
+    // pending_access_ must survive the park to keep writer preference.
+    parked_prepare_.emplace(
+        ParkedPrepare{.parse_res = std::move(parse_res), .params_getter = std::move(params_getter), .extras = extras});
+    throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // query_execution holds the query string copy that survives Prepare* moving it out.
@@ -11247,6 +11336,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     AbortCommand(query_execution_ptr);
     throw;
   }
+}
+
+Interpreter::PrepareResult Interpreter::ResumeParkedPrepare() {
+  MG_ASSERT(parked_prepare_, "ResumeParkedPrepare called without a stashed parked prepare");
+  // Move the stash out first: a further would-block re-stashes a fresh copy inside Prepare, and a
+  // terminal outcome (acquired or access-timeout) leaves it cleared.
+  auto parked = std::move(*parked_prepare_);
+  parked_prepare_.reset();
+  return Prepare(std::move(parked.parse_res), std::move(parked.params_getter), parked.extras);
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
@@ -11271,7 +11369,45 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 }
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
+  // Install the main_lock wake hook lazily, once per DB.
+  if (current_db_.db_acc_) {
+    auto *storage = (*current_db_.db_acc_)->storage();
+    if (storage->IsCommitSerialised() && interpreter_context_->worker_pool && !storage->MainLockHookInstalled()) {
+      storage->TrySetMainLockNotifyHook(
+          [pool = interpreter_context_->worker_pool] { pool->WakeMatching(utils::WaitResource::MainLock); });
+    }
+  }
+  if (!pinned_begin_isolation_) pinned_begin_isolation_.emplace(GetIsolationLevelOverride());
+  try {
+    current_db_.SetupDatabaseTransaction(
+        *pinned_begin_isolation_,
+        couldCommit,
+        acc_type,
+        (can_park_ && begin_park_allowed_) ? interpreter_context_->worker_pool : nullptr);
+  } catch (const BeginWouldBlockException &) {
+    throw;
+  } catch (...) {
+    DropPendingBegin();
+    throw;
+  }
+  pinned_begin_isolation_.reset();
+}
+
+void Interpreter::DropPendingBegin() {
+  current_db_.ClearPendingBegin();
+  pinned_begin_isolation_.reset();
+}
+
+void Interpreter::SetupBeginAttempt(const QueryExtras &extras) {
+  if (!current_db_.pending_begin_deadline_) {
+    SetupInterpreterTransaction(extras);
+    return;
+  }
+  if (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
+    DropPendingBegin();
+    FinishAutocommitNothing();
+    throw HintedAbortError(AbortReason::TERMINATED);
+  }
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
@@ -11319,6 +11455,8 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  pending_autocommit_.reset();
+  pinned_begin_isolation_.reset();
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
   // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
@@ -11674,6 +11812,42 @@ void Interpreter::CommitAuthTransaction() {
 }
 
 void Interpreter::Commit() {
+  // Write commits pre-take commit_mutex_ first so a blocked one throws CommitWouldBlockException before any
+  // non-idempotent work. Lock order repl_state_ ReadLock -> commit_mutex_ matches DoToMainPromotion
+  // (repl_state_ WRITE -> PrepareForNewEpoch); the reverse order would ABBA-deadlock.
+  // Declared before the locks below so the wake runs after both are released.
+  bool released_serializer = false;
+  auto *const wake_pool = interpreter_context_->worker_pool;
+  utils::OnScopeExit const wake_parked_commits([&released_serializer, wake_pool]() {
+    if (released_serializer && wake_pool != nullptr) {
+      wake_pool->WakeMatching(utils::WaitResource::CommitLock);
+    }
+  });
+  decltype(std::optional{interpreter_context_->repl_state->ReadLock()}) locked_repl_state{std::nullopt};
+  memgraph::storage::CommitLock preheld_commit_lock;
+  // Before-commit triggers run ahead of the mutex acquire in PrepareForCommitPhase; pre-taking would serialise
+  // trigger phases and self-deadlock a writing trigger procedure, so those commits take it there.
+  if (can_park_ && !current_db_.trigger_context_collector_ && current_db_.db_transactional_accessor_ &&
+      current_db_.db_transactional_accessor_->IsCommitSerialised()) {
+    auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
+    bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
+    if (is_write) {
+      locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
+      auto *pool = interpreter_context_->worker_pool;
+      DMG_ASSERT(pool, "can_park_ requires a worker pool");
+      auto const budget = pool->AdmissionTryBudget();
+      preheld_commit_lock = current_db_.db_transactional_accessor_->TryLockCommitFor(budget);
+      if (!preheld_commit_lock.owns_lock()) {
+        if (pool->ShouldParkAdmission()) {
+          throw CommitWouldBlockException{};
+        }
+        // Not worth parking (no waker, or idle spinners): block.
+        preheld_commit_lock = current_db_.db_transactional_accessor_->LockCommitBlocking();
+      }
+      released_serializer = preheld_commit_lock.owns_lock();
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
     const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
@@ -11824,7 +11998,10 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
-        auto is_main = interpreter_context_->repl_state->ReadLock()->IsMain();
+        // Reuse the held ReadLock: a nested read would deadlock against a pending repl_state_ WRITE
+        // (RWSpinLock blocks new readers behind a waiting writer).
+        bool const is_main =
+            locked_repl_state ? (*locked_repl_state)->IsMain() : interpreter_context_->repl_state->ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_,
                         *current_db_.db_acc_,
                         execution_memory.resource(),
@@ -11851,17 +12028,26 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  auto locked_repl_state = std::optional{interpreter_context_->repl_state->ReadLock()};
+  if (!locked_repl_state) {
+    locked_repl_state = interpreter_context_->repl_state->ReadLock();
+  }
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  auto maybe_commit_error =
-      current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
+  // A write commit that did not pre-take the serializer takes and releases it inside PrepareForCommitPhase.
+  if (!released_serializer && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
+    released_serializer = !curr_txn->deltas.empty() || !curr_txn->md_deltas.empty();
+  }
+  auto maybe_commit_error = current_db_.db_transactional_accessor_->PrepareForCommitPhase(
+      make_commit_arg(is_main, *current_db_.db_acc_), std::move(preheld_commit_lock));
   // Proactively unlock repl_state
   locked_repl_state.reset();
+
+  // PrepareForNewEpoch also holds commit_mutex_ but has no pool handle to wake parked commits; the monitor sweep
+  // is the backstop.
 
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;

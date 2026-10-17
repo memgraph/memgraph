@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <concepts>
 #include <cstdint>
 #include <deque>
@@ -473,7 +474,8 @@ class InMemoryStorage final : public Storage {
     // finalize commit method which will bump ldt, update commit ts etc.
     // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args,
+                                                                        CommitLock preheld_commit_lock = {}) override;
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
@@ -840,11 +842,19 @@ class InMemoryStorage final : public Storage {
   /// contender each time and can be starved by a stream of compatible holders. A caller that needs
   /// to be preferred while it retries holds a UniquePendingScope or ReadOnlyPendingScope across the
   /// whole loop.
-  ///
-  /// InMemoryStorage's alone: DiskStorage has no probe rather than one that always fails, so a
-  /// caller polling it would spin instead of learning that it should just block.
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
-                                      std::optional<IsolationLevel> override_isolation_level = {});
+                                      std::optional<IsolationLevel> override_isolation_level = {}) override;
+
+  /// Timed variant of TryAccess: waits up to `budget` for main_lock_ to admit the mode.
+  std::unique_ptr<Accessor> TryAccessFor(StorageAccessType rw_type,
+                                         std::optional<IsolationLevel> override_isolation_level,
+                                         std::chrono::microseconds budget);
+
+  /// Builds an InMemoryAccessor from an already-held main_lock_ guard; the accessor takes ownership of it.
+  std::unique_ptr<Accessor> AccessorFromGuard(utils::ResourceLockGuard guard,
+                                              std::optional<IsolationLevel> override_isolation_level);
+
+  std::unique_ptr<PendingAccess> MakePendingAccess(StorageAccessType rw_type) override;
 
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
@@ -928,7 +938,7 @@ class InMemoryStorage final : public Storage {
   }
 
   // Engaged only under commit-lock-narrowing. Lock order: see Storage::commit_mutex_ (before engine_lock_).
-  [[nodiscard]] std::optional<std::unique_lock<std::mutex>> LockCommitMutexIfNarrowing() const {
+  [[nodiscard]] std::optional<CommitLock> LockCommitMutexIfNarrowing() const {
     if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
     return std::unique_lock{commit_mutex_};
   }
