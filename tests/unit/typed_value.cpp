@@ -13,9 +13,10 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <setjmp.h>
+#include <signal.h>
+
 #include <cmath>
-#include <csetjmp>
-#include <csignal>
 #include <limits>
 #include <vector>
 
