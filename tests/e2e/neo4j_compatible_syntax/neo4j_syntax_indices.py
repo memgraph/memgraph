@@ -28,6 +28,18 @@ def _constraint_rows(cursor):
     return execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO")
 
 
+def _try_execute(cursor, query):
+    """(rows, error-string) — a query the contract expects to be rejected must fail on its own, not raise out."""
+    try:
+        return execute_and_fetch_all(cursor, query), None
+    except mgclient.DatabaseError as e:
+        return None, str(e)
+
+
+def _column_names(cursor):
+    return [d.name for d in cursor.description]
+
+
 def test_neo4j_syntax_create_and_drop_indices(cursor):
     # Mixed dataset: some nodes/edges should land in each index, others should not.
     execute_and_fetch_all(
@@ -126,6 +138,86 @@ def test_neo4j_syntax_create_and_drop_constraints(cursor):
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.age IS TYPED INTEGER")
 
     assert _constraint_rows(cursor) == []
+
+
+def test_boolean_map_key_literal(cursor):
+    # S1/S2: an unquoted `false` map key materializes as 'false'; the backticked spelling is the control.
+    rows = execute_and_fetch_all(cursor, "RETURN {false:1} AS m, {`false`:1} AS ctrl_m")
+    assert rows[0][0] == {"false": 1}
+    assert rows[0][1] == {"false": 1}
+    # S3/S4: keys() reads the map-key spelling back.
+    assert execute_and_fetch_all(cursor, "RETURN keys({false:1}) AS k")[0][0] == ["false"]
+    assert execute_and_fetch_all(cursor, "RETURN keys({`false`:1}) AS k")[0][0] == ["false"]
+    # S6: lookup of the map by its intended key hits; the placeholder-normalized key must not.
+    assert execute_and_fetch_all(cursor, "WITH {false:1} AS m RETURN m['false'] AS v, m['true'] AS v2")[0] == (1, None)
+    # {true:1, false:2} must keep both spellings as distinct keys (they collide on the buggy path).
+    rows, err = _try_execute(cursor, "RETURN keys({true:1,false:2}) AS k")
+    assert err is None and sorted(rows[0][0]) == ["false", "true"], (rows, err)
+    # Value-channel control: `RETURN false` still returns the boolean False.
+    assert execute_and_fetch_all(cursor, "RETURN false")[0][0] is False
+    # Non-aliased boolean RETURN items keep distinct names (both collapse to one name on the buggy path).
+    rows, err = _try_execute(cursor, "RETURN false, true")
+    assert err is None and rows == [(False, True)], (rows, err)
+    # Aliased output name keeps the user's spelling in the header.
+    cursor.execute("RETURN 1 AS false")
+    assert _column_names(cursor) == ["false"]
+
+
+def test_boolean_name_positions(cursor):
+    # Stored property names keep the spelling (map literal as property value and as property-set map).
+    assert execute_and_fetch_all(cursor, "CREATE (n) SET n.p = {false:1} RETURN n.p AS p")[0][0] == {"false": 1}
+    assert execute_and_fetch_all(cursor, "CREATE (n) SET n = {false:1} RETURN properties(n) AS props")[0][0] == {
+        "false": 1
+    }
+    assert execute_and_fetch_all(cursor, "CREATE (n) SET n.false = 1 RETURN properties(n) AS props")[0][0] == {
+        "false": 1
+    }
+    # Map-projection explicit pair and dot selector.
+    assert execute_and_fetch_all(cursor, "WITH {a:1} AS n RETURN n{false: 1} AS m")[0][0] == {"false": 1}
+    assert execute_and_fetch_all(cursor, "WITH {a:1} AS n RETURN n{.false} AS m")[0][0] == {"false": None}
+    # Shorthand `n{false}` names a variable; the unbound error must name the user's spelling.
+    rows, err = _try_execute(cursor, "WITH {a:1} AS n RETURN n{false} AS m")
+    assert err is not None and "Unbound variable: false." in err, (rows, err)
+    # Labels and relationship types keep the spelling.
+    assert execute_and_fetch_all(cursor, "CREATE (n:false) RETURN labels(n) AS l")[0][0] == ["false"]
+    assert execute_and_fetch_all(cursor, "CREATE (a)-[r:false]->(b) RETURN type(r) AS t")[0][0] == "false"
+    # Pattern variable bindings keep the spelling (rel-var, total_weight, lambda-adjacent outer vars).
+    cursor.execute("MATCH (n)-[false]->(m) RETURN *")
+    assert sorted(_column_names(cursor)) == ["false", "m", "n"]
+    cursor.execute("MATCH (a)-[*WSHORTEST (r, n | 1) false]->(b) RETURN *")
+    assert sorted(_column_names(cursor)) == ["a", "b", "false"]
+    cursor.execute("MATCH (false)-[*WSHORTEST (true, n | 1) tw]->(b) RETURN *")
+    assert sorted(_column_names(cursor)) == ["b", "false", "tw"]
+    # Dynamic label from a base variable: `false.l` must not resolve through a different binding named `true`.
+    rows, err = _try_execute(cursor, "CREATE (true {l:'K'}) CREATE (n: false.l) RETURN 1")
+    assert err is not None and "Unbound variable: false." in err, (rows, err)
+    # Enum value access error text names the user's spelling.
+    rows, err = _try_execute(cursor, "RETURN e::false")
+    assert err is not None and "'false'" in err, (rows, err)
+    # Parameter names keep the spelling: the two spellings are two entries.
+    execute_and_fetch_all(cursor, "SET PARAMETER false = 1")
+    execute_and_fetch_all(cursor, "SET PARAMETER true = 2")
+    names = [row[0] for row in execute_and_fetch_all(cursor, "SHOW PARAMETERS")]
+    assert "false" in names and "true" in names
+
+
+def test_boolean_ddl_schema_keys(cursor):
+    # DDL index property key spelling.
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Lk(false)")
+    assert ("label+property", "Lk", ["false"], 0) in _index_rows(cursor)
+    # Index-DDL validation variables must not compare equal across spellings.
+    rows, err = _try_execute(cursor, "CREATE INDEX FOR (false:Lk2) ON (true.x)")
+    assert err is not None, (rows, err)
+    # Constraint property key spelling.
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT FOR (n:Lc) REQUIRE (n.false) IS UNIQUE")
+    assert ("unique", "Lc", ["false"], "") in _constraint_rows(cursor)
+    # Constraint-validation variables must not compare equal across spellings.
+    rows, err = _try_execute(cursor, "CREATE CONSTRAINT FOR (false:Lc2) REQUIRE (true.x) IS UNIQUE")
+    assert err is not None, (rows, err)
+    # Index hint property key spelling reaches the plan.
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Lh(false)")
+    plan = _explain(cursor, "USING INDEX :Lh(false) MATCH (n:Lh) WHERE n.false = 1 RETURN n")
+    assert any("ScanAllByLabelProperties (n :Lh {false})" in line for line in plan), plan
 
 
 if __name__ == "__main__":
