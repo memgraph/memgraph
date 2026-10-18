@@ -42,6 +42,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 #include "formatters.hpp"
 
@@ -845,13 +846,14 @@ class Database {
 
   // --- weighted arm --------------------------------------------------------------------------------
 
-  // Runs `body` and checks that it raises exactly `expected`.
+  // Runs `body` and checks that it raises exactly `expected`. The base class also takes a Duration
+  // overflow, which is not a query error.
   template <typename Body>
   static void ExpectRuntimeError(Body &&body, std::string_view expected) {
     try {
       std::forward<Body>(body)();
       ADD_FAILURE() << "expected an error: " << expected;
-    } catch (const memgraph::query::QueryRuntimeException &e) {
+    } catch (const memgraph::utils::BasicException &e) {
       EXPECT_EQ(std::string_view(e.what()), expected);
     }
   }
@@ -892,6 +894,8 @@ class Database {
     std::optional<int> lower_bound;
     std::optional<int> upper_bound;
     std::optional<int> limit;
+    // `e.weight` when unset.
+    std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda;
     std::optional<memgraph::query::plan::ExpansionLambda> filter_lambda;
   };
 
@@ -920,7 +924,7 @@ class Database {
                                          literal_or_null(query.upper_bound),
                                          query.filter_lambda.value_or(FilterLambda(context, nullptr)),
                                          literal_or_null(query.limit),
-                                         MakeWeightLambda(dba, context),
+                                         query.weight_lambda.value_or(MakeWeightLambda(dba, context)),
                                          total_sym);
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
@@ -1315,6 +1319,127 @@ class Database {
     weights[{1, 2}] = PV(int64_t{1});
     ExpectRuntimeError([&] { DetourResults(db, weights); },
                        "The total weight of a KSHORTEST path overflows a 64-bit integer.");
+  }
+
+  // --- constant weight -----------------------------------------------------------------------------
+
+  // A weight lambda over symbols nothing reads, so its body is all that matters.
+  memgraph::query::plan::ExpansionLambda MakeConstantWeightLambda(memgraph::query::ExecutionContext &context,
+                                                                  memgraph::query::Expression *constant) {
+    return memgraph::query::plan::ExpansionLambda{context.symbol_table.CreateSymbol("weight_edge", true),
+                                                  context.symbol_table.CreateSymbol("weight_node", true),
+                                                  constant};
+  }
+
+  // A constant is validated once, at the first row that reaches the search, so an invalid one raises
+  // even on a row with no edge to take, where the weighted search weighs nothing and gives no row.
+  // Rows skipped before the search never read it.
+  void KShortestConstantWeightValidatedAtFirstSearchedRow(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+    auto query = [&](size_t source, size_t sink, memgraph::query::Expression *constant) {
+      return WeightedQuery{.sources = {vertices[source]},
+                           .sinks = {vertices[sink]},
+                           .weight_lambda = MakeConstantWeightLambda(context, constant)};
+    };
+
+    // Skipped before the search: source equals sink, `|0`, and a lower bound above the upper one.
+    EXPECT_TRUE(RunWeighted(db, dba, context, query(0, 0, LITERAL(true))).rows.empty());
+    auto no_paths = query(0, 3, LITERAL(true));
+    no_paths.limit = 0;
+    EXPECT_TRUE(RunWeighted(db, dba, context, no_paths).rows.empty());
+    auto inverted = query(0, 3, LITERAL(true));
+    inverted.lower_bound = 3;
+    inverted.upper_bound = 2;
+    EXPECT_TRUE(RunWeighted(db, dba, context, inverted).rows.empty());
+
+    // Vertex 3 has no out-edges and vertex 0 no in-edges. The server parses the literal into a
+    // parameter, so both shapes must take the hop-count search.
+    context.evaluation_context.parameters.Add(0, memgraph::storage::ExternalPropertyValue(true));
+    for (auto *constant : {static_cast<memgraph::query::Expression *>(LITERAL(true)),
+                           static_cast<memgraph::query::Expression *>(PARAMETER_LOOKUP(0))}) {
+      ExpectRuntimeError([&] { RunWeighted(db, dba, context, query(3, 0, constant)); },
+                         memgraph::query::EdgeAtom::kKShortestWeightFirstHint);
+    }
+    dba.Abort();
+  }
+
+  // A declared total under a constant is the constant times the hop count. From 0 to 3 the detour
+  // graph has one path each of 1, 2 and 3 hops.
+  void KShortestConstantTotals(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+
+    const std::vector<memgraph::storage::ExternalPropertyValue> constants{
+        memgraph::storage::ExternalPropertyValue(int64_t{2}),
+        memgraph::storage::ExternalPropertyValue(0.1),
+        memgraph::storage::ExternalPropertyValue(
+            memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 3))};
+    for (size_t i = 0; i < constants.size(); ++i) {
+      context.evaluation_context.parameters.Add(static_cast<int>(i), constants[i]);
+      const auto run =
+          RunWeighted(db,
+                      dba,
+                      context,
+                      {.sources = {vertices[0]},
+                       .sinks = {vertices[3]},
+                       .weight_lambda = MakeConstantWeightLambda(context, PARAMETER_LOOKUP(static_cast<int>(i)))});
+      std::vector<size_t> hop_counts;
+      for (const auto &row : run.rows) {
+        const auto hops = row[2].ValueList().size();
+        hop_counts.push_back(hops);
+        const auto &total = row[3];
+        if (total.IsInt()) {
+          EXPECT_EQ(total.ValueInt(), 2 * static_cast<int64_t>(hops));
+        } else if (total.IsDouble()) {
+          EXPECT_DOUBLE_EQ(total.ValueDouble(), 0.1 * static_cast<double>(hops));
+        } else {
+          EXPECT_EQ(total.ValueDuration().microseconds, 3 * static_cast<int64_t>(hops));
+        }
+      }
+      std::ranges::sort(hop_counts);
+      EXPECT_EQ(hop_counts, (std::vector<size_t>{1, 2, 3})) << "constant " << i;
+    }
+    dba.Abort();
+  }
+
+  // A declared total under a constant is one checked multiply, so it raises what adding the constant
+  // once per hop raises: two hops of 2^62, or of a Duration of 10^8 days. 1-2-3 is the only route.
+  void KShortestConstantTotalOverflow(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+
+    constexpr int64_t kDayMicros = 86'400'000'000;
+    const std::vector<std::pair<memgraph::storage::ExternalPropertyValue, std::string>> cases{
+        {memgraph::storage::ExternalPropertyValue(int64_t{1} << 62),
+         "The total weight of a KSHORTEST path overflows a 64-bit integer."},
+        {memgraph::storage::ExternalPropertyValue(
+             memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 100'000'000 * kDayMicros)),
+         "Duration arithmetic overflows"}};
+    for (size_t i = 0; i < cases.size(); ++i) {
+      const auto &[constant, expected] = cases[i];
+      context.evaluation_context.parameters.Add(static_cast<int>(i), constant);
+      ExpectRuntimeError(
+          [&] {
+            RunWeighted(db,
+                        dba,
+                        context,
+                        {.sources = {vertices[1]},
+                         .sinks = {vertices[3]},
+                         .weight_lambda = MakeConstantWeightLambda(context, PARAMETER_LOOKUP(static_cast<int>(i)))});
+          },
+          expected);
+    }
+    dba.Abort();
   }
 
   // The filter lambda still prunes under weights. Blocking vertex 2 leaves only the single expensive
