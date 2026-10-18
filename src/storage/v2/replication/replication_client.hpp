@@ -131,6 +131,17 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
+  // Replica may have restarted with less data: drop the cached commit_ts_info_ and force a heartbeat. Only READY and
+  // MAYBE_BEHIND change; RECOVERY/REPLICATING belong to their running operation, DIVERGED_FROM_MAIN is sticky.
+  // Also fires after deliberate Shutdown() paths (sealed-tenant retire, ASYNC abort, timeouts); extra heartbeat is OK.
+  void OnReconnect() const {
+    replica_state_.WithLock([this](auto &val) {
+      if (val != replication::ReplicaState::READY && val != replication::ReplicaState::MAYBE_BEHIND) return;
+      commit_ts_info_.store(CommitTsInfo{.ldt_ = 0, .num_committed_txns_ = 0}, std::memory_order_release);
+      val = replication::ReplicaState::MAYBE_BEHIND;
+    });
+  }
+
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
   /**

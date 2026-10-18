@@ -59,6 +59,47 @@ TEST(Rpc, Call) {
   EXPECT_EQ(sum.sum, 30);
 }
 
+TEST(Rpc, ConnectionGeneration) {
+  memgraph::communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
+  auto const on_exit = memgraph::utils::OnScopeExit{[&] {
+    ASSERT_TRUE(server.Shutdown());
+    server.AwaitShutdown();
+  }};
+  server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                          uint64_t const request_version,
+                          auto *req_reader,
+                          auto *res_builder) {
+    SumReq req;
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+    SumRes const res({0});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+  });
+  ASSERT_TRUE(server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  memgraph::communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
+  EXPECT_EQ(client.Generation(), 0);
+
+  client.Call<SumV1>(1, 2);
+  EXPECT_EQ(client.Generation(), 1);
+
+  // Reusing the live socket does not bump.
+  client.Call<SumV1>(1, 2);
+  EXPECT_EQ(client.Generation(), 1);
+
+  // Reconnect after Shutdown bumps once.
+  client.Shutdown();
+  client.Call<SumV1>(1, 2);
+  EXPECT_EQ(client.Generation(), 2);
+
+  // A failed connect does not bump.
+  Client unreachable({"127.0.0.1", 1}, &client_context);
+  EXPECT_THROW(unreachable.Call<SumV1>(1, 2), memgraph::rpc::RpcFailedException);
+  EXPECT_EQ(unreachable.Generation(), 0);
+}
+
 TEST(Rpc, Abort) {
   // Two separate claims. The ordering, that the call ends because it was aborted and not because
   // the response arrived, is checked below without a clock, and it is the one that carries this

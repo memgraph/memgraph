@@ -82,6 +82,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
+  // Connection generation the heartbeat went out on; read while the stream holds the RPC lock.
+  uint64_t heartbeat_generation{0};
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
@@ -102,6 +104,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
           std::optional<replication::HeartbeatRes> res;
           if (hb_stream) {
+            heartbeat_generation = client_.rpc_client_.Generation();
             res.emplace(hb_stream->SendAndWait());
           }
           return res;
@@ -113,6 +116,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
             main_storage->uuid(),
             main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
             std::string{main_repl_state.epoch_.id()});
+        heartbeat_generation = client_.rpc_client_.Generation();
         return hb_stream.SendAndWait();
       });
 
@@ -278,8 +282,6 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // independently be larger on the replica (e.g. due to snapshots), so neither field must be allowed to regress.
   CommitTsInfo const observed{.ldt_ = heartbeat_res.current_commit_timestamp_,
                               .num_committed_txns_ = heartbeat_res.num_txns_committed_};
-  atomic_struct_update<CommitTsInfo>(commit_ts_info_,
-                                     [observed](CommitTsInfo const &cur) { return Max(cur, observed); });
 
   spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
   if (spdlog::should_log(spdlog::level::trace)) {
@@ -298,6 +300,18 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   }
 
   replica_state_.WithLock([&](auto &state) {
+    // Reconnected since the heartbeat went out: the response may come from the replica before it restarted. Checked
+    // under replica_state_ so OnReconnect's reset (on the replica-checker thread) lands wholly before or after the
+    // merge and state decision; the frequent check re-checks a reconnected replica.
+    if (client_.rpc_client_.Generation() != heartbeat_generation) {
+      spdlog::debug("Replica {} reconnected during the state check for db {}; discarding the heartbeat response.",
+                    client_.name_,
+                    main_db_name);
+      return;
+    }
+    atomic_struct_update<CommitTsInfo>(commit_ts_info_,
+                                       [observed](CommitTsInfo const &cur) { return Max(cur, observed); });
+
     // Recovered state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
     if (heartbeat_res.current_commit_timestamp_ >=
