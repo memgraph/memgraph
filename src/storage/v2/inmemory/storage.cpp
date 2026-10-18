@@ -1146,7 +1146,14 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   };
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-  if (!mem_storage->InitializeWalFile(epoch_id)) {
+  auto const wal_enabled = mem_storage->InitializeWalFile(epoch_id);
+  if (!wal_enabled) {
+    // Nothing was written, replicated or published, so the commit can fail cleanly.
+    if (engine_guard.owns_lock()) engine_guard.unlock();
+    AbortAndResetCommitTs();
+    return std::unexpected{wal_enabled.error()};
+  }
+  if (!*wal_enabled) {
     with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
     // No WAL file, hence no need to finalize it
     return {};
@@ -3887,20 +3894,27 @@ StorageInfo InMemoryStorage::GetInfo() {
   return info;
 }
 
-bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
+std::expected<bool, PersistenceError> InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
       storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;
   }
 
   if (!wal_file_) {
-    wal_file_ = memory::MakeDbAwareUnique<durability::WalFile>(recovery_.wal_directory_,
-                                                               uuid(),
-                                                               epoch_id,
-                                                               config_.salient.items,
-                                                               name_id_mapper_.get(),
-                                                               wal_seq_num_++,
-                                                               &file_retainer_);
+    try {
+      // The sequence number is consumed only once the file exists, so a failed open leaves no gap for recovery.
+      wal_file_ = memory::MakeDbAwareUnique<durability::WalFile>(recovery_.wal_directory_,
+                                                                 uuid(),
+                                                                 epoch_id,
+                                                                 config_.salient.items,
+                                                                 name_id_mapper_.get(),
+                                                                 wal_seq_num_,
+                                                                 &file_retainer_);
+      ++wal_seq_num_;
+    } catch (durability::WalOpenError const &e) {
+      spdlog::warn("Commit failed because a new WAL file could not be created, it will be retried: {}", e.what());
+      return std::unexpected{PersistenceError{}};
+    }
   }
 
   return true;

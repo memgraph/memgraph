@@ -972,7 +972,9 @@ class InMemoryStorage final : public Storage {
     light_edge_graveyard_.WithLock([&](auto &graveyard) { graveyard.emplace_back(guard_epoch, std::move(edges)); });
   }
 
-  bool InitializeWalFile(std::string_view epoch_id);
+  // true: a WAL file is open for this commit; false: durability does not use a WAL.
+  // PersistenceError: the WAL file could not be created; wal_file_ and wal_seq_num_ are unchanged.
+  std::expected<bool, PersistenceError> InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();
 
   // Archives every durability file superseded by `keep_snapshot` into a `.old` sub-directory of its own
