@@ -240,6 +240,57 @@ def test_ttl_on_replica(connection, test_name):
     mg_sleep_and_assert(True, e_checker.is_less, max_duration=3)
 
 
+def test_stopped_ttl_stays_stopped_after_promotion(connection, test_name):
+    # Goal: Check that STOP TTL survives a demotion to REPLICA and a promotion back to MAIN
+    # 0/ Setup MAIN
+    # 1/ MAIN Create dataset that expires one vertex per second
+    # 2/ MAIN Enable TTL and check it runs
+    # 3/ MAIN Stop TTL
+    # 4/ Switch MAIN to REPLICA and back to MAIN
+    # 5/ Verify that TTL is still stopped
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    def n_vertices():
+        return execute_and_fetch_all(cursor, "MATCH(n:TTL) RETURN count(n);")[0][0]
+
+    # 1/
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(1,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    v_checker = VertexChecker(n_vertices)
+
+    # 2/
+    execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
+
+    # 3/
+    execute_and_fetch_all(cursor, "STOP TTL;")
+
+    # 4/
+    execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10000;")
+    execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
+
+    # 5/ A running TTL deletes at least one more expired vertex in this window
+    v_checker.update()
+    time.sleep(3)
+    assert v_checker.is_same()
+
+
 def test_ttl_recovery_scenario(connection, test_name):
     # Goal: Test that TTL behaves correctly during recovery scenarios
     # 0/ Setup replication with main and replica
