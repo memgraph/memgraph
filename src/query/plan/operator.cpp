@@ -41,6 +41,8 @@
 #include <vector>
 
 #include <absl/base/no_destructor.h>
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
@@ -4182,7 +4184,9 @@ class KShortestPathsCursor : public Cursor {
         bfs_in_edge_(mem),
         bfs_out_edge_(mem),
         reverse_dist_(mem),
+        weighted_entries_(mem),
         weighted_pq_(mem),
+        weighted_free_(mem),
         search_tree_(mem),
         settled_(mem) {}
 
@@ -4368,8 +4372,10 @@ class KShortestPathsCursor : public Cursor {
 
   // The inner search skips these. Blocked edges are rebuilt for every deviation; blocked vertices
   // are the root walked so far, so they only accumulate down the base path.
-  utils::pmr::unordered_set<storage::Gid> blocked_edges_;
-  utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
+  using GidSet = boost::unordered_flat_set<storage::Gid, std::hash<storage::Gid>, std::equal_to<>,
+                                           std::pmr::polymorphic_allocator<storage::Gid>>;
+  GidSet blocked_edges_;
+  GidSet blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
   // searches don't re-fetch. Must stay unfiltered: a lambda reading an outer-row value would make
   // post-filter results wrong. Copied into an arena vector because `EdgeVertexAccessorResult` is not
@@ -4405,6 +4411,8 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::vector<TrieNode> trie_;
   // Scratch: the base path's trie nodes, root to leaf, filled by `CollectPathNodes`.
   utils::pmr::vector<uint64_t> path_nodes_;
+  // The leaf `path_nodes_` holds, so serving a path and then deviating from it walks the trie once.
+  uint64_t path_nodes_leaf_ = kNoNode;
 
   // The inner search's scratch, reused across the searches Yen's runs for one input row instead
   // of being rebuilt per call. This saves the allocation and the regrowth; it does not fix a leak,
@@ -4424,7 +4432,9 @@ class KShortestPathsCursor : public Cursor {
   std::optional<TypedValue> constant_weight_;
 
   // Bidirectional search state
-  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+  using VertexEdgeMapT = boost::unordered_flat_map<
+      VertexAccessor, std::optional<EdgeAccessor>, std::hash<VertexAccessor>, std::equal_to<>,
+      std::pmr::polymorphic_allocator<std::pair<const VertexAccessor, std::optional<EdgeAccessor>>>>;
   VertexEdgeMapT bfs_in_edge_;
   VertexEdgeMapT bfs_out_edge_;
 
@@ -4461,19 +4471,40 @@ class KShortestPathsCursor : public Cursor {
   /// A vertex missing from it cannot reach the target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
-  // A heap by hand, as `candidate_paths_`: `priority_queue::top()` is const, so a pop would copy.
-  utils::pmr::vector<WeightedQueueEntry> weighted_pq_;
+  // The frontier: entries stay put, and the heap orders their indices, so a sift moves an index, not
+  // two `TypedValue`s. A popped entry's slot is reused, so the entries never outnumber the peak
+  // frontier.
+  utils::pmr::vector<WeightedQueueEntry> weighted_entries_;
+  utils::pmr::vector<size_t> weighted_pq_;
+  utils::pmr::vector<size_t> weighted_free_;
+
+  struct WeightedIndexComparator {
+    const utils::pmr::vector<WeightedQueueEntry> *entries;
+
+    bool operator()(size_t l, size_t r) const { return WeightedQueueComparator{}((*entries)[l], (*entries)[r]); }
+  };
 
   void PushWeighted(WeightedQueueEntry &&entry) {
-    weighted_pq_.push_back(std::move(entry));
-    std::push_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedQueueComparator{});
+    size_t slot = 0;
+    if (weighted_free_.empty()) {
+      slot = weighted_entries_.size();
+      weighted_entries_.push_back(std::move(entry));
+    } else {
+      slot = weighted_free_.back();
+      weighted_free_.pop_back();
+      weighted_entries_[slot] = std::move(entry);
+    }
+    weighted_pq_.push_back(slot);
+    std::push_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
   }
 
   WeightedQueueEntry PopWeighted() {
-    std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedQueueComparator{});
+    std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedIndexComparator{&weighted_entries_});
+    const size_t slot = weighted_pq_.back();
     // NOLINTNEXTLINE(misc-const-correctness)
-    WeightedQueueEntry entry = std::move(weighted_pq_.back());
+    WeightedQueueEntry entry = std::move(weighted_entries_[slot]);
     weighted_pq_.pop_back();
+    weighted_free_.push_back(slot);
     return entry;
   }
 
@@ -4605,8 +4636,6 @@ class KShortestPathsCursor : public Cursor {
     return out;
   }
 
-  static constexpr bool kTo = true;
-  static constexpr bool kFrom = !kTo;
   static constexpr bool kBackward = true;
   static constexpr bool kForward = !kBackward;
 
@@ -4648,10 +4677,10 @@ class KShortestPathsCursor : public Cursor {
   /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
   /// pass, the vertex we expand *from* on the target-side (`Backward`) pass. So both passes test the pairs a
   /// forward walk would, and an arc's verdict does not depend on which pass reaches it.
-  template <bool To, bool Backward>
-  bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
-                    Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    const VertexAccessor next = To == kTo ? edge.To() : edge.From();
+  template <bool Backward>
+  bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &next, const VertexAccessor &expand_from,
+                    const VertexEdgeMapT &reached, Frame &frame, ExpressionEvaluator &evaluator,
+                    ExecutionContext &context) {
     if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid()) || reached.contains(next))
       return false;
 
@@ -4732,26 +4761,28 @@ class KShortestPathsCursor : public Cursor {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           for (const auto &edge : OutEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kTo, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.To();
+            if (!ShouldExpand<kForward>(edge, next, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_in_edge_.emplace(edge.To(), edge);
-            if (bfs_out_edge_.contains(edge.To())) {
-              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(next, edge);
+            if (bfs_out_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_source_next_.push_back(edge.To());
+            bfs_source_next_.push_back(next);
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           for (const auto &edge : InEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kFrom, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.From();
+            if (!ShouldExpand<kForward>(edge, next, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_in_edge_.emplace(edge.From(), edge);
-            if (bfs_out_edge_.contains(edge.From())) {
-              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
+            bfs_in_edge_.emplace(next, edge);
+            if (bfs_out_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_source_next_.push_back(edge.From());
+            bfs_source_next_.push_back(next);
           }
         }
       }
@@ -4771,26 +4802,28 @@ class KShortestPathsCursor : public Cursor {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           for (const auto &edge : OutEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kTo, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.To();
+            if (!ShouldExpand<kBackward>(edge, next, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_out_edge_.emplace(edge.To(), edge);
-            if (bfs_in_edge_.contains(edge.To())) {
-              return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(next, edge);
+            if (bfs_in_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_target_next_.push_back(edge.To());
+            bfs_target_next_.push_back(next);
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           for (const auto &edge : InEdgesOf(vertex, context)) {
-            if (!ShouldExpand<kFrom, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
+            const VertexAccessor next = edge.From();
+            if (!ShouldExpand<kBackward>(edge, next, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
-            bfs_out_edge_.emplace(edge.From(), edge);
-            if (bfs_in_edge_.contains(edge.From())) {
-              return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
+            bfs_out_edge_.emplace(next, edge);
+            if (bfs_in_edge_.contains(next)) {
+              return ReconstructPath(next, evaluator.GetMemoryResource());
             }
-            bfs_target_next_.push_back(edge.From());
+            bfs_target_next_.push_back(next);
           }
         }
       }
@@ -4871,6 +4904,8 @@ class KShortestPathsCursor : public Cursor {
 
   void ClearWeightedSearchState() {
     weighted_pq_.clear();
+    weighted_entries_.clear();
+    weighted_free_.clear();
     search_tree_.clear();
     settled_.clear();
   }
@@ -5007,10 +5042,8 @@ class KShortestPathsCursor : public Cursor {
     auto *memory = evaluator.GetMemoryResource();
     auto edge_list = TypedValue::TVector(memory);
     edge_list.reserve(path.length);
-    for (uint64_t node = path.leaf; node != 0; node = trie_[node].parent) {
-      edge_list.emplace_back(*trie_[node].edge);
-    }
-    std::ranges::reverse(edge_list);
+    CollectPathNodes(path.leaf);
+    for (const auto node : path_nodes_ | std::views::drop(1)) edge_list.emplace_back(*trie_[node].edge);
     if constexpr (Cost::kWeighted) {
       // Added again, in path order: the search's cost only orders, and an overflow is an error only here.
       TypedValue total;
@@ -5066,9 +5099,12 @@ class KShortestPathsCursor : public Cursor {
 
   /// Fills `path_nodes_` with the trie nodes from the root down to `leaf`.
   void CollectPathNodes(uint64_t leaf) {
+    if (path_nodes_leaf_ == leaf) return;
+    path_nodes_leaf_ = kNoNode;
     path_nodes_.clear();
     for (uint64_t node = leaf; node != kNoNode; node = trie_[node].parent) path_nodes_.push_back(node);
     std::ranges::reverse(path_nodes_);
+    path_nodes_leaf_ = leaf;
   }
 
   void ResetState() {
@@ -5096,15 +5132,20 @@ class KShortestPathsCursor : public Cursor {
     shortest_paths_.shrink_to_fit();
     candidate_paths_.clear();
     candidate_paths_.shrink_to_fit();
-    path_nodes_.clear();
-    path_nodes_.shrink_to_fit();
+    path_nodes_.clear();  // keeps its capacity: one id per node of one path, refilled every row
+    path_nodes_leaf_ = kNoNode;
     current_path_index_ = 0;
   }
 
-  // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
-  // table's bucket array and a vector's capacity, so without this one expensive row would leave
-  // every later search sweeping buckets sized for a search it never runs, and hold that memory for
-  // the life of the cursor. Called per row, so the reuse within a row still stands.
+  // A flat table's first allocation is above the query pool's block size, so a small one is kept:
+  // reallocating it every row cost more than the search on many cheap rows.
+  static constexpr size_t kKeptBfsCapacity = 1024;
+
+  // Releases the inner search's scratch, except a BFS table within `kKeptBfsCapacity`, instead of
+  // just emptying it. `clear()` keeps a hash table's bucket array and a vector's capacity, so
+  // without this one expensive row would leave every later search sweeping buckets sized for a
+  // search it never runs, and hold that memory for the life of the cursor. Called per row, so the
+  // reuse within a row still stands.
   void ReleaseInnerSearchState() {
     for (auto *frontier : {&bfs_source_frontier_, &bfs_target_frontier_, &bfs_source_next_, &bfs_target_next_}) {
       frontier->clear();
@@ -5112,10 +5153,12 @@ class KShortestPathsCursor : public Cursor {
     }
     for (auto *reached : {&bfs_in_edge_, &bfs_out_edge_}) {
       reached->clear();
-      reached->rehash(0);
+      if (reached->bucket_count() > kKeptBfsCapacity) reached->rehash(0);
     }
     ClearWeightedSearchState();
     weighted_pq_.shrink_to_fit();
+    weighted_entries_.shrink_to_fit();
+    weighted_free_.shrink_to_fit();
     search_tree_.shrink_to_fit();
     settled_.rehash(0);
   }
