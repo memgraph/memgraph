@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "metrics/metric_handles.hpp"
 #include "replication/replication_client.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/access_type.hpp"
@@ -67,7 +68,7 @@ class ReplicaStream {
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  replication::PrepareCommitRes Finalize();
+  replication::PrepareCommitRes Finalize(metrics::HistogramHandle const &latency);
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
