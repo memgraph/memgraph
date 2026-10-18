@@ -34,6 +34,7 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
+#include <tuple>
 #include <unordered_map>
 
 import memgraph.utils.fnv;
@@ -728,6 +729,19 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // blocked would tell the peer we are advancing when we are not.
     record_progress();
 
+    // Reject an unreadable snapshot before Clear() so data is kept; no fd is held, so a window remains before the load.
+    try {
+      std::ignore = storage::durability::ReadSnapshotInfo(src_snapshot_file);
+    } catch (const storage::durability::RecoveryFailure &e) {
+      spdlog::error("Couldn't read the received snapshot {} because of: {}. In-memory storage is left untouched.",
+                    src_snapshot_file,
+                    e.what());
+      heartbeat.Stop();
+      rpc::SendFinalResponse(
+          storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
+      return;
+    }
+
     // Moved only once the snapshot is about to be loaded; until then it stays in tmp/, where the request's
     // FileReplicationHandler deletes it if this handler returns early.
     if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
@@ -741,7 +755,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
     spdlog::info("Clearing database {} before recovering from snapshot.", storage->name());
 
-    // Clear the database
+    // Arm broken before Clear() so any failure from here on, Clear() included, leaves the tenant refusing queries, not
+    // "healthy and empty".
+    storage->ttl_.Disable();
+    storage->SetBroken(true);
     storage->Clear(record_progress);
 
     try {
@@ -789,15 +806,24 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                           record_progress);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
-          "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
-          "preserved so you can restore your data by restarting instance.",
+          "Couldn't load the snapshot from {} because of: {}. Storage will be cleared and marked broken until the "
+          "main recovers it. The received snapshot is deleted; the previous snapshot and WAL files are preserved.",
           dst_snapshot_file,
           e.what());
       storage->Clear(record_progress);
+      // LoadSnapshot may have re-armed TTL before failing.
+      storage->ttl_.Disable();
+      // Otherwise restart recovery would pick the failed snapshot first.
+      storage->file_retainer_.DeleteFile(dst_snapshot_file);
       heartbeat.Stop();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
+    } catch (...) {
+      // Tenant stays broken; don't leave the failed snapshot for restart recovery.
+      storage->ttl_.Disable();
+      storage->file_retainer_.DeleteFile(dst_snapshot_file);
+      throw;
     }
 
     // A successful snapshot load is the moment a broken replica tenant becomes healthy: the main has just full-synced
@@ -950,6 +976,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
       spdlog::info("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                    storage->name());
+      // Arm broken before Clear() so a throw from Clear() also leaves the tenant broken; recovery isn't complete
+      // until SetBroken(false), and TTL must not run meanwhile.
+      storage->ttl_.Disable();
+      storage->SetBroken(true);
       storage->Clear(record_progress);
     }
 
@@ -1110,6 +1140,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       record_progress();
       spdlog::info("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                    storage->name());
+      // Arm broken before Clear() so a throw from Clear() also leaves the tenant broken; recovery isn't complete
+      // until SetBroken(false), and TTL must not run meanwhile.
+      storage->ttl_.Disable();
+      storage->SetBroken(true);
       storage->Clear(record_progress);
     }
 
