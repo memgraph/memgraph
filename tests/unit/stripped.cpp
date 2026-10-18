@@ -495,6 +495,17 @@ TEST(QueryStripper, UnionAllMultipleReturnStatementsNamedExpressions) {
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "x"), Pair(5, "x")));
 }
 
+TEST(QueryStripper, NamedExpressionEndsAtUnmatchedBrace) {
+  {
+    StrippedQuery stripped("CALL () { MATCH (n) RETURN n } RETURN *");
+    EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(9, "n"), Pair(12, "*")));
+  }
+  {
+    StrippedQuery stripped("UNWIND [1] AS i CALL (i) { WITH i RETURN i, {a: i} } RETURN *");
+    EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(14, "i"), Pair(16, "{a: i}"), Pair(23, "*")));
+  }
+}
+
 TEST(QueryStripper, QueryReturnMap) {
   StrippedQuery stripped("RETURN {a: 1, b: 'foo'}");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "{a: 1, b: 'foo'}")));
