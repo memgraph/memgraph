@@ -22,6 +22,7 @@
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/raft_status.hpp"
 
 #include "nlohmann/json_fwd.hpp"
 
@@ -53,6 +54,7 @@ class CoordinatorState {
 
   // nullopt if the leader couldn't be reached.
   [[nodiscard]] auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
+  [[nodiscard]] auto GetRaftStatus() const -> RaftStatus;
 
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
