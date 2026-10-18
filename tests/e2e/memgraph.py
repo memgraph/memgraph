@@ -507,28 +507,35 @@ class MemgraphInstanceRunner:
         with PORT_REMAP.child_env():
             self.proc_mg = subprocess.Popen(args_mg, stdout=output, stderr=output)
 
-        # Use much longer timeout when debugging with gdb. Startup can take well over 15s on a loaded machine (e.g. a
-        # parallel e2e run), so wait longer, but stop waiting as soon as the process is gone.
-        timeout = 3600 if self.gdb_port else 60
-        delay = 0.1
-        elapsed = 0
-        while connectable_port(bolt_port) is False and elapsed < timeout and self.is_running():
-            time.sleep(delay)
-            elapsed += delay
+        try:
+            # Use much longer timeout when debugging with gdb. Startup can take well over 15s on a loaded machine (e.g. a
+            # parallel e2e run), so wait longer, but stop waiting as soon as the process is gone.
+            timeout = 3600 if self.gdb_port else 60
+            delay = 0.1
+            elapsed = 0
+            while connectable_port(bolt_port) is False and elapsed < timeout and self.is_running():
+                time.sleep(delay)
+                elapsed += delay
 
-        is_running = self.is_running()
-        is_connected = connectable_port(bolt_port)
+            is_running = self.is_running()
+            is_connected = connectable_port(bolt_port)
 
-        if not is_running or not is_connected:
-            self._print_diagnostics()
+            if not is_running or not is_connected:
+                self._print_diagnostics()
 
-        assert is_running, f"The Memgraph process failed to start in {timeout}s!"
-        assert is_connected, f"The Memgraph process failed to listen in {timeout}s!"
-        log.info(f"Instance started with bolt server on {self.host}:{bolt_port}.")
+            assert is_running, f"The Memgraph process failed to start in {timeout}s!"
+            assert is_connected, f"The Memgraph process failed to listen in {timeout}s!"
+            log.info(f"Instance started with bolt server on {self.host}:{bolt_port}.")
 
-        if setup_queries:
-            self.execute_setup_queries(setup_queries)
-            log.info("Executed setup queries.")
+            if setup_queries:
+                self.execute_setup_queries(setup_queries)
+                log.info("Executed setup queries.")
+        except BaseException as error:
+            try:
+                self.kill(keep_directories=True)
+            except Exception as cleanup_error:
+                error.add_note(f"Failed to reap server process {self.proc_mg.pid}: {cleanup_error}")
+            raise
 
     def is_running(self):
         """
@@ -576,16 +583,11 @@ class MemgraphInstanceRunner:
             return
 
         self.proc_mg.kill()
-        code = self.proc_mg.wait()
-
-        assert code == -9, "The killed Memgraph process exited with non-nine!"
-
-        for _ in range(150):
-            if not self.is_running():
-                break
-            time.sleep(0.1)
-
-        assert self.is_running() is False, "Killed instance still running."
+        try:
+            self.proc_mg.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            self._print_diagnostics()
+            raise
 
         if not keep_directories:
             self.safe_delete_data_directory()
