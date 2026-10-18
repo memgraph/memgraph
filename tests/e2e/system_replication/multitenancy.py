@@ -1759,6 +1759,12 @@ def test_rename_database_replication(connection, test_name):
     # 3/
     execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
 
+    # No retry on purpose: a SYNC replica that rejects the rename's finalize turns BEHIND inside the commit.
+    replicas = show_replicas_func(main_cursor)()
+    assert len(replicas) == 2
+    for replica in replicas:
+        assert replica[3]["status"] == "ready", replicas
+
     # 4/ Wait for replication and verify rename is replicated
     execute_and_fetch_all(replica_cursor, "USE DATABASE renamed_test_db")
 
