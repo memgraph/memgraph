@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -108,6 +109,8 @@ struct GlobalMetricHandles {
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
+  // Indexed by AbortedQueryReason.
+  std::array<CounterHandle, kAbortedQueryReasons.size()> aborted_queries;
   prometheus::Counter *failed_query;
   prometheus::Counter *failed_prepare;
   prometheus::Counter *failed_pull;
@@ -431,6 +434,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &successful_query_family_;
   prometheus::Family<prometheus::Counter> &write_write_conflicts_family_;
   prometheus::Family<prometheus::Counter> &transient_errors_family_;
+  prometheus::Family<prometheus::Counter> &aborted_queries_family_;
   prometheus::Family<prometheus::Gauge> &unreleased_delta_objects_family_;
 
   // Per-database metric families — TTL
