@@ -5679,9 +5679,8 @@ TEST_P(StorageEdgeCreateAbort, FailureOnToVertexLeavesFromVertexWritable) {
 }
 
 // An edge keeps its properties in the same store a vertex does, so it answers a set of them in one
-// pass over the record the same way. The paths arrive in the order the record holds them, which is
-// the order their ids sort, and anything the edge does not carry reads back as Null so the caller's
-// slots line up with what it asked for.
+// pass over the record the same way. Values come back in the order the read needed, and anything
+// the edge does not carry reads back as Null so every slot is filled.
 TEST_P(StorageEdgeTest, EdgeReadsASetOfPropertiesInOnePass) {
   std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
       {.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
@@ -5702,7 +5701,8 @@ TEST_P(StorageEdgeTest, EdgeReadsASetOfPropertiesInOnePass) {
     ASSERT_TRUE(edge.SetProperty(second, memgraph::storage::PropertyValue("seven")).has_value());
   }
 
-  auto const paths = std::array<memgraph::storage::PropertyPath, 3>{first, second, absent};
+  auto const paths =
+      memgraph::storage::OrderedPropertyPaths{std::vector<memgraph::storage::PropertyPath>{first, second, absent}};
   auto values = std::array<memgraph::storage::PropertyValue, 3>{};
   auto const read = edge.ReadPropertyValues(paths, values, memgraph::storage::View::NEW);
   ASSERT_TRUE(read.has_value());

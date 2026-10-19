@@ -14,6 +14,7 @@
 
 #include <mgcxx_text_search.hpp>
 #include <nlohmann/json.hpp>
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -128,15 +129,13 @@ std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &prope
 
   // An index names its properties in declaration order. The answer is keyed by id, so reordering
   // the question does not reorder the answer.
-  auto ordered = std::vector<PropertyId>{properties.begin(), properties.end()};
-  r::sort(ordered);
+  auto const ordered =
+      OrderedPropertyPaths{properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
+                           r::to<std::vector<PropertyPath>>()};
+  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(ordered);
 
-  auto property_paths = ordered | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
-                        r::to<std::vector<PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
-
-  return rv::zip(ordered, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
+  return rv::zip(ordered.paths(), property_values) | rv::transform([](const auto &path_value_pair) {
+           return std::make_pair(path_value_pair.first.back(), path_value_pair.second);
          }) |
          r::to<std::map<PropertyId, PropertyValue>>();
 }

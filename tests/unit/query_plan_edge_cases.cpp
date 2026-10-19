@@ -420,6 +420,27 @@ TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
   EXPECT_EQ(mixed[0][2].ValueInt(), 1);
 }
 
+TYPED_TEST(QueryExecution, CachePropertiesReadsAGroupWhoseOrderIsNotTheRecordsOrder) {
+  // One pass over a record finds each property from where the last one stopped, so it cannot go
+  // back for one it has already passed. A projection names its properties in whatever order the
+  // query was written in, which has nothing to do with the order the record holds them. Asking both
+  // ways means one of these two is against the record's order whichever way the names interned.
+  CachePropertiesFlagGuard guard{true};
+
+  this->Execute("CREATE (:Z {zebra: 1, apple: 'x'})");
+
+  auto forward = this->Execute("MATCH (n:Z) RETURN n.zebra AS f1, n.apple AS f2");
+  ASSERT_EQ(forward.size(), 1);
+  EXPECT_EQ(forward[0][0].ValueInt(), 1);
+  EXPECT_EQ(forward[0][1].ValueString(), "x");
+
+  // Different aliases, so this does not reuse the plan cached for the query above.
+  auto reverse = this->Execute("MATCH (n:Z) RETURN n.apple AS r1, n.zebra AS r2");
+  ASSERT_EQ(reverse.size(), 1);
+  EXPECT_EQ(reverse[0][0].ValueString(), "x");
+  EXPECT_EQ(reverse[0][1].ValueInt(), 1);
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbolsInTheRealPlan) {
   // Guards the test above from passing because the rewrite never fired.
   auto explained = [this](const std::string &query) {
