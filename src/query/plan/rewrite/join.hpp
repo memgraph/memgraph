@@ -717,12 +717,25 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      auto lhs_symbol = filter.property_filter->symbol_;
+      // An equality is collected once per side it could be looked up from, so a filter's own symbol need not be
+      // the side its expression leads with.
+      auto lhs_symbol = symbol_table_->at(*lhs_join_identifier);
       auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
+
+      // The table is built from the left branch and probed from the right, so each side has to name a symbol
+      // the branch evaluating it binds.
+      const bool as_written =
+          std::ranges::contains(left_symbols, lhs_symbol) && std::ranges::contains(right_symbols, rhs_symbol);
+      const bool reversed =
+          std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol);
+      if (!as_written && !reversed) {
+        continue;
+      }
+
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
-      if (std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol)) {
+      if (reversed) {
         // We need to duplicate this because expressions are shared between plans
         join_condition = join_condition->Clone(ast_storage_);
         std::swap(join_condition->expression1_, join_condition->expression2_);

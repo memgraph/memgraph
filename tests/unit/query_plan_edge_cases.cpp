@@ -234,3 +234,22 @@ TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
   EXPECT_EQ(results[0][0].ValueInt(), 1);
   EXPECT_EQ(results[1][0].ValueInt(), 0);
 }
+
+TYPED_TEST(QueryExecution, EqualityWithinOnePatternSurvivesAnUnrelatedPrecedingMatch) {
+  // An equality between two variables of one pattern constrains that pattern alone. Pairing it with a second
+  // pattern that matches once leaves the count unchanged.
+  this->Execute("CREATE (:Meta), ({v: 1})-[:R]->({v: 1})");
+
+  auto alone = this->Execute("MATCH (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
+  ASSERT_EQ(alone.size(), 1U);
+  ASSERT_EQ(alone[0][0].ValueInt(), 1);
+
+  auto with_preceding_match = this->Execute("MATCH (x:Meta) MATCH (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
+  ASSERT_EQ(with_preceding_match.size(), 1U);
+  EXPECT_EQ(with_preceding_match[0][0].ValueInt(), 1);
+
+  // Writing the two patterns as one clause is the same question.
+  auto as_one_clause = this->Execute("MATCH (x:Meta), (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
+  ASSERT_EQ(as_one_clause.size(), 1U);
+  EXPECT_EQ(as_one_clause[0][0].ValueInt(), 1);
+}

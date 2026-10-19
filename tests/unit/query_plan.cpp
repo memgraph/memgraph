@@ -333,6 +333,30 @@ TYPED_TEST(TestPlanner, MatchMultiPattern) {
   DeleteListContent(&right_cartesian_ops);
 }
 
+namespace {
+std::unordered_set<memgraph::query::Symbol> SymbolsIn(memgraph::query::Expression *expression,
+                                                      const memgraph::query::SymbolTable &symbol_table) {
+  memgraph::query::plan::UsedSymbolsCollector collector{symbol_table};
+  expression->Accept(collector);
+  return collector.symbols_;
+}
+
+void ExpectJoinConditionEvaluableOnItsBranches(const memgraph::query::plan::HashJoin &join,
+                                               const memgraph::query::SymbolTable &symbol_table) {
+  const std::unordered_set<memgraph::query::Symbol> left{join.left_symbols_.begin(), join.left_symbols_.end()};
+  const std::unordered_set<memgraph::query::Symbol> right{join.right_symbols_.begin(), join.right_symbols_.end()};
+
+  for (const auto &symbol : SymbolsIn(join.hash_join_condition_->expression1_, symbol_table)) {
+    EXPECT_TRUE(left.contains(symbol)) << "build side reads " << symbol.name() << ", which the left branch does not "
+                                       << "bind";
+  }
+  for (const auto &symbol : SymbolsIn(join.hash_join_condition_->expression2_, symbol_table)) {
+    EXPECT_TRUE(right.contains(symbol)) << "probe side reads " << symbol.name() << ", which the right branch does not "
+                                        << "bind";
+  }
+}
+}  // namespace
+
 TYPED_TEST(TestPlanner, MatchMultiPatternWithHashJoin) {
   // Test MATCH (a:label)-[r1]->(b), (c:label)-[r2]->(d) WHERE c.id = a.id return a, b, c, d;
   FakeDbAccessor dba;
@@ -355,6 +379,7 @@ TYPED_TEST(TestPlanner, MatchMultiPatternWithHashJoin) {
             ExpectHashJoin(left_indexed_join_ops, right_indexed_join_ops),
             ExpectEdgeUniquenessFilter(),
             ExpectProduce());
+  ExpectJoinConditionEvaluableOnItsBranches(*FindOpOfType<HashJoin>(&planner.plan()), symbol_table);
 
   DeleteListContent(&left_indexed_join_ops);
   DeleteListContent(&right_indexed_join_ops);
@@ -383,9 +408,52 @@ TYPED_TEST(TestPlanner, MatchMultiPatternWithAsymmetricHashJoin) {
             ExpectHashJoin(left_indexed_join_ops, right_indexed_join_ops),
             ExpectEdgeUniquenessFilter(),
             ExpectProduce());
+  ExpectJoinConditionEvaluableOnItsBranches(*FindOpOfType<HashJoin>(&planner.plan()), symbol_table);
 
   DeleteListContent(&left_indexed_join_ops);
   DeleteListContent(&right_indexed_join_ops);
+}
+
+TYPED_TEST(TestPlanner, MatchMultiPatternEqualityWithinOnePatternIsNotAJoin) {
+  // Test MATCH (x:label) MATCH (a)-[r]->(b) WHERE a.id = b.id RETURN a
+  // Both sides of the equality come from the second pattern, so it constrains that pattern alone and the two
+  // patterns remain a cartesian product.
+  FakeDbAccessor dba;
+  const auto property = PROPERTY_PAIR(dba, "id");
+
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("x", "label"))),
+                   MATCH(PATTERN(NODE("a"), EDGE("r"), NODE("b"))),
+                   WHERE(EQ(PROPERTY_LOOKUP(dba, "a", property.second), PROPERTY_LOOKUP(dba, "b", property.second))),
+                   RETURN("a")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_EQ(FindOpOfType<HashJoin>(&planner.plan()), nullptr);
+  EXPECT_NE(FindOpOfType<Cartesian>(&planner.plan()), nullptr);
+}
+
+TYPED_TEST(TestPlanner, MatchMultiPatternJoinsOnTheEqualityThatSpansThePatterns) {
+  // Test MATCH (x:label) MATCH (a)-[r]->(b) WHERE a.id = b.id AND a.id = x.id RETURN a
+  // The equality spanning both patterns is a join condition, and the one confined to the second pattern does
+  // not cost us that join.
+  FakeDbAccessor dba;
+  const auto property = PROPERTY_PAIR(dba, "id");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("x", "label"))),
+      MATCH(PATTERN(NODE("a"), EDGE("r"), NODE("b"))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "a", property.second), PROPERTY_LOOKUP(dba, "b", property.second)),
+                EQ(PROPERTY_LOOKUP(dba, "a", property.second), PROPERTY_LOOKUP(dba, "x", property.second)))),
+      RETURN("a")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *join = FindOpOfType<HashJoin>(&planner.plan());
+  ASSERT_NE(join, nullptr);
+  ExpectJoinConditionEvaluableOnItsBranches(*join, symbol_table);
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPatternWithIndexJoin) {
