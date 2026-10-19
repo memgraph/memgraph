@@ -574,18 +574,22 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   bool deleted = false;
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
+  // Callers ask in whatever order suits them. The answer is keyed by id, so reordering the question
+  // does not reorder the answer.
+  auto ordered = std::vector<PropertyId>{properties.begin(), properties.end()};
+  r::sort(ordered);
+
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    auto property_paths = properties |
-                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+    auto property_paths = ordered | rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
                           r::to<std::vector<storage::PropertyPath>>();
     property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
     delta = edge_.ptr->delta();
   }
   auto properties_map =
-      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+      rv::zip(ordered, property_values) | rv::transform([](const auto &property_id_value_pair) {
         return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
       }) |
       r::to<std::map<PropertyId, PropertyValue>>();

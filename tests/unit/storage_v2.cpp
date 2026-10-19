@@ -3346,3 +3346,51 @@ TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
   EXPECT_EQ(edges->edges.At(0).ToVertex(), to);
   EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
 }
+
+// Reading a set of properties walks the record once, forward, so it can only find a property it has
+// not already passed. The order the caller asks in is its own business: it may group them however
+// suits it, and nothing about a property id tells a caller where the record keeps it. So the read
+// establishes the order it needs rather than answering Null for whatever arrived out of it.
+TEST(StorageV2PropertySet, AVertexAnswersPropertiesAskedForInAnyOrder) {
+  memgraph::storage::InMemoryStorage store;
+  auto acc = store.Access(memgraph::storage::WRITE);
+
+  // Interned in this order, so "zebra" holds the lower id while sorting after "apple".
+  auto const zebra = acc->NameToProperty("zebra");
+  auto const apple = acc->NameToProperty("apple");
+  ASSERT_LT(zebra.AsUint(), apple.AsUint());
+
+  auto v = acc->CreateVertex();
+  ASSERT_TRUE(v.SetProperty(zebra, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(v.SetProperty(apple, memgraph::storage::PropertyValue(2)).has_value());
+
+  auto const descending = std::array{apple, zebra};
+  auto const got = v.PropertiesByPropertyIds(descending, memgraph::storage::View::NEW);
+  ASSERT_TRUE(got.has_value());
+  ASSERT_EQ(got->size(), 2);
+  EXPECT_EQ(got->at(zebra).ValueInt(), 1);
+  EXPECT_EQ(got->at(apple).ValueInt(), 2);
+}
+
+TEST(StorageV2PropertySet, AnEdgeAnswersPropertiesAskedForInAnyOrder) {
+  memgraph::storage::InMemoryStorage store{
+      memgraph::storage::Config{.salient = {.items = {.properties_on_edges = true}}}};
+  auto acc = store.Access(memgraph::storage::WRITE);
+
+  auto const zebra = acc->NameToProperty("zebra");
+  auto const apple = acc->NameToProperty("apple");
+  ASSERT_LT(zebra.AsUint(), apple.AsUint());
+
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("et")).value();
+  ASSERT_TRUE(edge.SetProperty(zebra, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(edge.SetProperty(apple, memgraph::storage::PropertyValue(2)).has_value());
+
+  auto const descending = std::array{apple, zebra};
+  auto const got = edge.PropertiesByPropertyIds(descending, memgraph::storage::View::NEW);
+  ASSERT_TRUE(got.has_value());
+  ASSERT_EQ(got->size(), 2);
+  EXPECT_EQ(got->at(zebra).ValueInt(), 1);
+  EXPECT_EQ(got->at(apple).ValueInt(), 2);
+}

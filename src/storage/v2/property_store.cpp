@@ -2701,8 +2701,16 @@ void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath c
 }
 }  // namespace
 
+namespace {
+/// Violating this reads Null for a property that is set, so it is checked rather than trusted.
+void AssertOrdered(std::span<PropertyPath const> ordered_properties) {
+  DMG_ASSERT(std::ranges::is_sorted(ordered_properties), "Properties must be given in the order their paths sort");
+}
+}  // namespace
+
 std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
     std::span<PropertyPath const> ordered_properties) const {
+  AssertOrdered(ordered_properties);
   return WithReader([&](Reader &reader) -> std::vector<PropertyValue> {
     auto values = std::vector<PropertyValue>{};
     values.reserve(ordered_properties.size());
@@ -2716,6 +2724,7 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
 void PropertyStore::ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
                                                        std::span<PropertyValue> out) const {
   DMG_ASSERT(out.size() == ordered_properties.size(), "Output buffer size must match the number of properties");
+  AssertOrdered(ordered_properties);
   WithReader([&](Reader &reader) {
     auto it = out.begin();
     ForEachExtractedValueMissingAsNull(reader, ordered_properties, [&](std::optional<PropertyValue> value) {
@@ -2740,6 +2749,7 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup, std::vector<bool> &result) const {
+  AssertOrdered(ordered_properties);
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
