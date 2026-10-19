@@ -27,6 +27,7 @@
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
@@ -1368,10 +1369,9 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
    private:
     /// One group's properties arranged the way the read wants them, worked out once.
     struct GroupRead {
-      /// In the order the record holds them, which is not the order the group gave them.
-      std::vector<storage::PropertyPath> paths;
-      /// Which of the group's properties each of those feeds.
-      std::vector<uint32_t> cached_of_slot;
+      /// The group's properties in the order a record must be asked for them, and the mapping back
+      /// to which of the group's properties each one feeds.
+      storage::OrderedPropertyPaths ordered;
       /// Where this group's values begin in the row's one buffer.
       std::size_t values_begin;
     };

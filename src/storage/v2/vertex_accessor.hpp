@@ -27,6 +27,7 @@
 namespace memgraph::storage {
 
 class EdgeAccessor;
+class OrderedPropertyPaths;
 class Storage;
 struct Constraints;
 struct Indices;
@@ -112,7 +113,7 @@ class VertexAccessor final {
   ///
   /// `ordered_properties` has to be in the order the record holds its properties, which is the order
   /// their ids sort. A caller that keeps a buffer between rows reads a row without allocating.
-  Result<void> ReadPropertyValues(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue> out,
+  Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
                                   View view) const;
 
   /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
