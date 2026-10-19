@@ -1,0 +1,7 @@
+# Only the literal '~' may omit the right operand; the word form returns null without one (intentional, for
+# compatibility).
+query: >
+  RETURN bitwise.op(60, '~', null) AS symbol, bitwise.op(60, 'NOT', null) AS word;
+output:
+  - symbol: -61
+    word: null
