@@ -172,7 +172,6 @@ std::string ReceivedFileSize(std::filesystem::path const &path) {
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
-    spdlog::trace("       Timestamp {}", timestamp);
     auto delta = ReadWalDeltaData(decoder, version);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
@@ -1357,6 +1356,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   uint64_t num_committed_txns{0};
   uint64_t current_delta_idx{0};  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas{0};     // Non-skipped deltas
+  uint64_t skipped_deltas{0};     // Already present on the replica
   auto max_delta_timestamp = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 
   auto current_durable_commit_timestamp = max_delta_timestamp;
@@ -1443,7 +1443,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     transaction_complete = IsWalDeltaDataTransactionEnd(delta, version);
 
     if (delta_timestamp <= current_durable_commit_timestamp) {
-      spdlog::trace("Skipping delta with timestamp: {}", delta_timestamp);
+      ++skipped_deltas;
       continue;
     }
 
@@ -2254,7 +2254,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   // by the time the loop exits.
   MG_ASSERT(pending_edge_deletes.empty(), "Buffered edge deletions were never applied");
 
-  spdlog::debug("Applied {} deltas. Committed {} txns.", applied_deltas, num_committed_txns);
+  spdlog::debug("Applied {} deltas, skipped {} already applied deltas. Committed {} txns.",
+                applied_deltas,
+                skipped_deltas,
+                num_committed_txns);
 
   return storage::SingleTxnDeltasProcessingResult{.commit_acc = std::move(commit_accessor),
                                                   .current_delta_idx = current_delta_idx,
