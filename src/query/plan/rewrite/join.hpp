@@ -718,8 +718,8 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       // Both symbols are read off the condition being placed, so that the sides a swap exchanges are the sides
-      // tested here. A property equality is collected once per side it could be looked up from, and those
-      // entries name their own side first, which is not the order the expression is written in.
+      // tested here. A property equality is collected once per side it could be looked up from, and each of
+      // those entries leads with its own side, which need not be the side the expression leads with.
       auto lhs_symbol = symbol_table_->at(*lhs_join_identifier);
       auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
 

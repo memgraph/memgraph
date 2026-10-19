@@ -236,8 +236,9 @@ TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
 }
 
 TYPED_TEST(QueryExecution, EqualityWithinOnePatternSurvivesAnUnrelatedPrecedingMatch) {
-  // An equality between two variables of the same pattern constrains that pattern alone. A second, unrelated
-  // pattern multiplies those rows, so adding one can only scale the count up, never to zero.
+  // An equality between two variables of the same pattern constrains that pattern alone. An unrelated second
+  // pattern multiplies those rows by how many times it matches, which for a single node leaves the count as it
+  // was.
   this->Execute("CREATE (:Meta), ({v: 1})-[:R]->({v: 1})");
 
   auto alone = this->Execute("MATCH (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
