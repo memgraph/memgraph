@@ -843,19 +843,23 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   bool deleted = false;
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
+  // Callers ask in whatever order suits them. The answer is keyed by id, so reordering the question
+  // does not reorder the answer.
+  auto ordered = std::vector<PropertyId>{properties.begin(), properties.end()};
+  r::sort(ordered);
+
   Delta *delta = nullptr;
   VertexReadLock read_lock{vertex_};
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    auto property_paths = properties |
-                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+    auto property_paths = ordered | rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
                           r::to<std::vector<storage::PropertyPath>>();
     property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
     delta = vertex_->delta();
   }
   auto properties_map =
-      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+      rv::zip(ordered, property_values) | rv::transform([](const auto &property_id_value_pair) {
         return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
       }) |
       r::to<std::map<PropertyId, PropertyValue>>();

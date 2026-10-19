@@ -95,7 +95,9 @@ class PropertyStore {
 
   /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
   /// represented by Null. The time complexity of this function is O(n).
-  /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
+  /// @param ordered_properties: a collection of `PropertyPath` sorted by path. The single pass finds each property
+  /// from where the previous one stopped, so a path out of order is read as Null even when it is set: a wrong
+  /// answer rather than a refusal. Sort before calling.
   std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
 
   /// As above, but writes into the caller-provided `out` (one slot per ordered property, same single pass), so a
