@@ -891,11 +891,33 @@ TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
   auto *produce = dynamic_cast<Produce *>(&plan);
   ASSERT_NE(produce, nullptr) << "expected the projection to have sunk above the Limit";
 
+  // What has to survive the restore is what runs above the OrderBy and reads a symbol it did not
+  // make itself. The projection is one such reader. The property cache is another: it sits between
+  // the two, so the slots it fills need no restoring, but the record it reads them from does.
+  // An omission does not fail the query, it reads as Null and the row comes back wrong.
+  auto required = std::vector<memgraph::query::Symbol>{};
+  auto made_in_between = std::vector<memgraph::query::Symbol>{};
+  for (auto const *op = produce->input().get(); op != nullptr && op != order_by;) {
+    if (auto const *cache = dynamic_cast<CacheProperties const *>(op)) {
+      for (auto const &group : cache->groups_) {
+        required.push_back(group.input_symbol);
+        for (auto const &cached : group.properties) made_in_between.push_back(cached.output_symbol);
+      }
+    }
+    op = op->HasSingleInput() ? op->input().get() : nullptr;
+  }
+
   memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
   for (auto *named_expression : produce->named_expressions_) named_expression->Accept(collector);
   for (auto const &read : collector.symbols_) {
+    if (std::ranges::contains(made_in_between, read)) continue;
+    required.push_back(read);
+  }
+
+  ASSERT_FALSE(required.empty()) << "nothing above the OrderBy reads anything, so this asserts nothing";
+  for (auto const &read : required) {
     EXPECT_TRUE(std::ranges::contains(order_by->output_symbols_, read))
-        << "the projection reads " << read.name() << ", which the OrderBy below it does not restore";
+        << "the plan above the OrderBy reads " << read.name() << ", which the OrderBy does not restore";
   }
 }
 
