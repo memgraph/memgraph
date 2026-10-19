@@ -20,6 +20,7 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -528,9 +529,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   return std::move(properties);
 }
 
-Result<void> EdgeAccessor::ReadPropertyValues(std::span<PropertyPath const> ordered_properties,
+Result<void> EdgeAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                               std::span<PropertyValue> out, View view) const {
   DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  auto const paths = ordered_properties.paths();
   // Asking for one property at a time answers Null here rather than refusing, so asking for a set
   // of them answers the same. A caller cannot tell the two apart, which is what lets a read move
   // from one to the other.
@@ -549,12 +551,12 @@ Result<void> EdgeAccessor::ReadPropertyValues(std::span<PropertyPath const> orde
     delta = edge_.ptr->delta();
   }
 
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, ordered_properties, out](const Delta &delta) {
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, paths, out](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       Deleted_ActionMethod(deleted),
       Exists_ActionMethod(exists),
-      PropertyValues_ActionMethod(ordered_properties, out)
+      PropertyValues_ActionMethod(paths, out)
     });
     // clang-format on
   });
@@ -576,23 +578,21 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   property_values.reserve(properties.size());
   // Callers ask in whatever order suits them. The answer is keyed by id, so reordering the question
   // does not reorder the answer.
-  auto ordered = std::vector<PropertyId>{properties.begin(), properties.end()};
-  r::sort(ordered);
+  auto const ordered =
+      OrderedPropertyPaths{properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
+                           r::to<std::vector<PropertyPath>>()};
 
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    auto property_paths = ordered | rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                          r::to<std::vector<storage::PropertyPath>>();
-    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(ordered);
     delta = edge_.ptr->delta();
   }
-  auto properties_map =
-      rv::zip(ordered, property_values) | rv::transform([](const auto &property_id_value_pair) {
-        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
-      }) |
-      r::to<std::map<PropertyId, PropertyValue>>();
+  auto properties_map = rv::zip(ordered.paths(), property_values) | rv::transform([](const auto &path_value_pair) {
+                          return std::make_pair(std::get<0>(path_value_pair).back(), std::get<1>(path_value_pair));
+                        }) |
+                        r::to<std::map<PropertyId, PropertyValue>>();
 
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
     switch (delta.action) {

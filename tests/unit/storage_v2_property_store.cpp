@@ -46,10 +46,10 @@ memgraph::storage::NameIdMapper &MapperWithNoNames() {
  * These assertions read better against a returned value, so the buffer is kept here rather than at
  * every call site.
  */
-auto EqualityMask(PropertyStore const &store, std::span<PropertyPath const> paths,
-                  std::span<PropertyValue const> values, std::span<std::size_t const> lookup) -> std::vector<bool> {
+auto EqualityMask(PropertyStore const &store, OrderedPropertyPaths const &paths, std::span<PropertyValue const> values)
+    -> std::vector<bool> {
   std::vector<bool> result;
-  store.ArePropertiesEqual(paths, values, lookup, result);
+  store.ArePropertiesEqual(paths, values, result);
   return result;
 }
 
@@ -1300,12 +1300,14 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
     std::ranges::transform(
         ids_to_read, std::back_inserter(ids), [](auto id) -> PropertyPath { return {PropertyId::FromInt(id)}; });
 
-    auto const read_values = store.ExtractPropertyValuesMissingAsNull(ids);
+    auto const ordered = OrderedPropertyPaths{std::move(ids)};
+    auto const read_values = store.ExtractPropertyValuesMissingAsNull(ordered);
     ASSERT_EQ(ids_to_read.size(), read_values.size());
     for (auto &[prop_id, value] : data) {
-      auto id = std::find(ids.cbegin(), ids.cend(), prop_id);
-      if (id != ids.cend()) {
-        EXPECT_EQ(value, read_values[std::distance(ids.cbegin(), id)]);
+      auto const paths = ordered.paths();
+      auto id = std::ranges::find(paths, PropertyPath{prop_id});
+      if (id != paths.end()) {
+        EXPECT_EQ(value, read_values[std::distance(paths.begin(), id)]);
       }
     }
   };
@@ -1435,7 +1437,7 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
        }) {
     PropertyStore store;
     store.InitProperties(data);
-    EXPECT_EQ(EqualityMask(store, std::array{test.path}, std::array{test.value}, std::array<std::size_t, 1>{0}),
+    EXPECT_EQ(EqualityMask(store, OrderedPropertyPaths{std::vector{test.path}}, std::array{test.value}),
               std::vector{test.result});
   }
 }
@@ -1483,7 +1485,15 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedValues) {
     Test{.paths = {PP{p4}}, .values = {PV{}}, .lookup = {0}, .result = {true}},
            // clang-format on
        }) {
-    EXPECT_EQ(EqualityMask(store, test.paths, test.values, test.lookup), test.result);
+    // Each row names its paths already in the order the store needs, and `lookup` says where each
+    // one's value sits. The order a caller would have supplied to get that is the inverse, so
+    // rebuild it and check the type derives the row's lookup back from it.
+    auto supplied = std::vector<PropertyPath>(test.paths.size());
+    for (auto const [position, path] : ranges::views::enumerate(test.paths)) supplied[test.lookup[position]] = path;
+    auto const ordered = OrderedPropertyPaths{std::move(supplied)};
+
+    EXPECT_THAT(ordered.position_lookup(), ::testing::ElementsAreArray(test.lookup));
+    EXPECT_EQ(EqualityMask(store, ordered, test.values), test.result);
   }
 }
 
@@ -1506,9 +1516,8 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
   store.InitProperties(data);
 
   EXPECT_EQ(EqualityMask(store,
-                         std::array{PropertyPath{p1, p2}, PropertyPath{p1, p5}},
-                         std::array{map_prop_value_1, map_prop_value_2},
-                         std::array<std::size_t, 2>{0, 1}),
+                         OrderedPropertyPaths{std::vector{PropertyPath{p1, p2}, PropertyPath{p1, p5}}},
+                         std::array{map_prop_value_1, map_prop_value_2}),
             (std::vector{true, true}));
 }
 
@@ -1665,7 +1674,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWi
   PropertyStore store;
 
   EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
-                std::vector{PropertyPath{p1}, PropertyPath{p2, p3}, PropertyPath{p4, p5, p6}}),
+                OrderedPropertyPaths{std::vector{PropertyPath{p1}, PropertyPath{p2, p3}, PropertyPath{p4, p5, p6}}}),
             (std::vector{
                 PropertyValue(),
                 PropertyValue(),
@@ -1688,8 +1697,8 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSame
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
-                std::vector{PropertyPath{p1, p2, p3}, PropertyPath{p1, p2, p4}, PropertyPath{p1, p5}}),
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{
+                std::vector{PropertyPath{p1, p2, p3}, PropertyPath{p1, p2, p4}, PropertyPath{p1, p5}}}),
             (std::vector{
                 PropertyValue("apple"),
                 PropertyValue("banana"),
@@ -1730,7 +1739,7 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_DoesNotReadPropertiesFrom
   };
 
   for (auto &&[paths, values] : tests) {
-    EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(paths), values);
+    EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{paths}), values);
   }
 }
 
