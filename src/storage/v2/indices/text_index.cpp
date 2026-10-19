@@ -96,19 +96,31 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       {.index_name = index_info.index_name, .label = index_info.label, .properties = index_info.properties});
 
   auto &index_data = *index_->at(index_info.index_name);
+  // Every vertex is read for the same properties, so the order they must be asked for is settled
+  // once here, and the slots they are read into are reused rather than allocated per vertex.
+  auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_info.properties);
+  auto values = std::vector<PropertyValue>(ordered.size());
+
   for (const auto &v : vertices) {
     // Reported per vertex examined, not per vertex indexed: a long run of non-matching vertices is still progress.
     if (on_progress) on_progress();
     if (!v.HasLabel(index_info.label, View::NEW).value()) {
       continue;
     }
-    // If properties are specified, we serialize only those properties; otherwise, all properties of the vertex.
-    auto vertex_properties = index_info.properties.empty()
-                                 ? v.Properties(View::NEW).value()
-                                 : v.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
+    if (index_info.properties.empty()) {
+      // Naming no properties means indexing every property the vertex carries.
+      auto const vertex_properties = v.Properties(View::NEW).value();
+      TextIndex::AddNodeToTextIndex(v.Gid().AsInt(),
+                                    SerializeProperties(vertex_properties, name_id_mapper),
+                                    StringifyProperties(vertex_properties),
+                                    index_data.context);
+      continue;
+    }
+    // Throws if the vertex cannot be read, as reading its properties one set at a time did.
+    v.ReadPropertyValues(ordered, values, View::NEW).value();
     TextIndex::AddNodeToTextIndex(v.Gid().AsInt(),
-                                  SerializeProperties(vertex_properties, name_id_mapper),
-                                  StringifyProperties(vertex_properties),
+                                  SerializeProperties(ordered.paths(), values, name_id_mapper),
+                                  StringifyProperties(values),
                                   index_data.context);
   }
   try {
@@ -139,16 +151,33 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
 
   if (needs_rebuild) {
     auto &context = index_->at(index_info.index_name)->context;
+    auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_info.properties);
+    auto values = std::vector<PropertyValue>(ordered.size());
+
     for (const auto &vertex : vertices) {
       if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
 
-      auto properties_to_index = FilterPropertiesToIndex(index_info.properties, vertex.properties.ExtractPropertyIds());
-      if (properties_to_index.empty()) continue;
+      if (index_info.properties.empty()) {
+        // Naming no properties means indexing every property the vertex carries.
+        auto const vertex_properties = vertex.properties.Properties();
+        if (vertex_properties.empty()) continue;
+        TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
+                                      SerializeProperties(vertex_properties, name_id_mapper),
+                                      StringifyProperties(vertex_properties),
+                                      context);
+        continue;
+      }
 
-      auto properties_to_index_map = ExtractProperties(vertex.properties, properties_to_index);
+      vertex.properties.ExtractPropertyValuesMissingAsNull(ordered, values);
+      // A vertex carrying none of the named properties has nothing to put in the index. Setting a
+      // property to Null removes it, so a Null here means the vertex does not carry it.
+      // Nothing readable means an empty document, which is dropped when it is added. Skipping here
+      // just avoids building one.
+      if (std::ranges::all_of(values, [](PropertyValue const &value) { return value.IsNull(); })) continue;
+
       TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
-                                    SerializeProperties(properties_to_index_map, name_id_mapper),
-                                    StringifyProperties(properties_to_index_map),
+                                    SerializeProperties(ordered.paths(), values, name_id_mapper),
+                                    StringifyProperties(values),
                                     context);
     }
 
@@ -420,13 +449,23 @@ void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper
 
     std::vector<PreparedDoc> docs_to_add;
     docs_to_add.reserve(pending.to_add.size());
+    // Every vertex here belongs to the same index, so it is read for the same properties.
+    auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_data_ptr->properties);
+    auto values = std::vector<PropertyValue>(ordered.size());
+
     for (const auto *vertex : pending.to_add) {
-      auto vertex_properties = index_data_ptr->properties.empty()
-                                   ? vertex->properties.Properties()
-                                   : ExtractProperties(vertex->properties, index_data_ptr->properties);
+      if (index_data_ptr->properties.empty()) {
+        // Naming no properties means indexing every property the vertex carries.
+        auto const vertex_properties = vertex->properties.Properties();
+        docs_to_add.push_back({vertex->gid.AsInt(),
+                               SerializeProperties(vertex_properties, name_id_mapper),
+                               StringifyProperties(vertex_properties)});
+        continue;
+      }
+      vertex->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
       docs_to_add.push_back({vertex->gid.AsInt(),
-                             SerializeProperties(vertex_properties, name_id_mapper),
-                             StringifyProperties(vertex_properties)});
+                             SerializeProperties(ordered.paths(), values, name_id_mapper),
+                             StringifyProperties(values)});
     }
 
     const std::lock_guard lock(index_data_ptr->write_mutex);
