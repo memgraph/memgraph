@@ -1701,6 +1701,45 @@ TYPED_TEST(QueryPlanTest, CachePropertiesOneGroupWithoutARecordLeavesTheOthers) 
   EXPECT_EQ(results[0][2].ValueInt(), 9);
 }
 
+// A plan is cloned before it is run, so whatever establishes the order a record must be read in has
+// to survive being copied. The group here names its properties against the order their ids sort, so
+// a clone that lost the order would read Null for the one it had already passed.
+TYPED_TEST(QueryPlanTest, CachePropertiesKeepsItsReadOrderThroughAClone) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  // Interned in this order, so "zebra" holds the lower id while being named second below.
+  auto prop_zebra = dba.NameToProperty("zebra");
+  auto prop_apple = dba.NameToProperty("apple");
+  ASSERT_LT(prop_zebra.AsUint(), prop_apple.AsUint());
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_zebra, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_apple, memgraph::storage::PropertyValue(2)).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_apple = symbol_table.CreateSymbol("n_apple", true);
+  auto n_zebra = symbol_table.CreateSymbol("n_zebra", true);
+
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, std::vector<CachedPropertyGroup>{{n.sym_, {{prop_apple, n_apple}, {prop_zebra, n_zebra}}}});
+
+  auto cloned = std::shared_ptr<LogicalOperator>{cache->Clone(&this->storage)};
+  auto produce =
+      MakeProduce(cloned,
+                  NEXPR("apple", IDENT("n_apple")->MapTo(n_apple))->MapTo(symbol_table.CreateSymbol("apple", true)),
+                  NEXPR("zebra", IDENT("n_zebra")->MapTo(n_zebra))->MapTo(symbol_table.CreateSymbol("zebra", true)));
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 2);
+  EXPECT_EQ(results[0][1].ValueInt(), 1);
+}
+
 TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
