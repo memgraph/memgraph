@@ -27,6 +27,8 @@
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+// The delta action methods a read composes are entity-agnostic despite where they live.
+#include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -524,6 +526,42 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
+}
+
+Result<void> EdgeAccessor::ReadPropertyValues(std::span<PropertyPath const> ordered_properties,
+                                              std::span<PropertyValue> out, View view) const {
+  DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  // Asking for one property at a time answers Null here rather than refusing, so asking for a set
+  // of them answers the same. A caller cannot tell the two apart, which is what lets a read move
+  // from one to the other.
+  if (!storage_->config_.salient.items.properties_on_edges) {
+    std::ranges::fill(out, PropertyValue{});
+    return {};
+  }
+
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge_.ptr->lock};
+    deleted = edge_.ptr->deleted();
+    edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
+    delta = edge_.ptr->delta();
+  }
+
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, ordered_properties, out](const Delta &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Deleted_ActionMethod(deleted),
+      Exists_ActionMethod(exists),
+      PropertyValues_ActionMethod(ordered_properties, out)
+    });
+    // clang-format on
+  });
+
+  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return {};
 }
 
 std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {

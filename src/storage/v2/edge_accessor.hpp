@@ -92,6 +92,18 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
+  /// Reads a fixed set of properties into `out`, one slot per property, in a single pass over the
+  /// record. A property the edge does not carry reads as Null rather than being left out, so the
+  /// caller's slots line up with `ordered_properties` whatever the edge holds.
+  ///
+  /// `ordered_properties` has to be in the order the record holds its properties, which is the order
+  /// their ids sort. A caller that keeps a buffer between rows reads a row without allocating.
+  ///
+  /// Configured without properties on edges, every slot reads Null, which is what asking for one at
+  /// a time answers.
+  Result<void> ReadPropertyValues(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue> out,
+                                  View view) const;
+
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;
 
