@@ -570,68 +570,6 @@ std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {
   return transaction_->active_indices_->vector_edge_->IndexedProperties(edge_type_);
 }
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyIds(
-    std::span<PropertyId const> properties, View view) const {
-  bool exists = true;
-  bool deleted = false;
-  std::vector<PropertyValue> property_values;
-  property_values.reserve(properties.size());
-  // Callers ask in whatever order suits them. The answer is keyed by id, so reordering the question
-  // does not reorder the answer.
-  auto const ordered =
-      OrderedPropertyPaths{properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
-                           r::to<std::vector<PropertyPath>>()};
-
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted();
-    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(ordered);
-    delta = edge_.ptr->delta();
-  }
-  auto properties_map = rv::zip(ordered.paths(), property_values) | rv::transform([](const auto &path_value_pair) {
-                          return std::make_pair(std::get<0>(path_value_pair).back(), std::get<1>(path_value_pair));
-                        }) |
-                        r::to<std::map<PropertyId, PropertyValue>>();
-
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::SET_PROPERTY: {
-        auto it = properties_map.find(delta.property.key);
-        if (it != properties_map.end()) {
-          if (delta.property.value->IsNull()) {
-            properties_map.erase(it);
-          } else {
-            it->second = *delta.property.value;
-          }
-        } else if (!delta.property.value->IsNull()) {
-          properties_map.emplace(delta.property.key, *delta.property.value);
-        }
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        exists = false;
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        deleted = false;
-        break;
-      }
-      case Delta::Action::ADD_LABEL:
-      case Delta::Action::REMOVE_LABEL:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-  });
-  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
-  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
-  return properties_map;
-}
-
 Gid EdgeAccessor::Gid() const noexcept {
   if (storage_->config_.salient.items.properties_on_edges) {
     return edge_.ptr->gid;

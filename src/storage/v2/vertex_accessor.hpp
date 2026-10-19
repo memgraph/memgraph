@@ -103,10 +103,6 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
-                                                                      View view) const;
-
   /// Reads a fixed set of properties into `out`, one slot per property, in a single pass over the
   /// record. A property the vertex does not carry reads as Null rather than being left out, so the
   /// caller's slots line up with `ordered_properties` whatever the vertex holds.

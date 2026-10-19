@@ -39,6 +39,9 @@ class OrderedPropertyPaths {
   explicit OrderedPropertyPaths(std::span<PropertyPath const> paths)
       : OrderedPropertyPaths{std::vector<PropertyPath>{paths.begin(), paths.end()}} {}
 
+  /// Each id as a path of its own, for callers naming properties rather than paths into them.
+  static auto FromPropertyIds(std::span<PropertyId const> properties) -> OrderedPropertyPaths;
+
   /// The paths in the order a `PropertyStore` must be asked for them.
   auto paths() const -> std::span<PropertyPath const> { return sorted_; }
 
