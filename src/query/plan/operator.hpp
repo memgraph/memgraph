@@ -1310,6 +1310,13 @@ struct CachedProperty {
   Symbol output_symbol;
 };
 
+/// The properties to read of one symbol. Each group is one record, so each is its own pass; what
+/// they share is the pull that found them and the buffer their values are read into.
+struct CachedPropertyGroup {
+  Symbol input_symbol;
+  std::vector<CachedProperty> properties;
+};
+
 /// Reads several properties of a single vertex-bound symbol in one pass over
 /// the record, writing each value into its own frame slot.
 ///
@@ -1330,6 +1337,8 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
   CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                   std::vector<CachedProperty> cached_properties);
 
+  CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups);
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -1342,8 +1351,7 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = std::move(input); }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  Symbol input_symbol_;
-  std::vector<CachedProperty> cached_properties_;
+  std::vector<CachedPropertyGroup> groups_;
 
   std::string ToString(const DbAccessor *dba) const override;
 
@@ -1358,15 +1366,22 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
+    /// One group's properties arranged the way the read wants them, worked out once.
+    struct GroupRead {
+      /// In the order the record holds them, which is not the order the group gave them.
+      std::vector<storage::PropertyPath> paths;
+      /// Which of the group's properties each of those feeds.
+      std::vector<uint32_t> cached_of_slot;
+      /// Where this group's values begin in the row's one buffer.
+      std::size_t values_begin;
+    };
+
     const CacheProperties &self_;
     const UniqueCursorPtr input_cursor_;
-    // The read wants its properties in the order the record holds them, and its values written into
-    // slots the caller owns. Both are held here so that reading a row allocates nothing.
-    std::vector<storage::PropertyPath> property_paths_;
+    std::vector<GroupRead> reads_;
+    /// Every group's values, end to end, so that reading a row allocates nothing whatever the row
+    /// is made of.
     std::vector<storage::PropertyValue> values_;
-    // Which cached property each slot feeds, since the order the read wants is not the order they
-    // were given in.
-    std::vector<uint32_t> cached_of_slot_;
   };
 };
 

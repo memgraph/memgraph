@@ -1602,6 +1602,105 @@ TYPED_TEST(QueryPlanTest, CachePropertiesReadsAnEdgesProperties) {
   EXPECT_EQ(results[0][1].ValueString(), "eleven");
 }
 
+// Lookups spread over two symbols are two records, so they are two reads whatever the plan looks
+// like. One operator holding both keeps that to one pull and one buffer for the row.
+TYPED_TEST(QueryPlanTest, CachePropertiesReadsTwoSymbolsInOneOperator) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_b = dba.NameToProperty("b");
+
+  auto from = dba.InsertVertex();
+  ASSERT_TRUE(from.SetProperty(prop_a, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(from.SetProperty(prop_b, memgraph::storage::PropertyValue(2)).has_value());
+  auto to = dba.InsertVertex();
+  ASSERT_TRUE(to.SetProperty(prop_a, memgraph::storage::PropertyValue(3)).has_value());
+  ASSERT_TRUE(to.SetProperty(prop_b, memgraph::storage::PropertyValue(4)).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&from, &to, dba.NameToEdgeType("et")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        n.op_,
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::OUT,
+                        {},
+                        "m",
+                        false,
+                        memgraph::storage::View::OLD);
+
+  auto n_a = symbol_table.CreateSymbol("n_a", true);
+  auto n_b = symbol_table.CreateSymbol("n_b", true);
+  auto m_a = symbol_table.CreateSymbol("m_a", true);
+  auto m_b = symbol_table.CreateSymbol("m_b", true);
+
+  auto cache = std::make_shared<CacheProperties>(r_m.op_,
+                                                 std::vector<CachedPropertyGroup>{
+                                                     {n.sym_, {{prop_a, n_a}, {prop_b, n_b}}},
+                                                     {r_m.node_sym_, {{prop_a, m_a}, {prop_b, m_b}}},
+                                                 });
+
+  auto produce = MakeProduce(cache,
+                             NEXPR("na", IDENT("n_a")->MapTo(n_a))->MapTo(symbol_table.CreateSymbol("na", true)),
+                             NEXPR("nb", IDENT("n_b")->MapTo(n_b))->MapTo(symbol_table.CreateSymbol("nb", true)),
+                             NEXPR("ma", IDENT("m_a")->MapTo(m_a))->MapTo(symbol_table.CreateSymbol("ma", true)),
+                             NEXPR("mb", IDENT("m_b")->MapTo(m_b))->MapTo(symbol_table.CreateSymbol("mb", true)));
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 4);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[0][1].ValueInt(), 2);
+  EXPECT_EQ(results[0][2].ValueInt(), 3);
+  EXPECT_EQ(results[0][3].ValueInt(), 4);
+}
+
+// A row where one symbol found nothing says nothing about the others, so a group that cannot be
+// read nulls its own slots and the rest of the row is read as it would have been.
+TYPED_TEST(QueryPlanTest, CachePropertiesOneGroupWithoutARecordLeavesTheOthers) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_b = dba.NameToProperty("b");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.SetProperty(prop_a, memgraph::storage::PropertyValue(8)).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_b, memgraph::storage::PropertyValue(9)).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  // Stands in for an OPTIONAL MATCH that found nothing: the symbol is bound to Null.
+  auto missing = MakeUnwind(symbol_table, "x", n.op_, LIST(LITERAL(TypedValue())));
+
+  auto x_a = symbol_table.CreateSymbol("x_a", true);
+  auto n_a = symbol_table.CreateSymbol("n_a", true);
+  auto n_b = symbol_table.CreateSymbol("n_b", true);
+
+  auto cache = std::make_shared<CacheProperties>(missing.op_,
+                                                 std::vector<CachedPropertyGroup>{
+                                                     {missing.sym_, {{prop_a, x_a}}},
+                                                     {n.sym_, {{prop_a, n_a}, {prop_b, n_b}}},
+                                                 });
+
+  auto produce = MakeProduce(cache,
+                             NEXPR("xa", IDENT("x_a")->MapTo(x_a))->MapTo(symbol_table.CreateSymbol("xa", true)),
+                             NEXPR("na", IDENT("n_a")->MapTo(n_a))->MapTo(symbol_table.CreateSymbol("na", true)),
+                             NEXPR("nb", IDENT("n_b")->MapTo(n_b))->MapTo(symbol_table.CreateSymbol("nb", true)));
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 3);
+  EXPECT_TRUE(results[0][0].IsNull());
+  EXPECT_EQ(results[0][1].ValueInt(), 8);
+  EXPECT_EQ(results[0][2].ValueInt(), 9);
+}
+
 TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
