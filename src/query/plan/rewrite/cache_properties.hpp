@@ -254,8 +254,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
         cached_properties.push_back(CachedProperty{db_->NameToProperty(property_name), output_symbol});
       }
       cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_name));
-      groups.push_back(
-          CachedPropertyGroup{.input_symbol = candidate.symbol, .properties = std::move(cached_properties)});
+      groups.emplace_back(candidate.symbol, std::move(cached_properties));
     }
 
     if (groups.empty()) return true;
