@@ -4092,6 +4092,8 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   return sum;
 }
 
+constexpr std::string_view kKShortestTotalOverflow = "The total weight of a KSHORTEST path overflows a 64-bit integer.";
+
 /// A served path's total, added weight by weight in path order. An Int sum that overflows is an error, and
 /// unlike `AddCost` nothing is promoted or held up: the total is the plain left-to-right sum.
 TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
@@ -4100,11 +4102,36 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsInt() && rhs.IsInt()) {
     int64_t sum{};
     if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
-      throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
+      throw QueryRuntimeException("{}", kKShortestTotalOverflow);
     }
     return TypedValue(sum);
   }
   return lhs + rhs;
+}
+
+/// The served total of `hops` arcs that all weigh `weight`, as one checked multiply. It raises the
+/// error that adding the weight once per hop would raise.
+TypedValue ConstantPathCost(const TypedValue &weight, size_t hops, utils::MemoryResource *memory) {
+  const auto count = static_cast<int64_t>(hops);
+  if (weight.IsDouble()) return TypedValue(weight.ValueDouble() * static_cast<double>(count), memory);
+  int64_t product{};
+  if (weight.IsInt()) {
+    if (__builtin_mul_overflow(weight.ValueInt(), count, &product)) {
+      throw QueryRuntimeException("{}", kKShortestTotalOverflow);
+    }
+    return TypedValue(product, memory);
+  }
+  if (__builtin_mul_overflow(weight.ValueDuration().microseconds, count, &product)) {
+    throw utils::BasicException("Duration arithmetic overflows");
+  }
+  return TypedValue(utils::Duration(product), memory);
+}
+
+/// A weight body that is a literal or a parameter is one value for the whole row, so it orders paths
+/// exactly as hop count does. In the server every literal but `null` arrives as a parameter.
+bool IsConstantWeight(const ExpansionLambda &weight_lambda) {
+  return utils::Downcast<PrimitiveLiteral>(weight_lambda.expression) != nullptr ||
+         utils::Downcast<ParameterLookup>(weight_lambda.expression) != nullptr;
 }
 
 /// Hop count is the cost: today's `PathInfo` and today's bidirectional BFS, with no per-path payload.
@@ -4240,6 +4267,7 @@ class KShortestPathsCursor : public Cursor {
       // Legally empty, as in BFS. Not just a shortcut: `advance_to_servable` would otherwise enumerate
       // every simple path and still serve nothing.
       if (lower_bound_ > upper_bound_) continue;
+      if constexpr (!Cost::kWeighted) EvaluateConstantWeight(evaluator);
 
       // Initialize for this new source-target pair
       current_source_ = source_vertex;
@@ -4376,6 +4404,8 @@ class KShortestPathsCursor : public Cursor {
   // checked outside, so a verdict holds across Yen's inner searches.
   utils::pmr::unordered_map<ExpansionKey, typename Cost::Verdict, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
+  // Hop-count mode under a constant weight lambda: the query's constant, once the first searched row read it.
+  std::optional<TypedValue> constant_weight_;
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -4618,6 +4648,20 @@ class KShortestPathsCursor : public Cursor {
   bool ArcAllowed(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame, ExpressionEvaluator &evaluator,
                   ExecutionContext &context) {
     return EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context);
+  }
+
+  /// A constant weight is one value for the whole query, so it is read and checked once, at the first
+  /// row that reaches the search, edge or no edge. The weighted search checks each arc it weighs
+  /// instead, so on a row with no path it can give no row where this raises. Without a declared total
+  /// nothing is summed, so a constant whose sum would overflow is not refused; the order is hop count
+  /// either way.
+  void EvaluateConstantWeight(ExpressionEvaluator &evaluator)
+    requires(!Cost::kWeighted)
+  {
+    if (!self_.weight_lambda_ || constant_weight_) return;
+    auto weight = self_.weight_lambda_->expression->Accept(evaluator);
+    ValidateKShortestWeight(weight);
+    constant_weight_.emplace(std::move(weight));
   }
 
   /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
@@ -4999,6 +5043,9 @@ class KShortestPathsCursor : public Cursor {
     } else {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+      if (constant_weight_ && self_.total_weight_ && self_.total_weight_->user_declared()) {
+        frame_writer.Write(*self_.total_weight_, ConstantPathCost(*constant_weight_, path.edges.size(), memory));
+      }
     }
   }
 
@@ -5106,7 +5153,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::KSHORTEST: {
-      if (weight_lambda_) {
+      if (weight_lambda_ && !IsConstantWeight(*weight_lambda_)) {
         return MakeUniqueCursorPtr<KShortestPathsCursor<KShortestWeightCost>>(mem, *this, mem, metric_handles);
       }
       return MakeUniqueCursorPtr<KShortestPathsCursor<KShortestHopCost>>(mem, *this, mem, metric_handles);
