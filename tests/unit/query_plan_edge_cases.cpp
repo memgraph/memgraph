@@ -310,7 +310,7 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
     }                                                                                                        \
     {                                                                                                        \
-      /* Lookups spread over two symbols are out of scope for the rewrite. */                                \
+      /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */              \
       auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");           \
       ASSERT_EQ(results.size(), 4);                                                                          \
       EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
@@ -376,6 +376,53 @@ TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlanForARelationship) {
     CachePropertiesFlagGuard guard{true};
     EXPECT_NE(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS c, r.b AS d").find("CacheProperties"),
               std::string::npos);
+  }
+}
+
+TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
+  // Two symbols are two records and so two reads whichever way the plan is built. Gathering them
+  // into one operator keeps that to one pull per row, and a symbol with only one lookup of its own
+  // is left alone, since one pass for one property is what a lookup already does.
+  CachePropertiesFlagGuard guard{true};
+  using BoltValue = memgraph::communication::bolt::Value;
+
+  this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'})");
+
+  auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.a AS na, n.b AS nb, m.a AS ma, m.b AS mb");
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[0][1].ValueString(), "x");
+  EXPECT_EQ(results[0][2].ValueInt(), 1);
+  EXPECT_EQ(results[0][3].ValueString(), "x");
+
+  // The second symbol carries one lookup, so only the first is worth a pass of its own.
+  auto mixed = this->Execute("MATCH (n:P), (m:P) RETURN n.a AS p, n.b AS q, m.id AS r");
+  ASSERT_EQ(mixed.size(), 1);
+  EXPECT_EQ(mixed[0][0].ValueInt(), 1);
+  EXPECT_EQ(mixed[0][1].ValueString(), "x");
+  EXPECT_EQ(mixed[0][2].ValueInt(), 1);
+}
+
+TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbolsInTheRealPlan) {
+  // Guards the test above from passing because the rewrite never fired.
+  auto explained = [this](const std::string &query) {
+    auto results = this->Execute(query);
+    std::string joined;
+    for (const auto &row : results) joined += row[0].ValueString();
+    return joined;
+  };
+
+  {
+    CachePropertiesFlagGuard guard{false};
+    EXPECT_EQ(
+        explained("EXPLAIN MATCH (n:P), (m:P) RETURN n.a AS a, n.b AS b, m.a AS c, m.b AS d").find("CacheProperties"),
+        std::string::npos);
+  }
+  {
+    CachePropertiesFlagGuard guard{true};
+    EXPECT_NE(
+        explained("EXPLAIN MATCH (n:P), (m:P) RETURN n.a AS e, n.b AS f, m.a AS g, m.b AS h").find("CacheProperties"),
+        std::string::npos);
   }
 }
 
