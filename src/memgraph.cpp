@@ -28,6 +28,7 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
+#include "auth/system_user.hpp"
 #include "communication/cluster_tls.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
@@ -785,6 +786,25 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   auth_glue(auth_.get(), auth_handler, auth_checker);
+
+  // After FIPS mode is set up, which the hash file has to agree with, and before any server accepts a session.
+  // Fail closed: a configured system user that can't be loaded would leave whatever manages the cluster locked out.
+  if (!FLAGS_system_user_internal_hash_file.empty()) {
+    try {
+      memgraph::auth::SetInternalSystemUser(
+          memgraph::auth::LoadInternalSystemUserHash(FLAGS_system_user_internal_hash_file));
+    } catch (memgraph::auth::AuthException const &e) {
+      spdlog::error("{} Shutting down Memgraph.", e.what());
+      return EXIT_FAILURE;
+    }
+    if (auth_->ReadLock()->GetUser(std::string{memgraph::auth::kInternalSystemUsername})) {
+      spdlog::warn(
+          "A user named {} exists in the auth store; logins with that name now authenticate as the internal system "
+          "user. Drop the stored user to remove the ambiguity.",
+          memgraph::auth::kInternalSystemUsername);
+    }
+    spdlog::info("Internal system user {} is enabled.", memgraph::auth::kInternalSystemUsername);
+  }
 
 #ifdef MG_ENTERPRISE
   if (FLAGS_fips_mode) {

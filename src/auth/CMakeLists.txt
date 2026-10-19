@@ -8,6 +8,7 @@ target_sources(mg-auth PRIVATE
     replication_action.cpp
     rpc.cpp
     rules.cpp
+    system_user.cpp
     profiles/user_profiles.cpp
 )
 

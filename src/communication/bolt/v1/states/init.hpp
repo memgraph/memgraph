@@ -196,6 +196,25 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     // covering a fresh boot with mappings and no roles, and dropping the last writable role on a live cluster. A
     // transient leader outage leaves the role set unknown; that case is fail-closed (passthrough denied), matching the
     // SSO path, since it is temporary and SSO is unavailable then too.
+    //
+    // Ahead of all of that, a basic login as the internal system user (--system-user-internal-hash-file) is decided on
+    // its password alone: accepted with full coordinator privileges whether or not SSO is configured, and rejected
+    // outright on a wrong password -- passthrough would otherwise admit it with any credentials.
+    if (schema == "basic") {
+      auto const principal_it = data.find("principal");
+      auto const credentials_it = data.find("credentials");
+      if (principal_it != data.end() && principal_it->second.IsString() && credentials_it != data.end() &&
+          credentials_it->second.IsString()) {
+        if (auto const internal = session.CoordinatorInternalSystemUserAuthenticate(
+                principal_it->second.ValueString(), credentials_it->second.ValueString())) {
+          if (!*internal) {
+            HandleAuthFailure(session);
+            return State::Close;
+          }
+          return std::nullopt;
+        }
+      }
+    }
     if (scheme_in_module_mappings(schema)) {
       return CoordinatorSSOAuthentication(session, data);
     }

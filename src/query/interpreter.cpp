@@ -46,6 +46,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/system_user.hpp"
 #include "communication/cluster_tls.hpp"
 #include "communication/v2/session_registry.hpp"
 #include "coordination/constants.hpp"
@@ -697,6 +698,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void CreateRole(std::string_view const role_name, bool const if_not_exists) override {
+    if (auth::IsInternalSystemUsername(role_name)) {
+      throw QueryRuntimeException("The name '{}' is reserved for the internal system user.", role_name);
+    }
     switch (coordinator_handler_.CreateRole(role_name)) {
       case coordination::CreateRoleStatus::SUCCESS:
         break;
@@ -1648,8 +1652,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.header = {"user"};
       callback.fn = [&interpreter] {
         const auto &username = interpreter.user_or_role_->username();
+        if (username.has_value()) return std::vector<std::vector<TypedValue>>{{TypedValue(username.value())}};
+        // The internal system user's principal carries no username (so fine-grained access control never applies to
+        // it); its name is the one recorded at login. Every other unnamed session recorded an empty one.
+        auto const &session_username = interpreter.session_info_.username;
         return std::vector<std::vector<TypedValue>>{
-            {username.has_value() ? TypedValue(username.value()) : TypedValue()}};
+            {session_username.empty() ? TypedValue() : TypedValue(session_username)}};
       };
       return callback;
     case AuthQuery::Action::SHOW_CURRENT_ROLE:

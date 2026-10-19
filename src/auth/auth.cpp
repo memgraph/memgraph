@@ -19,6 +19,7 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/replication_action.hpp"
 #include "auth/rules.hpp"
+#include "auth/system_user.hpp"
 #include "flags/auth.hpp"
 #include "license/license.hpp"
 #include "system/action.hpp"
@@ -412,6 +413,12 @@ std::optional<auth::SSOIdentity> ExtractSSOIdentity(const std::string &scheme, c
     }
     return {};
   });
+  if (IsInternalSystemUsername(username)) {
+    spdlog::warn("Coordinator SSO login failed for scheme '{}': the name {} is reserved for the internal system user.",
+                 scheme,
+                 username);
+    return std::nullopt;
+  }
   if (username.empty()) {
     spdlog::warn(utils::MessageWithLink(
         "The coordinator SSO module returned no username; queries from this session will be recorded without a "
@@ -507,6 +514,14 @@ std::optional<UserOrRole> Auth::ResolveModuleResponse(const nlohmann::json &ret,
     spdlog::warn(utils::MessageWithLink(
         "Couldn't authenticate external user because the username was not returned by the auth module.",
         "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+
+  // An auth module (LDAP, SSO) can't hand out the internal system user's name: that identity is only ever proven by its
+  // hash file.
+  if (IsInternalSystemUsername(*username)) {
+    spdlog::warn("Couldn't authenticate external user because the name {} is reserved for the internal system user.",
+                 *username);
     return std::nullopt;
   }
 
@@ -646,6 +661,9 @@ std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std:
 
 void Auth::ValidateName(const std::string &name) const {
   if (!NameRegexMatch(name)) throw AuthException("Invalid user name.");
+  if (IsInternalSystemUsername(name)) {
+    throw AuthException("The name '{}' is reserved for the internal system user.", name);
+  }
 }
 
 std::optional<User> Auth::AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
@@ -898,6 +916,9 @@ void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
 std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transaction *system_tx) {
   if (!NameRegexMatch(rolename)) {
     throw AuthException("Invalid role name.");
+  }
+  if (IsInternalSystemUsername(rolename)) {
+    throw AuthException("The name '{}' is reserved for the internal system user.", rolename);
   }
   if (GetRole(rolename)) return std::nullopt;
   auto new_role = Role(rolename);

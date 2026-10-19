@@ -239,6 +239,14 @@ startup_config_dict = {
         "Controls whether .old dir will be used to store latest snapshot and WAL files.",
     ),
     "strict_flag_check": ("true", "true", "If true, error and exit when suspicious positional arguments are detected."),
+    "system_user_internal_hash_file": (
+        "",
+        "",
+        'Path to a file holding the bcrypt hash ("bcrypt:$2a$...") of the memgraph_internal system user, the identity '
+        "cluster automation such as the Kubernetes operator logs in with. The user is accepted on data instances and "
+        "coordinators whether or not other users or SSO are configured, and can't be created, changed or dropped with "
+        "queries. Empty (the default) means the user doesn't exist.",
+    ),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_omit_vector_index_properties_on_return": (
