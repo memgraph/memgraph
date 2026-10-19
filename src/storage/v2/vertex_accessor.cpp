@@ -838,67 +838,6 @@ std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelI
   return transaction_->active_indices_->vector_->IndexedProperties(labels);
 }
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
-    std::span<PropertyId const> properties, View view) const {
-  bool exists = true;
-  bool deleted = false;
-  std::vector<PropertyValue> property_values;
-  property_values.reserve(properties.size());
-  // Callers ask in whatever order suits them. The answer is keyed by id, so reordering the question
-  // does not reorder the answer.
-  auto const ordered =
-      OrderedPropertyPaths{properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
-                           r::to<std::vector<PropertyPath>>()};
-
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted();
-    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(ordered);
-    delta = vertex_->delta();
-  }
-  auto properties_map = rv::zip(ordered.paths(), property_values) | rv::transform([](const auto &path_value_pair) {
-                          return std::make_pair(std::get<0>(path_value_pair).back(), std::get<1>(path_value_pair));
-                        }) |
-                        r::to<std::map<PropertyId, PropertyValue>>();
-
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->UseCache();
-    if (useCache) {
-      auto const &cache = transaction_->manyDeltasCache;
-      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
-      // Note: We don't have specific cache for properties by IDs, so we skip caching for now
-    }
-
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            Properties_ActionMethod(properties_map)
-          });
-          // clang-format on
-        });
-
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
-      auto &cache = transaction_->manyDeltasCache;
-      cache.StoreExists(view, vertex_, exists);
-      cache.StoreDeleted(view, vertex_, deleted);
-      // Note: We don't cache this specific subset of properties for now
-    }
-  }
-
-  if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
-  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
-  return std::move(properties_map);
-}
-
 Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                                 std::span<PropertyValue> out, View view) const {
   DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");

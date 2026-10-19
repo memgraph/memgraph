@@ -3347,6 +3347,17 @@ TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
   EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
 }
 
+// Values come back in the order the read needed, which is not the order they were named in, so each
+// one is found through the paths rather than by the position it was asked at.
+auto ValueOf(memgraph::storage::OrderedPropertyPaths const &ordered,
+             std::span<memgraph::storage::PropertyValue const> values, memgraph::storage::PropertyId property)
+    -> memgraph::storage::PropertyValue const & {
+  auto const paths = ordered.paths();
+  auto const it = std::ranges::find(paths, memgraph::storage::PropertyPath{property});
+  MG_ASSERT(it != paths.end(), "The property was not among those read");
+  return values[std::distance(paths.begin(), it)];
+}
+
 // Reading a set of properties walks the record once, forward, so it can only find a property it has
 // not already passed. The order the caller asks in is its own business: it may group them however
 // suits it, and nothing about a property id tells a caller where the record keeps it. So the read
@@ -3365,11 +3376,12 @@ TEST(StorageV2PropertySet, AVertexAnswersPropertiesAskedForInAnyOrder) {
   ASSERT_TRUE(v.SetProperty(apple, memgraph::storage::PropertyValue(2)).has_value());
 
   auto const descending = std::array{apple, zebra};
-  auto const got = v.PropertiesByPropertyIds(descending, memgraph::storage::View::NEW);
-  ASSERT_TRUE(got.has_value());
-  ASSERT_EQ(got->size(), 2);
-  EXPECT_EQ(got->at(zebra).ValueInt(), 1);
-  EXPECT_EQ(got->at(apple).ValueInt(), 2);
+  auto const ordered = memgraph::storage::OrderedPropertyPaths::FromPropertyIds(descending);
+  auto values = std::vector<memgraph::storage::PropertyValue>(ordered.size());
+  ASSERT_TRUE(v.ReadPropertyValues(ordered, values, memgraph::storage::View::NEW).has_value());
+
+  EXPECT_EQ(ValueOf(ordered, values, zebra).ValueInt(), 1);
+  EXPECT_EQ(ValueOf(ordered, values, apple).ValueInt(), 2);
 }
 
 TEST(StorageV2PropertySet, AnEdgeAnswersPropertiesAskedForInAnyOrder) {
@@ -3388,9 +3400,10 @@ TEST(StorageV2PropertySet, AnEdgeAnswersPropertiesAskedForInAnyOrder) {
   ASSERT_TRUE(edge.SetProperty(apple, memgraph::storage::PropertyValue(2)).has_value());
 
   auto const descending = std::array{apple, zebra};
-  auto const got = edge.PropertiesByPropertyIds(descending, memgraph::storage::View::NEW);
-  ASSERT_TRUE(got.has_value());
-  ASSERT_EQ(got->size(), 2);
-  EXPECT_EQ(got->at(zebra).ValueInt(), 1);
-  EXPECT_EQ(got->at(apple).ValueInt(), 2);
+  auto const ordered = memgraph::storage::OrderedPropertyPaths::FromPropertyIds(descending);
+  auto values = std::vector<memgraph::storage::PropertyValue>(ordered.size());
+  ASSERT_TRUE(edge.ReadPropertyValues(ordered, values, memgraph::storage::View::NEW).has_value());
+
+  EXPECT_EQ(ValueOf(ordered, values, zebra).ValueInt(), 1);
+  EXPECT_EQ(ValueOf(ordered, values, apple).ValueInt(), 2);
 }
