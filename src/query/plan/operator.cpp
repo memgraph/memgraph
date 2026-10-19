@@ -5395,8 +5395,8 @@ void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
 CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                                  std::vector<CachedProperty> cached_properties)
-    : CacheProperties(input, std::vector<CachedPropertyGroup>{{.input_symbol = std::move(input_symbol),
-                                                               .properties = std::move(cached_properties)}}) {}
+    : CacheProperties(input, std::vector<CachedPropertyGroup>{
+                                 CachedPropertyGroup{std::move(input_symbol), std::move(cached_properties)}}) {}
 
 CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups)
     : input_(input ? input : std::make_shared<Once>()), groups_(std::move(groups)) {}
@@ -5444,18 +5444,9 @@ std::string CacheProperties::ToString(const DbAccessor *dba) const {
 CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CacheProperties &self, utils::MemoryResource *mem,
                                                               metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
-  reads_.reserve(self_.groups_.size());
-  auto values_begin = std::size_t{0};
-  for (auto const &group : self_.groups_) {
-    auto paths = std::vector<storage::PropertyPath>{};
-    paths.reserve(group.properties.size());
-    for (auto const &cached : group.properties) paths.emplace_back(cached.property_id);
-
-    reads_.push_back(
-        GroupRead{.ordered = storage::OrderedPropertyPaths{std::move(paths)}, .values_begin = values_begin});
-    values_begin += group.properties.size();
-  }
-  values_.resize(values_begin);
+  auto total = std::size_t{0};
+  for (auto const &group : self_.groups_) total += group.properties.size();
+  values_.resize(total);
 }
 
 bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
@@ -5470,9 +5461,10 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
   auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
 
-  for (std::size_t index = 0; index != self_.groups_.size(); ++index) {
-    auto const &group = self_.groups_[index];
-    auto const &read_plan = reads_[index];
+  auto values_begin = std::size_t{0};
+  for (auto const &group : self_.groups_) {
+    auto const slots = std::span{values_}.subspan(values_begin, group.properties.size());
+    values_begin += group.properties.size();
 
     auto const &input_value = frame[group.input_symbol];
     auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
@@ -5484,14 +5476,11 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       continue;
     }
 
-    auto const slots = std::span{values_}.subspan(read_plan.values_begin, group.properties.size());
-
     // NEW so that the row sees writes made earlier in this same transaction, as a
     // property lookup evaluated at this point would.
     auto const read =
-        reads_a_vertex
-            ? input_value.ValueVertex().impl_.ReadPropertyValues(read_plan.ordered, slots, storage::View::NEW)
-            : input_value.ValueEdge().impl_.ReadPropertyValues(read_plan.ordered, slots, storage::View::NEW);
+        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
+                       : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
     if (!read) {
       switch (read.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -5506,7 +5495,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
-      const auto &cached = group.properties[read_plan.ordered.position_lookup()[slot]];
+      const auto &cached = group.properties[group.ordered().position_lookup()[slot]];
       auto &value = slots[slot];
 #ifdef MG_ENTERPRISE
       // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
