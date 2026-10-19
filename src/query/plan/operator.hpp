@@ -1313,9 +1313,31 @@ struct CachedProperty {
 
 /// The properties to read of one symbol. Each group is one record, so each is its own pass; what
 /// they share is the pull that found them and the buffer their values are read into.
-struct CachedPropertyGroup {
+///
+/// The order a record must be read in is settled here rather than when a cursor is made, so a plan
+/// reused for many executions establishes it once. It is derived from `properties` on construction,
+/// so the two cannot describe different sets.
+class CachedPropertyGroup {
+ public:
+  CachedPropertyGroup() = default;
+
+  CachedPropertyGroup(Symbol input_symbol, std::vector<CachedProperty> properties)
+      : input_symbol{std::move(input_symbol)}, properties{std::move(properties)} {
+    auto paths = std::vector<storage::PropertyPath>{};
+    paths.reserve(this->properties.size());
+    for (auto const &cached : this->properties) paths.emplace_back(cached.property_id);
+    ordered_ = storage::OrderedPropertyPaths{std::move(paths)};
+  }
+
+  /// `properties` in the order a record must be asked for them. Its permutation says which of
+  /// `properties` each read value belongs to.
+  auto ordered() const -> storage::OrderedPropertyPaths const & { return ordered_; }
+
   Symbol input_symbol;
   std::vector<CachedProperty> properties;
+
+ private:
+  storage::OrderedPropertyPaths ordered_;
 };
 
 /// Reads several properties of a single vertex-bound symbol in one pass over
@@ -1368,17 +1390,8 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
 
    private:
     /// One group's properties arranged the way the read wants them, worked out once.
-    struct GroupRead {
-      /// The group's properties in the order a record must be asked for them, and the mapping back
-      /// to which of the group's properties each one feeds.
-      storage::OrderedPropertyPaths ordered;
-      /// Where this group's values begin in the row's one buffer.
-      std::size_t values_begin;
-    };
-
     const CacheProperties &self_;
     const UniqueCursorPtr input_cursor_;
-    std::vector<GroupRead> reads_;
     /// Every group's values, end to end, so that reading a row allocates nothing whatever the row
     /// is made of.
     std::vector<storage::PropertyValue> values_;
