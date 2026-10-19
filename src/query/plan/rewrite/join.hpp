@@ -717,12 +717,27 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      auto lhs_symbol = filter.property_filter->symbol_;
+      // Both symbols are read off the condition being placed, so that the sides a swap exchanges are the sides
+      // tested here. A property equality is collected once per side it could be looked up from, and those
+      // entries name their own side first, which is not the order the expression is written in.
+      auto lhs_symbol = symbol_table_->at(*lhs_join_identifier);
       auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
+
+      // The hash table is built from the left branch and probed from the right, so each side of the equality has
+      // to name a symbol the branch that evaluates it binds. An equality between two symbols of the same branch
+      // constrains that branch alone: it is a filter there, and a join cannot answer it.
+      const bool as_written =
+          std::ranges::contains(left_symbols, lhs_symbol) && std::ranges::contains(right_symbols, rhs_symbol);
+      const bool reversed =
+          std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol);
+      if (!as_written && !reversed) {
+        continue;
+      }
+
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
-      if (std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol)) {
+      if (reversed) {
         // We need to duplicate this because expressions are shared between plans
         join_condition = join_condition->Clone(ast_storage_);
         std::swap(join_condition->expression1_, join_condition->expression2_);
