@@ -114,28 +114,6 @@ def test_kshortest_limit():
     print(f"  Found {len(results)} paths with limit 5")
     assert len(results) == 3, f"Expected 3 paths, got {len(results)}"
 
-    # Test 5: kshortest with a filter lambda
-    print("Test 5: kshortest with a filter lambda")
-    results = execute_query(
-        """
-        MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'})
-        WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST (rel, n | n.name <> 'Bob')]->(e) RETURN r
-    """
-    )
-    print(f"  Found {len(results)} paths with the Bob detour filtered out")
-    assert len(results) == 2, f"Expected 2 paths, got {len(results)}"
-
-    # Test 6: kshortest with a filter lambda and a limit
-    print("Test 6: kshortest with a filter lambda and a limit")
-    results = execute_query(
-        """
-        MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'})
-        WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST|1 (rel, n | n.name <> 'Bob')]->(e) RETURN r
-    """
-    )
-    print(f"  Found {len(results)} paths with the filter and limit 1")
-    assert len(results) == 1, f"Expected 1 path, got {len(results)}"
-
     print("All tests passed! ✅")
 
 
@@ -385,39 +363,6 @@ def test_syntax_errors():
     """,
         "BFS with limit",
         "Limit parameter is only supported with KSHORTEST path expansion.",
-    )
-
-    # kshortest accepts a two-argument filter lambda, but not the accumulated path
-    print("Test: kshortest with an accumulated path in the filter lambda should raise error")
-    expect_error(
-        """
-        MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
-        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n, p | size(p) > 0)]->(b) RETURN r
-    """,
-        "kshortest with an accumulated path in the filter lambda",
-        "KSHORTEST expansion does not support the accumulated path in a filter lambda.",
-    )
-
-    # kshortest takes at most one lambda; a weight lambda is not accepted
-    print("Test: kshortest with two lambdas should raise error")
-    expect_error(
-        """
-        MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
-        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n | 1) (rel, n | true)]->(b) RETURN r
-    """,
-        "kshortest with two lambdas",
-        "Only one filter lambda can be supplied.",
-    )
-
-    # A filter lambda evaluating to something other than a boolean or null must fail at runtime
-    print("Test: kshortest with a non-boolean filter lambda should raise error")
-    expect_error(
-        """
-        MATCH (a:Person {name: 'Alice'}),(b:Person {name: 'Bob'})
-        WITH a, b MATCH (a)-[r:KNOWS *KSHORTEST|2 (rel, n | 42)]->(b) RETURN r
-    """,
-        "kshortest with a non-boolean filter lambda",
-        "Expansion condition must evaluate to boolean or null",
     )
 
     print("Syntax error tests passed! ✅")
