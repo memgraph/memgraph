@@ -45,15 +45,26 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     named_expression->Accept(*this);
   }
 
-  /// The symbol all gathered lookups agree on, or nullopt when there is nothing worth caching.
-  auto Candidate() const -> std::optional<Symbol> {
-    if (!single_symbol_ || lookup_count_ < 2) return std::nullopt;
-    return single_symbol_;
+  /// One symbol and the property names gathered for it.
+  struct Gathered {
+    Symbol symbol;
+    std::set<std::string> property_names;
+  };
+
+  /// The symbols worth a pass of their own. A symbol carrying one lookup is left out: one pass for
+  /// one property is what the lookup already does.
+  auto Candidates() const -> std::vector<Gathered> {
+    auto worthwhile = std::vector<Gathered>{};
+    for (auto const &gathered : gathered_) {
+      if (gathered.property_names.size() < 2) continue;
+      worthwhile.push_back(gathered);
+    }
+    return worthwhile;
   }
 
-  auto PropertyNames() const -> const std::set<std::string> & { return property_names_; }
-
-  void SetCachedSymbols(std::map<std::string, Symbol, std::less<>> cached) { cached_ = std::move(cached); }
+  void SetCachedSymbols(std::vector<std::pair<Symbol, std::map<std::string, Symbol, std::less<>>>> cached) {
+    cached_ = std::move(cached);
+  }
 
  private:
   void Visit(PropertyLookup &op) override {
@@ -64,26 +75,26 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 
     switch (phase_) {
       case Phase::GATHER: {
-        if (disabled_) return;
         auto const &symbol = symbol_table_->at(*identifier);
         // A vertex and an edge each keep their properties in a record the cursor can read in one pass. The cursor
         // fills its slots with Null for anything else, so an untyped symbol would silently lose its properties.
-        // A second symbol is out of scope for this rewrite.
         auto const reads_a_record = symbol.type() == Symbol::Type::VERTEX || symbol.type() == Symbol::Type::EDGE;
-        if (!reads_a_record || (single_symbol_ && !(*single_symbol_ == symbol))) {
-          single_symbol_.reset();
-          lookup_count_ = 0;
-          disabled_ = true;
-          return;
+        if (!reads_a_record) return;
+        auto found = std::ranges::find_if(gathered_, [&symbol](auto const &g) { return g.symbol == symbol; });
+        if (found == gathered_.end()) {
+          gathered_.push_back(Gathered{.symbol = symbol, .property_names = {}});
+          found = std::prev(gathered_.end());
         }
-        single_symbol_ = symbol;
-        property_names_.insert(op.property_.name);
-        ++lookup_count_;
+        found->property_names.insert(op.property_.name);
         return;
       }
       case Phase::REPLACE: {
-        auto it = cached_.find(op.property_.name);
-        if (it == cached_.end()) return;
+        auto const &symbol = symbol_table_->at(*identifier);
+        auto const group =
+            std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
+        if (group == cached_.end()) return;
+        auto it = group->second.find(op.property_.name);
+        if (it == group->second.end()) return;
         auto *replacement = ast_storage_->Create<Identifier>(it->second.name(), false);
         replacement->MapTo(it->second);
         prev_expressions_.back() = replacement;
@@ -199,11 +210,8 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   AstStorage *ast_storage_;
   Phase phase_{Phase::GATHER};
   std::vector<Expression *> prev_expressions_;
-  std::optional<Symbol> single_symbol_;
-  std::set<std::string> property_names_;
-  std::map<std::string, Symbol, std::less<>> cached_;
-  int lookup_count_{0};
-  bool disabled_{false};
+  std::vector<Gathered> gathered_;
+  std::vector<std::pair<Symbol, std::map<std::string, Symbol, std::less<>>>> cached_;
 };
 
 template <class TDbAccessor>
@@ -229,20 +237,28 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cacher.Run(ProducePropertyLookupCacher::Phase::GATHER, named_expression);
     }
 
-    auto candidate = cacher.Candidate();
-    if (!candidate) return true;
-
     auto const modified = input->ModifiedSymbols(*symbol_table_);
-    if (std::ranges::find(modified, *candidate) == modified.end()) return true;
+    auto cached_by_symbol = std::vector<std::pair<Symbol, std::map<std::string, Symbol, std::less<>>>>{};
+    auto groups = std::vector<CachedPropertyGroup>{};
 
-    auto cached_by_name = std::map<std::string, Symbol, std::less<>>{};
-    auto cached_properties = std::vector<CachedProperty>{};
-    cached_properties.reserve(cacher.PropertyNames().size());
-    for (auto const &property_name : cacher.PropertyNames()) {
-      auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
-      cached_by_name.emplace(property_name, output_symbol);
-      cached_properties.push_back(CachedProperty{db_->NameToProperty(property_name), output_symbol});
+    for (auto const &candidate : cacher.Candidates()) {
+      // A symbol the input does not bind is read by something else, so there is no record here to read it from.
+      if (std::ranges::find(modified, candidate.symbol) == modified.end()) continue;
+
+      auto cached_by_name = std::map<std::string, Symbol, std::less<>>{};
+      auto cached_properties = std::vector<CachedProperty>{};
+      cached_properties.reserve(candidate.property_names.size());
+      for (auto const &property_name : candidate.property_names) {
+        auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
+        cached_by_name.emplace(property_name, output_symbol);
+        cached_properties.push_back(CachedProperty{db_->NameToProperty(property_name), output_symbol});
+      }
+      cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_name));
+      groups.push_back(
+          CachedPropertyGroup{.input_symbol = candidate.symbol, .properties = std::move(cached_properties)});
     }
+
+    if (groups.empty()) return true;
 
     // The variable-start planner rewrites several candidate plans that share one AST, so the replacement has to
     // happen on this plan's own copy of the named expressions.
@@ -250,12 +266,12 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       named_expression = named_expression->Clone(ast_storage_);
     }
 
-    cacher.SetCachedSymbols(std::move(cached_by_name));
+    cacher.SetCachedSymbols(std::move(cached_by_symbol));
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(ProducePropertyLookupCacher::Phase::REPLACE, named_expression);
     }
 
-    op.set_input(std::make_shared<CacheProperties>(input, *candidate, std::move(cached_properties)));
+    op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
     return true;
   }
 
