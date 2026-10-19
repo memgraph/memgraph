@@ -334,7 +334,6 @@ TYPED_TEST(TestPlanner, MatchMultiPattern) {
 }
 
 namespace {
-/// Every symbol an expression reads.
 std::unordered_set<memgraph::query::Symbol> SymbolsIn(memgraph::query::Expression *expression,
                                                       const memgraph::query::SymbolTable &symbol_table) {
   memgraph::query::plan::UsedSymbolsCollector collector{symbol_table};
@@ -342,9 +341,7 @@ std::unordered_set<memgraph::query::Symbol> SymbolsIn(memgraph::query::Expressio
   return collector.symbols_;
 }
 
-/// A hash join builds its table from the left branch and probes it from the right, so the side of the condition
-/// each branch evaluates may only name symbols that branch binds. A side naming a symbol of the other branch reads
-/// a null instead, and the join answers no rows at all.
+/// The side of the condition each branch evaluates may only name symbols that branch binds.
 void ExpectJoinConditionEvaluableOnItsBranches(const memgraph::query::plan::HashJoin &join,
                                                const memgraph::query::SymbolTable &symbol_table) {
   const std::unordered_set<memgraph::query::Symbol> left{join.left_symbols_.begin(), join.left_symbols_.end()};
@@ -440,8 +437,8 @@ TYPED_TEST(TestPlanner, MatchMultiPatternEqualityWithinOnePatternIsNotAJoin) {
 
 TYPED_TEST(TestPlanner, MatchMultiPatternJoinsOnTheEqualityThatSpansThePatterns) {
   // Test MATCH (x:label) MATCH (a)-[r]->(b) WHERE a.id = b.id AND a.id = x.id RETURN a
-  // One equality constrains the second pattern alone and the other spans both patterns. The second one is a join
-  // condition, and the first one standing ahead of it does not cost us the join.
+  // One equality constrains the second pattern alone and the other spans both patterns. The one that spans them
+  // is a join condition, and the presence of the other does not cost us that join.
   FakeDbAccessor dba;
   const auto property = PROPERTY_PAIR(dba, "id");
 
