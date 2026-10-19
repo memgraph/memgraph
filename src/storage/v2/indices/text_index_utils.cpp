@@ -126,11 +126,16 @@ std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &prope
     return property_store.Properties();
   }
 
-  auto property_paths = properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
+  // An index names its properties in declaration order. The answer is keyed by id, so reordering
+  // the question does not reorder the answer.
+  auto ordered = std::vector<PropertyId>{properties.begin(), properties.end()};
+  r::sort(ordered);
+
+  auto property_paths = ordered | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
                         r::to<std::vector<PropertyPath>>();
   auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
 
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+  return rv::zip(ordered, property_values) | rv::transform([](const auto &property_id_value_pair) {
            return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
          }) |
          r::to<std::map<PropertyId, PropertyValue>>();
