@@ -717,15 +717,13 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      // Both symbols are read off the condition being placed, so that the sides a swap exchanges are the sides
-      // tested here. A property equality is collected once per side it could be looked up from, and each of
-      // those entries leads with its own side, which need not be the side the expression leads with.
+      // An equality is collected once per side it could be looked up from, so a filter's own symbol need not be
+      // the side its expression leads with.
       auto lhs_symbol = symbol_table_->at(*lhs_join_identifier);
       auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
 
-      // The hash table is built from the left branch and probed from the right, so each side of the equality has
-      // to name a symbol the branch that evaluates it binds. An equality between two symbols of the same branch
-      // constrains that branch alone: it is a filter there, and a join cannot answer it.
+      // The table is built from the left branch and probed from the right, so each side has to name a symbol
+      // the branch evaluating it binds.
       const bool as_written =
           std::ranges::contains(left_symbols, lhs_symbol) && std::ranges::contains(right_symbols, rhs_symbol);
       const bool reversed =
