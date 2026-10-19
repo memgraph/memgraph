@@ -23,6 +23,7 @@
 #include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/counter.hpp"
 
 namespace {
