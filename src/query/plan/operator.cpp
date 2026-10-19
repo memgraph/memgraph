@@ -1133,17 +1133,136 @@ VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame
   }
 }
 
+namespace {
+
+/// What a scan hands back, and what carries the properties a sort reads.
+template <typename T>
+concept RecordAccessor = std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>;
+
+/// Refuses the pair a sort would have refused, for a walk kept in place of one.
+///
+/// A walk hands back the stored order, which places every pair of values it can
+/// hold. A sort places fewer: two maps have no order between them, since the
+/// stored one tells them apart by the identifiers their keys were interned as,
+/// and that is a fact about the order the keys were first seen in rather than
+/// about the maps. Handing back a pair the sort declines would answer a query
+/// the sort refuses.
+///
+/// Asking the sort's own relation of each neighbouring pair refuses in the same
+/// places. A pair it cannot place shares one run of the stored order, so the two
+/// are neighbours among the values of that run, and a column holding two of them
+/// reaches the pair. A pair it can place is asked and answered, which also says
+/// the walk handed the column back in the order the sort would have.
+class SortStandsInCheck {
+ public:
+  SortStandsInCheck(std::span<storage::PropertyPath const> properties, std::span<std::size_t const> columns,
+                    storage::View view)
+      : view_{view} {
+    for (auto const column : columns) columns_.push_back(properties[column]);
+  }
+
+  /// The same question of a walk fenced by one property, which is the whole of
+  /// what a sort it stands in for can have read.
+  SortStandsInCheck(storage::PropertyId property, storage::View view)
+      : columns_{storage::PropertyPath{property}}, view_{view} {}
+
+  /// Asked of a vertex or of an edge: both carry the properties a sort reads
+  /// and answer to the same question about them.
+  void operator()(RecordAccessor auto const &entity, ExecutionContext &context) {
+    current_.clear();
+    for (auto const &column : columns_) current_.push_back(*entity.GetProperty(view_, column.front()));
+
+    if (held_a_row_ && CouldHoldARefusedPair()) AskWhatTheSortWouldHave(context);
+
+    // Two buffers traded rather than one built, so that walking a column costs
+    // no allocation once the first row has sized them.
+    previous_.swap(current_);
+    held_a_row_ = true;
+  }
+
+  /// Forgets the row the next one would have been asked against, for a walk
+  /// starting over.
+  void Reset() { held_a_row_ = false; }
+
+ private:
+  /// Whether any column holds a pair that could be one a sort declines. A pair
+  /// is only ever declined where both sides carry a type with no order.
+  bool CouldHoldARefusedPair() const {
+    for (auto const &[before, after] : rv::zip(previous_, current_)) {
+      if (CouldBeRefused(before) && CouldBeRefused(after)) return true;
+    }
+    return false;
+  }
+
+  /// Whether a stored value could take part in a pair a sort has no order for.
+  ///
+  /// Conservative in one direction on purpose: answering yes where the answer
+  /// is no spends a comparison that was going to run anyway, where answering no
+  /// where the answer is yes would withdraw a refusal. A type this has not been
+  /// taught about is therefore answered yes.
+  /// @see relations::orderability::ValidFor, which decides what a sort declines.
+  static bool CouldBeRefused(auto const &value) {
+    if (value.IsList()) {
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return CouldBeRefused(element); });
+    }
+    // The numeric list kinds hold no nested value, so no element of one can
+    // reach a type a sort declines.
+    return !(value.IsNull() || value.IsBool() || value.IsInt() || value.IsDouble() || value.IsString() ||
+             value.IsTemporalData() || value.IsZonedTemporalData() || value.IsEnum() || value.IsPoint2d() ||
+             value.IsPoint3d() || value.IsIntList() || value.IsDoubleList() || value.IsNumericList());
+  }
+
+  /// Puts the pair the sort would have been handed, column by column, and stops
+  /// where the sort would have stopped.
+  void AskWhatTheSortWouldHave(ExecutionContext &context) const {
+    for (auto const &[path, before, after] : rv::zip(columns_, previous_, current_)) {
+      auto const placed =
+          relations::orderability::Compare(ValueOf(before, path, context), ValueOf(after, path, context));
+      // A sort reads a column only for a pair every column before it placed
+      // alike, so one it stops short of is not a column to refuse for.
+      if (!std::is_eq(placed)) break;
+    }
+  }
+
+  /// The value the sort read, which is the stored property this column indexes,
+  /// and then whatever the rest of the path names within it.
+  TypedValue ValueOf(storage::PropertyValue const &stored, storage::PropertyPath const &path,
+                     ExecutionContext &context) const {
+    auto *mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+    auto value = TypedValue{stored, mapper};
+    for (auto const step : path | rv::drop(1)) {
+      if (!value.IsMap()) return TypedValue{};
+      TypedValue::TString const name{context.db_accessor->GetStorageAccessor()->PropertyToName(step),
+                                     context.evaluation_context.memory};
+      auto const found = value.ValueMap().find(name);
+      if (found == value.ValueMap().end()) return TypedValue{};
+      value = found->second;
+    }
+    return value;
+  }
+
+  std::vector<storage::PropertyPath> columns_;
+  storage::View view_;
+  std::vector<storage::PropertyValue> previous_;
+  std::vector<storage::PropertyValue> current_;
+  bool held_a_row_{false};
+};
+
+}  // namespace
+
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
   explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
-                         TVerticesFun get_vertices, const char *op_name)
+                         TVerticesFun get_vertices, const char *op_name,
+                         std::optional<SortStandsInCheck> stands_in_for_a_sort = std::nullopt)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_vertices_(std::move(get_vertices)),
-        op_name_(op_name) {}
+        op_name_(op_name),
+        stands_in_for_a_sort_(std::move(stands_in_for_a_sort)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -1168,6 +1287,8 @@ class ScanAllCursor : public Cursor {
       return false;
     }
 #endif
+
+    if (stands_in_for_a_sort_) (*stands_in_for_a_sort_)(*vertices_it_.value(), context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(output_symbol_, *vertices_it_.value());
@@ -1195,6 +1316,7 @@ class ScanAllCursor : public Cursor {
     vertices_ = std::nullopt;
     vertices_it_ = std::nullopt;
     vertices_end_it_ = std::nullopt;
+    if (stands_in_for_a_sort_) stands_in_for_a_sort_->Reset();
   }
 
  private:
@@ -1207,18 +1329,21 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_->begin())> vertices_it_;
   std::optional<decltype(vertices_->end())> vertices_end_it_;
   const char *op_name_;
+  std::optional<SortStandsInCheck> stands_in_for_a_sort_;
 };
 
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
  public:
   explicit ScanAllByEdgeCursor(const ScanAllByEdge &self, UniqueCursorPtr input_cursor, storage::View view,
-                               TEdgesFun get_edges, const char *op_name)
+                               TEdgesFun get_edges, const char *op_name,
+                               std::optional<SortStandsInCheck> stands_in_for_a_sort = std::nullopt)
       : self_(self),
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_edges_(std::move(get_edges)),
-        op_name_(op_name) {}
+        op_name_(op_name),
+        stands_in_for_a_sort_(std::move(stands_in_for_a_sort)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -1250,6 +1375,11 @@ class ScanAllByEdgeCursor : public Cursor {
     };
 
     const EdgeAccessor edge = *edges_it_.value();
+
+    // Asked once per edge rather than once per row: a BOTH expansion hands the
+    // same edge back twice, and the order a sort read is over the edges.
+    if (stands_in_for_a_sort_ && !do_reverse_output_) (*stands_in_for_a_sort_)(edge, context);
+
     frame_writer.Write(self_.common_.edge_symbol, edge);
     if (self_.common_.direction == EdgeAtom::Direction::OUT) {
       output_expansion(edge, false);
@@ -1278,6 +1408,7 @@ class ScanAllByEdgeCursor : public Cursor {
     edges_it_ = std::nullopt;
     edges_end_it_ = std::nullopt;
     do_reverse_output_ = false;
+    if (stands_in_for_a_sort_) stands_in_for_a_sort_->Reset();
   }
 
  private:
@@ -1291,6 +1422,7 @@ class ScanAllByEdgeCursor : public Cursor {
   std::optional<decltype(edges_->begin())> edges_it_;
   std::optional<decltype(edges_->end())> edges_end_it_;
   const char *op_name_;
+  std::optional<SortStandsInCheck> stands_in_for_a_sort_;
   bool do_reverse_output_{false};
 };
 
@@ -1475,8 +1607,16 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgeTypeProperty");
+  auto stands_in_for_a_sort =
+      stands_in_for_a_sort_ ? std::make_optional<SortStandsInCheck>(property_, view_) : std::nullopt;
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(mem,
+                                                                       *this,
+                                                                       input_->MakeCursor(mem, metric_handles),
+                                                                       view_,
+                                                                       std::move(get_edges),
+                                                                       "ScanAllByEdgeTypeProperty",
+                                                                       std::move(stands_in_for_a_sort));
 }
 
 std::string ScanAllByEdgeTypeProperty::ToString(const DbAccessor *dba) const {
@@ -1499,6 +1639,7 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
   object->view_ = view_;
   object->property_ = property_;
   object->expression_range_ = ExpressionRange(expression_range_, *storage);
+  object->stands_in_for_a_sort_ = stands_in_for_a_sort_;
   return object;
 }
 
@@ -1557,8 +1698,16 @@ UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem,
     return std::make_optional(db->Edges(view_, property_, range));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, input_->MakeCursor(mem, metric_handles), view_, std::move(get_edges), "ScanAllByEdgeProperty");
+  auto stands_in_for_a_sort =
+      stands_in_for_a_sort_ ? std::make_optional<SortStandsInCheck>(property_, view_) : std::nullopt;
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(mem,
+                                                                       *this,
+                                                                       input_->MakeCursor(mem, metric_handles),
+                                                                       view_,
+                                                                       std::move(get_edges),
+                                                                       "ScanAllByEdgeProperty",
+                                                                       std::move(stands_in_for_a_sort));
 }
 
 std::string ScanAllByEdgeProperty::ToString(const DbAccessor *dba) const {
@@ -1578,6 +1727,7 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeProperty::Clone(AstStorage *storag
   object->view_ = view_;
   object->property_ = property_;
   object->expression_range_ = ExpressionRange(expression_range_, *storage);
+  object->stands_in_for_a_sort_ = stands_in_for_a_sort_;
   return object;
 }
 
@@ -1617,13 +1767,17 @@ UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
     // Search terms (CONTAINS, ENDS WITH, regex) set no predicate here: their filter stays in the plan.
     return std::make_optional(db->Vertices(view_, property_, range.lower_, range.upper_));
   };
+  auto stands_in_for_a_sort =
+      stands_in_for_a_sort_ ? std::make_optional<SortStandsInCheck>(property_, view_) : std::nullopt;
+
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
                                                                     *this,
                                                                     output_symbol_,
                                                                     input_->MakeCursor(mem, metric_handles),
                                                                     view_,
                                                                     std::move(get_vertices),
-                                                                    "ScanAllByVertexProperty");
+                                                                    "ScanAllByVertexProperty",
+                                                                    std::move(stands_in_for_a_sort));
 }
 
 std::string ScanAllByVertexProperty::ToString(const DbAccessor *dba) const {
@@ -1637,6 +1791,7 @@ std::unique_ptr<LogicalOperator> ScanAllByVertexProperty::Clone(AstStorage *stor
   object->view_ = view_;
   object->property_ = property_;
   object->expression_range_ = ExpressionRange(expression_range_, *storage);
+  object->stands_in_for_a_sort_ = stands_in_for_a_sort_;
   return object;
 }
 
@@ -1677,13 +1832,17 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
   };
+  auto stands_in_for_a_sort =
+      sort_columns_.empty() ? std::nullopt : std::make_optional<SortStandsInCheck>(properties_, sort_columns_, view_);
+
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem,
                                                                 *this,
                                                                 output_symbol_,
                                                                 input_->MakeCursor(mem, metric_handles),
                                                                 view_,
                                                                 std::move(vertices),
-                                                                "ScanAllByLabelProperties");
+                                                                "ScanAllByLabelProperties",
+                                                                std::move(stands_in_for_a_sort));
 }
 
 std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
@@ -1714,6 +1873,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
   object->index_order_ = index_order_;
+  object->sort_columns_ = sort_columns_;
   return object;
 }
 
