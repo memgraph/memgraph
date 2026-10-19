@@ -324,6 +324,41 @@ INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
                          testing::Combine(testing::Range(uint32_t{1}, uint32_t{13}), testing::Values(5, 6),
                                           testing::Values(0.3, 0.5)));
 
+// Hop count and weights.
+class KShortestMemoryTest : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::TestWithParam<bool>> {};
+
+// Found paths and candidates share one trie, so the ladder's shared prefixes are stored once: the
+// peak stays under 1.5x the bytes of the returned edge lists, where a vector per path took about 3x.
+// The bound relies on that sharing.
+TEST_P(KShortestMemoryTest, PathsShareTheTrie) {
+  constexpr int kRungs = 20;
+  const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
+  ASSERT_EQ(run.rows, 20000U);
+  const auto returned_bytes = run.total_length * sizeof(EdgeAccessor);
+  EXPECT_LE(run.peak, returned_bytes * 3 / 2) << "returned " << returned_bytes << " bytes of edges";
+}
+
+// Path storage goes back when the next searched row starts: the second row serves one path
+// while holding only its own search, not the first row's 20,000.
+TEST_P(KShortestMemoryTest, ReleasesStorageBetweenRows) {
+  constexpr int kRungs = 20;
+  const auto run =
+      db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}, {0, 2 * kRungs - 1, 1}});
+  ASSERT_EQ(run.rows, 20001U);
+  EXPECT_LE(run.current_at_last_path, 1UZ << 20U);
+}
+
+// And once after the last row, which has no next search to start.
+TEST_P(KShortestMemoryTest, ReleasesStorageAfterLastRow) {
+  constexpr int kRungs = 20;
+  const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
+  ASSERT_EQ(run.rows, 20000U);
+  EXPECT_LE(run.current_after_last_row, 1UZ << 20U);
+}
+
+INSTANTIATE_TEST_SUITE_P(KShortestMemory, KShortestMemoryTest, testing::Bool(),
+                         [](const auto &info) { return info.param ? "Weighted" : "HopCount"; });
+
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
   db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
 }

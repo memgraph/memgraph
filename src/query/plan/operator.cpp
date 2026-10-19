@@ -4134,7 +4134,7 @@ bool IsConstantWeight(const ExpansionLambda &weight_lambda) {
          utils::Downcast<ParameterLookup>(weight_lambda.expression) != nullptr;
 }
 
-/// Hop count is the cost: today's `PathInfo` and today's bidirectional BFS, with no per-path payload.
+/// Hop count is the cost: the bidirectional BFS, with no per-path payload.
 struct KShortestHopCost {
   static constexpr bool kWeighted = false;
   /// Whether an expansion may take this arc.
@@ -4166,16 +4166,14 @@ class KShortestPathsCursor : public Cursor {
         input_cursor_(self.input_->MakeCursor(mem, metric_handles)),
         shortest_paths_(mem),
         candidate_paths_(mem),
-        found_paths_set_(mem),
         current_source_(std::nullopt),
         current_target_(std::nullopt),
         blocked_edges_(mem),
         blocked_vertices_(mem),
         in_edges_(mem),
         out_edges_(mem),
-        trie_first_child_(1, kNoChild, mem),  // node 0 is the empty root, valid from construction
-        trie_children_(mem),
-        path_gids_scratch_(mem),
+        trie_(1, TrieRoot(), mem),  // valid from construction
+        path_nodes_(mem),
         bfs_source_frontier_(mem),
         bfs_target_frontier_(mem),
         bfs_source_next_(mem),
@@ -4204,7 +4202,7 @@ class KShortestPathsCursor : public Cursor {
       if (!current_source_.has_value()) return false;  // the target is set and reset with it
       while (true) {
         while (current_path_index_ < shortest_paths_.size()) {
-          if (std::cmp_greater_equal(shortest_paths_[current_path_index_].edges.size(), lower_bound_)) return true;
+          if (std::cmp_greater_equal(shortest_paths_[current_path_index_].length, lower_bound_)) return true;
           ++current_path_index_;
         }
         if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
@@ -4227,7 +4225,8 @@ class KShortestPathsCursor : public Cursor {
     // Need to pull new input
     while (input_cursor_->Pull(frame, context)) {
       AbortCheck(context);
-      if (context.hops_limit.IsLimitReached()) return false;
+      // The limit is query-wide, so no later row can search. Operators above may still run, so release below.
+      if (context.hops_limit.IsLimitReached()) break;
 
       auto &source_tv = frame[self_.input_symbol_];
       auto &target_tv = frame[self_.common_.node_symbol];
@@ -4283,6 +4282,7 @@ class KShortestPathsCursor : public Cursor {
       if (serve_next_path()) return true;
     }
 
+    ReleasePathStorage();
     return false;
   }
 
@@ -4296,37 +4296,43 @@ class KShortestPathsCursor : public Cursor {
   }
 
  private:
-  struct PathInfo {
-    utils::pmr::vector<EdgeAccessor> edges;
-    size_t deviation_vertex_index;  // Index where this path deviates from parent
-    // Empty under hop count, so the layout is the one this operator has always had.
-    [[no_unique_address]] Cost::Payload cost;
-
-    explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
+  /// A found path, stored as its leaf in `trie_`.
+  struct FoundPath {
+    uint64_t leaf;
+    size_t length;
+    size_t root_length;  // of the candidate it was accepted as
   };
 
-  struct PathComparator {
-    bool operator()(const PathInfo &a, const PathInfo &b) const {
+  /// A found path's first `root_length` edges - the trie node `root` - followed by a spur search's result.
+  struct Candidate {
+    uint64_t root;
+    size_t root_length;
+    utils::pmr::vector<EdgeAccessor> spur;
+    [[no_unique_address]] Cost::Payload cost;
+
+    size_t length() const { return root_length + spur.size(); }
+  };
+
+  /// One inner search's result.
+  struct SpurPath {
+    utils::pmr::vector<EdgeAccessor> edges;
+    [[no_unique_address]] Cost::Payload cost;
+
+    explicit SpurPath(utils::MemoryResource *mem) : edges(mem) {}
+  };
+
+  struct CandidateComparator {
+    bool operator()(const Candidate &a, const Candidate &b) const {
       if constexpr (Cost::kWeighted) {
         // Reversed, as below: the heap serves the cheapest path, and the shortest of those.
         if (const auto order = CostCompare(a.cost.total, b.cost.total); std::is_neq(order)) return std::is_gt(order);
       }
-      return a.edges.size() > b.edges.size();  // Reversed: the heap serves the shortest path first
+      return a.length() > b.length();  // Reversed: the heap serves the shortest path first
     }
   };
 
   struct VertexAccessorHash {
     size_t operator()(const VertexAccessor &vertex) const { return std::hash<storage::Gid>{}(vertex.Gid()); }
-  };
-
-  struct PathGidsHash {
-    size_t operator()(const utils::pmr::vector<storage::Gid> &path_gids) const {
-      size_t hash = 0;
-      for (const auto &gid : path_gids) {
-        hash = utils::HashCombine<size_t, storage::Gid>{}(hash, gid);
-      }
-      return hash;
-    }
   };
 
   // One verdict per arc, whichever pass reaches it.
@@ -4351,10 +4357,9 @@ class KShortestPathsCursor : public Cursor {
   int64_t n_returned_paths_{0};
 
   // State for K-shortest paths algorithm
-  utils::pmr::vector<PathInfo> shortest_paths_;
+  utils::pmr::vector<FoundPath> shortest_paths_;
   // A heap by hand, not a `priority_queue`: its `top()` is const, so serving a candidate copies it.
-  utils::pmr::vector<PathInfo> candidate_paths_;
-  utils::pmr::unordered_set<utils::pmr::vector<storage::Gid>, PathGidsHash> found_paths_set_;
+  utils::pmr::vector<Candidate> candidate_paths_;
   size_t current_path_index_ = 0;
 
   // Re-entrant state
@@ -4374,21 +4379,32 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> in_edges_;
   utils::pmr::unordered_map<VertexAccessor, CachedEdges, VertexAccessorHash> out_edges_;
 
-  // Trie of the found paths' edges: a root prefix's children are exactly the edges a deviation
-  // there must block. Children form an intrusive sibling list, so a node holds no container.
-  static constexpr uint64_t kNoChild = std::numeric_limits<uint64_t>::max();
+  // Trie of the found paths' edges, the only copy of them: a root prefix's children are exactly
+  // the edges a deviation there must block. Children form an intrusive sibling list, so a node
+  // holds no container.
+  static constexpr uint64_t kNoNode = std::numeric_limits<uint64_t>::max();
 
-  struct TrieChild {
-    storage::Gid edge;
-    uint64_t node;
+  struct TrieNode {
+    std::optional<EdgeAccessor> edge;  // empty at the root
+    // Cached so the sibling scan does not read through the accessor.
+    storage::Gid edge_gid;
+    uint64_t parent;
+    uint64_t first_child;
     uint64_t next_sibling;
   };
 
-  utils::pmr::vector<uint64_t> trie_first_child_;
-  utils::pmr::vector<TrieChild> trie_children_;
+  /// Node 0 of `trie_`: the empty root every path starts from.
+  static TrieNode TrieRoot() {
+    return {.edge = std::nullopt,
+            .edge_gid = storage::kInvalidGid,
+            .parent = kNoNode,
+            .first_child = kNoNode,
+            .next_sibling = kNoNode};
+  }
 
-  // Probe buffer for `found_paths_set_`.
-  utils::pmr::vector<storage::Gid> path_gids_scratch_;
+  utils::pmr::vector<TrieNode> trie_;
+  // Scratch: the base path's trie nodes, root to leaf, filled by `CollectPathNodes`.
+  utils::pmr::vector<uint64_t> path_nodes_;
 
   // The inner search's scratch, reused across the searches Yen's runs for one input row instead
   // of being rebuilt per call. This saves the allocation and the regrowth; it does not fix a leak,
@@ -4426,8 +4442,8 @@ class KShortestPathsCursor : public Cursor {
   };
 
   struct WeightedQueueComparator {
-    // Reversed, like `PathComparator`: the heap serves its maximum, and the cheapest entry has to
-    // come out first.
+    // Reversed, like `CandidateComparator`: the heap serves its maximum, and the cheapest entry has
+    // to come out first.
     bool operator()(const WeightedQueueEntry &lhs, const WeightedQueueEntry &rhs) const {
       if (const auto order = CostCompare(lhs.priority, rhs.priority); std::is_neq(order)) return std::is_gt(order);
       return lhs.depth > rhs.depth;
@@ -4476,63 +4492,41 @@ class KShortestPathsCursor : public Cursor {
 
     // Seeds Yen's with the shortest path; the rest are deviations from it.
     auto shortest_path = ComputeShortestPath(source, target, upper_bound_, TypedValue(), frame, evaluator, context);
-    if (!shortest_path.edges.empty()) {
-      // Recorded before it is reachable as a base path: `ComputeNextShortestPath` walks
-      // `shortest_paths_.back()` down the trie and asserts the walk cannot miss.
-      AddPathToFoundSet(shortest_path);
-      shortest_paths_.emplace_back(std::move(shortest_path));
-      return true;
-    }
-    return false;
+    if (shortest_path.edges.empty()) return false;
+    return AcceptCandidate(Candidate{.root = 0, .root_length = 0, .spur = std::move(shortest_path.edges), .cost = {}});
   }
 
   bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (shortest_paths_.empty()) return false;
 
-    // Scoped so the reference cannot outlive the loop. Nothing in it appends to
-    // `shortest_paths_`; the scope means that does not have to be re-checked.
-    {
-      const auto &base_path = shortest_paths_.back();
+    CollectPathNodes(shortest_paths_.back().leaf);
+    // Lawler: the deviation range starts at the root this path was generated from.
+    const size_t first_deviation = shortest_paths_.back().root_length;
 
-      // Lawler: start where this path left its parent, not at 0. Its first `first_deviation` edges
-      // are the deviation root it was generated from, and every edge of that root was already a
-      // trie child, so accepting this path can only have added children at `first_deviation` or
-      // deeper - exactly the range below. It has to be the root rather than the parent's prefix,
-      // because one path can be generated at two depths and only the copy popped first sets the
-      // index.
-      const size_t first_deviation = base_path.deviation_vertex_index;
+    blocked_vertices_.clear();
+    VertexAccessor deviation_vertex = source;
+    // The root prefix's cost; a candidate costs this plus its spur. Weighted mode only.
+    // NOLINTNEXTLINE(misc-const-correctness)
+    TypedValue root_weight;
 
-      blocked_vertices_.clear();
-      VertexAccessor deviation_vertex = source;
-      // The base path is itself a found path, so this walk never falls off the trie.
-      uint64_t trie_node = 0;
-      // The root prefix's cost; a candidate costs this plus its spur. Weighted mode only.
-      // NOLINTNEXTLINE(misc-const-correctness)
-      TypedValue root_weight;
-
-      for (size_t i = 0UZ; i < base_path.edges.size(); ++i) {
-        if (i >= first_deviation) {
-          blocked_edges_.clear();
-          for (uint64_t c = trie_first_child_[trie_node]; c != kNoChild; c = trie_children_[c].next_sibling) {
-            blocked_edges_.insert(trie_children_[c].edge);
-          }
-          GenerateCandidatesFromDeviation(
-              target, base_path, i, deviation_vertex, root_weight, frame, evaluator, context);
+    for (size_t i = 0UZ; i + 1 < path_nodes_.size(); ++i) {
+      const uint64_t root = path_nodes_[i];
+      if (i >= first_deviation) {
+        blocked_edges_.clear();
+        for (uint64_t c = trie_[root].first_child; c != kNoNode; c = trie_[c].next_sibling) {
+          blocked_edges_.insert(trie_[c].edge_gid);
         }
-
-        blocked_vertices_.insert(deviation_vertex.Gid());
-        const auto &edge = base_path.edges[i];
-        const VertexAccessor next_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
-        if constexpr (Cost::kWeighted) {
-          root_weight = AddCost(root_weight, EdgeWeight(edge, next_vertex, frame, evaluator, context));
-        }
-        deviation_vertex = next_vertex;
-        trie_node = TrieDescend(trie_node, edge.Gid());
-        // Checked in release too: a miss is `kNoChild`, and the next iteration would index the
-        // child array with it.
-        MG_ASSERT(trie_node != kNoChild, "the base path must be in the trie of found paths");
+        GenerateCandidatesFromDeviation(target, root, i, deviation_vertex, root_weight, frame, evaluator, context);
       }
+
+      blocked_vertices_.insert(deviation_vertex.Gid());
+      const auto &edge = *trie_[path_nodes_[i + 1]].edge;
+      const VertexAccessor next_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
+      if constexpr (Cost::kWeighted) {
+        root_weight = AddCost(root_weight, EdgeWeight(edge, next_vertex, frame, evaluator, context));
+      }
+      deviation_vertex = next_vertex;
     }
 
     // A spur search the hops limit cut short may have missed a shorter candidate, so the best one left is not
@@ -4541,26 +4535,19 @@ class KShortestPathsCursor : public Cursor {
 
     // Find the best candidate path
     while (!candidate_paths_.empty()) {
-      std::ranges::pop_heap(candidate_paths_, PathComparator{});
-      // `const` here would bind the `std::move` below to the copy constructor rather than the
-      // move, which is the copy this operator exists to avoid. The check cannot see that through
-      // a pmr container's allocator-aware construction.
-      // NOLINTNEXTLINE(misc-const-correctness)
-      PathInfo candidate = std::move(candidate_paths_.back());
-      candidate_paths_.pop_back();
+      std::ranges::pop_heap(candidate_paths_, CandidateComparator{});
+      // `AcceptCandidate` writes only the trie and the found paths, so `back()` stays valid through it.
+      const auto &candidate = candidate_paths_.back();
       // Every search is capped at the hops left over, so no candidate is longer than the bound.
-      DMG_ASSERT(std::cmp_less_equal(candidate.edges.size(), upper_bound_),
-                 "a KSHORTEST candidate exceeds the hop bound");
-      if (!IsPathInFoundSet(candidate)) {
-        AddPathToFoundSet(candidate);
-        shortest_paths_.emplace_back(std::move(candidate));
-        return true;
-      }
+      DMG_ASSERT(std::cmp_less_equal(candidate.length(), upper_bound_), "a KSHORTEST candidate exceeds the hop bound");
+      const bool accepted = AcceptCandidate(candidate);
+      candidate_paths_.pop_back();
+      if (accepted) return true;
     }
     return false;
   }
 
-  void GenerateCandidatesFromDeviation(const VertexAccessor &target, const PathInfo &base_path, size_t deviation_index,
+  void GenerateCandidatesFromDeviation(const VertexAccessor &target, uint64_t root, size_t deviation_index,
                                        const VertexAccessor &deviation_vertex, const TypedValue &root_weight,
                                        Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     // The spur gets the hops the root leaves. Under weights it starts at the root's cost, so the total
@@ -4575,21 +4562,15 @@ class KShortestPathsCursor : public Cursor {
 
     if (spur_path.edges.empty()) return;
 
-    // Reserved because the final size is known: one allocation instead of a realloc chain.
-    PathInfo candidate_path(evaluator.GetMemoryResource());
-    candidate_path.edges.reserve(deviation_index + spur_path.edges.size());
-    candidate_path.edges.assign(base_path.edges.begin(),
-                                base_path.edges.begin() + static_cast<std::ptrdiff_t>(deviation_index));
-    candidate_path.edges.insert(candidate_path.edges.end(), spur_path.edges.begin(), spur_path.edges.end());
-    candidate_path.deviation_vertex_index = deviation_index;
-    if constexpr (Cost::kWeighted) candidate_path.cost.total = std::move(spur_path.cost.total);
+    Candidate candidate{.root = root, .root_length = deviation_index, .spur = std::move(spur_path.edges), .cost = {}};
+    if constexpr (Cost::kWeighted) candidate.cost.total = std::move(spur_path.cost.total);
 
-    candidate_paths_.push_back(std::move(candidate_path));
-    std::ranges::push_heap(candidate_paths_, PathComparator{});
+    candidate_paths_.push_back(std::move(candidate));
+    std::ranges::push_heap(candidate_paths_, CandidateComparator{});
   }
 
-  PathInfo ReconstructPath(const VertexAccessor &midpoint, utils::MemoryResource *memory) const {
-    PathInfo out(memory);
+  SpurPath ReconstructPath(const VertexAccessor &midpoint, utils::MemoryResource *memory) const {
+    SpurPath out(memory);
     auto &result = out.edges;
     VertexAccessor current = midpoint;
 
@@ -4708,7 +4689,7 @@ class KShortestPathsCursor : public Cursor {
         .first->second;
   }
 
-  PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
+  SpurPath ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
                                [[maybe_unused]] const TypedValue &start_cost, Frame &frame,
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if constexpr (Cost::kWeighted) {
@@ -4718,9 +4699,9 @@ class KShortestPathsCursor : public Cursor {
     }
   }
 
-  PathInfo ComputeShortestPathBfs(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
+  SpurPath ComputeShortestPathBfs(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
                                   Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    if (source == target) return PathInfo(evaluator.GetMemoryResource());
+    if (source == target) return SpurPath(evaluator.GetMemoryResource());
 
     // We expand from both directions, both from the source and the target.
     // Expansions meet at the middle of the path if it exists. This should
@@ -4745,7 +4726,7 @@ class KShortestPathsCursor : public Cursor {
       AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
+      if (std::cmp_greater(current_length, upper_bound)) return SpurPath(evaluator.GetMemoryResource());
 
       for (const auto &vertex : bfs_source_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
@@ -4775,13 +4756,13 @@ class KShortestPathsCursor : public Cursor {
         }
       }
 
-      if (bfs_source_next_.empty()) return PathInfo(evaluator.GetMemoryResource());
+      if (bfs_source_next_.empty()) return SpurPath(evaluator.GetMemoryResource());
       bfs_source_frontier_.clear();
       std::swap(bfs_source_frontier_, bfs_source_next_);
 
       // Bottom-up step (expansion from the target).
       ++current_length;
-      if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
+      if (std::cmp_greater(current_length, upper_bound)) return SpurPath(evaluator.GetMemoryResource());
 
       // When expanding from the target we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
@@ -4814,7 +4795,7 @@ class KShortestPathsCursor : public Cursor {
         }
       }
 
-      if (bfs_target_next_.empty()) return PathInfo(evaluator.GetMemoryResource());
+      if (bfs_target_next_.empty()) return SpurPath(evaluator.GetMemoryResource());
       bfs_target_frontier_.clear();
       std::swap(bfs_target_frontier_, bfs_target_next_);
     }
@@ -4894,8 +4875,8 @@ class KShortestPathsCursor : public Cursor {
     settled_.clear();
   }
 
-  PathInfo ReconstructWeightedPath(int64_t node, const TypedValue &cost, utils::MemoryResource *memory) const {
-    PathInfo out(memory);
+  SpurPath ReconstructWeightedPath(int64_t node, const TypedValue &cost, utils::MemoryResource *memory) const {
+    SpurPath out(memory);
     for (auto i = node; i != -1; i = search_tree_[static_cast<size_t>(i)].parent) {
       const auto &in_edge = search_tree_[static_cast<size_t>(i)].in_edge;
       if (in_edge) out.edges.push_back(*in_edge);
@@ -4982,14 +4963,14 @@ class KShortestPathsCursor : public Cursor {
 
   /// Yen's spur search: A* from `source` on the unblocked graph with `reverse_dist_` as the heuristic, so
   /// the first pop of the target is optimal. `upper_bound` is the hops left; `start_cost` the root's cost.
-  PathInfo ComputeShortestPathWeighted(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
+  SpurPath ComputeShortestPathWeighted(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
                                        const TypedValue &start_cost, Frame &frame, ExpressionEvaluator &evaluator,
                                        ExecutionContext &context) {
     auto *memory = evaluator.GetMemoryResource();
-    if (source == target) return PathInfo(memory);
+    if (source == target) return SpurPath(memory);
     // Absent from the reverse tree means no walk from here reaches the target at all.
     const auto source_dist = reverse_dist_.find(source);
-    if (source_dist == reverse_dist_.end()) return PathInfo(memory);
+    if (source_dist == reverse_dist_.end()) return SpurPath(memory);
 
     ClearWeightedSearchState();
     PushWeighted(WeightedQueueEntry{.priority = AddCost(start_cost, source_dist->second),
@@ -5019,20 +5000,23 @@ class KShortestPathsCursor : public Cursor {
       ExpandWeighted(entry, tree_node, frame, evaluator, context);
     }
 
-    return PathInfo(memory);
+    return SpurPath(memory);
   }
 
-  void PushPathToFrame(const PathInfo &path, Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+  void PushPathToFrame(const FoundPath &path, Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     auto *memory = evaluator.GetMemoryResource();
     auto edge_list = TypedValue::TVector(memory);
-    for (const auto &edge : path.edges) {
-      edge_list.emplace_back(edge);
+    edge_list.reserve(path.length);
+    for (uint64_t node = path.leaf; node != 0; node = trie_[node].parent) {
+      edge_list.emplace_back(*trie_[node].edge);
     }
+    std::ranges::reverse(edge_list);
     if constexpr (Cost::kWeighted) {
       // Added again, in path order: the search's cost only orders, and an overflow is an error only here.
       TypedValue total;
       VertexAccessor at = current_source_.value();
-      for (const auto &edge : path.edges) {
+      for (const auto &edge_value : edge_list) {
+        const auto &edge = edge_value.ValueEdge();
         const VertexAccessor next = (edge.From() == at) ? edge.To() : edge.From();
         total = AddServedCost(total, EdgeWeight(edge, next, frame, evaluator, context));
         at = next;
@@ -5044,64 +5028,53 @@ class KShortestPathsCursor : public Cursor {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
       if (constant_weight_ && self_.total_weight_ && self_.total_weight_->user_declared()) {
-        frame_writer.Write(*self_.total_weight_, ConstantPathCost(*constant_weight_, path.edges.size(), memory));
+        frame_writer.Write(*self_.total_weight_, ConstantPathCost(*constant_weight_, path.length, memory));
       }
     }
   }
 
-  bool IsPathInFoundSet(const PathInfo &path) {
-    path_gids_scratch_.clear();
-    for (const auto &edge : path.edges) {
-      path_gids_scratch_.push_back(edge.Gid());
-    }
-    return found_paths_set_.contains(path_gids_scratch_);
-  }
-
-  void AddPathToFoundSet(const PathInfo &path) {
-    utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
-    path_gids.reserve(path.edges.size());
-    for (const auto &edge : path.edges) {
-      path_gids.push_back(edge.Gid());
-    }
-    found_paths_set_.insert(std::move(path_gids));
-
-    uint64_t node = 0;
-    for (const auto &edge : path.edges) {
-      node = TrieDescendOrCreate(node, edge.Gid());
-    }
+  /// Adds the candidate to the trie and the found paths. A walk that creates no node is a duplicate:
+  /// the candidate is then a prefix of a found path, which is simple and ends at the target, so it
+  /// is that path.
+  bool AcceptCandidate(const Candidate &candidate) {
+    const auto trie_size = trie_.size();
+    uint64_t node = candidate.root;
+    for (const auto &edge : candidate.spur) node = TrieDescendOrCreate(node, edge);
+    if (trie_.size() == trie_size) return false;
+    shortest_paths_.push_back(
+        FoundPath{.leaf = node, .length = candidate.length(), .root_length = candidate.root_length});
+    return true;
   }
 
   /// The child of `node` reached by `edge`, created if this is the first path to take it.
-  uint64_t TrieDescendOrCreate(uint64_t node, storage::Gid edge) {
-    for (uint64_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
-      if (trie_children_[c].edge == edge) return trie_children_[c].node;
+  uint64_t TrieDescendOrCreate(uint64_t node, const EdgeAccessor &edge) {
+    const auto gid = edge.Gid();
+    for (uint64_t c = trie_[node].first_child; c != kNoNode; c = trie_[c].next_sibling) {
+      if (trie_[c].edge_gid == gid) return c;
     }
     // Ids are as wide as the vector's own index, so `fresh` cannot narrow and the only ceiling
     // left is the sentinel - which a vector of these cannot reach before the allocator gives out.
-    const auto fresh = static_cast<uint64_t>(trie_first_child_.size());
-    trie_first_child_.push_back(kNoChild);
-    trie_children_.push_back(TrieChild{.edge = edge, .node = fresh, .next_sibling = trie_first_child_[node]});
-    trie_first_child_[node] = trie_children_.size() - 1;
+    const auto fresh = static_cast<uint64_t>(trie_.size());
+    trie_.push_back(TrieNode{.edge = edge,
+                             .edge_gid = gid,
+                             .parent = node,
+                             .first_child = kNoNode,
+                             .next_sibling = trie_[node].first_child});
+    trie_[node].first_child = fresh;
     return fresh;
   }
 
-  /// The child of `node` reached by `edge`; `kNoChild` when no found path took it.
-  uint64_t TrieDescend(uint64_t node, storage::Gid edge) const {
-    for (uint64_t c = trie_first_child_[node]; c != kNoChild; c = trie_children_[c].next_sibling) {
-      if (trie_children_[c].edge == edge) return trie_children_[c].node;
-    }
-    return kNoChild;
+  /// Fills `path_nodes_` with the trie nodes from the root down to `leaf`.
+  void CollectPathNodes(uint64_t leaf) {
+    path_nodes_.clear();
+    for (uint64_t node = leaf; node != kNoNode; node = trie_[node].parent) path_nodes_.push_back(node);
+    std::ranges::reverse(path_nodes_);
   }
 
   void ResetState() {
-    shortest_paths_.clear();
-    candidate_paths_.clear();
-    found_paths_set_.clear();
-    current_path_index_ = 0;
+    ReleasePathStorage();
     blocked_edges_.clear();
     blocked_vertices_.clear();
-    trie_children_.clear();
-    trie_first_child_.assign(1, kNoChild);  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
     expansion_memo_.rehash(0);
@@ -5111,6 +5084,21 @@ class KShortestPathsCursor : public Cursor {
     ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards its serving site instead of returning early.
     n_returned_paths_ = 0;
+  }
+
+  // Gives the found paths, the candidates and the trie back: when the next searched row starts, and
+  // once after the last row. `clear()` would keep the capacity, and the last row, or one followed
+  // only by skipped rows, has no next search to reuse it.
+  void ReleasePathStorage() {
+    trie_.assign(1, TrieRoot());
+    trie_.shrink_to_fit();
+    shortest_paths_.clear();
+    shortest_paths_.shrink_to_fit();
+    candidate_paths_.clear();
+    candidate_paths_.shrink_to_fit();
+    path_nodes_.clear();
+    path_nodes_.shrink_to_fit();
+    current_path_index_ = 0;
   }
 
   // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
