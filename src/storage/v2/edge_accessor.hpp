@@ -20,6 +20,7 @@ namespace memgraph::storage {
 
 struct Vertex;
 class VertexAccessor;
+class OrderedPropertyPaths;
 struct Indices;
 struct Constraints;
 class Storage;
@@ -101,7 +102,7 @@ class EdgeAccessor final {
   ///
   /// Configured without properties on edges, every slot reads Null, which is what asking for one at
   /// a time answers.
-  Result<void> ReadPropertyValues(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue> out,
+  Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
                                   View view) const;
 
   /// Properties of this edge that are backed by a vector index.

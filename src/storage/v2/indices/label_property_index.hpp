@@ -15,6 +15,7 @@
 #include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -294,14 +295,13 @@ struct PropertiesPermutationHelper {
    * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedValuesView values) const {
-    return ranges::views::enumerate(sorted_properties_) | ranges::views::transform([&, values](auto &&p) {
-             return std::tuple{p.first, std::cref(p.second), std::cref(values[position_lookup_[p.first]])};
+    return ranges::views::enumerate(ordered_.paths()) | ranges::views::transform([&, values](auto &&p) {
+             return std::tuple{p.first, std::cref(p.second), std::cref(values[ordered_.position_lookup()[p.first]])};
            });
   }
 
  private:
-  std::vector<PropertyPath> sorted_properties_;
-  std::vector<std::size_t> position_lookup_;
+  OrderedPropertyPaths ordered_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
 };

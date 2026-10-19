@@ -5447,25 +5447,13 @@ CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CachePropert
   reads_.reserve(self_.groups_.size());
   auto values_begin = std::size_t{0};
   for (auto const &group : self_.groups_) {
-    auto const count = group.properties.size();
-    auto read = GroupRead{.paths = {}, .cached_of_slot = {}, .values_begin = values_begin};
+    auto paths = std::vector<storage::PropertyPath>{};
+    paths.reserve(group.properties.size());
+    for (auto const &cached : group.properties) paths.emplace_back(cached.property_id);
 
-    read.cached_of_slot.resize(count);
-    std::iota(read.cached_of_slot.begin(), read.cached_of_slot.end(), uint32_t{0});
-    // The pass walks the record forward, finding each property from where the last one left off, so
-    // it needs them in the order the record holds them and cannot go back for one that arrives out
-    // of it. What the caller grouped them by is its own concern, so the order the read needs is
-    // established here rather than asked of it.
-    std::ranges::sort(
-        read.cached_of_slot, {}, [&group](uint32_t index) { return group.properties[index].property_id; });
-
-    read.paths.reserve(count);
-    for (auto const index : read.cached_of_slot) {
-      read.paths.emplace_back(group.properties[index].property_id);
-    }
-
-    values_begin += count;
-    reads_.push_back(std::move(read));
+    reads_.push_back(
+        GroupRead{.ordered = storage::OrderedPropertyPaths{std::move(paths)}, .values_begin = values_begin});
+    values_begin += group.properties.size();
   }
   values_.resize(values_begin);
 }
@@ -5501,8 +5489,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // NEW so that the row sees writes made earlier in this same transaction, as a
     // property lookup evaluated at this point would.
     auto const read =
-        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(read_plan.paths, slots, storage::View::NEW)
-                       : input_value.ValueEdge().impl_.ReadPropertyValues(read_plan.paths, slots, storage::View::NEW);
+        reads_a_vertex
+            ? input_value.ValueVertex().impl_.ReadPropertyValues(read_plan.ordered, slots, storage::View::NEW)
+            : input_value.ValueEdge().impl_.ReadPropertyValues(read_plan.ordered, slots, storage::View::NEW);
     if (!read) {
       switch (read.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -5517,7 +5506,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
-      const auto &cached = group.properties[read_plan.cached_of_slot[slot]];
+      const auto &cached = group.properties[read_plan.ordered.position_lookup()[slot]];
       auto &value = slots[slot];
 #ifdef MG_ENTERPRISE
       // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from

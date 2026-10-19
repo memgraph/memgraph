@@ -22,6 +22,7 @@
 #include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -845,24 +846,22 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   property_values.reserve(properties.size());
   // Callers ask in whatever order suits them. The answer is keyed by id, so reordering the question
   // does not reorder the answer.
-  auto ordered = std::vector<PropertyId>{properties.begin(), properties.end()};
-  r::sort(ordered);
+  auto const ordered =
+      OrderedPropertyPaths{properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
+                           r::to<std::vector<PropertyPath>>()};
 
   Delta *delta = nullptr;
   VertexReadLock read_lock{vertex_};
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    auto property_paths = ordered | rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                          r::to<std::vector<storage::PropertyPath>>();
-    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(ordered);
     delta = vertex_->delta();
   }
-  auto properties_map =
-      rv::zip(ordered, property_values) | rv::transform([](const auto &property_id_value_pair) {
-        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
-      }) |
-      r::to<std::map<PropertyId, PropertyValue>>();
+  auto properties_map = rv::zip(ordered.paths(), property_values) | rv::transform([](const auto &path_value_pair) {
+                          return std::make_pair(std::get<0>(path_value_pair).back(), std::get<1>(path_value_pair));
+                        }) |
+                        r::to<std::map<PropertyId, PropertyValue>>();
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
@@ -900,9 +899,10 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   return std::move(properties_map);
 }
 
-Result<void> VertexAccessor::ReadPropertyValues(std::span<PropertyPath const> ordered_properties,
+Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                                 std::span<PropertyValue> out, View view) const {
   DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  auto const paths = ordered_properties.paths();
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -924,12 +924,12 @@ Result<void> VertexAccessor::ReadPropertyValues(std::span<PropertyPath const> or
     }
 
     auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, ordered_properties, out](const Delta &delta) {
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, paths, out](const Delta &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Deleted_ActionMethod(deleted),
             Exists_ActionMethod(exists),
-            PropertyValues_ActionMethod(ordered_properties, out)
+            PropertyValues_ActionMethod(paths, out)
           });
           // clang-format on
         });
