@@ -100,21 +100,35 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
   CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
 
   auto &index_data = *index_->at(index_info.index_name);
+  // Every edge is read for the same properties, so the order they must be asked for is settled once
+  // here, and the slots they are read into are reused rather than allocated per edge.
+  auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_info.properties);
+  auto values = std::vector<PropertyValue>(ordered.size());
+
   for (const auto &vertex : vertices) {
     // Reported per vertex examined, not per edge indexed: a long run of vertices with no matching edge is
     // still progress.
     if (on_progress) on_progress();
     const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
-      // If properties are specified, we serialize only those properties; otherwise, all properties of the edge.
-      auto edge_properties = index_info.properties.empty()
-                                 ? edge.Properties(View::NEW).value()
-                                 : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
+      if (index_info.properties.empty()) {
+        // Naming no properties means indexing every property the edge carries.
+        auto const edge_properties = edge.Properties(View::NEW).value();
+        TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(),
+                                          edge.FromVertex().Gid().AsInt(),
+                                          edge.ToVertex().Gid().AsInt(),
+                                          SerializeProperties(edge_properties, name_id_mapper),
+                                          StringifyProperties(edge_properties),
+                                          index_data.context);
+        continue;
+      }
+      // Throws if the edge cannot be read, as reading its properties one set at a time did.
+      edge.ReadPropertyValues(ordered, values, View::NEW).value();
       TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(),
                                         edge.FromVertex().Gid().AsInt(),
                                         edge.ToVertex().Gid().AsInt(),
-                                        SerializeProperties(edge_properties, name_id_mapper),
-                                        StringifyProperties(edge_properties),
+                                        SerializeProperties(ordered.paths(), values, name_id_mapper),
+                                        StringifyProperties(values),
                                         index_data.context);
     }
   }
@@ -147,21 +161,39 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
 
   if (needs_rebuild) {
     auto &context = index_->at(index_info.index_name)->context;
+    auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_info.properties);
+    auto values = std::vector<PropertyValue>(ordered.size());
+
     for (const auto &vertex : vertices) {
       for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
         if (edge_type != index_info.edge_type) continue;
 
         auto *edge = edge_ref.ptr;
-        auto properties_to_index =
-            FilterPropertiesToIndex(index_info.properties, edge->properties.ExtractPropertyIds());
-        if (properties_to_index.empty()) continue;
+        if (index_info.properties.empty()) {
+          // Naming no properties means indexing every property the edge carries.
+          auto const edge_properties = edge->properties.Properties();
+          if (edge_properties.empty()) continue;
+          TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
+                                            vertex.gid.AsInt(),
+                                            to_vertex->gid.AsInt(),
+                                            SerializeProperties(edge_properties, name_id_mapper),
+                                            StringifyProperties(edge_properties),
+                                            context);
+          continue;
+        }
 
-        auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
+        edge->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
+        // An edge carrying none of the named properties has nothing to put in the index. Setting a
+        // property to Null removes it, so a Null here means the edge does not carry it.
+        // Nothing readable means an empty document, which is dropped when it is added. Skipping here
+        // just avoids building one.
+        if (std::ranges::all_of(values, [](PropertyValue const &value) { return value.IsNull(); })) continue;
+
         TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
                                           vertex.gid.AsInt(),
                                           to_vertex->gid.AsInt(),
-                                          SerializeProperties(properties_to_index_map, name_id_mapper),
-                                          StringifyProperties(properties_to_index_map),
+                                          SerializeProperties(ordered.paths(), values, name_id_mapper),
+                                          StringifyProperties(values),
                                           context);
       }
     }
@@ -423,15 +455,27 @@ void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMa
 
     std::vector<PreparedEdgeDoc> docs_to_add;
     docs_to_add.reserve(pending.to_add.size());
+    // Every edge here belongs to the same index, so it is read for the same properties.
+    auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_data_ptr->properties);
+    auto values = std::vector<PropertyValue>(ordered.size());
+
     for (const auto &edge_with_vertices : pending.to_add) {
-      auto edge_properties = index_data_ptr->properties.empty()
-                                 ? edge_with_vertices.edge->properties.Properties()
-                                 : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
+      if (index_data_ptr->properties.empty()) {
+        // Naming no properties means indexing every property the edge carries.
+        auto const edge_properties = edge_with_vertices.edge->properties.Properties();
+        docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
+                               edge_with_vertices.from_vertex->gid.AsInt(),
+                               edge_with_vertices.to_vertex->gid.AsInt(),
+                               SerializeProperties(edge_properties, name_id_mapper),
+                               StringifyProperties(edge_properties)});
+        continue;
+      }
+      edge_with_vertices.edge->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
       docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
                              edge_with_vertices.from_vertex->gid.AsInt(),
                              edge_with_vertices.to_vertex->gid.AsInt(),
-                             SerializeProperties(edge_properties, name_id_mapper),
-                             StringifyProperties(edge_properties)});
+                             SerializeProperties(ordered.paths(), values, name_id_mapper),
+                             StringifyProperties(values)});
     }
 
     const std::lock_guard lock(index_data_ptr->write_mutex);

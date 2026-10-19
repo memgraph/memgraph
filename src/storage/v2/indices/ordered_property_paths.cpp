@@ -28,4 +28,11 @@ OrderedPropertyPaths::OrderedPropertyPaths(std::vector<PropertyPath> paths) : so
   position_lookup_ = std::move(inverse_permutation);
 }
 
+auto OrderedPropertyPaths::FromPropertyIds(std::span<PropertyId const> properties) -> OrderedPropertyPaths {
+  auto paths = std::vector<PropertyPath>{};
+  paths.reserve(properties.size());
+  for (auto const property : properties) paths.emplace_back(property);
+  return OrderedPropertyPaths{std::move(paths)};
+}
+
 }  // namespace memgraph::storage
