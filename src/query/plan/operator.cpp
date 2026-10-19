@@ -5478,7 +5478,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   auto const &input_value = frame[self_.input_symbol_];
-  if (input_value.type() != TypedValue::Type::Vertex) {
+  auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
+  if (!reads_a_vertex && input_value.type() != TypedValue::Type::Edge) {
     for (const auto &cached : self_.cached_properties_) {
       frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
     }
@@ -5487,7 +5488,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
   // NEW so that the row sees writes made earlier in this same transaction, as a
   // property lookup evaluated at this point would.
-  auto const read = input_value.ValueVertex().impl_.ReadPropertyValues(property_paths_, values_, storage::View::NEW);
+  auto const read =
+      reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(property_paths_, values_, storage::View::NEW)
+                     : input_value.ValueEdge().impl_.ReadPropertyValues(property_paths_, values_, storage::View::NEW);
   if (!read) {
     switch (read.error()) {
       case storage::Error::DELETED_OBJECT:
@@ -5508,8 +5511,11 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 #ifdef MG_ENTERPRISE
     // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
     // the cache too; otherwise moving a lookup into the cache would hand out a value the query could not have got.
-    if (!value.IsNull() &&
-        !PropertyReadAllowed(context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)) {
+    auto const allowed =
+        reads_a_vertex ? PropertyReadAllowed(
+                             context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
+                       : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), cached.property_id);
+    if (!value.IsNull() && !allowed) {
       value = storage::PropertyValue{};
     }
 #endif
