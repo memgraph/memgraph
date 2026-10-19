@@ -1454,6 +1454,58 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedPropertyIsNull) {
   EXPECT_EQ(results[0][0].ValueString(), "Alice");
   EXPECT_TRUE(results[0][1].IsNull());
 }
+
+TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto edge_type = dba.NameToEdgeType("Pays");
+  auto prop_amount = dba.NameToProperty("amount");
+  auto prop_account = dba.NameToProperty("account");
+
+  auto from = dba.InsertVertex();
+  auto to = dba.InsertVertex();
+  auto edge = dba.InsertEdge(&from, &to, edge_type).value();
+  ASSERT_TRUE(edge.SetProperty(prop_amount, memgraph::storage::PropertyValue(5)).has_value());
+  ASSERT_TRUE(edge.SetProperty(prop_account, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        n.op_,
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::OUT,
+                        {},
+                        "m",
+                        false,
+                        memgraph::storage::View::OLD);
+
+  auto cached_amount_sym = symbol_table.CreateSymbol("cached_amount", true);
+  auto cached_account_sym = symbol_table.CreateSymbol("cached_account", true);
+  auto cache = std::make_shared<CacheProperties>(
+      r_m.op_,
+      r_m.edge_sym_,
+      std::vector<CachedProperty>{{prop_amount, cached_amount_sym}, {prop_account, cached_account_sym}});
+
+  auto amount_ne = NEXPR("amount", IDENT("cached_amount")->MapTo(cached_amount_sym))
+                       ->MapTo(symbol_table.CreateSymbol("amount_ne", true));
+  auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(cached_account_sym))
+                        ->MapTo(symbol_table.CreateSymbol("account_ne", true));
+  auto produce = MakeProduce(cache, amount_ne, account_ne);
+
+  // A relationship property the caller may not read evaluates to Null, so caching it must not hand
+  // the real value back instead.
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Pays", "account"}});
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &checker;
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 5);
+  EXPECT_TRUE(results[0][1].IsNull());
+}
 #endif
 
 TYPED_TEST(QueryPlanTest, CachePropertiesAbsentPropertyIsNull) {
@@ -1503,6 +1555,51 @@ TYPED_TEST(QueryPlanTest, CachePropertiesNullInputSymbolYieldsNullSlots) {
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 1);
   EXPECT_TRUE(results[0][0].IsNull());
+}
+
+// An edge keeps its properties in the same store a vertex does, so the operator reads a set of them
+// the same way and the symbol it is given may be bound to either.
+TYPED_TEST(QueryPlanTest, CachePropertiesReadsAnEdgesProperties) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto prop_a = dba.NameToProperty("a");
+  auto prop_b = dba.NameToProperty("b");
+
+  auto from = dba.InsertVertex();
+  auto to = dba.InsertVertex();
+  auto edge = dba.InsertEdge(&from, &to, dba.NameToEdgeType("et")).value();
+  ASSERT_TRUE(edge.SetProperty(prop_a, memgraph::storage::PropertyValue(11)).has_value());
+  ASSERT_TRUE(edge.SetProperty(prop_b, memgraph::storage::PropertyValue("eleven")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        n.op_,
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::OUT,
+                        {},
+                        "m",
+                        false,
+                        memgraph::storage::View::OLD);
+
+  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<CacheProperties>(
+      r_m.op_, r_m.edge_sym_, std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}});
+
+  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(cached_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
+  auto produce = MakeProduce(cache, a_ne, b_ne);
+
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 11);
+  EXPECT_EQ(results[0][1].ValueString(), "eleven");
 }
 
 TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {

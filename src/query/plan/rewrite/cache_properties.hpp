@@ -66,9 +66,11 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
       case Phase::GATHER: {
         if (disabled_) return;
         auto const &symbol = symbol_table_->at(*identifier);
-        // The cursor fills its slots with Null for anything that is not a vertex, so an edge or an untyped symbol
-        // would silently lose its properties. A second symbol is out of scope for this rewrite.
-        if (symbol.type() != Symbol::Type::VERTEX || (single_symbol_ && !(*single_symbol_ == symbol))) {
+        // A vertex and an edge each keep their properties in a record the cursor can read in one pass. The cursor
+        // fills its slots with Null for anything else, so an untyped symbol would silently lose its properties.
+        // A second symbol is out of scope for this rewrite.
+        auto const reads_a_record = symbol.type() == Symbol::Type::VERTEX || symbol.type() == Symbol::Type::EDGE;
+        if (!reads_a_record || (single_symbol_ && !(*single_symbol_ == symbol))) {
           single_symbol_.reset();
           lookup_count_ = 0;
           disabled_ = true;

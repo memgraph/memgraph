@@ -340,6 +340,45 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
   CHECK_CACHE_PROPERTIES_RESULTS();
 }
 
+TYPED_TEST(QueryExecution, CachePropertiesReadsARelationshipsProperties) {
+  // A relationship keeps its properties in the same store a node does, so a projection of two of
+  // them is the same shape the rewrite is for. The second is missing on one relationship, so the
+  // slots have to answer Null there rather than drop the column.
+  CachePropertiesFlagGuard guard{true};
+  using BoltValue = memgraph::communication::bolt::Value;
+
+  this->Execute("CREATE (:P)-[:R {a: 1, b: 'x'}]->(:P), (:P)-[:R {a: 2}]->(:P)");
+
+  auto results = this->Execute("MATCH ()-[r:R]->() RETURN r.a AS a, r.b AS b ORDER BY a");
+  ASSERT_EQ(results.size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[0][1].ValueString(), "x");
+  EXPECT_EQ(results[1][0].ValueInt(), 2);
+  EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);
+}
+
+TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlanForARelationship) {
+  // Guards the test above from passing because the rewrite never fired. The two runs must not share
+  // a plan cache entry, so they differ in the returned column names.
+  auto explained = [this](const std::string &query) {
+    auto results = this->Execute(query);
+    std::string joined;
+    for (const auto &row : results) joined += row[0].ValueString();
+    return joined;
+  };
+
+  {
+    CachePropertiesFlagGuard guard{false};
+    EXPECT_EQ(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS a, r.b AS b").find("CacheProperties"),
+              std::string::npos);
+  }
+  {
+    CachePropertiesFlagGuard guard{true};
+    EXPECT_NE(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS c, r.b AS d").find("CacheProperties"),
+              std::string::npos);
+  }
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlan) {
   // Guards the results tests above from passing because the rewrite never fired.
   // The two runs must not share a plan cache entry, so they differ in the returned column names.
