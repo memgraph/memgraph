@@ -379,6 +379,23 @@ TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlanForARelationship) {
   }
 }
 
+TYPED_TEST(QueryExecution, CachePropertiesUnderASunkOrderByWithALimit) {
+  // An ORDER BY with a LIMIT sinks below the projection so that only the rows it keeps are
+  // projected, and it has to carry forward everything above it still reads. The cache reads the
+  // record, so what it needs carried is the symbol itself rather than the properties the
+  // projection used to read. An omission here does not fail the query: the rows come back Null.
+  CachePropertiesFlagGuard guard{true};
+
+  this->Execute("CREATE (:P {id: 1, a: 10, b: 'x'}), (:P {id: 2, a: 20, b: 'y'}), (:P {id: 3, a: 30, b: 'z'})");
+
+  auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY n.id LIMIT 2");
+  ASSERT_EQ(results.size(), 2);
+  EXPECT_EQ(results[0][0].ValueInt(), 10);
+  EXPECT_EQ(results[0][1].ValueString(), "x");
+  EXPECT_EQ(results[1][0].ValueInt(), 20);
+  EXPECT_EQ(results[1][1].ValueString(), "y");
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
   // Two symbols are two records and so two reads whichever way the plan is built. Gathering them
   // into one operator keeps that to one pull per row, and a symbol with only one lookup of its own
