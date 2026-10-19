@@ -17,6 +17,7 @@
 
 #include "flags/general.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/delta_action_methods.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
@@ -28,8 +29,6 @@
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-// The delta action methods a read composes are entity-agnostic despite where they live.
-#include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"

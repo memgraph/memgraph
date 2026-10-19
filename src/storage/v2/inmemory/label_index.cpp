@@ -20,6 +20,7 @@
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/all_indices_cleanup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/counter.hpp"
 
 namespace {
