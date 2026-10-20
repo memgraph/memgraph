@@ -65,7 +65,7 @@ SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
     code-coverage drivers drivers-high-availability durability e2e e2e-parallel gql-behave
     integration integration-parallel leftover-CTest macro-benchmark
-    mgbench stress-plain stress-plain-parallel stress-ssl
+    mgbench stress-plain stress-plain-parallel stress-ssl stress-ssl-parallel
     query_modules_e2e query_modules_unit
     unit unit-coverage upload-to-bench-graph
 )
@@ -2042,6 +2042,9 @@ test_memgraph() {
     ;;
     stress-ssl)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_ssl.yaml"
+    ;;
+    stress-ssl-parallel)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration_parallel --workload=standalone/native/workloads/config_ssl.yaml"
     ;;
     stress-large)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_large.yaml"

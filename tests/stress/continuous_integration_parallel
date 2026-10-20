@@ -18,6 +18,9 @@ Usage:
   ./continuous_integration_parallel --workload ... --cores 16 --max-parallel 4
   ./continuous_integration_parallel --workload ... --dry-run
 
+With `general.use_ssl: true` every instance gets its own self-signed certificate and
+the dataset tests are run with `--use-ssl` (customWorkloads are not supported with SSL).
+
 Each job's output lands in <log-dir>/<NN-name>/runner.log next to memgraph.log;
 on failure the tail of runner.log is echoed to stdout.
 """
@@ -138,6 +141,8 @@ def load_config(config_file: str):
         raise SystemExit(f"Only {SUPPORTED_DEPLOYMENT} configs are supported, got '{config.deployment_type}'")
     if not config.manage_deployment:
         raise SystemExit("Externally managed deployments cannot be run in parallel (single shared instance)")
+    if config.uses_ssl and config.custom_workloads:
+        raise SystemExit("use_ssl is only supported for dataset tests, not customWorkloads")
     if not os.path.exists(config.deployment_script):
         raise SystemExit(f"Deployment script not found: {config.deployment_script}")
     return config
@@ -179,15 +184,50 @@ def _rewrite_port_args(tokens: List[str], old_port: int, new_port: int) -> List[
     return out
 
 
+def _generate_ssl_certs(job_dir: str) -> Dict[str, str]:
+    """Self-signed cert/key for one instance (what the serial runner did before #2578)."""
+    cert = os.path.join(job_dir, "cert.pem")
+    key = os.path.join(job_dir, "key.pem")
+    subj = "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com"
+    cmd = [
+        "openssl",
+        "req",
+        "-new",
+        "-newkey",
+        "rsa:4096",
+        "-days",
+        "365",
+        "-nodes",
+        "-x509",
+        "-subj",
+        subj,
+        "-keyout",
+        key,
+        "-out",
+        cert,
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return {"cert": cert, "key": key}
+
+
 def _start_instance(config, job: Job, ports: Dict[str, int], job_dir: str) -> None:
-    # memgraph.log already lands in job_dir; keep its stderr copy out of runner.log so the
-    # test's own output stays readable. Config args come later and can still override.
+    # Per-instance paths/ports go last so they win over anything the config sets (a shared
+    # --data-directory would make the instances collide). memgraph.log already lands in
+    # job_dir, so its stderr copy is kept out of runner.log to keep the test output readable.
     flags = (
-        ["--also-log-to-stderr=false"]
-        + config.memgraph_args
+        config.memgraph_args
         + job.spec.get("memgraph_args", [])
-        + [f"--monitoring-port={ports['monitoring']}", f"--metrics-port={ports['metrics']}"]
+        + [
+            f"--data-directory={os.path.join(job_dir, 'data')}",
+            f"--log-file={os.path.join(job_dir, 'memgraph.log')}",
+            "--also-log-to-stderr=false",
+            f"--monitoring-port={ports['monitoring']}",
+            f"--metrics-port={ports['metrics']}",
+        ]
     )
+    if config.uses_ssl:
+        certs = _generate_ssl_certs(job_dir)
+        flags += [f"--bolt-cert-file={certs['cert']}", f"--bolt-key-file={certs['key']}"]
     env = os.environ.copy()
     for key, value in config.env.items():
         if value:
@@ -228,8 +268,9 @@ def _run_dataset_test(args, config, job: Job, cores: int, bolt_port: int) -> Non
         endpoint = ["--endpoint", f"127.0.0.1:{bolt_port}"]
     else:
         endpoint = ["--port", str(bolt_port)]
+    ssl = ["--use-ssl"] if config.uses_ssl else []
     # Config test_args come last so they override --worker-count, exactly as in the serial runner.
-    cmd = binary + ["--worker-count", str(cores)] + endpoint + job.spec["test_args"]
+    cmd = binary + ["--worker-count", str(cores)] + endpoint + ssl + job.spec["test_args"]
     print(f"Running test '{test}': {' '.join(cmd)}", flush=True)
     ret = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=job.timeout_min * 60)
     if ret.returncode != 0:

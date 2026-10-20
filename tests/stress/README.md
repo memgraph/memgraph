@@ -37,7 +37,9 @@ Entries without `cores` are treated as needing every core: they get
 `--worker-count <budget>` like in the serial runner and run alone once nothing else is
 running. Per-job output goes to `stress_logs/parallel/<NN-name>/runner.log` next to that
 instance's `memgraph.log`; on failure the tail of `runner.log` is printed and no further
-jobs are started.
+jobs are started. With `general.use_ssl: true` each instance gets its own self-signed
+certificate and the dataset tests run with `--use-ssl` (custom workloads are not supported
+with SSL).
 
 ## Workload Registry
 
