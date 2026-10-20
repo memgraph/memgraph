@@ -22,8 +22,10 @@
 #include <latch>
 #include <map>
 #include <set>
+#include <string>
 #include <thread>
 #include <variant>
+#include <vector>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
@@ -656,7 +658,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenWeakAndStrongDeniedOnLabelThenBothA
   EXPECT_EQ(effective["CREATE ON ALL LABELS"], "WEAK DENY");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesWeakAndStrongDenySameLabelThenBothAreDisplayed) {
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesWeakAndStrongDenySameLabelThenStrongDenyIsDisplayed) {
   memgraph::auth::Role weak_role{"weak_role", memgraph::auth::Permissions{}};
   weak_role.fine_grained_access_handler().label_permissions().Deny({label_repr},
                                                                    memgraph::auth::FineGrainedPermission::READ,
@@ -673,11 +675,129 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesWeakAndStrongDenySameLabelThen
   user.AddRole(strong_role);
   auth.value()->SaveUser(user);
 
-  auto privileges = auth_handler.GetPrivileges(
+  auto const privileges = auth_handler.GetPrivileges(
       user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
-  std::multiset<std::string> effective;
-  for (auto const &row : privileges) effective.emplace(row[1].ValueString());
-  EXPECT_EQ(effective, (std::multiset<std::string>{"STRONG DENY", "WEAK DENY"}));
+  ASSERT_EQ(privileges.size(), 1);
+  EXPECT_EQ(privileges[0][0].ValueString(), "READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
+  EXPECT_EQ(privileges[0][1].ValueString(), "STRONG DENY");
+  EXPECT_EQ(privileges[0][2].ValueString(), "LABEL PERMISSION DENIED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWeakLabelDenyWhenRoleGrantsThenRowNamesBothSources) {
+  memgraph::auth::Role role{"granting_role", memgraph::auth::Permissions{}};
+  role.fine_grained_access_handler().label_permissions().Grant({label_repr},
+                                                               memgraph::auth::FineGrainedPermission::READ);
+  auth.value()->SaveRole(role);
+
+  memgraph::auth::User user{user_name, std::nullopt, perms};
+  user.fine_grained_access_handler().label_permissions().Deny({label_repr},
+                                                              memgraph::auth::FineGrainedPermission::READ,
+                                                              memgraph::auth::MatchingMode::ANY,
+                                                              memgraph::auth::DenyStrength::WEAK);
+  user.AddRole(role);
+  auth.value()->SaveUser(user);
+
+  auto const privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  ASSERT_EQ(privileges.size(), 1);
+  EXPECT_EQ(privileges[0][0].ValueString(), "READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
+  EXPECT_EQ(privileges[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(privileges[0][2].ValueString(), "LABEL PERMISSION DENIED TO USER, LABEL PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWeakGlobalDenyWhenRoleGrantsGloballyThenOneResolvedRowPerKind) {
+  using memgraph::auth::PropertyPermissionType;
+  memgraph::auth::Role role{"granting_role", memgraph::auth::Permissions{}};
+  role.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  role.property_access_handler().label_properties().GrantGlobal("salary", PropertyPermissionType::READ);
+  auth.value()->SaveRole(role);
+
+  memgraph::auth::User user{user_name, std::nullopt, perms};
+  user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::READ,
+                                                                    memgraph::auth::DenyStrength::WEAK);
+  user.property_access_handler().label_properties().DenyGlobal(
+      "salary", PropertyPermissionType::READ, memgraph::auth::DenyStrength::WEAK);
+  user.AddRole(role);
+  auth.value()->SaveUser(user);
+
+  using Row = std::vector<std::string>;
+  std::vector<Row> rows;
+  for (auto const &row : auth_handler.GetPrivileges(
+           user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr)) {
+    rows.push_back(
+        {std::string{row[0].ValueString()}, std::string{row[1].ValueString()}, std::string{row[2].ValueString()}});
+  }
+  EXPECT_EQ(
+      rows,
+      (std::vector<Row>{{"READ ON ALL LABELS",
+                         "GRANT",
+                         "GLOBAL LABEL PERMISSION DENIED TO USER, GLOBAL LABEL PERMISSION GRANTED TO ROLE"},
+                        {"READ {salary} ON ALL LABELS",
+                         "GRANT",
+                         "GLOBAL PROPERTY PERMISSION DENIED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE"}}));
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesOverrideWeakPropertyDenyThenOneResolvedRowPerDatabase) {
+  using memgraph::auth::PropertyPermissionType;
+  memgraph::auth::Role worker{"worker", memgraph::auth::Permissions{}};
+  worker.db_access().Grant("db1");
+  worker.db_access().Grant("db2");
+  worker.property_access_handler().label_properties().Deny({"Employee"},
+                                                           "salary",
+                                                           PropertyPermissionType::READ,
+                                                           memgraph::auth::MatchingMode::ANY,
+                                                           memgraph::auth::DenyStrength::WEAK);
+  auth.value()->SaveRole(worker);
+  memgraph::auth::Role ceo{"ceo", memgraph::auth::Permissions{}};
+  ceo.db_access().Grant("db1");
+  ceo.property_access_handler().label_properties().Grant({"Employee"}, "salary", PropertyPermissionType::READ);
+  auth.value()->SaveRole(ceo);
+
+  memgraph::auth::User user{user_name, std::nullopt, perms};
+  user.AddRole(worker);
+  user.AddRole(ceo);
+  auth.value()->SaveUser(user);
+
+  using Row = std::vector<std::string>;
+  auto const rows = [&](std::string const &db) {
+    std::vector<Row> result;
+    for (auto const &row : auth_handler.GetPrivileges(user_name, db, nullptr)) {
+      result.push_back(
+          {std::string{row[0].ValueString()}, std::string{row[1].ValueString()}, std::string{row[2].ValueString()}});
+    }
+    return result;
+  };
+  EXPECT_EQ(rows("db1"),
+            (std::vector<Row>{{"READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY",
+                               "GRANT",
+                               "PROPERTY PERMISSION GRANTED TO ROLE"}}));
+  EXPECT_EQ(rows("db2"),
+            (std::vector<Row>{{"READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY",
+                               "WEAK DENY",
+                               "PROPERTY PERMISSION DENIED TO ROLE"}}));
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWeakPropertyDenyWhenRoleGrantsThenRowNamesBothSources) {
+  using memgraph::auth::PropertyPermissionType;
+  memgraph::auth::Role ceo{"ceo", memgraph::auth::Permissions{}};
+  ceo.property_access_handler().label_properties().Grant({"Employee"}, "salary", PropertyPermissionType::READ);
+  auth.value()->SaveRole(ceo);
+
+  memgraph::auth::User user{user_name, std::nullopt, perms};
+  user.property_access_handler().label_properties().Deny({"Employee"},
+                                                         "salary",
+                                                         PropertyPermissionType::READ,
+                                                         memgraph::auth::MatchingMode::ANY,
+                                                         memgraph::auth::DenyStrength::WEAK);
+  user.AddRole(ceo);
+  auth.value()->SaveUser(user);
+
+  auto const privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  ASSERT_EQ(privileges.size(), 1);
+  EXPECT_EQ(privileges[0][0].ValueString(), "READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(privileges[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(privileges[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER, PROPERTY PERMISSION GRANTED TO ROLE");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenBothAreDisplayed) {

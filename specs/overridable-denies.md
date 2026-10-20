@@ -71,9 +71,10 @@ privilege to a `WEAK DENY` when two roles collide and the stronger role should w
 
 Memgraph does not report a collision. The symptom is a property reading `Null`,
 which is indistinguishable from a property that was never set, and the
-administrator finds the cause by inspecting the user's roles with
-`SHOW PRIVILEGES FOR <user>`. Nothing has to be predicted in advance, but
-nothing arrives unprompted either.
+administrator finds the cause with `SHOW PRIVILEGES FOR <user>`, which shows
+the result and whether it comes from the user or their roles, then
+`SHOW PRIVILEGES FOR <role>` for each role. Nothing has to be predicted in
+advance, but nothing arrives unprompted either.
 
 ## User Stories
 
@@ -86,7 +87,7 @@ nothing arrives unprompted either.
 7. As an administrator, I want a strong deny to win over a grant of the same thing, whatever else weak-denies it, so that a genuine prohibition cannot be relaxed by a second role.
 8. As an administrator, I want the result to be the same no matter what order a user's roles were assigned in, so that access is reproducible.
 9. As an auditor, I want `SHOW PRIVILEGES` to distinguish weak denies from strong ones, so that I do not read a weak deny as a protection it is not.
-10. As an auditor, I want two roles denying the same label, edge type, or property at different strengths to appear as separate entries, so that the weaker one is visible.
+10. As an auditor, I want `SHOW PRIVILEGES` for a user to show what that user gets, and for a role to list every entry the role carries, so that I can see both the outcome and what would change if a role changed.
 11. As an administrator, I want `REVOKE` to remove a deny whatever its strength, so that there is nothing new to learn about removing permissions.
 12. As an administrator, I want weak denies available on labels, edge types, and privileges as well as properties, so that the same overlap problem has the same answer everywhere.
 13. As an administrator, I want a grant of the same thing that I give a user directly to override a weak deny on one of their roles, so that I can make an exception for one person without editing a shared role.
@@ -207,17 +208,22 @@ held, because prohibitions are what block each other. Permissions simply add up.
 `DENY` and gains `STRONG DENY` (replacing `DENY`) and `WEAK DENY`. No column is added, so nothing
 parsing the result by position breaks.
 
-Putting it in `effective` is required, not cosmetic. Rows sharing a privilege
-and an `effective` value are merged into one before display, so a strength held
-anywhere else would collapse a weak deny and a strong deny on the same property
-into a single row and hide the weaker one. That is the case an auditor most
-needs to see.
+For a role, each label, edge-type, and property entry the role carries gets its
+own row.
 
-For labels, edge types, and properties, a grant, a strong deny, and a weak deny
-on the same thing each get their own row, even when another one wins.
-These rows report what the user's roles carry, not which one won, so revoking a
-strong deny does not bring into play a weak deny the auditor did not see.
-Privileges such as `CREATE` keep one row showing the result, as before.
+For a user, every row shows the result on the database being queried, combined
+the way enforcement combines it: the user's own entries and those of every role
+they hold on that database. Privileges such as `CREATE` already worked this way;
+labels, edge types, and properties now do too. Each row's `effective` value is
+the result, and its `description` says what the user's own entries and their
+roles each resolve to, for example `PROPERTY PERMISSION DENIED TO USER,
+PROPERTY PERMISSION GRANTED TO ROLE`. A weak deny that a grant overrides shows
+as `GRANT`, and a weak deny under a strong deny shows as `STRONG DENY`; the
+role's own rows still list it.
+
+A row covers one rule. A node can match several label rules as well as the
+global `LABELS *` rules, and access to it combines all of them, so a row is not
+the answer for every node that carries its label.
 
 ### Compatibility
 
@@ -229,6 +235,11 @@ where it used to say `DENY`. The column count and their meanings are unchanged,
 so this only affects something matching the `effective` value as an exact
 string. Accepted: leaving it as `DENY` would force an auditor to ask which
 strength it is, which is the doubt the column exists to remove.
+
+A second visible change: `SHOW PRIVILEGES FOR <user>` lists one resolved row
+for each label, edge-type, and property rule, where it used to list each role's
+entries separately, and leaves out roles that do not cover the queried
+database.
 
 Weak denies are stored in a new optional field beside the existing grant and
 deny records. The existing deny record keeps its meaning and holds strong
@@ -261,8 +272,9 @@ nothing:
 - The same set of roles assigned in a different order, giving the same answer.
 - A weak deny surviving a round trip through the auth store, and an auth store
   written before this feature loading with every deny strong.
-- `SHOW PRIVILEGES` showing a weak deny and a strong deny on the same property
-  as separate rows.
+- `SHOW PRIVILEGES` for a user showing one resolved row where a weak deny meets
+  a grant or a strong deny, with the description naming both sources, and for
+  a role listing the role's own entries.
 - A weak deny overridden on one database and holding on another, where the
   overriding role is scoped to only one of them.
 
