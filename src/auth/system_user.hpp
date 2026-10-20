@@ -9,7 +9,6 @@
 #pragma once
 
 #include <filesystem>
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -28,16 +27,12 @@ inline constexpr std::string_view kInternalSystemUsername{"memgraph_internal"};
 /// The name is reserved whether or not the user is configured, so nobody can claim it before it is turned on.
 [[nodiscard]] bool IsInternalSystemUsername(std::string_view name);
 
-/// Reads the internal system user's hash from `path`: a single pre-hashed bcrypt literal (`bcrypt:$2a$...`), the same
-/// format CREATE USER ... IDENTIFIED BY accepts, surrounding whitespace ignored. bcrypt carries its own salt and cost.
+/// Enables the internal system user with the hash read from `path`: a single pre-hashed bcrypt literal
+/// (`bcrypt:$2a$...`), the same format CREATE USER ... IDENTIFIED BY accepts, surrounding whitespace ignored. bcrypt
+/// carries its own salt and cost. Called once at startup, before any session exists -- the hash is read without a lock
+/// afterwards.
 /// @throw AuthException if the file can't be read, holds anything else, or FIPS mode is on (bcrypt isn't approved).
-[[nodiscard]] HashedPassword LoadInternalSystemUserHash(std::filesystem::path const &path);
-
-/// Configures the internal system user for this process; nullopt turns it off. Called once at startup, before any
-/// session exists, and never again outside tests -- the hash is read without a lock afterwards.
-void SetInternalSystemUser(std::optional<HashedPassword> hash);
-
-[[nodiscard]] bool InternalSystemUserEnabled();
+void LoadInternalSystemUser(std::filesystem::path const &path);
 
 enum class InternalSystemUserLogin : uint8_t {
   kNotInternal,  // Not the internal system user, or it isn't configured: authenticate the usual way.

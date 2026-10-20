@@ -10,7 +10,11 @@
 
 #include <fstream>
 #include <iterator>
+#include <optional>
+#include <tuple>
 #include <utility>
+
+#include <spdlog/spdlog.h>
 
 #include "auth/exceptions.hpp"
 #include "utils/fips.hpp"
@@ -21,11 +25,22 @@ namespace memgraph::auth {
 namespace {
 // Written once at startup, before the Bolt server accepts a connection, then only read.
 std::optional<HashedPassword> internal_system_user_hash;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+// bcrypt refuses a malformed hash only when asked to verify against it; trying once at startup means a login never
+// throws.
+bool IsVerifiable(HashedPassword hash) {
+  try {
+    std::ignore = hash.VerifyPassword({});
+    return true;
+  } catch (AuthException const &) {
+    return false;
+  }
+}
 }  // namespace
 
 bool IsInternalSystemUsername(std::string_view name) { return utils::ToLowerCase(name) == kInternalSystemUsername; }
 
-HashedPassword LoadInternalSystemUserHash(std::filesystem::path const &path) {
+void LoadInternalSystemUser(std::filesystem::path const &path) {
   // Checked first: the bcrypt parser would also refuse under FIPS mode, but name pbkdf2 as the way out, which this
   // file doesn't accept.
   if (utils::FipsEnabled()) {
@@ -42,18 +57,14 @@ HashedPassword LoadInternalSystemUserHash(std::filesystem::path const &path) {
     throw AuthException("Couldn't read the internal system user's hash file {}.", path.string());
   }
   auto hash = UserDefinedHash(utils::Trim(contents));
-  if (!hash || hash->HashAlgo() != PasswordHashAlgorithm::BCRYPT) {
+  if (!hash || hash->HashAlgo() != PasswordHashAlgorithm::BCRYPT || !IsVerifiable(*hash)) {
     // The contents are a credential: never echo them.
     throw AuthException(
         "The internal system user's hash file {} must hold a single bcrypt hash in the form \"bcrypt:$2a$...\".",
         path.string());
   }
-  return std::move(*hash);
+  internal_system_user_hash = std::move(*hash);
 }
-
-void SetInternalSystemUser(std::optional<HashedPassword> hash) { internal_system_user_hash = std::move(hash); }
-
-bool InternalSystemUserEnabled() { return internal_system_user_hash.has_value(); }
 
 InternalSystemUserLogin AuthenticateInternalSystemUser(std::string_view username, std::string const &password) {
   if (!internal_system_user_hash || !IsInternalSystemUsername(username)) {
@@ -61,7 +72,11 @@ InternalSystemUserLogin AuthenticateInternalSystemUser(std::string_view username
   }
   // VerifyPassword isn't const; a copy keeps concurrent logins off the shared value.
   auto hash = *internal_system_user_hash;
-  return hash.VerifyPassword(password) ? InternalSystemUserLogin::kAccepted : InternalSystemUserLogin::kRejected;
+  if (!hash.VerifyPassword(password)) {
+    spdlog::warn("Couldn't authenticate the internal system user {}: the password is not correct.", username);
+    return InternalSystemUserLogin::kRejected;
+  }
+  return InternalSystemUserLogin::kAccepted;
 }
 
 }  // namespace memgraph::auth

@@ -304,29 +304,11 @@ void SessionHL::TryDefaultDB() {
   }
 }
 
-namespace {
-// The internal system user's login, decided before the auth store or an auth module is consulted. Verification
-// throws only for a hash FIPS mode refuses, which startup already rules out; it is treated as a rejection anyway.
-auto AuthenticateInternalSystemUser(const std::string &username, const std::string &password)
-    -> auth::InternalSystemUserLogin {
-  try {
-    auto const login = auth::AuthenticateInternalSystemUser(username, password);
-    if (login == auth::InternalSystemUserLogin::kRejected) {
-      spdlog::warn("Couldn't authenticate the internal system user {}: the password is not correct.", username);
-    }
-    return login;
-  } catch (const auth::AuthException &e) {
-    spdlog::warn("Couldn't authenticate the internal system user {}: {}", username, e.what());
-    return auth::InternalSystemUserLogin::kRejected;
-  }
-}
-}  // namespace
-
 // This is called on connection establishment
 std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
                                                                               const std::string &password) {
   interpreter_.ResetUser();
-  switch (AuthenticateInternalSystemUser(username, password)) {
+  switch (auth::AuthenticateInternalSystemUser(username, password)) {
     case auth::InternalSystemUserLogin::kAccepted:
       // Unrestricted, like a session on an instance without users, but named, so SHOW SESSIONS and the audit log
       // tell its queries apart from everyone else's.
@@ -490,7 +472,7 @@ std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
 
 std::optional<bool> SessionHL::CoordinatorInternalSystemUserAuthenticate(const std::string &username,
                                                                          const std::string &password) {
-  switch (AuthenticateInternalSystemUser(username, password)) {
+  switch (auth::AuthenticateInternalSystemUser(username, password)) {
     case auth::InternalSystemUserLogin::kNotInternal:
       return std::nullopt;
     case auth::InternalSystemUserLogin::kRejected:

@@ -787,21 +787,19 @@ int main(int argc, char **argv) {
   }
   auth_glue(auth_.get(), auth_handler, auth_checker);
 
-  // After FIPS mode is set up, which the hash file has to agree with, and before any server accepts a session.
-  // Fail closed: a configured system user that can't be loaded would leave whatever manages the cluster locked out.
   if (!FLAGS_system_user_internal_hash_file.empty()) {
+    if (auth_->ReadLock()->GetUser(std::string{memgraph::auth::kInternalSystemUsername})) {
+      spdlog::error(
+          "A user named {} exists in the auth store and would be shadowed by the internal system user. Drop the stored "
+          "user or leave --system-user-internal-hash-file empty. Shutting down Memgraph.",
+          memgraph::auth::kInternalSystemUsername);
+      return EXIT_FAILURE;
+    }
     try {
-      memgraph::auth::SetInternalSystemUser(
-          memgraph::auth::LoadInternalSystemUserHash(FLAGS_system_user_internal_hash_file));
+      memgraph::auth::LoadInternalSystemUser(FLAGS_system_user_internal_hash_file);
     } catch (memgraph::auth::AuthException const &e) {
       spdlog::error("{} Shutting down Memgraph.", e.what());
       return EXIT_FAILURE;
-    }
-    if (auth_->ReadLock()->GetUser(std::string{memgraph::auth::kInternalSystemUsername})) {
-      spdlog::warn(
-          "A user named {} exists in the auth store; logins with that name now authenticate as the internal system "
-          "user. Drop the stored user to remove the ambiguity.",
-          memgraph::auth::kInternalSystemUsername);
     }
     spdlog::info("Internal system user {} is enabled.", memgraph::auth::kInternalSystemUsername);
   }
