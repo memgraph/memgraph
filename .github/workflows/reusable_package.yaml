@@ -614,6 +614,8 @@ jobs:
 
       - name: "Rename Package"
         if: ${{ inputs.daily_build }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # Daily builds rename to the PR-style scheme (latest released tag +
           # PR number + commit). All non-daily callers keep get_version.py

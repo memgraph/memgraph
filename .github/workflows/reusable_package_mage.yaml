@@ -239,6 +239,8 @@ jobs:
           fi
 
       - name: Get Memgraph version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # Match the MEMGRAPH_VERSION format with that used in reusable_package.yaml,
           # so MAGE artifacts are versioned like the memgraph package they bundle.
