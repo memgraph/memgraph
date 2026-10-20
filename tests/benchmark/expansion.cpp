@@ -178,6 +178,17 @@ class HighDegreeExpansionFixture : public benchmark::Fixture {
   std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
       repl_state;
 
+  /// Every edge is of the one type, so a query naming it keeps all of them and what the expansion
+  /// reserved is the size it ends up.
+  virtual void BuildHubEdges(memgraph::storage::Storage::Accessor *dba, memgraph::storage::VertexAccessor *hub,
+                             int64_t degree) {
+    auto edge_type = dba->NameToEdgeType("HAS");
+    for (int64_t i = 0; i < degree; ++i) {
+      auto destination = dba->CreateVertex();
+      MG_ASSERT(dba->CreateEdge(hub, &destination, edge_type).has_value());
+    }
+  }
+
   void SetUp(const benchmark::State &state) override {
     repl_state.emplace(std::nullopt);
     memgraph::storage::Config config{};
@@ -210,11 +221,7 @@ class HighDegreeExpansionFixture : public benchmark::Fixture {
       auto dba = db_acc->Access(memgraph::storage::WRITE);
       auto hub = dba->CreateVertex();
       MG_ASSERT(hub.AddLabel(hub_label).has_value());
-      auto edge_type = dba->NameToEdgeType("HAS");
-      for (int64_t i = 0; i < state.range(0); ++i) {
-        auto destination = dba->CreateVertex();
-        MG_ASSERT(dba->CreateEdge(&hub, &destination, edge_type).has_value());
-      }
+      BuildHubEdges(dba.get(), &hub, state.range(0));
       MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
@@ -254,6 +261,33 @@ BENCHMARK_DEFINE_F(HighDegreeExpansionFixture, CountRelationships)(benchmark::St
 }
 
 BENCHMARK_REGISTER_F(HighDegreeExpansionFixture, CountRelationships)
+    ->RangeMultiplier(8)
+    ->Range(1 << 12, 1 << 18)
+    ->Unit(benchmark::kMillisecond);
+
+/// The same hub, but only one edge in sixty-four is of the type the query names. An expansion
+/// reserves for the whole edge list before it knows what the filter keeps, so this is the shape
+/// where that reservation is mostly room for edges that were not kept.
+class SelectiveExpansionFixture : public HighDegreeExpansionFixture {
+ protected:
+  static constexpr int64_t kOneInEvery = 64;
+
+  void BuildHubEdges(memgraph::storage::Storage::Accessor *dba, memgraph::storage::VertexAccessor *hub,
+                     int64_t degree) override {
+    auto common = dba->NameToEdgeType("HAS");
+    auto rare = dba->NameToEdgeType("RARE");
+    for (int64_t i = 0; i < degree; ++i) {
+      auto destination = dba->CreateVertex();
+      MG_ASSERT(dba->CreateEdge(hub, &destination, i % kOneInEvery == 0 ? rare : common).has_value());
+    }
+  }
+};
+
+BENCHMARK_DEFINE_F(SelectiveExpansionFixture, CountRareRelationships)(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[r:RARE]->() RETURN count(r)");
+}
+
+BENCHMARK_REGISTER_F(SelectiveExpansionFixture, CountRareRelationships)
     ->RangeMultiplier(8)
     ->Range(1 << 12, 1 << 18)
     ->Unit(benchmark::kMillisecond);
