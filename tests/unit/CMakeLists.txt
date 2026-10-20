@@ -1160,6 +1160,11 @@ add_unit_test(text_index
 )
 
 # Test mg-auth
+add_unit_test(auth_system_user
+    SOURCES auth_system_user.cpp
+    LINK_TARGETS mg-auth mg-utils
+)
+
 if (MG_ENTERPRISE)
     add_unit_test(atomic_auth_overlay
         SOURCES atomic_auth_overlay.cpp
@@ -1180,11 +1185,6 @@ if (MG_ENTERPRISE)
         SOURCES auth.cpp
         LINK_TARGETS mg-auth mg-license Boost::filesystem
         TEST_PROPERTIES COST 70
-    )
-
-    add_unit_test(auth_system_user
-        SOURCES auth_system_user.cpp
-        LINK_TARGETS mg-auth mg-utils
     )
 
     file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")

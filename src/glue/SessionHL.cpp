@@ -34,9 +34,9 @@
 #include "glue/auth_checker.hpp"
 #ifdef MG_ENTERPRISE
 #include "glue/coordinator_sso_authenticator.hpp"
-#include "glue/query_user.hpp"
 #endif
 #include "glue/communication.hpp"
+#include "glue/query_user.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"

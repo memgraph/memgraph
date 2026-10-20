@@ -788,12 +788,24 @@ int main(int argc, char **argv) {
   auth_glue(auth_.get(), auth_handler, auth_checker);
 
   if (!FLAGS_system_user_internal_hash_file.empty()) {
-    if (auth_->ReadLock()->GetUser(std::string{memgraph::auth::kInternalSystemUsername})) {
-      spdlog::error(
-          "A user named {} exists in the auth store and would be shadowed by the internal system user. Drop the stored "
-          "user or leave --system-user-internal-hash-file empty. Shutting down Memgraph.",
-          memgraph::auth::kInternalSystemUsername);
-      return EXIT_FAILURE;
+    // Coordinators keep their roles in the Raft state, not the auth store.
+    if (!is_coordinator_instance) {
+      auto const reserved_name = std::string{memgraph::auth::kInternalSystemUsername};
+      auto const stored_kind = std::invoke([&]() -> std::optional<std::string_view> {
+        auto const locked = auth_->ReadLock();
+        if (locked->GetUser(reserved_name)) return "user";
+        if (locked->GetRole(reserved_name)) return "role";
+        return std::nullopt;
+      });
+      if (stored_kind) {
+        spdlog::error(
+            "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Drop the "
+            "stored {} or leave --system-user-internal-hash-file empty. Shutting down Memgraph.",
+            *stored_kind,
+            reserved_name,
+            *stored_kind);
+        return EXIT_FAILURE;
+      }
     }
     try {
       memgraph::auth::LoadInternalSystemUser(FLAGS_system_user_internal_hash_file);
