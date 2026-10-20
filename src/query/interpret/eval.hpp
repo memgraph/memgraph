@@ -1306,8 +1306,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_props);
   }
 
-  /// One lookup out of the properties loaded for the record a symbol holds, loading them if the entry
-  /// held for that symbol was read from a different record.
+  /// One lookup out of the properties loaded in a single read for the record a symbol holds.
   template <RecordIdentity::Kind kind, class TRecordAccessor>
   TypedValue CachedPropertyValue(const TRecordAccessor &record_accessor, const PropertyLookup &property_lookup) {
     auto const record = RecordIdentity{kind, record_accessor.Gid()};
@@ -1363,9 +1362,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   /// Properties loaded in one read, so that several lookups on one symbol share that read.
   ///
-  /// The slot a symbol occupies is rebound without this cache being told: a list comprehension steps its
-  /// element through a list, and an operator whose evaluator outlives a row rebinds on each one. An entry
-  /// therefore answers only for the record it names.
+  /// A list comprehension steps its element through a list, and an operator whose evaluator outlives a
+  /// row rebinds on each one, neither of them reaching this cache. An entry therefore answers only for
+  /// the record it names.
   mutable std::unordered_map<int32_t, CachedProperties> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;

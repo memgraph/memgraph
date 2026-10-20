@@ -11,7 +11,7 @@
 
 # Two or more property lookups on one identifier inside a map literal are evaluated by loading the
 # record's properties in one read. Every query here binds that identifier to a succession of records,
-# so each one answers correctly only while the loaded properties follow the identifier's current record.
+# so each answers correctly only while the loaded properties follow the identifier's current record.
 # The map projection and single-lookup forms alongside them read the same data without taking that path.
 
 import sys

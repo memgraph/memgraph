@@ -1995,7 +1995,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
   }
 
   /// `{age: element.age, height: element.height}`, annotated the way the semantic phase annotates it.
-  /// Two lookups on one identifier is what earns them an evaluation mode that loads the properties once.
+  /// Two lookups on one identifier are what earn the evaluation mode that loads the properties in one read.
   auto MapOfAgeAndHeight() -> MapLiteral * {
     auto *map = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
         {this->storage.GetPropertyIx(prop_age.first),
@@ -2305,8 +2305,7 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralInsideListComprehension)
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralDistinguishesVertexFromEdge) {
-  // One symbol holds a vertex and then an edge where `UNWIND [n, e] AS x` binds both to it. Vertices and
-  // edges are numbered apart, so the two can carry the same id and still be different records.
+  // One symbol holds a vertex and then an edge, where `UNWIND [n, e] AS x` binds both to it.
   auto v1 = this->dba.InsertVertex();
   this->SetAgeAndHeight(v1, 10, 100);
 
