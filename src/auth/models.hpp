@@ -208,6 +208,14 @@ enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 
 enum class DenyStrength : uint8_t { WEAK, STRONG };
 
+// A strong deny beats a grant, and a grant beats a weak deny of the same bit.
+template <typename Mask>
+PermissionLevel Resolve(Mask const grants, Mask const strong_denies, Mask const weak_denies, Mask const bits) {
+  if (((strong_denies | (weak_denies & ~grants)) & bits) != Mask{}) return PermissionLevel::DENY;
+  if ((grants & bits) != Mask{}) return PermissionLevel::GRANT;
+  return PermissionLevel::NEUTRAL;
+}
+
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
 
@@ -1020,6 +1028,10 @@ class User final {
 
   PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
   PropertyAccessPermissions GetPropertyEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetRolePropertyLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetRolePropertyEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 #endif
   const std::string &username() const;
