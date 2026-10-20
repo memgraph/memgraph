@@ -1182,6 +1182,11 @@ if (MG_ENTERPRISE)
         TEST_PROPERTIES COST 70
     )
 
+    add_unit_test(auth_system_user
+        SOURCES auth_system_user.cpp
+        LINK_TARGETS mg-auth mg-utils
+    )
+
     file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")
     mg_add_stamped_custom_target(memgraph__unit__auth_kvstore_dir ALL
         STAMP_DIR ${CMAKE_CURRENT_BINARY_DIR}
