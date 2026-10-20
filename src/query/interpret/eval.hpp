@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <optional>
@@ -1324,8 +1325,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
   FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
-  /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
-  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+
+  /// Which record a cache entry was read from. Vertices and edges are numbered apart, so an id alone does
+  /// not tell one from the other, and a single symbol can hold either: `UNWIND [n, e] AS x` binds both to it.
+  struct RecordIdentity {
+    enum class Kind : uint8_t { Vertex, Edge };
+    Kind kind;
+    storage::Gid gid;
+    friend bool operator==(RecordIdentity const &, RecordIdentity const &) = default;
+  };
+
+  struct CachedProperties {
+    RecordIdentity record;
+    std::map<storage::PropertyId, storage::PropertyValue> properties;
+  };
+
+  /// Properties loaded in one read, so that several lookups on one symbol share that read.
+  ///
+  /// The slot a symbol occupies is rebound without this cache being told: a list comprehension steps its
+  /// element through a list, and an operator whose evaluator outlives a row rebinds on each one. An entry
+  /// therefore answers only for the record it names.
+  mutable std::unordered_map<int32_t, CachedProperties> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;
