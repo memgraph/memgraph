@@ -1290,6 +1290,13 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
     if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type)) continue;
     result_edges.emplace_back(edge_type, vertex, edge);
   }
+
+  // The reservation is for the whole edge list, and this is the result rather than a working
+  // buffer, so a filter that kept few would leave room for the rest of them held for as long as
+  // the expansion. Shrinking declines where the room left over is small, so the case the
+  // reservation is for keeps it.
+  result_edges.shrink_to_fit();
+
   return static_cast<int64_t>(expanded_count);
 }
 }  // namespace memgraph::storage
