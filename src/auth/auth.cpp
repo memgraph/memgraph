@@ -8,6 +8,7 @@
 
 #include "auth/auth.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
@@ -392,6 +393,15 @@ std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nloh
   if (role_names.empty()) {
     spdlog::warn(utils::MessageWithLink(
         "Couldn't authenticate user: no valid role(s) returned by the external auth module.", "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+
+  // A role by that name can only be a leftover from before the name was reserved; nothing may log in through it.
+  if (auto const reserved = std::ranges::find_if(role_names, IsInternalSystemUsername); reserved != role_names.end()) {
+    spdlog::warn(
+        "Couldn't authenticate user: the auth module returned the role {}, which is reserved for the internal "
+        "system user.",
+        *reserved);
     return std::nullopt;
   }
 

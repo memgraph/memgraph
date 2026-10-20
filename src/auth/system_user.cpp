@@ -11,7 +11,6 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
-#include <tuple>
 #include <utility>
 
 #include <spdlog/spdlog.h>
@@ -26,12 +25,11 @@ namespace {
 // Written once at startup, before the Bolt server accepts a connection, then only read.
 std::optional<HashedPassword> internal_system_user_hash;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-// bcrypt refuses a malformed hash only when asked to verify against it; trying once at startup means a login never
-// throws.
-bool IsVerifiable(HashedPassword hash) {
+// bcrypt refuses a malformed hash only when asked to verify against it, so trying the empty password once at startup
+// both means a login never throws and refuses a hash of the empty password.
+bool IsUsable(HashedPassword hash) {
   try {
-    std::ignore = hash.VerifyPassword({});
-    return true;
+    return !hash.VerifyPassword({});
   } catch (AuthException const &) {
     return false;
   }
@@ -39,6 +37,12 @@ bool IsVerifiable(HashedPassword hash) {
 }  // namespace
 
 bool IsInternalSystemUsername(std::string_view name) { return utils::ToLowerCase(name) == kInternalSystemUsername; }
+
+bool IsReservedReplicatedName(std::string_view name) {
+  if (!IsInternalSystemUsername(name)) return false;
+  spdlog::warn("Not storing the replicated user or role {}: the name is reserved for the internal system user.", name);
+  return true;
+}
 
 void LoadInternalSystemUser(std::filesystem::path const &path) {
   // Checked first: the bcrypt parser would also refuse under FIPS mode, but name pbkdf2 as the way out, which this
@@ -57,10 +61,11 @@ void LoadInternalSystemUser(std::filesystem::path const &path) {
     throw AuthException("Couldn't read the internal system user's hash file {}.", path.string());
   }
   auto hash = UserDefinedHash(utils::Trim(contents));
-  if (!hash || hash->HashAlgo() != PasswordHashAlgorithm::BCRYPT || !IsVerifiable(*hash)) {
+  if (!hash || hash->HashAlgo() != PasswordHashAlgorithm::BCRYPT || !IsUsable(*hash)) {
     // The contents are a credential: never echo them.
     throw AuthException(
-        "The internal system user's hash file {} must hold a single bcrypt hash in the form \"bcrypt:$2a$...\".",
+        "The internal system user's hash file {} must hold a single bcrypt hash of a non-empty password in the form "
+        "\"bcrypt:$2a$...\".",
         path.string());
   }
   internal_system_user_hash = std::move(*hash);
@@ -76,6 +81,7 @@ InternalSystemUserLogin AuthenticateInternalSystemUser(std::string_view username
     spdlog::warn("Couldn't authenticate the internal system user {}: the password is not correct.", username);
     return InternalSystemUserLogin::kRejected;
   }
+  spdlog::info("The internal system user {} logged in.", username);
   return InternalSystemUserLogin::kAccepted;
 }
 

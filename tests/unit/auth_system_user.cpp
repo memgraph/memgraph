@@ -30,10 +30,12 @@ constexpr std::string_view kPassword = "word";
 constexpr std::string_view kHash = "bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy";
 // Right prefix and length, so it parses, but bcrypt can't verify against it.
 constexpr std::string_view kMalformedBcryptHash = "bcrypt:$2a$12$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+// bcrypt hash of the empty password.
+constexpr std::string_view kEmptyPasswordHash = "bcrypt:$2a$04$bjGN6kb5Vx/nN3KMfP7Uue1.Qni74z198xOVB7WBYjIdWmXfYlfCK";
 constexpr std::string_view kSha256Hash = "sha256:b06a8a6d5a2e2e8f86ed7c18e36dc4c42c1a6b8e4bc1ee6b2ad7c7fd3e1b8a4e";
 }  // namespace
 
-// The loaded hash is process-wide and can't be unloaded, so only InternalSystemUserLogin.Authenticate loads one
+// The loaded hash is process-wide and can't be unloaded, so only InternalSystemUser.Authenticate loads one
 // successfully; every other test leaves it untouched.
 class InternalSystemUser : public ::testing::Test {
  protected:
@@ -74,7 +76,8 @@ TEST_F(InternalSystemUser, LoadRejectsAnythingButABcryptHash) {
                                 std::string{kHash.substr(std::string_view{"bcrypt:"}.size())},
                                 std::string{kHash} + "x",
                                 std::string{kSha256Hash},
-                                std::string{kMalformedBcryptHash}};
+                                std::string{kMalformedBcryptHash},
+                                std::string{kEmptyPasswordHash}};
   for (auto const &contents : cases) {
     EXPECT_THROW(LoadInternalSystemUser(WriteHashFile(contents)), AuthException) << contents;
   }

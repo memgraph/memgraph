@@ -26,6 +26,7 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/replication_action.hpp"
 #include "auth/repository.hpp"
+#include "auth/system_user.hpp"
 #include "system/transaction.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -241,8 +242,15 @@ class AuthLayer {
                                          if (!update.user && !update.role && !update.profile) {
                                            throw AuthException("Received an auth update naming no record");
                                          }
-                                         if (update.user) locked->SaveUser(*update.user);
-                                         if (update.role) locked->SaveRole(*update.role);
+                                         // A main on an older version may still hold a record under the
+                                         // reserved name. Storing it would fail this instance's next start, so
+                                         // it is left out.
+                                         if (update.user && !IsReservedReplicatedName(update.user->username())) {
+                                           locked->SaveUser(*update.user);
+                                         }
+                                         if (update.role && !IsReservedReplicatedName(update.role->rolename())) {
+                                           locked->SaveRole(*update.role);
+                                         }
                                        },
                                        [&](replication::AuthDropOp const &drop) {
                                          switch (drop.type) {
