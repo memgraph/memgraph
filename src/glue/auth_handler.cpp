@@ -208,57 +208,76 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   return ShowDatabasePrivileges(std::nullopt, roles);
 }
 
-std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
-    const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
-    const std::string &user_or_role) {
+struct FineGrainedMasks {
+  uint64_t grants{0};
+  uint64_t strong_denies{0};
+  uint64_t weak_denies{0};
+};
+
+using FineGrainedSources =
+    std::vector<std::pair<memgraph::auth::FineGrainedAccessPermissions const *, std::string_view>>;
+
+// Returns one entry per resolved level of `merged`, whose description names what each source resolves to for the
+// same bits.
+std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilege(
+    memgraph::auth::FineGrainedAccessPermissions const &merged, FineGrainedSources const &sources,
+    std::string const &permission_type) {
+  using memgraph::auth::PermissionLevel;
   std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return fine_grained_permissions;
   }
 
-  auto add_permission = [&](const std::string &entity_name,
-                            uint64_t permission_bitmask,
-                            memgraph::auth::PermissionLevel grant_or_deny,
-                            bool is_global,
-                            bool weak_deny = false) {
-    std::string permission_description;
-    auto const *const level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
-
-    if (is_global) {
-      permission_description =
-          fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
-    } else {
-      permission_description = fmt::format("{0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
-    }
-
-    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{.permission = entity_name,
-                                                                               .permission_bitmask = permission_bitmask,
-                                                                               .grant_or_deny = grant_or_deny,
-                                                                               .is_label = (permission_type == "LABEL"),
-                                                                               .weak_deny = weak_deny,
-                                                                               .description = permission_description});
+  auto const global_masks = [](memgraph::auth::FineGrainedAccessPermissions const &perms) {
+    return FineGrainedMasks{
+        perms.GetGlobalGrants().value_or(0), perms.GetGlobalStrongDenies().value_or(0), perms.GetGlobalWeakDenies()};
+  };
+  auto const rule_masks = [](memgraph::auth::FineGrainedAccessPermissions const &perms,
+                             memgraph::auth::FineGrainedAccessRule const &rule) {
+    auto const it = r::find_if(perms.GetRules(), [&](auto const &other) {
+      return other.symbols == rule.symbols && other.matching_mode == rule.matching_mode;
+    });
+    if (it == perms.GetRules().end()) return FineGrainedMasks{};
+    return FineGrainedMasks{static_cast<uint64_t>(it->grants),
+                            static_cast<uint64_t>(it->strong_denies),
+                            static_cast<uint64_t>(it->weak_denies)};
   };
 
-  auto add_denies = [&](const std::string &entity_name, uint64_t strong_denies, uint64_t weak_denies, bool is_global) {
-    if (strong_denies != 0) {
-      add_permission(entity_name, strong_denies, memgraph::auth::PermissionLevel::DENY, is_global);
+  auto add_resolved = [&](std::string const &entity_name,
+                          FineGrainedMasks const &masks,
+                          std::vector<std::pair<FineGrainedMasks, std::string_view>> const &source_masks,
+                          bool is_global) {
+    // Keyed by (rank, description) so entries come out as GRANT, then STRONG DENY, then WEAK DENY.
+    std::map<std::pair<int, std::string>, FineGrainedPermissionForPrivilegeResult> groups;
+    auto const all_bits = masks.grants | masks.strong_denies | masks.weak_denies;
+    for (uint64_t bit = 1; bit != 0 && bit <= all_bits; bit <<= 1) {
+      if ((all_bits & bit) == 0) continue;
+      auto const level = memgraph::auth::Resolve(masks.grants, masks.strong_denies, masks.weak_denies, bit);
+      if (level == PermissionLevel::NEUTRAL) continue;
+      auto const weak = (masks.strong_denies & bit) == 0;
+
+      std::vector<std::string> parts;
+      for (auto const &[source, name] : source_masks) {
+        auto const source_level = memgraph::auth::Resolve(source.grants, source.strong_denies, source.weak_denies, bit);
+        if (source_level == PermissionLevel::NEUTRAL) continue;
+        parts.push_back(fmt::format("{}{} PERMISSION {} TO {}",
+                                    is_global ? "GLOBAL " : "",
+                                    permission_type,
+                                    source_level == PermissionLevel::GRANT ? "GRANTED" : "DENIED",
+                                    name));
+      }
+      auto const rank = level == PermissionLevel::GRANT ? 0 : (weak ? 2 : 1);
+      auto description = memgraph::utils::Join(parts, ", ");
+      auto &entry = groups[{rank, description}];
+      entry.permission = entity_name;
+      entry.permission_bitmask |= bit;
+      entry.grant_or_deny = level;
+      entry.is_label = permission_type == "LABEL";
+      entry.weak_deny = level == PermissionLevel::DENY && weak;
+      entry.description = std::move(description);
     }
-    if (weak_denies != 0) {
-      add_permission(entity_name, weak_denies, memgraph::auth::PermissionLevel::DENY, is_global, true);
-    }
+    for (auto &[key, entry] : groups) fine_grained_permissions.push_back(std::move(entry));
   };
-
-  // Handle global grants
-  auto const global_grants = permissions.GetGlobalGrants();
-  if (global_grants) {
-    add_permission(
-        fmt::format("ALL {}S", permission_type), global_grants.value(), memgraph::auth::PermissionLevel::GRANT, true);
-  }
-
-  // Handle global denies
-  auto const global_denies = permissions.GetGlobalStrongDenies();
-  add_denies(
-      fmt::format("ALL {}S", permission_type), global_denies.value_or(0), permissions.GetGlobalWeakDenies(), true);
 
   auto build_entity_name = [&](const memgraph::auth::FineGrainedAccessRule &rule) {
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
@@ -281,13 +300,14 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     return entity_name;
   };
 
-  for (const auto &rule : permissions.GetRules()) {
-    auto entity_name = build_entity_name(rule);
+  std::vector<std::pair<FineGrainedMasks, std::string_view>> source_masks;
+  for (auto const &[perms, name] : sources) source_masks.emplace_back(global_masks(*perms), name);
+  add_resolved(fmt::format("ALL {}S", permission_type), global_masks(merged), source_masks, true);
 
-    if (rule.grants != memgraph::auth::FineGrainedPermission::NONE) {
-      add_permission(entity_name, static_cast<uint64_t>(rule.grants), memgraph::auth::PermissionLevel::GRANT, false);
-    }
-    add_denies(entity_name, static_cast<uint64_t>(rule.strong_denies), static_cast<uint64_t>(rule.weak_denies), false);
+  for (auto const &rule : merged.GetRules()) {
+    source_masks.clear();
+    for (auto const &[perms, name] : sources) source_masks.emplace_back(rule_masks(*perms, rule), name);
+    add_resolved(build_entity_name(rule), rule_masks(merged, rule), source_masks, false);
   }
 
   return fine_grained_permissions;
@@ -323,25 +343,17 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
     return {};
   }
 
-  auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetUserFineGrainedAccessLabelPermissions(db_name), "LABEL", "USER");
-  auto all_role_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetRoleFineGrainedAccessLabelPermissions(db_name), "LABEL", "ROLE");
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
-                                      std::make_move_iterator(all_role_fine_grained_permissions.begin()),
-                                      std::make_move_iterator(all_role_fine_grained_permissions.end()));
+  auto const user_labels = user->GetUserFineGrainedAccessLabelPermissions(db_name);
+  auto const role_labels = user->GetRoleFineGrainedAccessLabelPermissions(db_name);
+  auto const user_edge_types = user->GetUserFineGrainedAccessEdgeTypePermissions(db_name);
+  auto const role_edge_types = user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name);
 
-  auto edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetUserFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "USER");
-  auto role_edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "ROLE");
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
-                                      std::make_move_iterator(edge_type_fine_grained_permissions.begin()),
-                                      std::make_move_iterator(edge_type_fine_grained_permissions.end()));
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
-                                      std::make_move_iterator(role_edge_type_fine_grained_permissions.begin()),
-                                      std::make_move_iterator(role_edge_type_fine_grained_permissions.end()));
-
+  auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilege(
+      user->GetFineGrainedAccessLabelPermissions(db_name), {{&user_labels, "USER"}, {&role_labels, "ROLE"}}, "LABEL");
+  all_fine_grained_permissions.append_range(
+      GetFineGrainedPermissionForPrivilege(user->GetFineGrainedAccessEdgeTypePermissions(db_name),
+                                           {{&user_edge_types, "USER"}, {&role_edge_types, "ROLE"}},
+                                           "EDGE_TYPE"));
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
@@ -354,14 +366,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions(db_name);
 
   auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE");
-  auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE");
-
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
-                                      edge_type_fine_grained_permissions.begin(),
-                                      edge_type_fine_grained_permissions.end());
-
+      GetFineGrainedPermissionForPrivilege(label_permissions, {{&label_permissions, "ROLE"}}, "LABEL");
+  all_fine_grained_permissions.append_range(
+      GetFineGrainedPermissionForPrivilege(edge_type_permissions, {{&edge_type_permissions, "ROLE"}}, "EDGE_TYPE"));
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
@@ -432,23 +439,6 @@ void EmitPropertyMap(PropertyMap const &merged, PropertySources const &sources, 
       if (!group.write.empty()) emit_row("SET PROPERTY", group.write, group.effective, key.second);
     }
   }
-}
-
-void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
-  std::map<std::pair<std::string, std::string>, size_t> seen;
-  std::vector<std::vector<memgraph::query::TypedValue>> result;
-  for (auto &row : rows) {
-    auto key = std::make_pair(std::string(row[0].ValueString()), std::string(row[1].ValueString()));
-    if (auto it = seen.find(key); it != seen.end()) {
-      auto &existing_desc = result[it->second][2];
-      auto combined = std::string(existing_desc.ValueString()) + ", " + std::string(row[2].ValueString());
-      existing_desc = memgraph::query::TypedValue(combined);
-    } else {
-      seen.emplace(std::move(key), result.size());
-      result.push_back(std::move(row));
-    }
-  }
-  rows = std::move(result);
 }
 
 void EmitPropertyPermissions(
@@ -1170,7 +1160,6 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
-        DeduplicatePermissionRows(fine_grained_grants);
         fine_grained_grants.append_range(ShowUserPropertyPermissions(*user, db_name));
       }
 #endif
