@@ -12,6 +12,7 @@
 #include "glue/auth_handler.hpp"
 #include <algorithm>
 #include <exception>
+#include <map>
 #include <range/v3/all.hpp>
 
 #include <optional>
@@ -364,65 +365,73 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
-void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPermission> const &prop_map,
-                     std::string_view scope, bool is_global, std::string_view user_or_role_str,
-                     std::vector<std::vector<memgraph::query::TypedValue>> &result) {
-  using PPT = memgraph::auth::PropertyPermissionType;
+using PropertyMap = std::unordered_map<std::string, memgraph::auth::PropertyPermission>;
+using PropertySources = std::vector<std::pair<PropertyMap const *, std::string_view>>;
 
-  std::vector<std::string> read_granted;
-  std::vector<std::string> read_denied;
-  std::vector<std::string> read_weak_denied;
-  std::vector<std::string> write_granted;
-  std::vector<std::string> write_denied;
-  std::vector<std::string> write_weak_denied;
-  for (auto const &[prop, perm] : prop_map) {
-    if ((perm.grants & PPT::READ) != PPT::NONE)
-      read_granted.push_back(prop);
-    else if ((perm.strong_denies & PPT::READ) != PPT::NONE)
-      read_denied.push_back(prop);
-    else if ((perm.weak_denies & PPT::READ) != PPT::NONE)
-      read_weak_denied.push_back(prop);
-    if ((perm.grants & PPT::WRITE) != PPT::NONE)
-      write_granted.push_back(prop);
-    else if ((perm.strong_denies & PPT::WRITE) != PPT::NONE)
-      write_denied.push_back(prop);
-    else if ((perm.weak_denies & PPT::WRITE) != PPT::NONE)
-      write_weak_denied.push_back(prop);
-  }
-  for (auto *props :
-       {&read_granted, &read_denied, &read_weak_denied, &write_granted, &write_denied, &write_weak_denied}) {
-    r::sort(*props);
+// Emits one row per resolved level. `merged` decides the effective level; each source that holds an entry for the
+// property adds its own level to the description.
+void EmitPropertyMap(PropertyMap const &merged, PropertySources const &sources, std::string_view scope, bool is_global,
+                     std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+  using memgraph::auth::PermissionLevel;
+  using PPT = memgraph::auth::PropertyPermissionType;
+  auto const level_of = [](memgraph::auth::PropertyPermission const &perm, PPT bit) {
+    return memgraph::auth::Resolve(perm.grants, perm.strong_denies, perm.weak_denies, bit);
+  };
+
+  struct Group {
+    std::string_view effective;
+    std::vector<std::string> read;
+    std::vector<std::string> write;
+  };
+
+  // Keyed by (rank, description) so rows come out as GRANT, then STRONG DENY, then WEAK DENY.
+  std::map<std::pair<int, std::string>, Group> groups;
+  for (auto const &[prop, perm] : merged) {
+    for (auto const bit : {PPT::READ, PPT::WRITE}) {
+      auto const level = level_of(perm, bit);
+      if (level == PermissionLevel::NEUTRAL) continue;
+      auto const weak = (perm.strong_denies & bit) == PPT::NONE;
+      auto const effective = level == PermissionLevel::GRANT ? std::string_view{"GRANT"} : DenyEffective(weak);
+      auto const rank = level == PermissionLevel::GRANT ? 0 : (weak ? 2 : 1);
+
+      std::vector<std::string> parts;
+      for (auto const &[source, name] : sources) {
+        if (!source) continue;
+        auto const it = source->find(prop);
+        if (it == source->end()) continue;
+        auto const source_level = level_of(it->second, bit);
+        if (source_level == PermissionLevel::NEUTRAL) continue;
+        parts.push_back(fmt::format("{}PROPERTY PERMISSION {} TO {}",
+                                    is_global ? "GLOBAL " : "",
+                                    source_level == PermissionLevel::GRANT ? "GRANTED" : "DENIED",
+                                    name));
+      }
+      auto &group = groups[{rank, memgraph::utils::Join(parts, ", ")}];
+      group.effective = effective;
+      (bit == PPT::READ ? group.read : group.write).push_back(prop);
+    }
   }
 
   auto emit_row = [&](std::string_view type_label,
                       std::vector<std::string> const &props,
                       std::string_view level,
-                      std::string_view verb) {
-    auto prop_list = memgraph::utils::Join(props, ", ");
-    auto privilege = fmt::format("{} {{{}}} ON {}", type_label, prop_list, scope);
-    auto description =
-        fmt::format("{}PROPERTY PERMISSION {} TO {}", is_global ? "GLOBAL " : "", verb, user_or_role_str);
+                      std::string const &description) {
+    auto privilege = fmt::format("{} {{{}}} ON {}", type_label, memgraph::utils::Join(props, ", "), scope);
     result.push_back({memgraph::query::TypedValue(privilege),
                       memgraph::query::TypedValue(std::string(level)),
                       memgraph::query::TypedValue(description)});
   };
 
-  auto emit_level = [&](std::vector<std::string> const &read_props,
-                        std::vector<std::string> const &write_props,
-                        std::string_view level,
-                        std::string_view verb) {
-    if (read_props.empty() && write_props.empty()) return;
-    if (!read_props.empty() && read_props == write_props) {
-      emit_row("READ, SET PROPERTY", read_props, level, verb);
+  for (auto &[key, group] : groups) {
+    r::sort(group.read);
+    r::sort(group.write);
+    if (!group.read.empty() && group.read == group.write) {
+      emit_row("READ, SET PROPERTY", group.read, group.effective, key.second);
     } else {
-      if (!read_props.empty()) emit_row("READ", read_props, level, verb);
-      if (!write_props.empty()) emit_row("SET PROPERTY", write_props, level, verb);
+      if (!group.read.empty()) emit_row("READ", group.read, group.effective, key.second);
+      if (!group.write.empty()) emit_row("SET PROPERTY", group.write, group.effective, key.second);
     }
-  };
-
-  emit_level(read_granted, write_granted, "GRANT", "GRANTED");
-  emit_level(read_denied, write_denied, DenyEffective(false), "DENIED");
-  emit_level(read_weak_denied, write_weak_denied, DenyEffective(true), "DENIED");
+  }
 }
 
 void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
@@ -442,17 +451,27 @@ void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedVal
   rows = std::move(result);
 }
 
-void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &perms,
-                             memgraph::auth::PropertyEntityKind kind, std::string_view user_or_role_str,
-                             std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+void EmitPropertyPermissions(
+    memgraph::auth::PropertyAccessPermissions const &merged,
+    std::vector<std::pair<memgraph::auth::PropertyAccessPermissions const *, std::string_view>> const &sources,
+    memgraph::auth::PropertyEntityKind kind, std::vector<std::vector<memgraph::query::TypedValue>> &result) {
   auto const is_node = kind == memgraph::auth::PropertyEntityKind::NODE;
   auto const *entity_kind = is_node ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
   auto const *global_entity_kind = is_node ? "ALL LABELS" : "ALL EDGE_TYPES";
 
-  if (!perms.GetGlobalRules().empty()) {
-    EmitPropertyMap(perms.GetGlobalRules(), global_entity_kind, true, user_or_role_str, result);
+  if (!merged.GetGlobalRules().empty()) {
+    PropertySources global_sources;
+    for (auto const &[perms, name] : sources) global_sources.emplace_back(&perms->GetGlobalRules(), name);
+    EmitPropertyMap(merged.GetGlobalRules(), global_sources, global_entity_kind, true, result);
   }
-  for (auto const &rule : perms.GetRules()) {
+  for (auto const &rule : merged.GetRules()) {
+    PropertySources rule_sources;
+    for (auto const &[perms, name] : sources) {
+      auto const it = r::find_if(perms->GetRules(), [&](auto const &other) {
+        return other.entities == rule.entities && other.matching_mode == rule.matching_mode;
+      });
+      rule_sources.emplace_back(it == perms->GetRules().end() ? nullptr : &it->properties, name);
+    }
     std::vector<std::string> sorted_entities(rule.entities.begin(), rule.entities.end());
     r::sort(sorted_entities);
     auto formatted = sorted_entities | std::views::transform([](auto const &e) { return fmt::format(":{}", e); });
@@ -460,17 +479,38 @@ void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &pe
     if (is_node) {
       entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " MATCHING EXACTLY" : " MATCHING ANY";
     }
-    EmitPropertyMap(rule.properties, fmt::format("{} {}", entity_kind, entity_str), false, user_or_role_str, result);
+    EmitPropertyMap(rule.properties, rule_sources, fmt::format("{} {}", entity_kind, entity_str), false, result);
   }
 }
 
-std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
-    memgraph::auth::PropertyAccessHandler const &handler, std::string_view user_or_role_str) {
+std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePropertyPermissions(memgraph::auth::Role const &role) {
+  auto const &handler = role.property_access_handler();
   std::vector<std::vector<memgraph::query::TypedValue>> result;
-  EmitPropertyPermissions(
-      handler.label_properties(), memgraph::auth::PropertyEntityKind::NODE, user_or_role_str, result);
-  EmitPropertyPermissions(
-      handler.edge_type_properties(), memgraph::auth::PropertyEntityKind::EDGE, user_or_role_str, result);
+  EmitPropertyPermissions(handler.label_properties(),
+                          {{&handler.label_properties(), "ROLE"}},
+                          memgraph::auth::PropertyEntityKind::NODE,
+                          result);
+  EmitPropertyPermissions(handler.edge_type_properties(),
+                          {{&handler.edge_type_properties(), "ROLE"}},
+                          memgraph::auth::PropertyEntityKind::EDGE,
+                          result);
+  return result;
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPropertyPermissions(
+    memgraph::auth::User const &user, std::optional<std::string_view> db_name) {
+  auto const &own = user.property_access_handler();
+  auto const role_labels = user.GetRolePropertyLabelPermissions(db_name);
+  auto const role_edge_types = user.GetRolePropertyEdgeTypePermissions(db_name);
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+  EmitPropertyPermissions(user.GetPropertyLabelPermissions(db_name),
+                          {{&own.label_properties(), "USER"}, {&role_labels, "ROLE"}},
+                          memgraph::auth::PropertyEntityKind::NODE,
+                          result);
+  EmitPropertyPermissions(user.GetPropertyEdgeTypePermissions(db_name),
+                          {{&own.edge_type_properties(), "USER"}, {&role_edge_types, "ROLE"}},
+                          memgraph::auth::PropertyEntityKind::EDGE,
+                          result);
   return result;
 }
 
@@ -1131,12 +1171,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
         DeduplicatePermissionRows(fine_grained_grants);
-        auto property_rows = ShowPropertyPermissions(user->property_access_handler(), "USER");
-        for (auto const &role : user->roles()) {
-          property_rows.append_range(ShowPropertyPermissions(role.property_access_handler(), "ROLE"));
-        }
-        DeduplicatePermissionRows(property_rows);
-        fine_grained_grants.append_range(std::move(property_rows));
+        fine_grained_grants.append_range(ShowUserPropertyPermissions(*user, db_name));
       }
 #endif
     } else if (role) {
@@ -1144,7 +1179,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
-        fine_grained_grants.append_range(ShowPropertyPermissions(role->property_access_handler(), "ROLE"));
+        fine_grained_grants.append_range(ShowRolePropertyPermissions(*role));
       }
 #endif
     } else {

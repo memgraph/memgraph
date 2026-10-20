@@ -68,14 +68,6 @@ constexpr auto kEdgeTypePropertyPermissions = "edge_type_property_permissions";
 const FineGrainedAccessPermissions empty_permissions{};
 #endif
 
-// A strong deny beats a grant, and a grant beats a weak deny of the same bit.
-template <typename Mask>
-PermissionLevel Resolve(Mask const grants, Mask const strong_denies, Mask const weak_denies, Mask const bits) {
-  if (((strong_denies | (weak_denies & ~grants)) & bits) != Mask{}) return PermissionLevel::DENY;
-  if ((grants & bits) != Mask{}) return PermissionLevel::GRANT;
-  return PermissionLevel::NEUTRAL;
-}
-
 template <typename Mask>
 void AddDeny(Mask &strong_denies, Mask &weak_denies, Mask const bits, DenyStrength const strength) {
   auto &added = strength == DenyStrength::WEAK ? weak_denies : strong_denies;
@@ -1487,8 +1479,22 @@ PropertyAccessPermissions User::GetPropertyLabelPermissions(std::optional<std::s
     return PropertyAccessPermissions{};
   }
   if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
+  return Merge(property_access_handler_.label_properties(), GetRolePropertyLabelPermissions(db_name));
+}
 
-  auto result = property_access_handler_.label_properties();
+PropertyAccessPermissions User::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PropertyAccessPermissions{};
+  }
+  if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
+  return Merge(property_access_handler_.edge_type_properties(), GetRolePropertyEdgeTypePermissions(db_name));
+}
+
+PropertyAccessPermissions User::GetRolePropertyLabelPermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PropertyAccessPermissions{};
+  }
+  PropertyAccessPermissions result;
   for (auto const &role : roles_) {
     if (!db_name || role.HasAccess(*db_name)) {
       result = Merge(result, role.property_access_handler().label_properties());
@@ -1497,13 +1503,11 @@ PropertyAccessPermissions User::GetPropertyLabelPermissions(std::optional<std::s
   return result;
 }
 
-PropertyAccessPermissions User::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
+PropertyAccessPermissions User::GetRolePropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PropertyAccessPermissions{};
   }
-  if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
-
-  auto result = property_access_handler_.edge_type_properties();
+  PropertyAccessPermissions result;
   for (auto const &role : roles_) {
     if (!db_name || role.HasAccess(*db_name)) {
       result = Merge(result, role.property_access_handler().edge_type_properties());
