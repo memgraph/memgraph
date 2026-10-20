@@ -35,11 +35,21 @@ needs (its client concurrency). Entries with `cores` run alongside each other wh
 sum fits the budget (`--cores`, default: `THREADS` env or the CPU affinity count).
 Entries without `cores` are treated as needing every core: they get
 `--worker-count <budget>` like in the serial runner and run alone once nothing else is
-running. Per-job output goes to `stress_logs/parallel/<NN-name>/runner.log` next to that
-instance's `memgraph.log`; on failure the tail of `runner.log` is printed and no further
-jobs are started. With `general.use_ssl: true` each instance gets its own self-signed
+running. Per-job output goes to `stress_logs/parallel/<config>/<NN-name>/runner.log` next
+to that instance's `memgraph.log`; on failure the tail of `runner.log` is printed and no
+further jobs are started. With `general.use_ssl: true` each instance gets its own self-signed
 certificate and the dataset tests run with `--use-ssl` (custom workloads are not supported
 with SSL).
+
+Other flags: `--max-parallel` caps the number of instances, `--log-dir` moves the per-job
+logs, `--python` picks the interpreter for the Python tests. Script workloads must name the
+bolt port in `script_args` so it can be redirected per instance. Reported runtimes cover the
+test only (instance start/stop excluded), as in the serial runner. Only cores are budgeted:
+make sure the memory limits of entries that may run together fit the machine. Job `i` always
+runs on bolt port `7687+i` (monitoring `7444+i`, metrics `9091+i`), and
+`--monitoring-targets <host>` prints the labelled per-instance targets for
+`tools/ci/monitoring`; under mgbuild, `--threads` sets the core budget and
+`--enable-monitoring` scrapes every instance this way.
 
 ## Workload Registry
 

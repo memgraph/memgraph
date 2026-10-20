@@ -165,7 +165,7 @@ stop_memgraph() {
 wait_for_server() {
     local port=$1
     echo "Waiting for Memgraph on port $port..."
-    while ! nc -z 127.0.0.1 $port; do
+    while ! nc -z 127.0.0.1 "$port"; do
         if ! kill -0 "$MG_PID" 2>/dev/null; then
             echo "ERROR: Memgraph process $MG_PID exited before becoming ready."
             exit 1

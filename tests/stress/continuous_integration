@@ -372,16 +372,19 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int, 
     process = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=run_env, start_new_session=True)
     try:
         returncode = process.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
+    except BaseException as ex:
+        # Timeout, Ctrl-C or a SIGTERM handler: take the script's whole group down either way.
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         process.wait()
-        raise Exception(
-            f"Workload script timed out after {timeout_sec} seconds "
-            f"({timeout_sec // 60} min). Increase timeout_min or reduce workload size."
-        )
+        if isinstance(ex, subprocess.TimeoutExpired):
+            raise Exception(
+                f"Workload script timed out after {timeout_sec} seconds "
+                f"({timeout_sec // 60} min). Increase timeout_min or reduce workload size."
+            )
+        raise
 
     if returncode != 0:
         raise Exception(f"Workload script returned non-zero ({returncode})!")

@@ -1807,9 +1807,11 @@ copy_memgraph() {
   if [[ "$artifact" == "logs" ]]; then
     local temp_log_dir="/tmp/mg_logs_$$"
     docker exec -u mg "$build_container" bash -c "mkdir -p $temp_log_dir"
-    # Find and copy all .log files to the temporary directory and copy to host
+    # Copy all .log files to the temporary directory, keeping their paths relative to the logs
+    # dir: per-instance runs (continuous_integration_parallel, HA) reuse file names across
+    # subdirectories, so a flat copy would overwrite them.
     # Exclude log files that start with "0" (internal database logs like replication and streams)
-    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' ! -name '0*' -exec cp {} $temp_log_dir/ \;"
+    docker exec -u mg "$build_container" bash -c "cd $container_artifact_path && find . -name '*.log' ! -name '0*' -exec cp --parents {} $temp_log_dir/ \;"
     docker cp "$build_container:$temp_log_dir/." "$host_dir/"
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
     echo -e "Log files copied to $host_dir!"
@@ -1929,6 +1931,14 @@ test_memgraph() {
     _import_monitoring_targets "$("$PROJECT_ROOT/tests/integration/run-parallel.sh" monitoring-targets "$build_container")"
   }
 
+  resolve_stress_parallel_monitoring_targets() {
+    # Job i always runs on its own port block (bolt 7687+i), so the runner can list every
+    # instance before anything runs, labelled by job.
+    local workload="$1"
+    _import_monitoring_targets "$(docker exec -u mg "$build_container" bash -c \
+      "cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration_parallel --workload=$workload --monitoring-targets \"$build_container\"" | grep '^MEMGRAPH_')"
+  }
+
   resolve_eks_ha_monitoring_targets() {
     _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh" monitoring-targets)"
     # EKS monitoring targets are public endpoints; host network mode avoids the need for a shared Docker network.
@@ -1940,6 +1950,8 @@ test_memgraph() {
       stress-native-ha)  resolve_native_ha_monitoring_targets ;;
       stress-docker-ha)  resolve_docker_ha_monitoring_targets ;;
       integration-parallel) resolve_integration_parallel_monitoring_targets ;;
+      stress-plain-parallel) resolve_stress_parallel_monitoring_targets standalone/native/workloads/config_small.yaml ;;
+      stress-ssl-parallel)   resolve_stress_parallel_monitoring_targets standalone/native/workloads/config_ssl.yaml ;;
       # EKS targets are resolved later in the case body, after the cluster exists.
       stress-eks-ha)     : ;;
     esac
@@ -2038,13 +2050,23 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate "'&& ./continuous_integration --workload=standalone/native/workloads/config_small.yaml'
     ;;
     stress-plain-parallel)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate "'&& ./continuous_integration_parallel --workload=standalone/native/workloads/config_small.yaml'
+      # --threads pins the core budget (default: container CPU count).
+      local stress_cores=""
+      if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
+        stress_cores="--cores $threads"
+      fi
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration_parallel --workload=standalone/native/workloads/config_small.yaml $stress_cores"
     ;;
     stress-ssl)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_ssl.yaml"
     ;;
     stress-ssl-parallel)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration_parallel --workload=standalone/native/workloads/config_ssl.yaml"
+      # --threads pins the core budget (default: container CPU count).
+      local stress_cores=""
+      if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
+        stress_cores="--cores $threads"
+      fi
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration_parallel --workload=standalone/native/workloads/config_ssl.yaml $stress_cores"
     ;;
     stress-large)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_large.yaml"

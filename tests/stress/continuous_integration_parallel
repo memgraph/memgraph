@@ -13,16 +13,22 @@ and the jobs are scheduled against a core budget:
     `--worker-count <all cores>` to them, as the serial runner does) and run on
     their own once nothing else is running.
 
+Job i always runs on bolt port 7687+i (monitoring 7444+i, metrics 9091+i), so the
+per-instance monitoring targets are known before anything runs:
+`--monitoring-targets <host>` prints them in the format tools/ci/monitoring expects.
+
 Usage:
   ./continuous_integration_parallel --workload standalone/native/workloads/config_small.yaml
   ./continuous_integration_parallel --workload ... --cores 16 --max-parallel 4
   ./continuous_integration_parallel --workload ... --dry-run
+  ./continuous_integration_parallel --workload ... --monitoring-targets mgbuild-container
 
 With `general.use_ssl: true` every instance gets its own self-signed certificate and
 the dataset tests are run with `--use-ssl` (customWorkloads are not supported with SSL).
 
-Each job's output lands in <log-dir>/<NN-name>/runner.log next to memgraph.log;
-on failure the tail of runner.log is echoed to stdout.
+Each job's output lands in <log-dir>/<NN-name>/runner.log next to memgraph.log, where
+<log-dir> defaults to stress_logs/parallel/<config name> so consecutive runs of different
+configs keep their logs; on failure the tail of runner.log is echoed to stdout.
 """
 import argparse
 import importlib.machinery
@@ -61,10 +67,13 @@ SUPPORTED_DEPLOYMENT = "standalone/native"
 BASE_BOLT_PORT = 7687
 BASE_MONITORING_PORT = 7444
 BASE_METRICS_PORT = 9091
-MAX_SLOTS = 200  # keeps the three port ranges from overlapping
-DEFAULT_LOG_DIR = os.path.join(SCRIPT_DIR, "stress_logs", "parallel")
+MAX_SLOTS = 200  # jobs per config; keeps the three port ranges from overlapping
+DEFAULT_LOG_ROOT = os.path.join(SCRIPT_DIR, "stress_logs", "parallel")
 # Extra time the parent allows a job beyond its own timeout_min (memgraph start/stop, import).
 PARENT_GRACE_SEC = 600
+# After SIGTERM, how long a job gets to stop its instance (deployment.sh waits up to 60 s and a
+# snapshot-on-exit can be slow) before the parent SIGKILLs its process group.
+TERM_GRACE_SEC = 120
 RESULT_FILE = "result.json"
 RUNNER_LOG = "runner.log"
 
@@ -111,6 +120,7 @@ def build_jobs(config) -> List[Job]:
         )
     for workload in config.custom_workloads:
         name = workload["name"]
+        _check_script_port(workload)
         jobs.append(
             Job(
                 index=len(jobs),
@@ -123,6 +133,20 @@ def build_jobs(config) -> List[Job]:
             )
         )
     return jobs
+
+
+def _check_script_port(workload: Dict[str, Any]) -> None:
+    """A script connects wherever its args say; if they never name the config's bolt port the
+    runner cannot redirect it and it would silently hit another job's instance."""
+    if "script" not in workload:
+        return
+    port = workload.get("querying", {}).get("port", BASE_BOLT_PORT)
+    script_args = list(workload.get("script_args", []))
+    if _rewrite_port_args(script_args, port, port + 1) == script_args:
+        raise ValueError(
+            f"'{workload['name']}': script_args must reference the bolt port {port} "
+            "(e.g. '--endpoint 127.0.0.1:7687' or '--port 7687') so it can be redirected per instance"
+        )
 
 
 def _parse_cores(spec: Dict[str, Any], name: str) -> Optional[int]:
@@ -169,6 +193,10 @@ def _ports_for_slot(slot: int) -> Dict[str, int]:
     }
 
 
+def _is_port_flag(flag: str) -> bool:
+    return flag == "--port" or (flag.startswith("--") and flag.endswith("-port"))
+
+
 def _rewrite_port_args(tokens: List[str], old_port: int, new_port: int) -> List[str]:
     """Replace a hardcoded bolt port in script args: 'host:7687', '--port=7687', '--port 7687'."""
     old, new = str(old_port), str(new_port)
@@ -176,9 +204,9 @@ def _rewrite_port_args(tokens: List[str], old_port: int, new_port: int) -> List[
     for i, tok in enumerate(tokens):
         if tok.endswith(f":{old}"):
             tok = tok[: -len(old)] + new
-        elif tok == old and i > 0 and tokens[i - 1].startswith("--") and tokens[i - 1].endswith("port"):
+        elif tok == old and i > 0 and _is_port_flag(tokens[i - 1]):
             tok = new
-        elif tok.startswith("--") and tok.endswith(f"port={old}"):
+        elif "=" in tok and _is_port_flag(tok.split("=", 1)[0]) and tok.endswith(f"={old}"):
             tok = tok[: -len(old)] + new
         out.append(tok)
     return out
@@ -218,6 +246,7 @@ def _start_instance(config, job: Job, ports: Dict[str, int], job_dir: str) -> No
         config.memgraph_args
         + job.spec.get("memgraph_args", [])
         + [
+            f"--bolt-port={ports['bolt']}",
             f"--data-directory={os.path.join(job_dir, 'data')}",
             f"--log-file={os.path.join(job_dir, 'memgraph.log')}",
             "--also-log-to-stderr=false",
@@ -261,6 +290,22 @@ def _stop_instance(config, ports: Dict[str, int], job_dir: str) -> None:
     subprocess.run(cmd, check=True, env=env, cwd=SCRIPT_DIR)
 
 
+def _run_process_group(cmd: List[str], timeout_sec: int, env: Optional[Dict[str, str]] = None) -> int:
+    """Run cmd in its own process group and take the whole group down on timeout or
+    interruption: tests spawn multiprocessing pools whose workers would otherwise outlive
+    their killed parent and keep hitting the (soon stopped) instance."""
+    process = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=env, start_new_session=True)
+    try:
+        return process.wait(timeout=timeout_sec)
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise
+
+
 def _run_dataset_test(args, config, job: Job, cores: int, bolt_port: int) -> None:
     test = job.name
     binary = ci._find_test_binary(args, config, test)
@@ -272,9 +317,9 @@ def _run_dataset_test(args, config, job: Job, cores: int, bolt_port: int) -> Non
     # Config test_args come last so they override --worker-count, exactly as in the serial runner.
     cmd = binary + ["--worker-count", str(cores)] + endpoint + ssl + job.spec["test_args"]
     print(f"Running test '{test}': {' '.join(cmd)}", flush=True)
-    ret = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=job.timeout_min * 60)
-    if ret.returncode != 0:
-        raise Exception(f"Test '{test}' binary returned non-zero ({ret.returncode})!")
+    returncode = _run_process_group(cmd, job.timeout_min * 60)
+    if returncode != 0:
+        raise Exception(f"Test '{test}' binary returned non-zero ({returncode})!")
 
 
 def _run_custom_workload(args, config, job: Job, bolt_port: int) -> None:
@@ -305,7 +350,7 @@ def _run_custom_workload(args, config, job: Job, bolt_port: int) -> None:
         print(f"Running step {step}.", flush=True)
         for worker in [x for x in workers if x.get("step", 1) == step]:
             worker = dict(worker)
-            worker["querying"] = {"host": query_host, "port": bolt_port}
+            worker["querying"] = {"host": worker.get("querying", {}).get("host", query_host), "port": bolt_port}
             worker_object = get_worker_object(worker)
             for _ in range(worker.get("replicas", 1)):
                 process = multiprocessing.Process(target=worker_object.run)
@@ -334,10 +379,11 @@ def run_job(args) -> int:
 
     result: Dict[str, Any] = {"name": job.name, "key": job.key, "status": "error", "runtime": None}
     started = False
-    start = time.time()
+    start: Optional[float] = None  # runtime covers the test only, like the serial runner's
     try:
         _start_instance(config, job, ports, job_dir)
         started = True
+        start = time.time()
         if job.kind == "test":
             _run_dataset_test(args, config, job, args.cores, ports["bolt"])
         else:
@@ -347,7 +393,8 @@ def run_job(args) -> int:
         result["error"] = f"{type(ex).__name__}: {ex}"
         print(f"Job '{job.name}' failed: {result['error']}", flush=True)
     finally:
-        result["runtime"] = time.time() - start
+        if start is not None:
+            result["runtime"] = time.time() - start
         if started:
             try:
                 _stop_instance(config, ports, job_dir)
@@ -429,18 +476,42 @@ def _describe_schedule(jobs: List[Job], total_cores: int, max_parallel: int) -> 
     concurrent = [j for j in jobs if not j.exclusive]
     exclusive = [j for j in jobs if j.exclusive]
     print(f"Parallel stress run: {len(jobs)} jobs, core budget {total_cores}, up to {max_parallel} instances")
-    print(f"  bolt ports {BASE_BOLT_PORT}-{BASE_BOLT_PORT + max_parallel - 1}")
+    print(f"  bolt ports {BASE_BOLT_PORT}-{BASE_BOLT_PORT + len(jobs) - 1} (job i on {BASE_BOLT_PORT}+i)")
     print("  concurrent:", ", ".join(f"{j.name} ({j.cores})" for j in concurrent) or "-")
     print("  exclusive :", ", ".join(j.name for j in exclusive) or "-")
     print(flush=True)
 
 
+def print_monitoring_targets(jobs: List[Job], host: str) -> None:
+    """One labelled target per job, in the `name=host:port` form tools/ci/monitoring parses."""
+    metrics = [f"{j.slug}={host}:{_ports_for_slot(j.index)['metrics']}" for j in jobs]
+    log_ws = [f"{j.slug}={host}:{_ports_for_slot(j.index)['monitoring']}" for j in jobs]
+    print("MEMGRAPH_METRICS_TARGETS=" + ",".join(metrics))
+    print("MEMGRAPH_LOG_WS_TARGETS=" + ",".join(log_ws))
+
+
+def _raise_keyboard_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def run_parallel(args) -> int:
-    config = load_config(args.workload)
-    jobs = build_jobs(config)
+    # A CI cancel sends SIGTERM; the children sit in their own sessions, so stop them explicitly.
+    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+    try:
+        config = load_config(args.workload)
+        jobs = build_jobs(config)
+    except (ValueError, KeyError) as ex:
+        print(f"Invalid config {args.workload}: {ex}")
+        return 1
     if not jobs:
         print("No tests or workloads found in config.")
         return 1
+    if len(jobs) > MAX_SLOTS:
+        print(f"Too many jobs ({len(jobs)}), at most {MAX_SLOTS} per config.")
+        return 1
+    if args.monitoring_targets:
+        print_monitoring_targets(jobs, args.monitoring_targets)
+        return 0
 
     total_cores = args.cores
     max_parallel = args.max_parallel or min(len(jobs), total_cores)
@@ -466,7 +537,6 @@ def run_parallel(args) -> int:
     os.makedirs(run_dir)
 
     free_cores = total_cores
-    free_slots = list(range(max_parallel))
     running: List[Running] = []
     runtimes: Dict[str, float] = {}
     failures: List[str] = []
@@ -478,18 +548,18 @@ def run_parallel(args) -> int:
         nonlocal free_cores
         run.log.close()
         free_cores += run.cores
-        free_slots.append(run.slot)
-        free_slots.sort()
         running.remove(run)
         job_dir = os.path.join(run_dir, run.job.slug)
         result_path = os.path.join(job_dir, RESULT_FILE)
         result: Dict[str, Any] = {}
-        if os.path.exists(result_path):
+        try:
             with open(result_path) as f:
                 result = json.load(f)
+        except (OSError, ValueError) as ex:  # missing or truncated (job was SIGKILLed)
+            result = {"error": f"no usable {RESULT_FILE}: {ex}"}
         elapsed = time.time() - run.started
         if run.process.returncode == 0 and result.get("status") == "ok":
-            runtimes[run.job.key] = result.get("runtime", elapsed)
+            runtimes[run.job.key] = result.get("runtime") or elapsed
             print(f"[{_ts()}] DONE   {run.job.name}  {elapsed:.0f}s  (free {free_cores}/{total_cores})", flush=True)
             return
         reason = result.get("error") or f"exit code {run.process.returncode}"
@@ -504,8 +574,8 @@ def run_parallel(args) -> int:
             if not aborting:
                 for job in list(pending):
                     cores = total_cores if job.exclusive else job.cores
-                    if cores <= free_cores and free_slots:
-                        slot = free_slots.pop(0)
+                    if cores <= free_cores and len(running) < max_parallel:
+                        slot = job.index  # fixed per job so monitoring targets are known up front
                         free_cores -= cores
                         pending.remove(job)
                         running.append(_launch(args, job, cores, slot, run_dir))
@@ -521,7 +591,7 @@ def run_parallel(args) -> int:
             for run in list(running):
                 if run.process.poll() is not None:
                     finish(run)
-                elif run.terminated_at is not None and now - run.terminated_at > 30:
+                elif run.terminated_at is not None and now - run.terminated_at > TERM_GRACE_SEC:
                     _signal_group(run, signal.SIGKILL)
                 elif run.terminated_at is None and now > run.deadline:
                     print(f"[{_ts()}] TIMEOUT {run.job.name}, terminating", flush=True)
@@ -602,8 +672,13 @@ def parse_arguments():
         default=0,
         help="Maximum number of concurrent memgraph instances (default: min(jobs, cores))",
     )
-    parser.add_argument("--log-dir", default=DEFAULT_LOG_DIR, help=f"Per-job log root (default: {DEFAULT_LOG_DIR})")
+    parser.add_argument("--log-dir", default=None, help=f"Per-job log root (default: {DEFAULT_LOG_ROOT}/<config name>)")
     parser.add_argument("--dry-run", action="store_true", help="Print the schedule and exit")
+    parser.add_argument(
+        "--monitoring-targets",
+        metavar="HOST",
+        help="Print MEMGRAPH_METRICS_TARGETS/MEMGRAPH_LOG_WS_TARGETS (job=HOST:port per job) and exit",
+    )
     parser.add_argument("--python", default="python3", type=str, help="Path to Python interpreter")
 
     # Internal: child-process mode.
@@ -615,6 +690,10 @@ def parse_arguments():
     args = parser.parse_args()
     if not os.path.isabs(args.workload):
         args.workload = os.path.join(SCRIPT_DIR, args.workload)
+    if args.log_dir is None:
+        args.log_dir = os.path.join(DEFAULT_LOG_ROOT, os.path.splitext(os.path.basename(args.workload))[0])
+    # Children run with cwd=SCRIPT_DIR, so a relative --log-dir must be pinned to the parent's cwd here.
+    args.log_dir = os.path.abspath(args.log_dir)
     if args.cores <= 0:
         parser.error("--cores must be positive")
     return args
