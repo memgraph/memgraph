@@ -1752,7 +1752,6 @@ def get_standalone_data_instance_description(test_name, *extra_args):
             "args": [
                 f"--bolt-port={STANDALONE_DATA_PORT}",
                 "--log-level=TRACE",
-                "--management-port=10011",
                 *extra_args,
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
