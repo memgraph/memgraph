@@ -704,18 +704,15 @@ void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &enti
 }
 
 namespace {
-// Revoking "*" clears the type from every property, not only from the "*" record.
 void RevokeProperty(std::unordered_map<std::string, PropertyPermission> &props, std::string const &property,
                     PropertyPermissionType type) {
-  for (auto &[key, perm] : props) {
-    if (property == "*" || key == property) {
-      perm.grants &= ~type;
-      perm.denies &= ~type;
-    }
+  auto it = props.find(property);
+  if (it == props.end()) return;
+  it->second.grants &= ~type;
+  it->second.denies &= ~type;
+  if (it->second.grants == PropertyPermissionType::NONE && it->second.denies == PropertyPermissionType::NONE) {
+    props.erase(it);
   }
-  std::erase_if(props, [](auto const &kv) {
-    return kv.second.grants == PropertyPermissionType::NONE && kv.second.denies == PropertyPermissionType::NONE;
-  });
 }
 }  // namespace
 
