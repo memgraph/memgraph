@@ -202,6 +202,13 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     // rejected outright on a wrong password -- passthrough would otherwise admit it with any credentials. A missing
     // principal or password counts as "", as it does on data instances, so leaving the password out is a wrong
     // password rather than a way past this check.
+    //
+    // An empty scheme is rejected, as on data instances, rather than admitted as a passthrough.
+    if (schema.empty()) {
+      spdlog::warn("Client connected to this coordinator with an empty authentication scheme.");
+      HandleAuthFailure(session, "The authentication scheme can't be empty.");
+      return State::Close;
+    }
     if (schema == "basic" || schema == "none") {
       auto const string_field = [&data](std::string const &key) -> std::string {
         auto const it = data.find(key);

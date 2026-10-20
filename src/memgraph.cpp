@@ -11,6 +11,7 @@
 
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -787,26 +788,38 @@ int main(int argc, char **argv) {
   }
   auth_glue(auth_.get(), auth_handler, auth_checker);
 
-  if (!FLAGS_system_user_internal_hash_file.empty()) {
-    // Coordinators keep their roles in the Raft state, not the auth store.
-    if (!is_coordinator_instance) {
-      auto const reserved_name = std::string{memgraph::auth::kInternalSystemUsername};
-      auto const stored_kind = std::invoke([&]() -> std::optional<std::string_view> {
-        auto const locked = auth_->ReadLock();
-        if (locked->GetUser(reserved_name)) return "user";
-        if (locked->GetRole(reserved_name)) return "role";
-        return std::nullopt;
-      });
-      if (stored_kind) {
+  // Only a version from before the name was reserved can have stored a user or role under it. Coordinators keep their
+  // roles in the Raft state, not the auth store, and are checked once that is restored.
+  if (!is_coordinator_instance) {
+    auto const reserved_name = std::string{memgraph::auth::kInternalSystemUsername};
+    auto const stored_kind = std::invoke([&]() -> std::optional<std::string_view> {
+      auto const locked = auth_->ReadLock();
+      if (locked->GetUser(reserved_name)) return "user";
+      if (locked->GetRole(reserved_name)) return "role";
+      return std::nullopt;
+    });
+    if (stored_kind) {
+      if (!FLAGS_system_user_internal_hash_file.empty()) {
         spdlog::error(
-            "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Drop the "
-            "stored {} or leave --system-user-internal-hash-file empty. Shutting down Memgraph.",
+            "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Rename the "
+            "stored {} (create one under another name with the same privileges and drop this one) or leave "
+            "--system-user-internal-hash-file empty. Shutting down Memgraph.",
             *stored_kind,
             reserved_name,
             *stored_kind);
         return EXIT_FAILURE;
       }
+      spdlog::warn(
+          "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Rename it: "
+          "create a {} under another name with the same privileges and drop this one. Until then Memgraph won't start "
+          "with --system-user-internal-hash-file set.",
+          *stored_kind,
+          reserved_name,
+          *stored_kind);
     }
+  }
+
+  if (!FLAGS_system_user_internal_hash_file.empty()) {
     try {
       memgraph::auth::LoadInternalSystemUser(FLAGS_system_user_internal_hash_file);
     } catch (memgraph::auth::AuthException const &e) {
@@ -921,6 +934,26 @@ int main(int argc, char **argv) {
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
     return EXIT_FAILURE;
+  }
+
+  // The coordinator counterpart of the auth store check above: its roles live in the Raft state, restored from disk by
+  // now. The role set is shared, so every coordinator started with the flag refuses alike.
+  if (is_coordinator_instance && std::ranges::any_of(coordinator_state->GetLocalRoles(),
+                                                     memgraph::auth::IsInternalSystemUsername,
+                                                     &memgraph::coordination::CoordinatorRole::name)) {
+    if (!FLAGS_system_user_internal_hash_file.empty()) {
+      spdlog::error(
+          "A coordinator role named {} exists, but the name is reserved for the internal system user. Start the "
+          "coordinators without --system-user-internal-hash-file and rename the role (create one under another name "
+          "with the same privileges and drop this one), then restart them with it. Shutting down Memgraph.",
+          memgraph::auth::kInternalSystemUsername);
+      return EXIT_FAILURE;
+    }
+    spdlog::warn(
+        "A coordinator role named {} exists, but the name is reserved for the internal system user. Rename it: create "
+        "a role under another name with the same privileges and drop this one. Until then the coordinators won't start "
+        "with --system-user-internal-hash-file set.",
+        memgraph::auth::kInternalSystemUsername);
   }
 
 #endif

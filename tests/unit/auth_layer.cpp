@@ -251,22 +251,6 @@ TEST_F(AuthLayerTest, ABatchToleratesADropThatNamesNothing) {
   EXPECT_TRUE(layer_->Lock()->HasUser("alice")) << "the rest of the batch must still apply";
 }
 
-// A main on an older version may replicate a user or role under the name now reserved for the internal system user.
-// The replica leaves it out rather than failing the batch, which would only bring the same record back in a snapshot.
-TEST_F(AuthLayerTest, ABatchLeavesOutTheReservedName) {
-  std::vector<memgraph::replication::AuthOp> ops;
-  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"memgraph_internal"}});
-  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::Role{"MEMGRAPH_INTERNAL"}});
-  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
-
-  ASSERT_TRUE(layer_->ApplyBatch(ops));
-
-  auto locked = layer_->Lock();
-  EXPECT_FALSE(locked->HasUser("memgraph_internal"));
-  EXPECT_FALSE(locked->HasRole("MEMGRAPH_INTERNAL"));
-  EXPECT_TRUE(locked->HasUser("alice")) << "the rest of the batch must still apply";
-}
-
 // The same tolerance for a profile, which takes a different path: profiles are applied outside the overlay, and
 // the applier distinguishes a profile that was never there from a delete that failed. Only the second is a
 // failure.

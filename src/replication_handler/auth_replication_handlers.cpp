@@ -18,7 +18,6 @@
 #include "auth/auth_layer.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/rpc.hpp"
-#include "auth/system_user.hpp"
 #include "license/license.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
@@ -178,8 +177,6 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       auto old_roles = locked_auth.AllRolenames();
       // Save incoming roles
       for (const auto &role : roles) {
-        // Left out, so a leftover local one is dropped below too.
-        if (auth::IsReservedReplicatedName(role.rolename())) continue;
         // Missing roles
         try {
           locked_auth.SaveRole(role);
@@ -202,7 +199,6 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
     auto old_users = locked_auth.AllUsernames();
     // Save incoming users
     for (const auto &user : users) {
-      if (auth::IsReservedReplicatedName(user.username())) continue;
       // Missing users
       try {
         locked_auth.SaveUser(user);

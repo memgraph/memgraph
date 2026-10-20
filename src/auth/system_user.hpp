@@ -27,10 +27,6 @@ inline constexpr std::string_view kInternalSystemUsername{"memgraph_internal"};
 /// The name is reserved whether or not the user is configured, so nobody can claim it before it is turned on.
 [[nodiscard]] bool IsInternalSystemUsername(std::string_view name);
 
-/// Whether a user or role replicated from a main carries the reserved name, and so must not be stored. Only a main on
-/// an older version can still hold one. Logs a warning when it does.
-[[nodiscard]] bool IsReservedReplicatedName(std::string_view name);
-
 /// Enables the internal system user with the hash read from `path`: a single pre-hashed bcrypt literal
 /// (`bcrypt:$2a$...`) of a non-empty password, the same format CREATE USER ... IDENTIFIED BY accepts, surrounding
 /// whitespace ignored. bcrypt

@@ -182,6 +182,12 @@ auto CoordinatorState::GetRoles() const -> std::optional<std::vector<Coordinator
   return std::get<CoordinatorInstance>(data_).GetRoles();
 }
 
+auto CoordinatorState::GetLocalRoles() const -> std::vector<CoordinatorRole> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator roles cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetLocalRoles();
+}
+
 auto CoordinatorState::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> GrantPrivilegeStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),

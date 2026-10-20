@@ -38,12 +38,6 @@ bool IsUsable(HashedPassword hash) {
 
 bool IsInternalSystemUsername(std::string_view name) { return utils::ToLowerCase(name) == kInternalSystemUsername; }
 
-bool IsReservedReplicatedName(std::string_view name) {
-  if (!IsInternalSystemUsername(name)) return false;
-  spdlog::warn("Not storing the replicated user or role {}: the name is reserved for the internal system user.", name);
-  return true;
-}
-
 void LoadInternalSystemUser(std::filesystem::path const &path) {
   // Checked first: the bcrypt parser would also refuse under FIPS mode, but name pbkdf2 as the way out, which this
   // file doesn't accept.

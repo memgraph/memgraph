@@ -1260,6 +1260,8 @@ auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<Coordina
   return std::nullopt;
 }
 
+auto CoordinatorInstance::GetLocalRoles() const -> std::vector<CoordinatorRole> { return raft_state_->GetRoles(); }
+
 auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> GrantPrivilegeStatus {
   // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
