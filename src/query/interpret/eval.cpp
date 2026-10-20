@@ -435,21 +435,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        auto const &vertex = expression_result_ptr->ValueVertex();
-        auto const record = RecordIdentity{RecordIdentity::Kind::Vertex, vertex.Gid()};
-        auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        auto it = property_lookup_cache_.find(symbol_pos);
-        if (it == property_lookup_cache_.end() || it->second.record != record) {
-          it = property_lookup_cache_.insert_or_assign(symbol_pos, CachedProperties{record, GetAllProperties(vertex)})
-                   .first;
-        }
-
-        auto const property_id = ctx_->properties[property_lookup.property_.ix];
-        auto const property = it->second.properties.find(property_id);
-        if (property != it->second.properties.end()) {
-          return {property->second, GetNameIdMapper(), ctx_->memory};
-        }
-        return TypedValue(ctx_->memory);
+        return CachedPropertyValue<RecordIdentity::Kind::Vertex>(expression_result_ptr->ValueVertex(), property_lookup);
       } else {
         return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
                 GetNameIdMapper(),
@@ -457,21 +443,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        auto const &edge = expression_result_ptr->ValueEdge();
-        auto const record = RecordIdentity{RecordIdentity::Kind::Edge, edge.Gid()};
-        auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        auto it = property_lookup_cache_.find(symbol_pos);
-        if (it == property_lookup_cache_.end() || it->second.record != record) {
-          it = property_lookup_cache_.insert_or_assign(symbol_pos, CachedProperties{record, GetAllProperties(edge)})
-                   .first;
-        }
-
-        auto const property_id = ctx_->properties[property_lookup.property_.ix];
-        auto const property = it->second.properties.find(property_id);
-        if (property != it->second.properties.end()) {
-          return {property->second, GetNameIdMapper(), ctx_->memory};
-        }
-        return TypedValue(ctx_->memory);
+        return CachedPropertyValue<RecordIdentity::Kind::Edge>(expression_result_ptr->ValueEdge(), property_lookup);
       } else {
         return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
                 GetNameIdMapper(),

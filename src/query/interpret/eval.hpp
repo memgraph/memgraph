@@ -1257,6 +1257,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
+  /// Which record a cache entry was read from. Vertices and edges are numbered apart, so an id alone does
+  /// not tell one from the other, and a single symbol can hold either: `UNWIND [n, e] AS x` binds both to it.
+  struct RecordIdentity {
+    enum class Kind : uint8_t { Vertex, Edge };
+    Kind kind;
+    storage::Gid gid;
+    friend bool operator==(RecordIdentity const &, RecordIdentity const &) = default;
+  };
+
+  struct CachedProperties {
+    RecordIdentity record;
+    std::map<storage::PropertyId, storage::PropertyValue> properties;
+  };
+
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
     auto maybe_props = record_accessor.Properties(view_);
@@ -1292,6 +1306,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_props);
   }
 
+  /// One lookup out of the properties loaded for the record a symbol holds, loading them if the entry
+  /// held for that symbol was read from a different record.
+  template <RecordIdentity::Kind kind, class TRecordAccessor>
+  TypedValue CachedPropertyValue(const TRecordAccessor &record_accessor, const PropertyLookup &property_lookup) {
+    auto const record = RecordIdentity{kind, record_accessor.Gid()};
+    auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+    auto it = property_lookup_cache_.find(symbol_pos);
+    if (it == property_lookup_cache_.end() || it->second.record != record) {
+      it = property_lookup_cache_
+               .insert_or_assign(symbol_pos, CachedProperties{record, GetAllProperties(record_accessor)})
+               .first;
+    }
+
+    auto const property_id = ctx_->properties[property_lookup.property_.ix];
+    auto const property = it->second.properties.find(property_id);
+    if (property == it->second.properties.end()) {
+      return TypedValue(ctx_->memory);
+    }
+    return {property->second, GetNameIdMapper(), ctx_->memory};
+  }
+
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
   // This is a very nasty and temporary hack in order to make MERGE work. The old storage had the following logic
@@ -1325,20 +1360,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
   FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
-
-  /// Which record a cache entry was read from. Vertices and edges are numbered apart, so an id alone does
-  /// not tell one from the other, and a single symbol can hold either: `UNWIND [n, e] AS x` binds both to it.
-  struct RecordIdentity {
-    enum class Kind : uint8_t { Vertex, Edge };
-    Kind kind;
-    storage::Gid gid;
-    friend bool operator==(RecordIdentity const &, RecordIdentity const &) = default;
-  };
-
-  struct CachedProperties {
-    RecordIdentity record;
-    std::map<storage::PropertyId, storage::PropertyValue> properties;
-  };
 
   /// Properties loaded in one read, so that several lookups on one symbol share that read.
   ///

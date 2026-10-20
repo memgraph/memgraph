@@ -2005,6 +2005,17 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
     memgraph::query::SetEvaluationModeOnPropertyLookups(*map);
     return map;
   }
+
+  template <typename TRecord>
+  void SetAgeAndHeight(TRecord &record, int64_t age, int64_t height) {
+    ASSERT_TRUE(record.SetProperty(prop_age.second, memgraph::storage::PropertyValue(age)).has_value());
+    ASSERT_TRUE(record.SetProperty(prop_height.second, memgraph::storage::PropertyValue(height)).has_value());
+  }
+
+  void ExpectAgeAndHeight(const TypedValue &map, int64_t age, int64_t height) {
+    EXPECT_EQ(map.ValueMap().at("age").ValueInt(), age);
+    EXPECT_EQ(map.ValueMap().at("height").ValueInt(), height);
+  }
 };
 
 TYPED_TEST_SUITE(ExpressionEvaluatorPropertyLookup, StorageTypes);
@@ -2021,25 +2032,19 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralOverVertexFollowsRebinding) {
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
-  ASSERT_TRUE(v1.SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(100)).has_value());
+  this->SetAgeAndHeight(v1, 10, 100);
   auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(20)).has_value());
-  ASSERT_TRUE(v2.SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(200)).has_value());
+  this->SetAgeAndHeight(v2, 20, 200);
   this->dba.AdvanceCommand();
 
   auto *map = this->MapOfAgeAndHeight();
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
 
   frame_writer.Write(this->symbol, TypedValue(v1));
-  auto first = this->Eval(map);
-  EXPECT_EQ(first.ValueMap().at("age").ValueInt(), 10);
-  EXPECT_EQ(first.ValueMap().at("height").ValueInt(), 100);
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
 
   frame_writer.Write(this->symbol, TypedValue(v2));
-  auto second = this->Eval(map);
-  EXPECT_EQ(second.ValueMap().at("age").ValueInt(), 20);
-  EXPECT_EQ(second.ValueMap().at("height").ValueInt(), 200);
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
@@ -2262,36 +2267,28 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralOverEdgeFollowsRebinding
 
   auto e1 = this->dba.InsertEdge(&v1, &v2, edge_type);
   ASSERT_TRUE(e1.has_value());
-  ASSERT_TRUE(e1->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
-  ASSERT_TRUE(e1->SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(100)).has_value());
+  this->SetAgeAndHeight(*e1, 10, 100);
 
   auto e2 = this->dba.InsertEdge(&v2, &v1, edge_type);
   ASSERT_TRUE(e2.has_value());
-  ASSERT_TRUE(e2->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(20)).has_value());
-  ASSERT_TRUE(e2->SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(200)).has_value());
+  this->SetAgeAndHeight(*e2, 20, 200);
   this->dba.AdvanceCommand();
 
   auto *map = this->MapOfAgeAndHeight();
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
 
   frame_writer.Write(this->symbol, TypedValue(*e1));
-  auto first = this->Eval(map);
-  EXPECT_EQ(first.ValueMap().at("age").ValueInt(), 10);
-  EXPECT_EQ(first.ValueMap().at("height").ValueInt(), 100);
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
 
   frame_writer.Write(this->symbol, TypedValue(*e2));
-  auto second = this->Eval(map);
-  EXPECT_EQ(second.ValueMap().at("age").ValueInt(), 20);
-  EXPECT_EQ(second.ValueMap().at("height").ValueInt(), 200);
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralInsideListComprehension) {
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
-  ASSERT_TRUE(v1.SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(100)).has_value());
+  this->SetAgeAndHeight(v1, 10, 100);
   auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(20)).has_value());
-  ASSERT_TRUE(v2.SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(200)).has_value());
+  this->SetAgeAndHeight(v2, 20, 200);
   this->dba.AdvanceCommand();
 
   // `[element IN [v1, v2] | {age: element.age, height: element.height}]`, where one evaluation binds
@@ -2303,24 +2300,20 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralInsideListComprehension)
 
   auto result = this->Eval(comprehension);
   ASSERT_EQ(result.ValueList().size(), 2);
-  EXPECT_EQ(result.ValueList()[0].ValueMap().at("age").ValueInt(), 10);
-  EXPECT_EQ(result.ValueList()[0].ValueMap().at("height").ValueInt(), 100);
-  EXPECT_EQ(result.ValueList()[1].ValueMap().at("age").ValueInt(), 20);
-  EXPECT_EQ(result.ValueList()[1].ValueMap().at("height").ValueInt(), 200);
+  this->ExpectAgeAndHeight(result.ValueList()[0], 10, 100);
+  this->ExpectAgeAndHeight(result.ValueList()[1], 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralDistinguishesVertexFromEdge) {
   // One symbol holds a vertex and then an edge where `UNWIND [n, e] AS x` binds both to it. Vertices and
   // edges are numbered apart, so the two can carry the same id and still be different records.
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).has_value());
-  ASSERT_TRUE(v1.SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(100)).has_value());
+  this->SetAgeAndHeight(v1, 10, 100);
 
   auto v2 = this->dba.InsertVertex();
   auto e1 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("edge_type"));
   ASSERT_TRUE(e1.has_value());
-  ASSERT_TRUE(e1->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(20)).has_value());
-  ASSERT_TRUE(e1->SetProperty(this->prop_height.second, memgraph::storage::PropertyValue(200)).has_value());
+  this->SetAgeAndHeight(*e1, 20, 200);
   this->dba.AdvanceCommand();
   ASSERT_TRUE(v1.Gid() == e1->Gid()) << "the test only says anything while the two ids collide";
 
@@ -2328,14 +2321,10 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralDistinguishesVertexFromE
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
 
   frame_writer.Write(this->symbol, TypedValue(v1));
-  auto first = this->Eval(map);
-  EXPECT_EQ(first.ValueMap().at("age").ValueInt(), 10);
-  EXPECT_EQ(first.ValueMap().at("height").ValueInt(), 100);
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
 
   frame_writer.Write(this->symbol, TypedValue(*e1));
-  auto second = this->Eval(map);
-  EXPECT_EQ(second.ValueMap().at("age").ValueInt(), 20);
-  EXPECT_EQ(second.ValueMap().at("height").ValueInt(), 200);
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
