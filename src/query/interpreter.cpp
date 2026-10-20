@@ -5972,6 +5972,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                                std::vector<Notification> *notifications) {
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
+  if (auth_query->uses_deprecated_deny_database_from_) {
+    notifications->emplace_back(SeverityLevel::WARNING,
+                                NotificationCode::DEPRECATED_QUERY,
+                                "DENY DATABASE ... FROM is deprecated since Memgraph 3.15 and will stop working in a "
+                                "later release, no earlier than 3.16. Use DENY DATABASE <name> TO <user_or_role> "
+                                "instead.");
+  }
+
   // The transaction is created here, on the first auth statement, rather than at BEGIN: a transaction is only known
   // to be an auth one once a statement has classified it, and one that only ever runs data queries must not pay for
   // auth machinery it never uses.
