@@ -17,7 +17,9 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "auth_query_handler_fixture.hpp"
 #include "auth_test_utils.hpp"
@@ -2783,6 +2785,30 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
     ASSERT_EQ(stats[key].ValueInt(), 8);
   }
 }
+
+#ifdef MG_ENTERPRISE
+TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+  this->default_interpreter.Interpret("CREATE USER alice");
+
+  auto const notification_codes = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<std::string> codes;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        codes.push_back(notification.ValueMap().at("code").ValueString());
+      }
+    }
+    return codes;
+  };
+
+  EXPECT_EQ(notification_codes("DENY DATABASE * FROM alice"), std::vector<std::string>{"DeprecatedQuery"});
+  EXPECT_TRUE(notification_codes("DENY DATABASE * TO alice").empty());
+}
+#endif
 
 TYPED_TEST(InterpreterTest, NotificationsValidStructure) {
   {

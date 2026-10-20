@@ -4669,6 +4669,19 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {});
 }
 
+TEST_P(CypherMainVisitorTest, DenyDatabase) {
+  auto &ast_generator = *GetParam();
+  for (auto const [query, deprecated] :
+       {std::pair{"DENY DATABASE db1 TO alice", false}, std::pair{"DENY DATABASE db1 FROM alice", true}}) {
+    auto *auth_query = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(auth_query) << query;
+    EXPECT_EQ(auth_query->action_, AuthQuery::Action::DENY_DATABASE_FROM_USER);
+    EXPECT_EQ(auth_query->database_, "db1");
+    EXPECT_EQ(auth_query->user_or_role_, "alice");
+    EXPECT_EQ(auth_query->uses_deprecated_deny_database_from_, deprecated) << query;
+  }
+}
+
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE"), SyntaxException);
