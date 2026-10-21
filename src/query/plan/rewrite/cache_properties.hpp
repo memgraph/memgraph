@@ -12,11 +12,10 @@
 #pragma once
 
 #include <algorithm>
-#include <map>
+#include <cstdint>
 #include <memory>
 #include <optional>
-#include <set>
-#include <string>
+#include <utility>
 #include <vector>
 
 #include "flags/general.hpp"
@@ -45,26 +44,31 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     named_expression->Accept(*this);
   }
 
-  /// One symbol and the property names gathered for it.
+  /// One symbol and the properties gathered for it, each named once and in the order the frontend
+  /// interned them. `PropertyIx` is equal and ordered on that index alone, so the same property
+  /// written twice is one entry however it was spelled, and the name travels with it for the
+  /// replacement that needs it.
   struct Gathered {
     Symbol symbol;
-    std::set<std::string> property_names;
+    std::vector<PropertyIx> properties;
   };
+
+  /// Which frame slot each cached property was read into, found by that same interned index. Sized
+  /// once from the gathered properties, so the whole mapping is one allocation.
+  using CachedSymbolsOfProperty = std::vector<std::pair<int64_t, Symbol>>;
 
   /// The symbols worth a pass of their own. A symbol carrying one lookup is left out: one pass for
   /// one property is what the lookup already does.
   auto Candidates() const -> std::vector<Gathered> {
     auto worthwhile = std::vector<Gathered>{};
     for (auto const &gathered : gathered_) {
-      if (gathered.property_names.size() < 2) continue;
+      if (gathered.properties.size() < 2) continue;
       worthwhile.push_back(gathered);
     }
     return worthwhile;
   }
 
-  void SetCachedSymbols(std::vector<std::pair<Symbol, std::map<std::string, Symbol, std::less<>>>> cached) {
-    cached_ = std::move(cached);
-  }
+  void SetCachedSymbols(std::vector<std::pair<Symbol, CachedSymbolsOfProperty>> cached) { cached_ = std::move(cached); }
 
  private:
   void Visit(PropertyLookup &op) override {
@@ -82,10 +86,12 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         if (!reads_a_record) return;
         auto found = std::ranges::find_if(gathered_, [&symbol](auto const &g) { return g.symbol == symbol; });
         if (found == gathered_.end()) {
-          gathered_.push_back(Gathered{.symbol = symbol, .property_names = {}});
+          gathered_.push_back(Gathered{.symbol = symbol, .properties = {}});
           found = std::prev(gathered_.end());
         }
-        found->property_names.insert(op.property_.name);
+        auto &properties = found->properties;
+        auto const at = std::ranges::lower_bound(properties, op.property_.ix, {}, &PropertyIx::ix);
+        if (at == properties.end() || at->ix != op.property_.ix) properties.insert(at, op.property_);
         return;
       }
       case Phase::REPLACE: {
@@ -93,7 +99,7 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         auto const group =
             std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
         if (group == cached_.end()) return;
-        auto it = group->second.find(op.property_.name);
+        auto const it = std::ranges::find(group->second, op.property_.ix, &std::pair<int64_t, Symbol>::first);
         if (it == group->second.end()) return;
         auto *replacement = ast_storage_->Create<Identifier>(it->second.name(), false);
         replacement->MapTo(it->second);
@@ -211,7 +217,7 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   Phase phase_{Phase::GATHER};
   std::vector<Expression *> prev_expressions_;
   std::vector<Gathered> gathered_;
-  std::vector<std::pair<Symbol, std::map<std::string, Symbol, std::less<>>>> cached_;
+  std::vector<std::pair<Symbol, CachedSymbolsOfProperty>> cached_;
 };
 
 template <class TDbAccessor>
@@ -238,22 +244,23 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     }
 
     auto const modified = input->ModifiedSymbols(*symbol_table_);
-    auto cached_by_symbol = std::vector<std::pair<Symbol, std::map<std::string, Symbol, std::less<>>>>{};
+    auto cached_by_symbol = std::vector<std::pair<Symbol, ProducePropertyLookupCacher::CachedSymbolsOfProperty>>{};
     auto groups = std::vector<CachedPropertyGroup>{};
 
     for (auto const &candidate : cacher.Candidates()) {
       // A symbol the input does not bind is read by something else, so there is no record here to read it from.
       if (std::ranges::find(modified, candidate.symbol) == modified.end()) continue;
 
-      auto cached_by_name = std::map<std::string, Symbol, std::less<>>{};
+      auto cached_by_property = ProducePropertyLookupCacher::CachedSymbolsOfProperty{};
       auto cached_properties = std::vector<CachedProperty>{};
-      cached_properties.reserve(candidate.property_names.size());
-      for (auto const &property_name : candidate.property_names) {
+      cached_properties.reserve(candidate.properties.size());
+      cached_by_property.reserve(candidate.properties.size());
+      for (auto const &property : candidate.properties) {
         auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
-        cached_by_name.emplace(property_name, output_symbol);
-        cached_properties.push_back(CachedProperty{db_->NameToProperty(property_name), output_symbol});
+        cached_by_property.emplace_back(property.ix, output_symbol);
+        cached_properties.push_back(CachedProperty{db_->NameToProperty(property.name), output_symbol});
       }
-      cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_name));
+      cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_property));
       groups.emplace_back(candidate.symbol, std::move(cached_properties));
     }
 
