@@ -44,18 +44,32 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     named_expression->Accept(*this);
   }
 
-  /// One symbol and the properties gathered for it, each named once and in the order the frontend
-  /// interned them. `PropertyIx` is equal and ordered on that index alone, so the same property
-  /// written twice is one entry however it was spelled, and the name travels with it for the
-  /// replacement that needs it.
+  /// The frontend's index for a property. A `storage::PropertyId` is the other integer naming a
+  /// property here and means something else entirely, so this is constructible only from the index
+  /// itself: the two cannot be written in place of one another.
+  class PropertyIndex {
+   public:
+    PropertyIndex() = default;
+
+    explicit PropertyIndex(PropertyIx const &property) : value_{property.ix} {}
+
+    friend bool operator==(PropertyIndex const &, PropertyIndex const &) = default;
+
+   private:
+    int64_t value_{-1};
+  };
+
+  /// One symbol and the properties gathered for it, each named once and in the order they were met.
+  /// A pass reads a set of properties, so what matters is that a property written twice is one entry
+  /// and that the order is the same on every planning of the same query, not what that order is.
   struct Gathered {
     Symbol symbol;
     std::vector<PropertyIx> properties;
   };
 
-  /// Which frame slot each cached property was read into, found by that same interned index. Sized
-  /// once from the gathered properties, so the whole mapping is one allocation.
-  using CachedSymbolsOfProperty = std::vector<std::pair<int64_t, Symbol>>;
+  /// Which frame slot each cached property was read into. Sized once from the gathered properties,
+  /// so the whole mapping is one allocation.
+  using CachedSymbolsOfProperty = std::vector<std::pair<PropertyIndex, Symbol>>;
 
   /// The symbols worth a pass of their own. A symbol carrying one lookup is left out: one pass for
   /// one property is what the lookup already does.
@@ -90,8 +104,9 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
           found = std::prev(gathered_.end());
         }
         auto &properties = found->properties;
-        auto const at = std::ranges::lower_bound(properties, op.property_.ix, {}, &PropertyIx::ix);
-        if (at == properties.end() || at->ix != op.property_.ix) properties.insert(at, op.property_);
+        if (!std::ranges::contains(properties, op.property_.ix, &PropertyIx::ix)) {
+          properties.push_back(op.property_);
+        }
         return;
       }
       case Phase::REPLACE: {
@@ -99,7 +114,8 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         auto const group =
             std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
         if (group == cached_.end()) return;
-        auto const it = std::ranges::find(group->second, op.property_.ix, &std::pair<int64_t, Symbol>::first);
+        auto const it =
+            std::ranges::find(group->second, PropertyIndex{op.property_}, &std::pair<PropertyIndex, Symbol>::first);
         if (it == group->second.end()) return;
         auto *replacement = ast_storage_->Create<Identifier>(it->second.name(), false);
         replacement->MapTo(it->second);
@@ -257,7 +273,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cached_by_property.reserve(candidate.properties.size());
       for (auto const &property : candidate.properties) {
         auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
-        cached_by_property.emplace_back(property.ix, output_symbol);
+        cached_by_property.emplace_back(ProducePropertyLookupCacher::PropertyIndex{property}, output_symbol);
         cached_properties.push_back(CachedProperty{db_->NameToProperty(property.name), output_symbol});
       }
       cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_property));
