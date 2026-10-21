@@ -690,7 +690,8 @@ TEST(PriorityThreadPool, AwaitShutdown_ReleasesUnrunQueuedAndParkedTasks) {
   for (const auto &w : sentinels) EXPECT_TRUE(w.expired());
 }
 
-// Test 4: ShutDown drain — every parked continuation runs exactly once.
+// Test 4: ShutDown drain — every parked continuation runs exactly once, and while it drains admissions report
+// park-worthy with a shrunk budget so a drained commit never blocks inline.
 TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
   using namespace memgraph;
   utils::PriorityThreadPool pool{2, 1};
@@ -699,11 +700,25 @@ TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
   std::atomic<int> ran{0};
   auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
 
+  // Idle pool: no productive backlog, so no reason to park and the budget is the full no-pressure one.
+  ASSERT_FALSE(pool.ShouldParkAdmission());
+  const auto idle_budget = pool.AdmissionTryBudget();
+
+  // Continuations run inline on this thread during ShutDown's drain; observe the pool state from inside one.
+  bool drain_should_park = false;
+  std::chrono::microseconds drain_budget{0};
+
   for (int i = 0; i < kN; ++i) {
-    pool.ParkAdmission([&](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
-                       static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
-                       deadline,
-                       kMainTag);
+    pool.ParkAdmission(
+        [&](utils::Priority) {
+          if (ran.fetch_add(1, std::memory_order_acq_rel) == 0) {
+            drain_should_park = pool.ShouldParkAdmission();
+            drain_budget = pool.AdmissionTryBudget();
+          }
+        },
+        static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
+        deadline,
+        kMainTag);
   }
 
   // ShutDown runs the drain synchronously in the caller thread before stopping workers;
@@ -711,6 +726,8 @@ TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
   pool.ShutDown();
 
   ASSERT_EQ(ran.load(std::memory_order_acquire), kN);
+  EXPECT_TRUE(drain_should_park);
+  EXPECT_LT(drain_budget, idle_budget);
 
   pool.AwaitShutdown();
 }

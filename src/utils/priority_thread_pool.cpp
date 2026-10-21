@@ -262,8 +262,8 @@ void PriorityThreadPool::ShutDown() {
       drain.swap(parked_admissions_);
       has_parked_.store(false, std::memory_order_release);
     }
-    // Continuations run inline here and may block (commit falls back to LockCommitBlocking; BEGIN waits out its
-    // storage-access deadline). A Reschedule is dropped, leaving the client to connection teardown.
+    // Continuations run inline here. While draining, admissions report park-worthy with the minimum budget, so a
+    // continuation either takes its lock at once or is dropped, leaving the client to connection teardown.
     for (auto &e : drain) e.task(utils::Priority::LOW);
   }
   // Only after the drain: this arms ScheduledReAddTask's inline-run guard.
@@ -300,7 +300,7 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledAddTask(TaskSignature ne
 
 void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    // Run inline like ShutDown's drain (may block): a task WakeMatching already pulled from the parked set
+    // Run inline like ShutDown's drain: a task WakeMatching already pulled from the parked set
     // after ShutDown's swap would otherwise be lost.
     task(utils::Priority::LOW);
     return;
@@ -313,6 +313,8 @@ void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
 }
 
 std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcept {
+  if (IsDrainingAdmissions()) return kTryBudgetMin;
+
   const uint64_t pool = GetNumWorkers();
   const uint64_t free = FreeWorkers();
   const uint64_t backlog = QueuedProductiveTasks();
@@ -373,7 +375,7 @@ void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chron
 }
 
 bool PriorityThreadPool::ShouldParkAdmission() const noexcept {
-  return productive_pending_.load(std::memory_order_acquire) > 0 && !hot_threads_.AnySet();
+  return IsDrainingAdmissions() || (productive_pending_.load(std::memory_order_acquire) > 0 && !hot_threads_.AnySet());
 }
 
 void PriorityThreadPool::WakeMatching(WaitResource resource) {
@@ -396,7 +398,7 @@ void PriorityThreadPool::WakeMatching(WaitResource resource) {
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
   }  // parked_mtx_ released before ScheduledReAddTask takes Worker::mtx_
-  // Draining: run inline (may block) rather than post to workers about to stop; ScheduledReAddTask's stop-guard
+  // Draining: run inline rather than post to workers about to stop; ScheduledReAddTask's stop-guard
   // covers a stop requested after this check.
   const bool draining = draining_admissions_.load(std::memory_order_acquire);
   for (auto &[id, task] : wakeups) {

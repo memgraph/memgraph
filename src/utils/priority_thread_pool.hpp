@@ -195,7 +195,8 @@ class PriorityThreadPool {
     return wake_epochs_[static_cast<size_t>(resource)].value.load(std::memory_order_seq_cst);
   }
 
-  // True iff productive work is queued and no worker is idle to take it, i.e. parking frees a core for it.
+  // True iff productive work is queued and no worker is idle to take it, i.e. parking frees a core for it;
+  // always true while draining.
   bool ShouldParkAdmission() const noexcept;
 
   // Re-posts every task parked on the resource (runs them inline while draining).
