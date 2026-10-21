@@ -407,13 +407,20 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, bool with_vector_reconstruction) const {
+  return GetPropertyImpl(property, view, with_vector_reconstruction, nullptr);
+}
+
+template <typename OnResolved>
+Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
+                                                    OnResolved &&on_resolved) const {
+  constexpr bool kHoldLock = !std::is_null_pointer_v<std::remove_cvref_t<OnResolved>>;
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
   std::optional<PropertyValue> value;
   Delta *delta = nullptr;
+  auto guard = std::shared_lock{edge_.ptr->lock};
   {
-    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
     // Without reconstruction, an embedding stays a compact VectorIndexId reference (see VertexAccessor).
     value.emplace(with_vector_reconstruction
@@ -425,6 +432,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, 
                       : edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta();
   }
+  if constexpr (!kHoldLock) guard.unlock();
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -453,6 +461,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, 
   });
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if constexpr (kHoldLock) on_resolved(*value);
   return *std::move(value);
 }
 
@@ -539,18 +548,23 @@ bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<flo
   // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
   // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
   // the usearch index, which is written at SetProperty time and so is only correct for the live value.
-  const auto maybe_value = GetProperty(property, view, /*with_vector_reconstruction=*/false);
+  // That index read runs under the edge lock so a concurrent SetProperty cannot interleave.
+  bool found = false;
+  const auto maybe_value =
+      GetPropertyImpl(property, view, /*with_vector_reconstruction=*/false, [&](const PropertyValue &value) {
+        if (!value.IsVectorIndexId()) return;
+        if (!value.ValueVectorIndexList().empty()) return;
+        const auto &ids = value.ValueVectorIndexIds();
+        if (ids.empty()) return;
+        found = storage_->indices_.vector_edge_index_.GetVectorInto(edge_.ptr, ids[0], out);
+      });
   if (!maybe_value) return false;
   if (maybe_value->IsVectorIndexId()) {
     if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
       out.assign(floats.begin(), floats.end());
       return true;
     }
-    const auto &ids = maybe_value->ValueVectorIndexIds();
-    if (ids.empty()) return false;
-    const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
-    return storage_->indices_.vector_edge_index_.GetVectorInto(
-        edge_.ptr, index_name, storage_->name_id_mapper_.get(), out);
+    return found;
   }
   // Left the index (e.g. index drop) and was rewritten to a plain numeric list.
   if (!maybe_value->IsAnyList()) return false;

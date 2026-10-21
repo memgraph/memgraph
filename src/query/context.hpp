@@ -77,7 +77,8 @@ struct EvaluationContext {
   std::shared_ptr<ResolvedUserFunctions> resolved_user_functions{};
   Scope scope{};
   /// Keep vector-index embeddings as lazy VectorRefs. Off reads them eagerly. Only valid for a read-only
-  /// plan over a stable snapshot, where a deferred re-read cannot resolve differently.
+  /// plan over a stable snapshot with a vector index present, where a deferred re-read cannot resolve
+  /// differently.
   bool lazy_vector_refs{false};
 };
 

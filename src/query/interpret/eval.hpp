@@ -610,17 +610,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &vertex = lhs_ptr->ValueVertex();
-      // GetProperty resolves the name (and throws without an accessor) before we deref dba_ below.
+      // GetProperty resolves the name and throws without an accessor, before MakePropertyValue derefs dba_.
       auto value = GetProperty(vertex, index.ValueString());
-      return MakePropertyValue(vertex, dba_->NameToProperty(index.ValueString()), std::move(value));
+      return MakePropertyValue(vertex, index.ValueString(), std::move(value));
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &edge = lhs_ptr->ValueEdge();
-      // GetProperty resolves the name (and throws without an accessor) before we deref dba_ below.
+      // GetProperty resolves the name and throws without an accessor, before MakePropertyValue derefs dba_.
       auto value = GetProperty(edge, index.ValueString());
-      return MakePropertyValue(edge, dba_->NameToProperty(index.ValueString()), std::move(value));
+      return MakePropertyValue(edge, index.ValueString(), std::move(value));
     };
 
     // lhs is Null
@@ -1211,6 +1211,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                storage::PropertyValue raw) {
     if (ctx_->lazy_vector_refs && raw.IsVectorIndexId())
       return TypedValue(LazyVectorRef{record_accessor.impl_, prop_id, view_}, ctx_->memory);
+    return {std::move(raw), GetNameIdMapper(), ctx_->memory};
+  }
+
+  // By-name form: resolves the property id only when a lazy ref is actually built.
+  template <class TRecordAccessor>
+  TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, std::string_view prop_name,
+                               storage::PropertyValue raw) {
+    if (ctx_->lazy_vector_refs && raw.IsVectorIndexId())
+      return TypedValue(LazyVectorRef{record_accessor.impl_, dba_->NameToProperty(prop_name), view_}, ctx_->memory);
     return {std::move(raw), GetNameIdMapper(), ctx_->memory};
   }
 

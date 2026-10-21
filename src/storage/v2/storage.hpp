@@ -840,6 +840,10 @@ class Accessor {
   /// Storage::GetStorageMode(), which holds nothing and is stale on return.
   StorageMode GetPinnedStorageMode() const noexcept;
 
+  /// True when a vertex or edge vector index exists. The index set only changes under UNIQUE access, so the
+  /// answer is fixed for the transaction's life unless this accessor is itself the UNIQUE holder.
+  bool HasVectorIndices() const;
+
   std::string id() const { return storage_->name(); }
 
   auto id_view() const { return storage_->name_view(); }
