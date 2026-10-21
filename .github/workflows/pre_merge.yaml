@@ -1,0 +1,26 @@
+name: "Pre-merge Checks"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, milestoned, demilestoned]
+
+# Label and milestone changes come in bursts, so only the latest run matters.
+concurrency:
+  group: pre-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  CheckPR:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR labels and release note
+        uses: memgraph/pr-checker@df8fe0211696d6e262e1019f13ce7bf722e76dca  # v1.0.0
+        with:
+          github-token: ${{ github.token }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          docs-labels: Docs unnecessary,Docs - changelog only,Docs needed
+          skip-release-note-label: Docs unnecessary
