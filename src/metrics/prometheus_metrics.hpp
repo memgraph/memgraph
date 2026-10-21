@@ -94,14 +94,6 @@ struct GlobalMetricHandles {
   // Memory
   prometheus::Gauge *memory_res_bytes;
   prometheus::Gauge *peak_memory_res_bytes;
-  // Memory mappings of the process against the kernel limit. At the limit the allocator can no longer return
-  // memory to the OS, so resident memory only grows from then on.
-  prometheus::Gauge *vm_mappings;
-  prometheus::Gauge *vm_max_map_count;
-  // Everything the process-wide memory tracker counts, which covers the default arenas as well as the
-  // per-database ones.
-  prometheus::Gauge *memory_tracked_bytes;
-  prometheus::Gauge *threads;
 
   // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
   // live storage to attribute a per-db series to). suspends/resumes count user-driven operations; the
@@ -454,10 +446,6 @@ class PrometheusMetrics {
   // Global metric families — memory
   prometheus::Family<prometheus::Gauge> &memory_res_family_;
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
-  prometheus::Family<prometheus::Gauge> &vm_mappings_family_;
-  prometheus::Family<prometheus::Gauge> &vm_max_map_count_family_;
-  prometheus::Family<prometheus::Gauge> &memory_tracked_family_;
-  prometheus::Family<prometheus::Gauge> &threads_family_;
 
   // Global metric families — hot/cold databases
   prometheus::Family<prometheus::Counter> &database_suspends_family_;
