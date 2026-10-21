@@ -449,7 +449,7 @@ auto EntriesLeftAfterRepeatedWrites(StorageMode mode, int writes) -> uint64_t {
     EXPECT_TRUE(from.has_value());
     auto out = from->OutEdges(View::NEW);
     EXPECT_TRUE(out.has_value());
-    for (auto &edge : out->edges) {
+    for (auto edge : out->edges) {
       EXPECT_TRUE(edge.SetProperty(property, PropertyValue{i}).has_value());
     }
     EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());

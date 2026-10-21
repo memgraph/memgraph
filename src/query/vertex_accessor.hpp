@@ -15,16 +15,12 @@
 #include <type_traits>
 #include <vector>
 
+#include "query/expanded_edges.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
 namespace memgraph::query {
 
 class EdgeAccessor;
-
-struct EdgeVertexAccessorResult {
-  std::vector<EdgeAccessor> edges;
-  int64_t expanded_count;
-};
 
 class VertexAccessor final {
  public:
@@ -77,27 +73,29 @@ class VertexAccessor final {
     return impl_.ClearProperties();
   }
 
-  storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
-                                                    const std::vector<storage::EdgeTypeId> &edge_types,
-                                                    storage::HopsLimit *hops_limit = nullptr) const;
+  /// The edges of this vertex, as a range that builds each accessor when it is looked at. See
+  /// `ExpandedEdges`.
+  ///
+  /// The read itself is not deferred. The edges are read and the vertex's lock released before any
+  /// of these returns, so what a concurrent writer can do to the result is what it could do to an
+  /// array of accessors.
+  storage::Result<ExpandedEdgesResult> InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                                               storage::HopsLimit *hops_limit = nullptr) const;
 
-  storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view) const;
+  storage::Result<ExpandedEdgesResult> InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                                               const VertexAccessor &dest,
+                                               storage::HopsLimit *hops_limit = nullptr) const;
 
-  storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
-                                                    const std::vector<storage::EdgeTypeId> &edge_types,
-                                                    const VertexAccessor &dest,
-                                                    storage::HopsLimit *hops_limit = nullptr) const;
+  storage::Result<ExpandedEdgesResult> OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                                                storage::HopsLimit *hops_limit = nullptr) const;
 
-  storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
-                                                     const std::vector<storage::EdgeTypeId> &edge_types,
-                                                     storage::HopsLimit *hops_limit = nullptr) const;
+  storage::Result<ExpandedEdgesResult> OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                                                const VertexAccessor &dest,
+                                                storage::HopsLimit *hops_limit = nullptr) const;
 
-  storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view) const;
+  storage::Result<ExpandedEdgesResult> InEdges(storage::View view) const;
 
-  storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
-                                                     const std::vector<storage::EdgeTypeId> &edge_types,
-                                                     const VertexAccessor &dest,
-                                                     storage::HopsLimit *hops_limit = nullptr) const;
+  storage::Result<ExpandedEdgesResult> OutEdges(storage::View view) const;
 
   storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
 

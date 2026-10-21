@@ -1150,7 +1150,7 @@ TEST(LightEdgesGraveyard, PartialDrainMultipleBatches) {
     auto vf = acc->FindVertex(gid_from, View::NEW);
     auto out = vf->OutEdges(View::NEW);
     // Find edge1 specifically
-    for (auto &e : out->edges) {
+    for (auto e : out->edges) {
       if (e.Gid() == edge1_gid) {
         ASSERT_TRUE(acc->DeleteEdge(&e).has_value());
         break;

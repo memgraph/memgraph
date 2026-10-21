@@ -13,6 +13,7 @@
 
 #include <optional>
 
+#include "storage/v2/expanded_edges.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex.hpp"
@@ -159,7 +160,11 @@ static_assert(std::is_trivially_copyable_v<memgraph::storage::VertexAccessor>,
               "storage::VertexAccessor must be trivially copyable!");
 
 struct EdgesVertexAccessorResult {
-  std::vector<EdgeAccessor> edges;
+  ExpandedEdges edges;
+
+  /// How many edges a hops limit was charged for. Reading from memory, an expansion naming an edge
+  /// type or a destination looks at every edge the vertex has, so this counts more than came back.
+  /// The disk engine filters as it reads, so on its read-only path it is the number returned.
   int64_t expanded_count;
 };
 
