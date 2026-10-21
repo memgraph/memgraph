@@ -1,12 +1,10 @@
 add_library(mg-memory-utils STATIC)
 target_sources(mg-memory-utils
                PUBLIC
-               allocator_stats.hpp
                query_memory_control.hpp
                global_memory_control.hpp
                db_arena.hpp
                PRIVATE
-               allocator_stats.cpp
                query_memory_control.cpp
                global_memory_control.cpp
                db_arena.cpp)

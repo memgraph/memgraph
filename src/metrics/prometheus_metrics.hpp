@@ -98,16 +98,9 @@ struct GlobalMetricHandles {
   // memory to the OS, so resident memory only grows from then on.
   prometheus::Gauge *vm_mappings;
   prometheus::Gauge *vm_max_map_count;
-  // Everything the process-wide memory tracker counts, which covers jemalloc's default arenas as well as the
-  // per-database ones, and jemalloc's own view of the heap. Resident far above allocated means the allocator is
-  // holding freed memory; resident memory far above jemalloc's mapped bytes means the growth is outside the heap.
+  // Everything the process-wide memory tracker counts, which covers the default arenas as well as the
+  // per-database ones.
   prometheus::Gauge *memory_tracked_bytes;
-  prometheus::Gauge *jemalloc_allocated_bytes;
-  prometheus::Gauge *jemalloc_active_bytes;
-  prometheus::Gauge *jemalloc_metadata_bytes;
-  prometheus::Gauge *jemalloc_resident_bytes;
-  prometheus::Gauge *jemalloc_mapped_bytes;
-  prometheus::Gauge *jemalloc_retained_bytes;
   prometheus::Gauge *threads;
 
   // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
@@ -464,12 +457,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &vm_mappings_family_;
   prometheus::Family<prometheus::Gauge> &vm_max_map_count_family_;
   prometheus::Family<prometheus::Gauge> &memory_tracked_family_;
-  prometheus::Family<prometheus::Gauge> &jemalloc_allocated_family_;
-  prometheus::Family<prometheus::Gauge> &jemalloc_active_family_;
-  prometheus::Family<prometheus::Gauge> &jemalloc_metadata_family_;
-  prometheus::Family<prometheus::Gauge> &jemalloc_resident_family_;
-  prometheus::Family<prometheus::Gauge> &jemalloc_mapped_family_;
-  prometheus::Family<prometheus::Gauge> &jemalloc_retained_family_;
   prometheus::Family<prometheus::Gauge> &threads_family_;
 
   // Global metric families — hot/cold databases
