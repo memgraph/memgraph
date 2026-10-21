@@ -11998,10 +11998,7 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
-        // Reuse the held ReadLock: a nested read would deadlock against a pending repl_state_ WRITE
-        // (RWSpinLock blocks new readers behind a waiting writer).
-        bool const is_main =
-            locked_repl_state ? (*locked_repl_state)->IsMain() : interpreter_context_->repl_state->ReadLock()->IsMain();
+        auto is_main = interpreter_context_->repl_state->ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_,
                         *current_db_.db_acc_,
                         execution_memory.resource(),
