@@ -594,7 +594,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
     return replica_state_.WithLock(
         [response](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
           // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+          // moment we started committing, we cannot set the ready state. We could have got into
           // MAYBE_BEHIND state if we missed next txn.
           if (state != ReplicaState::REPLICATING) {
             return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
@@ -696,7 +696,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
             replica_stream_obj.reset();
 
             // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
-            // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+            // moment we started committing, we cannot set the ready state. We could have got into
             // MAYBE_BEHIND state if we missed next txn.
             if (state != ReplicaState::REPLICATING) {
               return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
@@ -725,8 +725,8 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       LogRpcFailure();
       return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
     } catch (...) {
-      // In ASYNC mode this task runs raw on the client's worker, where an escaping exception (e.g.
-      // bad_alloc while decoding the response) terminates the whole process.
+      // An escaping exception (e.g. bad_alloc while decoding the response) would leave the replica in
+      // REPLICATING with its stream still open.
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
         state = ReplicaState::MAYBE_BEHIND;

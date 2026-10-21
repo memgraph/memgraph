@@ -148,7 +148,7 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
   if (!ShouldRunTwoPC()) {
     return raw_client->FinalizeTransactionReplication(db_acc, std::move(replica_stream));
   }
-  // SYNC replica cannot be part of 2PC; an ASYNC replica has no transaction stream.
+  // SYNC replica cannot be part of 2PC.
   return {};
 }
 

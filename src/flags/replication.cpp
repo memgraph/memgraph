@@ -22,9 +22,10 @@ DEFINE_VALIDATED_uint64(replication_replica_check_frequency_sec, 1,
                         "for each REPLICA.",
                         FLAG_IN_RANGE(1, 24UL * 3600));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(replication_async_recovery_interval_sec, 10,
-              "Minimum number of seconds between two recovery rounds of an ASYNC replica. Each round ships the "
-              "durability files the replica is missing, so this bounds how often MAIN re-sends its current WAL under "
-              "sustained writes. 0 recovers as soon as the replica is seen behind.");
+DEFINE_VALIDATED_uint64(replication_async_recovery_interval_sec, 10,
+                        "Minimum number of seconds between two recovery rounds of an ASYNC replica. Each round ships "
+                        "the durability files the replica is missing, so this bounds how often MAIN re-sends its "
+                        "current WAL under sustained writes. 0 recovers as soon as the replica is seen behind.",
+                        FLAG_IN_RANGE(0, 3600));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(replication_restore_state_on_startup, true, "Restore replication state on startup, e.g. recover replica");
