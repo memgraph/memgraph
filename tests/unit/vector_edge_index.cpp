@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <sys/types.h>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <optional>
@@ -268,6 +269,72 @@ TEST_F(VectorEdgeIndexTest, ConcurrencyTest) {
   }
   auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, index_size);
+}
+
+TEST_F(VectorEdgeIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
+  this->CreateEdgeIndex(2, 10);
+  const std::vector<float> committed{1.0F, 1.0F};
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue initial(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, initial, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> wrong_values{0};
+  std::atomic<uint64_t> failed_reads{0};
+  // 0 idle, 1 writer inside SetProperty, 2 SetProperty done, 3 writer inside Abort
+  std::atomic<int> phase{0};
+
+  std::thread writer([&] {
+    while (!stop.load(std::memory_order_acquire)) {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+      PropertyValue uncommitted(std::vector<PropertyValue>{PropertyValue(7.0), PropertyValue(7.0)});
+      phase.store(1);
+      MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), uncommitted).has_value());  // NOLINT
+      phase.store(2);
+      std::this_thread::yield();
+      phase.store(3);
+      acc->Abort();
+      phase.store(0);
+    }
+  });
+
+  std::vector<std::thread> readers;
+  for (int i = 0; i < 2; i++) {
+    readers.emplace_back([&] {
+      std::vector<float> out;
+      while (!stop.load(std::memory_order_acquire)) {
+        auto acc = this->storage->Access(memgraph::storage::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+        auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+        const auto property = acc->NameToProperty(test_property);
+        for (const auto view : {View::OLD, View::NEW}) {
+          const int before = phase.load();
+          const bool ok = edge.GetVectorInto(property, view, out);
+          const int after = phase.load();
+          if (!ok) {
+            failed_reads.fetch_add(1, std::memory_order_relaxed);
+          } else if (out != committed) {
+            // Rollback restores the store before the index, so a read overlapping Abort() is not checked.
+            const bool overlaps_abort = before == 3 || after == 3 || (before == 2 && after == 0);
+            if (!overlaps_abort) wrong_values.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      }
+    });
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  stop.store(true, std::memory_order_release);
+  writer.join();
+  for (auto &reader : readers) reader.join();
+
+  EXPECT_EQ(wrong_values.load(), 0u);
+  EXPECT_EQ(failed_reads.load(), 0u);
 }
 
 TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {

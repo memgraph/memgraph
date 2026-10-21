@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <string_view>
@@ -267,6 +269,73 @@ TEST_F(VectorIndexTest, ConcurrencyTest) {
   auto acc = this->storage->Access(memgraph::storage::WRITE);
   // Check that the index has the expected number of entries
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
+}
+
+// A writer that links its delta and updates the index before commit must never leak its uncommitted floats to a
+// snapshot reader that resolved the live (store-resident) reference.
+TEST_F(VectorIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
+  this->CreateIndex(2, 10);
+  const std::vector<float> committed{1.0F, 1.0F};
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto properties = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+    vertex_gid = this->CreateVertex(acc.get(), test_property, properties, test_label).Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> wrong_values{0};
+  std::atomic<uint64_t> failed_reads{0};
+  // 0 idle, 1 writer inside SetProperty, 2 SetProperty done, 3 writer inside Abort
+  std::atomic<int> phase{0};
+
+  std::thread writer([&] {
+    while (!stop.load(std::memory_order_acquire)) {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+      auto uncommitted = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{7.0F, 7.0F});
+      phase.store(1);
+      MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), uncommitted).has_value());  // NOLINT
+      phase.store(2);
+      std::this_thread::yield();
+      phase.store(3);
+      acc->Abort();
+      phase.store(0);
+    }
+  });
+
+  std::vector<std::thread> readers;
+  for (int i = 0; i < 2; i++) {
+    readers.emplace_back([&] {
+      std::vector<float> out;
+      while (!stop.load(std::memory_order_acquire)) {
+        auto acc = this->storage->Access(memgraph::storage::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+        auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+        const auto property = acc->NameToProperty(test_property);
+        for (const auto view : {View::OLD, View::NEW}) {
+          const int before = phase.load();
+          const bool ok = vertex.GetVectorInto(property, view, out);
+          const int after = phase.load();
+          if (!ok) {
+            failed_reads.fetch_add(1, std::memory_order_relaxed);
+          } else if (out != committed) {
+            // Rollback restores the store before the index, so a read overlapping Abort() is not checked.
+            const bool overlaps_abort = before == 3 || after == 3 || (before == 2 && after == 0);
+            if (!overlaps_abort) wrong_values.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      }
+    });
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  stop.store(true, std::memory_order_release);
+  writer.join();
+  for (auto &reader : readers) reader.join();
+
+  EXPECT_EQ(wrong_values.load(), 0u);
+  EXPECT_EQ(failed_reads.load(), 0u);
 }
 
 TEST_F(VectorIndexTest, DeleteVertexTest) {
