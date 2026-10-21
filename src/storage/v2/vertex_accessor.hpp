@@ -101,6 +101,13 @@ class VertexAccessor final {
   /// false if that value is not a numeric list.
   bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
 
+ private:
+  /// GetProperty body; `on_locked(const PropertyValue &)` runs on the raw value while the vertex lock is held.
+  template <typename OnLocked>
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
+                                        OnLocked &&on_locked) const;
+
+ public:
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 

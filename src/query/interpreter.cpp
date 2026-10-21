@@ -3762,7 +3762,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.lazy_vector_refs =
-      dba != nullptr && plan->rw_type() == plan::ReadWriteTypeChecker::RWType::R && dba->IsSnapshotStable();
+      dba != nullptr && plan->rw_type() == plan::ReadWriteTypeChecker::RWType::R && dba->CanHoldLazyVectorRefs();
   // Nothing a plan without an accessor can evaluate resolves an id, so there is nothing to resolve.
   if (dba != nullptr) {
     ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);

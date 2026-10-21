@@ -150,7 +150,8 @@ class AiLicenseEmbeddingTest : public ::testing::Test {
   struct QueryEnv {
     QueryEnv(const std::filesystem::path &root, const std::string &name, int count, int dim,
              memgraph::storage::IsolationLevel isolation = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-             memgraph::storage::StorageMode mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
+             memgraph::storage::StorageMode mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+             bool with_index = true)
         : gk{std::make_unique<memgraph::utils::Gatekeeper<memgraph::dbms::Database>>(
               MakeConfig(MakeDir(root / name), isolation, mode))},
           repl_state{memgraph::storage::ReplicationStateRootPath(MakeConfig(root / name))},
@@ -172,7 +173,7 @@ class AiLicenseEmbeddingTest : public ::testing::Test {
           label{db->storage()->NameToLabel("Doc")},
           prop{db->storage()->NameToProperty("emb")} {
       Populate(db.get(), label, prop, count, dim);
-      CreateIndex(db.get(), label, prop, dim, count);
+      if (with_index) CreateIndex(db.get(), label, prop, dim, count);
     }
 
     static std::filesystem::path MakeDir(const std::filesystem::path &dir) {
@@ -677,6 +678,23 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_ExplicitTxnWriteWaitsForOpenLazyRead
 
   EXPECT_NO_THROW(faker.Pull(&writer, {}, writer_qid)) << "the write runs once the lazy reader is consumed";
   faker.Abort();
+
+  // Without a vector index no lazy ref can exist, so the guard must not fire.
+  QueryEnv plain{data_dir_,
+                 "t15_noindex",
+                 3,
+                 8,
+                 memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
+                 memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                 /*with_index=*/false};
+  auto &plain_faker = plain.faker;
+  plain_faker.interpreter.BeginTransaction();
+  auto [r2, r2_qid] = plain_faker.Prepare("MATCH (n:Doc) RETURN n.emb");
+  plain_faker.Pull(&r2, 1, r2_qid);
+  ASSERT_TRUE(r2.GetSummary().at("has_more").ValueBool());
+  auto [w2, w2_qid] = plain_faker.Prepare("CREATE (:Other)");
+  EXPECT_NO_THROW(plain_faker.Pull(&w2, {}, w2_qid)) << "no vector index: partial read must not block a write";
+  plain_faker.Abort();
 }
 
 // A VectorRef must compare, order, hash and test emptiness like its list. The embedding is [0.5, 0.5, 0.5, 0.5]
@@ -727,6 +745,21 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
   const std::vector<std::vector<double>> sorted = {
       {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.25}, {0.5, 0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 1.5}};
   EXPECT_EQ(EmbeddingRows(s), sorted);
+
+  // ref-vs-ref: vertex i holds (i % 7) + 0.5, so vertices 0 and 7 are equal and the rest differ.
+  QueryEnv pair_env{data_dir_, "t16_pairs", 8, 4};
+  for (const char *op : {"=", "<"}) {
+    SCOPED_TRACE(op);
+    const std::string o = op;
+    auto refs = pair_env.faker.Interpret("MATCH (a:Doc), (b:Doc) WITH a.emb AS x, b.emb AS y WHERE x " + o +
+                                         " y RETURN count(*) AS c");
+    auto lists = pair_env.faker.Interpret(
+        "MATCH (a:Doc), (b:Doc) WITH [i IN a.emb | i] AS x, [i IN b.emb | i] AS y "
+        "WHERE x " +
+        o + " y RETURN count(*) AS c");
+    EXPECT_EQ(refs.GetResults().at(0)[0].ValueInt(), lists.GetResults().at(0)[0].ValueInt());
+    EXPECT_EQ(refs.GetResults().at(0)[0].ValueInt(), o == "=" ? 10 : 27);
+  }
 }
 
 // TypedValue::IsPropertyValue on a VectorRef: an index equality seek with an embedding as lookup value must work.
