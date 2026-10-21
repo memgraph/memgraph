@@ -9063,6 +9063,39 @@ TYPED_TEST(TestPlanner, CachePropertiesSingleLookupDoesNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
 }
 
+// Reading one property twice is still one property to read, so there is nothing a pass of its own
+// would save: one pass for one property is what a lookup already does.
+TYPED_TEST(TestPlanner, CachePropertiesCountARepeatedLookupOnce) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("x"), PROPERTY_LOOKUP(dba, "n", prop_a), AS("y"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
+}
+
+// As above where a repeat sits beside a distinct property: the pass reads two properties, not the
+// three lookups that asked for them.
+TYPED_TEST(TestPlanner, CachePropertiesReadsEachDistinctPropertyOnce) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", prop_a),
+                                          AS("x"),
+                                          PROPERTY_LOOKUP(dba, "n", prop_a),
+                                          AS("y"),
+                                          PROPERTY_LOOKUP(dba, "n", prop_b),
+                                          AS("z"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
