@@ -1,0 +1,54 @@
+# Each case is stored as a node so the runner can compare the results with Neo4j's.
+memgraph_query: >
+  UNWIND [
+    {id: 1, a: 60, op: "&", b: 13},
+    {id: 2, a: 60, op: "AND", b: 13},
+    {id: 3, a: 60, op: "|", b: 13},
+    {id: 4, a: 60, op: "or", b: 13},
+    {id: 5, a: 60, op: "^", b: 13},
+    {id: 6, a: 60, op: "Xor", b: 13},
+    {id: 7, a: 60, op: "~", b: 0},
+    {id: 8, a: 60, op: "~", b: null},
+    {id: 9, a: 60, op: "NOT", b: null},
+    {id: 10, a: 60, op: "<<", b: 2},
+    {id: 11, a: 1, op: "LEFT SHIFT", b: 63},
+    {id: 12, a: 9223372036854775807, op: "<<", b: 1},
+    {id: 13, a: 1, op: "<<", b: 64},
+    {id: 14, a: 1, op: "<<", b: -1},
+    {id: 15, a: -60, op: ">>", b: 2},
+    {id: 16, a: -1, op: "right shift", b: 70},
+    {id: 17, a: -1, op: ">>>", b: 60},
+    {id: 18, a: -9223372036854775807 - 1, op: "RIGHT SHIFT UNSIGNED", b: 63},
+    {id: 19, a: null, op: "&", b: 13},
+    {id: 20, a: 60, op: null, b: 13},
+    {id: 21, a: 60, op: "", b: 13},
+    {id: 22, a: 60, op: "NAND", b: null}
+  ] AS c
+  CREATE (:Result {id: c.id, value: bitwise.op(c.a, c.op, c.b)});
+
+neo4j_query: >
+  UNWIND [
+    {id: 1, a: 60, op: "&", b: 13},
+    {id: 2, a: 60, op: "AND", b: 13},
+    {id: 3, a: 60, op: "|", b: 13},
+    {id: 4, a: 60, op: "or", b: 13},
+    {id: 5, a: 60, op: "^", b: 13},
+    {id: 6, a: 60, op: "Xor", b: 13},
+    {id: 7, a: 60, op: "~", b: 0},
+    {id: 8, a: 60, op: "~", b: null},
+    {id: 9, a: 60, op: "NOT", b: null},
+    {id: 10, a: 60, op: "<<", b: 2},
+    {id: 11, a: 1, op: "LEFT SHIFT", b: 63},
+    {id: 12, a: 9223372036854775807, op: "<<", b: 1},
+    {id: 13, a: 1, op: "<<", b: 64},
+    {id: 14, a: 1, op: "<<", b: -1},
+    {id: 15, a: -60, op: ">>", b: 2},
+    {id: 16, a: -1, op: "right shift", b: 70},
+    {id: 17, a: -1, op: ">>>", b: 60},
+    {id: 18, a: -9223372036854775807 - 1, op: "RIGHT SHIFT UNSIGNED", b: 63},
+    {id: 19, a: null, op: "&", b: 13},
+    {id: 20, a: 60, op: null, b: 13},
+    {id: 21, a: 60, op: "", b: 13},
+    {id: 22, a: 60, op: "NAND", b: null}
+  ] AS c
+  CREATE (:Result {id: c.id, value: apoc.bitwise.op(c.a, c.op, c.b)});

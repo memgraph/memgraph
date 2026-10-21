@@ -2,6 +2,7 @@
   "apoc.algo.aStar": "algo.astar",
   "apoc.algo.allSimplePaths": "algo.all_simple_paths",
   "apoc.algo.cover": "algo.cover",
+  "apoc.bitwise.op": "bitwise.op",
   "apoc.coll.avg": "collections.avg",
   "apoc.coll.contains": "collections.contains",
   "apoc.coll.containsAll": "collections.contains_all",
