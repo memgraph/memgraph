@@ -285,8 +285,7 @@ class VectorEdgeIndex {
   /// @brief Streams the edge's embedding into a caller-owned buffer without allocating an owning
   /// PropertyValue. Mirrors VectorIndex::GetVectorInto for the lazy read path. Returns false if the
   /// index or entry is missing.
-  bool GetVectorInto(Edge *edge, std::string_view index_name, NameIdMapper *name_id_mapper,
-                     std::vector<float> &out) const;
+  bool GetVectorInto(Edge *edge, uint64_t index_id, std::vector<float> &out) const;
 
   /// @brief Returns all index ids whose filter matches `edge_type` and which index `property`.
   /// Multiple indices may overlap (e.g. wildcard '(p)' plus specific ':REL(p)'); all are returned.

@@ -712,8 +712,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view,
-                                                  bool with_vector_reconstruction) const {
+template <typename OnLocked>
+Result<PropertyValue> VertexAccessor::GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
+                                                      OnLocked &&on_locked) const {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -722,13 +723,15 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     delta = vertex_->delta();
-    return with_vector_reconstruction
-               ? vertex_->properties.GetProperty(
-                     property,
-                     IndexedPropertyDecoder<Vertex>{.indices = &storage_->indices_,
-                                                    .name_id_mapper = storage_->name_id_mapper_.get(),
-                                                    .entity = vertex_})
-               : vertex_->properties.GetProperty(property);
+    auto raw = with_vector_reconstruction
+                   ? vertex_->properties.GetProperty(
+                         property,
+                         IndexedPropertyDecoder<Vertex>{.indices = &storage_->indices_,
+                                                        .name_id_mapper = storage_->name_id_mapper_.get(),
+                                                        .entity = vertex_})
+                   : vertex_->properties.GetProperty(property);
+    on_locked(raw);
+    return raw;
   });
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -768,20 +771,31 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   return std::move(value);
 }
 
+Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view,
+                                                  bool with_vector_reconstruction) const {
+  return GetPropertyImpl(property, view, with_vector_reconstruction, [](const PropertyValue &) {});
+}
+
 bool VertexAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
   // A delta-carried ref holds its own floats for `view`; only the live ref (empty list) may read the usearch
   // index, which is written at SetProperty time and so is only correct for the live value.
-  const auto maybe_value = GetProperty(property, view, /*with_vector_reconstruction=*/false);
+  // Read speculatively under the vertex lock (writers hold it through UpdateOnSetProperty) so the floats match
+  // the ref; kept only if the live ref survives delta resolution.
+  bool live_read_ok = false;
+  const auto maybe_value =
+      GetPropertyImpl(property, view, /*with_vector_reconstruction=*/false, [&](const PropertyValue &raw) {
+        if (!raw.IsVectorIndexId() || !raw.ValueVectorIndexList().empty()) return;
+        const auto &ids = raw.ValueVectorIndexIds();
+        if (ids.empty()) return;
+        live_read_ok = storage_->indices_.vector_index_.GetVectorInto(vertex_, ids[0], out);
+      });
   if (!maybe_value) return false;
   if (maybe_value->IsVectorIndexId()) {
     if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
       out.assign(floats.begin(), floats.end());
       return true;
     }
-    const auto &ids = maybe_value->ValueVectorIndexIds();
-    if (ids.empty()) return false;
-    const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
-    return storage_->indices_.vector_index_.GetVectorInto(vertex_, index_name, storage_->name_id_mapper_.get(), out);
+    return !maybe_value->ValueVectorIndexIds().empty() && live_read_ok;
   }
   // Left the index (e.g. label removal) and was rewritten to a plain numeric list.
   if (!maybe_value->IsAnyList()) return false;

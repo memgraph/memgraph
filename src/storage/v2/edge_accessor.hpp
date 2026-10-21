@@ -29,6 +29,12 @@ class EdgeAccessor final {
  private:
   friend class Storage;
 
+  /// GetProperty's body. A non-null `on_resolved(const PropertyValue &)` runs with the MVCC-resolved value
+  /// while the edge's shared lock is still held; with nullptr the lock is released before delta resolution.
+  template <typename OnResolved>
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
+                                        OnResolved &&on_resolved) const;
+
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
                Transaction *transaction, bool for_deleted = false)
