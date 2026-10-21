@@ -286,21 +286,19 @@ TEST_F(VectorEdgeIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
   std::atomic<bool> stop{false};
   std::atomic<uint64_t> wrong_values{0};
   std::atomic<uint64_t> failed_reads{0};
-  // 0 idle, 1 writer inside SetProperty, 2 SetProperty done, 3 writer inside Abort
-  std::atomic<int> phase{0};
+  std::atomic<uint64_t> aborts_started{0};
+  std::atomic<uint64_t> aborts_done{0};
 
   std::thread writer([&] {
     while (!stop.load(std::memory_order_acquire)) {
       auto acc = this->storage->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(edge_gid, View::OLD).value();
       PropertyValue uncommitted(std::vector<PropertyValue>{PropertyValue(7.0), PropertyValue(7.0)});
-      phase.store(1);
       MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), uncommitted).has_value());  // NOLINT
-      phase.store(2);
       std::this_thread::yield();
-      phase.store(3);
+      aborts_started.fetch_add(1);
       acc->Abort();
-      phase.store(0);
+      aborts_done.fetch_add(1);
     }
   });
 
@@ -313,14 +311,14 @@ TEST_F(VectorEdgeIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
         auto edge = acc->FindEdge(edge_gid, View::OLD).value();
         const auto property = acc->NameToProperty(test_property);
         for (const auto view : {View::OLD, View::NEW}) {
-          const int before = phase.load();
+          const auto done_before = aborts_done.load();
           const bool ok = edge.GetVectorInto(property, view, out);
-          const int after = phase.load();
+          const auto started_after = aborts_started.load();
           if (!ok) {
             failed_reads.fetch_add(1, std::memory_order_relaxed);
           } else if (out != committed) {
-            // Rollback restores the store before the index, so a read overlapping Abort() is not checked.
-            const bool overlaps_abort = before == 3 || after == 3 || (before == 2 && after == 0);
+            // Rollback restores the store before the index, so a read overlapping any Abort() is not checked.
+            const bool overlaps_abort = started_after > done_before;
             if (!overlaps_abort) wrong_values.fetch_add(1, std::memory_order_relaxed);
           }
         }
