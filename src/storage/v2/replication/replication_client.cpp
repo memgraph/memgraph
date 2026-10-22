@@ -223,10 +223,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
           [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
             try {
               const memory::DbArenaScope db_arena_scope{arena_pool};
-              this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                                   main_storage,
-                                   *gk,
-                                   true);  // needs force reset so we need to recover from 0.
+              this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage, *gk, RecoveryKind::RESET_IF_PENDING);
             } catch (...) {
               // The task runs raw on the maintenance worker; left in RECOVERY the replica would never
               // be rechecked, the frequent check reacts to MAYBE_BEHIND alone.
@@ -407,10 +404,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
         [main_storage, gk = protector.clone(), this, arena_pool = main_storage->DbArenaPool()] {
           try {
             const memory::DbArenaScope db_arena_scope{arena_pool};
-            this->RecoverReplica(/*replica_last_commit_ts*/ 0,
-                                 main_storage,
-                                 *gk,
-                                 true);  // needs force reset so we need to recover from 0.
+            this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage, *gk, RecoveryKind::RESET_ALWAYS);
           } catch (...) {
             // The task runs raw on the maintenance worker; left in RECOVERY the replica would never be
             // rechecked, the frequent check reacts to MAYBE_BEHIND alone.
@@ -730,7 +724,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &
 // The replica will be considered as READY if it gets fully recovered. If there are commits taking place while recovery
 // is running, the replica will be again set to MAYBE_BEHIND state.
 void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage,
-                                              DatabaseProtector const &protector, bool const reset_needed) const {
+                                              DatabaseProtector const &protector, RecoveryKind const kind) const {
   auto const &main_db_name = main_storage->name();
 
   // A guardrail, not a decision point: read without a hold, so the mode could flip right after.
@@ -741,12 +735,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
 
-  // A forced reset must run even if a check or round that was already in flight when it was queued
-  // overwrote the state afterwards; the heartbeat cannot rediscover that the replica's base changed.
-  if (reset_needed) {
+  bool const reset_needed = kind != RecoveryKind::INCREMENTAL;
+  if (kind == RecoveryKind::RESET_ALWAYS) {
+    // A check or round that was in flight when this was queued may have overwritten the state since.
     replica_state_.WithLock([](auto &state) { state = ReplicaState::RECOVERY; });
   } else if (*replica_state_.Lock() != ReplicaState::RECOVERY) {
-    // A normal round can be queued many times; once one finished, the rest are stale.
+    // A round can be queued many times; once one finished, the rest are stale.
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.",
                  client_.name_,
                  main_db_name);

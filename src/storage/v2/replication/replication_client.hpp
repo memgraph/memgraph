@@ -237,15 +237,27 @@ class ReplicationStorageClient {
   auto GetNumCommittedTxns() const -> uint64_t;
 
  private:
+  // What a queued recovery round does once it starts.
+  enum class RecoveryKind : std::uint8_t {
+    // Catch the replica up from its reported commit; skipped if the replica left RECOVERY while queued.
+    INCREMENTAL,
+    // Wipe the replica and recover from zero; skipped like INCREMENTAL. The next heartbeat re-detects a
+    // branching point, so a skipped round is re-queued.
+    RESET_IF_PENDING,
+    // Wipe the replica and recover from zero even if the state was overwritten while queued. After RECOVER
+    // SNAPSHOT the heartbeat cannot tell that the replica's base changed, so the round must not be skipped.
+    RESET_ALWAYS,
+  };
+
   /**
    * @brief Get necessary recovery steps and execute them.
    *
    * @param replica_last_commit_ts the commit up to which we should recover to
    * @param main_storage pointer to the storage associated with the client
-   * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
+   * @param kind whether the replica resets its storage on the 1st recovery step and whether a stale round is skipped
    */
   void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
-                      bool reset_needed = false) const;
+                      RecoveryKind kind = RecoveryKind::INCREMENTAL) const;
 
   /**
    * @brief Check replica state

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <latch>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -29,8 +30,10 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/replication.hpp"
 #include "memory/db_arena.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
@@ -1092,6 +1095,184 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
+
+namespace {
+
+auto WaitUntil(auto const &predicate) -> bool {
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{60};
+  while (!predicate()) {
+    if (std::chrono::steady_clock::now() > deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return true;
+}
+
+auto FindReplicationClient(MinMemgraph &main, std::string_view name) -> memgraph::replication::ReplicationClient * {
+  auto locked_repl_state = main.repl_state.Lock();
+  auto &main_data = std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData());
+  auto const it =
+      std::ranges::find_if(main_data.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
+  return it == main_data.registered_replicas_.end() ? nullptr : &*it;
+}
+
+// Occupies the replica client's maintenance pool until released, so the tasks queued behind it start in a
+// controlled order.
+class MaintenancePoolHold {
+ public:
+  explicit MaintenancePoolHold(memgraph::replication::ReplicationClient &client) {
+    client.maintenance_pool_.AddTask([this] { release_.wait(); });
+  }
+
+  MaintenancePoolHold(MaintenancePoolHold const &) = delete;
+  MaintenancePoolHold &operator=(MaintenancePoolHold const &) = delete;
+
+  ~MaintenancePoolHold() { Release(); }
+
+  void Release() {
+    if (!released_) {
+      released_ = true;
+      release_.count_down();
+    }
+  }
+
+ private:
+  std::latch release_{1};
+  bool released_{false};
+};
+
+auto CreateVertex(MinMemgraph &instance, memgraph::storage::CommitArgs commit_args) -> Gid {
+  const memgraph::memory::DbArenaScope arena_scope{&instance.db.Arena()};
+  auto acc = instance.db.Access(memgraph::storage::WRITE);
+  auto const gid = acc->CreateVertex().Gid();
+  EXPECT_TRUE(acc->PrepareForCommitPhase(std::move(commit_args)).has_value());
+  return gid;
+}
+
+auto HasVertex(MinMemgraph &instance, Gid const gid) -> bool {
+  const memgraph::memory::DbArenaScope arena_scope{&instance.db.Arena()};
+  auto acc = instance.db.Access(memgraph::storage::READ);
+  return acc->FindVertex(gid, View::OLD).has_value();
+}
+
+}  // namespace
+
+// RECOVER SNAPSHOT queues a forced reset while a check or round may still be running on the maintenance pool.
+// That task finishes afterwards and overwrites the state, and nothing re-detects that the replica's base changed,
+// so the reset has to run anyway.
+TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  auto const replicated_gid = CreateVertex(main, MakeCommitArgs(main.db_acc));
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+  ASSERT_TRUE(HasVertex(replica, replicated_gid));
+
+  auto const &metrics = memgraph::metrics::Metrics().global;
+  auto const success_before = metrics.replica_recovery_success->Value();
+  auto const skip_before = metrics.replica_recovery_skip->Value();
+
+  auto *client = FindReplicationClient(main, replicas[0]);
+  ASSERT_NE(client, nullptr);
+  MaintenancePoolHold hold{*client};
+
+  auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+  ASSERT_TRUE(main.db.storage()->repl_storage_state_.WithClient(replicas[0], [&](auto &storage_client) {
+    storage_client.ForceRecoverReplica(main.db.storage(), protector);
+    EXPECT_EQ(storage_client.State(), ReplicaState::RECOVERY);
+    // The task that was in flight when the reset was queued finishes and overwrites the state.
+    storage_client.SetMaybeBehind();
+  }));
+
+  // Only the replica has this vertex; the reset wipes it.
+  auto const canary_gid = CreateVertex(replica, memgraph::tests::MakeMainCommitArgs());
+  ASSERT_TRUE(HasVertex(replica, canary_gid));
+
+  hold.Release();
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  EXPECT_FALSE(HasVertex(replica, canary_gid));
+  EXPECT_TRUE(HasVertex(replica, replicated_gid));
+  EXPECT_EQ(metrics.replica_recovery_success->Value() - success_before, 1);
+  EXPECT_EQ(metrics.replica_recovery_skip->Value() - skip_before, 0);
+}
+
+#ifdef MG_ENTERPRISE
+// Two state checks queued behind a slow task both see the same branching point and both queue a forced reset.
+// Only the first may wipe the replica; the second starts after the replica is READY again and must be skipped.
+TEST_F(ReplicationTest, DuplicateBranchingPointResetWipesOnce) {
+  auto &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  auto const saved_management_port = coordination_setup.management_port;
+  // A branching point is only force-reset on an instance managed by a coordinator.
+  coordination_setup.management_port = 1;
+  memgraph::utils::OnScopeExit const restore_setup{
+      [&coordination_setup, saved_management_port] { coordination_setup.management_port = saved_management_port; }};
+
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  auto const shared_gid = CreateVertex(main, MakeCommitArgs(main.db_acc));
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+  ASSERT_TRUE(HasVertex(replica, shared_gid));
+
+  // Promote the replica and commit on it, so its history branches from main's.
+  ASSERT_TRUE(replica.repl_handler.SetReplicationRoleMain());
+  auto const branched_gid = CreateVertex(replica, MakeCommitArgs(replica.db_acc));
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::MAYBE_BEHIND; }));
+
+  auto *client = FindReplicationClient(main, replicas[0]);
+  ASSERT_NE(client, nullptr);
+  MaintenancePoolHold hold{*client};
+
+  // Demote it back under the same main, so main's existing client reaches it again.
+  auto const main_uuid = std::invoke([&] {
+    auto locked_repl_state = main.repl_state.Lock();
+    return std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData()).uuid_;
+  });
+  ASSERT_TRUE(replica.repl_handler.SetReplicationRoleReplica(
+      ReplicationServerConfig{
+          .repl_server = Endpoint(local_host, ports[0]),
+      },
+      main_uuid));
+
+  auto const &metrics = memgraph::metrics::Metrics().global;
+  auto const success_before = metrics.replica_recovery_success->Value();
+  auto const skip_before = metrics.replica_recovery_skip->Value();
+
+  auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+  ASSERT_TRUE(main.db.storage()->repl_storage_state_.WithClient(replicas[0], [&](auto &storage_client) {
+    storage_client.TryCheckReplicaStateAsync(main.db.storage(), protector);
+    storage_client.TryCheckReplicaStateAsync(main.db.storage(), protector);
+  }));
+
+  hold.Release();
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+  ASSERT_TRUE(WaitUntil([&] { return metrics.replica_recovery_skip->Value() - skip_before >= 1; }));
+
+  EXPECT_EQ(metrics.replica_recovery_success->Value() - success_before, 1);
+  EXPECT_TRUE(HasVertex(replica, shared_gid));
+  EXPECT_FALSE(HasVertex(replica, branched_gid));
+}
+#endif
 
 TEST_F(ReplicationTest, ReplicationInformation) {
   MinMemgraph main(main_conf);
