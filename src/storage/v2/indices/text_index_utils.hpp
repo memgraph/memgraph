@@ -102,6 +102,7 @@ struct TextIndexSpec {
 
   std::string index_name;
   LabelId label;
+  /// Naming none means indexing every property the entity carries.
   std::vector<PropertyId> properties;
 };
 
@@ -110,6 +111,7 @@ struct TextEdgeIndexSpec {
 
   std::string index_name;
   EdgeTypeId edge_type;
+  /// Naming none means indexing every property the entity carries.
   std::vector<PropertyId> properties;
 };
 

@@ -118,8 +118,8 @@ class PropertyStore {
   /// `values[ordered_properties.position_lookup()[0]]`. The results written to
   /// `result` correspond to `ordered_properties.paths()`.
   ///
-  /// `result` is supplied by the caller, and its previous contents are discarded: the comparison
-  /// itself never allocated, a returned vector did, and both callers walk index entries in a loop.
+  /// `result` is supplied by the caller so that walking index entries allocates once per loop rather
+  /// than once per entry. Its previous contents are discarded.
   void ArePropertiesEqual(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue const> values,
                           std::vector<bool> &result) const;
 
