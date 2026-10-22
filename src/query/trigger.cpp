@@ -225,8 +225,7 @@ Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view d
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
 
-  // GenQueryUser always returns a non-null shared_ptr and
-  // both creator_ and triggering_user come from GenQueryUser
+  // creator_ and triggering_user are always non-null.
   std::shared_ptr<QueryUserOrRole> effective_principal;
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     DMG_ASSERT(creator_, "Creator is null");

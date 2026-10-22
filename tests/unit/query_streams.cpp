@@ -82,6 +82,18 @@ struct UuidUser final : FakeUser {
   std::optional<memgraph::utils::UUID> uuid_;
 };
 
+// Passes a stale cached check but is refused by a live one, as a session principal whose user was dropped.
+struct DroppedUser final : FakeUser {
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
+                    std::optional<std::string_view> /*db_name*/, memgraph::query::UserPolicy *policy) const override {
+    return policy != &memgraph::query::up_to_date_policy;
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+    return std::make_shared<DroppedUser>(*this);
+  }
+};
+
 struct RecordingAuthChecker final : memgraph::query::AuthChecker {
   std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
       const std::optional<std::string> &username, const std::vector<std::string> & /*roles*/) const override {
@@ -421,6 +433,19 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
     SCOPED_TRACE("After stopping all streams");
     check_restore_logic();
   }
+}
+
+TYPED_TEST(StreamsTestFixture, CreateRefusesAnOwnerThatIsNoLongerAuthorized) {
+  auto check_data = this->CreateDefaultStreamCheckData();
+  check_data.owner = std::make_shared<DroppedUser>();
+  EXPECT_THROW(this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+                   check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_),
+               memgraph::query::stream::StreamsException);
+  EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
+
+  this->ResetStreamsObject();
+  this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
+  EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
 }
 
 TYPED_TEST(StreamsTestFixture, OwnerUuidIsPersistedAndRestored) {

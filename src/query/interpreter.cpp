@@ -3096,8 +3096,8 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 
   db_acc->metric_handles()->streams_created.Increment();
 
-  // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
+  // Clone the session principal (not a by-name rebuild) so the owner keeps its uuid and dropped state.
+  auto owner = user_or_role->clone();
 
   return [db_acc = std::move(db_acc),
           interpreter_context,
@@ -3138,8 +3138,8 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
   db->metric_handles()->streams_created.Increment();
 
-  // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
+  // Clone the session principal (not a by-name rebuild) so the owner keeps its uuid and dropped state.
+  auto owner = user_or_role->clone();
 
   return [db = std::move(db),
           interpreter_context,
@@ -6300,8 +6300,6 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
                        metrics::DatabaseMetricHandles &metric_handles) {
-  // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {.header = {},
           // NOLINTNEXTLINE(bugprone-exception-escape)
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
@@ -6312,7 +6310,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                  interpreter_context,
                  dba,
                  user_parameters,
-                 owner = std::move(owner),
+                 owner = std::move(user_or_role),
                  db_name,
                  privilege_context = trigger_query->privilege_context_,
                  metric_handles]() mutable -> std::vector<std::vector<TypedValue>> {

@@ -912,6 +912,43 @@ TEST(AuthChecker, RestoredOwnerIsMatchedByPersistedUuid) {
       auth_checker.GenRestoredQueryUser("owner", {}, std::nullopt)->IsAuthorized({MATCH}, "memgraph", up_to_date));
 }
 
+TEST(AuthChecker, OwnerCloneOfDroppedSessionPrincipalStaysRefused) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_owner_clone"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto definer = *AddUser(*auth.Lock(), "definer");
+  definer.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(definer);
+
+  auto session = auth_checker.GenQueryUser("definer", {});
+  auto const session_uuid = session->UserUuid();
+  ASSERT_TRUE(session_uuid.has_value());
+
+  ASSERT_TRUE(auth->RemoveUser("definer"));
+  auto recreated = *AddUser(*auth.Lock(), "definer");
+  recreated.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(recreated);
+
+  // An owner cloned from the session keeps the old identity and is refused.
+  auto owner = session->clone();
+  EXPECT_EQ(owner->UserUuid(), session_uuid);
+  EXPECT_FALSE(owner->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  // Rebuilding by name binds to the re-created user instead.
+  auto by_name = auth_checker.GenQueryUser("definer", {});
+  EXPECT_NE(by_name->UserUuid(), session_uuid);
+  EXPECT_TRUE(by_name->IsAuthorized({MATCH}, "memgraph", up_to_date));
+}
+
 TEST(AuthChecker, UserWithoutStoredUuidKeepsSessionAcrossRefresh) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_legacy_uuid"};
   memgraph::utils::OnScopeExit clean([&]() {
