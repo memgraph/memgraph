@@ -102,10 +102,8 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
     auto it = properties.find(delta.property.key);
     if (it != properties.end()) {
       if (delta.property.value->IsNull()) {
-        // remove the property
         properties.erase(it);
       } else {
-        // set the value
         it->second = *delta.property.value;
       }
     } else if (!delta.property.value->IsNull()) {
@@ -114,18 +112,12 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
   });
 }
 
-/// As above, for a fixed set of properties with one value slot each, rather than a map that grows and
-/// shrinks. `ordered_properties` holds the properties in the order their ids sort, and `values` holds
-/// their current values in the same order.
+/// As above, for a fixed set of properties with one value slot each. A property the deltas remove
+/// leaves Null in its slot, which is what a property the record never carried reads as.
 ///
-/// A property the deltas remove leaves Null in its slot, which is what a property the record never
-/// carried reads as, so the set of slots is the same whatever the deltas say.
-///
-/// Every path must name a single property. The search below finds a slot by the leaf of each path,
-/// which agrees with the order the paths are held in only while there is nothing above that leaf. A
-/// delta carries a top-level property and the whole of its new value, so a nested path would both
-/// sort elsewhere and need re-walking: it would match no slot and quietly leave a stale value. The
-/// callers that can reach this check before they begin.
+/// Every path must name a single property: a slot is found by the leaf of its path, which orders
+/// with the rest only while nothing sits above that leaf. A nested path would match no slot and
+/// leave a stale value, so the callers that can reach this check before they begin.
 inline auto PropertyValues_ActionMethod(std::span<PropertyPath const> ordered_properties,
                                         std::span<PropertyValue> values) {
   using enum DeltaAction;

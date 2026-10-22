@@ -108,7 +108,6 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       continue;
     }
     if (index_info.properties.empty()) {
-      // Naming no properties means indexing every property the vertex carries.
       auto const vertex_properties = v.Properties(View::NEW).value();
       TextIndex::AddNodeToTextIndex(v.Gid().AsInt(),
                                     SerializeProperties(vertex_properties, name_id_mapper),
@@ -158,7 +157,6 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
       if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
 
       if (index_info.properties.empty()) {
-        // Naming no properties means indexing every property the vertex carries.
         auto const vertex_properties = vertex.properties.Properties();
         if (vertex_properties.empty()) continue;
         TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
@@ -455,7 +453,6 @@ void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper
 
     for (const auto *vertex : pending.to_add) {
       if (index_data_ptr->properties.empty()) {
-        // Naming no properties means indexing every property the vertex carries.
         auto const vertex_properties = vertex->properties.Properties();
         docs_to_add.push_back({vertex->gid.AsInt(),
                                SerializeProperties(vertex_properties, name_id_mapper),
