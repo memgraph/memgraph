@@ -1,0 +1,8 @@
+function(copy_property_lookup_caching_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(property_lookup_caching ${FILE_NAME})
+endfunction()
+
+copy_property_lookup_caching_e2e_python_files(common.py)
+copy_property_lookup_caching_e2e_python_files(test_property_lookup_caching.py)
+
+copy_e2e_files(property_lookup_caching workloads.yaml)

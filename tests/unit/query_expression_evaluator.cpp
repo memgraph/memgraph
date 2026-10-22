@@ -26,6 +26,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/graph.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
@@ -1992,6 +1993,29 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
     auto *op = this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(property.first));
     return this->Eval(op);
   }
+
+  /// `{age: element.age, height: element.height}`. Two lookups on one identifier are what earn the
+  /// evaluation mode that loads the properties in one read.
+  auto MapOfAgeAndHeight() -> MapLiteral * {
+    auto *map = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+        {this->storage.GetPropertyIx(prop_age.first),
+         this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(prop_age.first))},
+        {this->storage.GetPropertyIx(prop_height.first),
+         this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(prop_height.first))}});
+    memgraph::query::SetEvaluationModeOnPropertyLookups(*map);
+    return map;
+  }
+
+  template <typename TRecord>
+  void SetAgeAndHeight(TRecord &record, int64_t age, int64_t height) {
+    ASSERT_TRUE(record.SetProperty(prop_age.second, memgraph::storage::PropertyValue(age)).has_value());
+    ASSERT_TRUE(record.SetProperty(prop_height.second, memgraph::storage::PropertyValue(height)).has_value());
+  }
+
+  void ExpectAgeAndHeight(const TypedValue &map, int64_t age, int64_t height) {
+    EXPECT_EQ(map.ValueMap().at("age").ValueInt(), age);
+    EXPECT_EQ(map.ValueMap().at("height").ValueInt(), height);
+  }
 };
 
 TYPED_TEST_SUITE(ExpressionEvaluatorPropertyLookup, StorageTypes);
@@ -2004,6 +2028,23 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   frame_writer.Write(this->symbol, TypedValue(v1));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralOverVertexFollowsRebinding) {
+  auto v1 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v1, 10, 100);
+  auto v2 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v2, 20, 200);
+  this->dba.AdvanceCommand();
+
+  auto *map = this->MapOfAgeAndHeight();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  frame_writer.Write(this->symbol, TypedValue(v1));
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
+
+  frame_writer.Write(this->symbol, TypedValue(v2));
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
@@ -2217,6 +2258,72 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   frame_writer.Write(this->symbol, TypedValue(*e12));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralOverEdgeFollowsRebinding) {
+  auto v1 = this->dba.InsertVertex();
+  auto v2 = this->dba.InsertVertex();
+  auto edge_type = this->dba.NameToEdgeType("edge_type");
+
+  auto e1 = this->dba.InsertEdge(&v1, &v2, edge_type);
+  ASSERT_TRUE(e1.has_value());
+  this->SetAgeAndHeight(*e1, 10, 100);
+
+  auto e2 = this->dba.InsertEdge(&v2, &v1, edge_type);
+  ASSERT_TRUE(e2.has_value());
+  this->SetAgeAndHeight(*e2, 20, 200);
+  this->dba.AdvanceCommand();
+
+  auto *map = this->MapOfAgeAndHeight();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  frame_writer.Write(this->symbol, TypedValue(*e1));
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
+
+  frame_writer.Write(this->symbol, TypedValue(*e2));
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralInsideListComprehension) {
+  auto v1 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v1, 10, 100);
+  auto v2 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v2, 20, 200);
+  this->dba.AdvanceCommand();
+
+  // `[element IN [v1, v2] | {age: element.age, height: element.height}]`, where one evaluation binds
+  // `element` to each vertex in turn.
+  auto *list = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->CreateIdentifierWithValue("v1", TypedValue(v1)), this->CreateIdentifierWithValue("v2", TypedValue(v2))});
+  auto *comprehension =
+      this->storage.template Create<ListComprehension>(this->identifier, list, nullptr, this->MapOfAgeAndHeight());
+
+  auto result = this->Eval(comprehension);
+  ASSERT_EQ(result.ValueList().size(), 2);
+  this->ExpectAgeAndHeight(result.ValueList()[0], 10, 100);
+  this->ExpectAgeAndHeight(result.ValueList()[1], 20, 200);
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralDistinguishesVertexFromEdge) {
+  // One symbol holds a vertex and then an edge, where `UNWIND [n, e] AS x` binds both to it.
+  auto v1 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v1, 10, 100);
+
+  auto v2 = this->dba.InsertVertex();
+  auto e1 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("edge_type"));
+  ASSERT_TRUE(e1.has_value());
+  this->SetAgeAndHeight(*e1, 20, 200);
+  this->dba.AdvanceCommand();
+  ASSERT_TRUE(v1.Gid() == e1->Gid()) << "the test only says anything while the two ids collide";
+
+  auto *map = this->MapOfAgeAndHeight();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  frame_writer.Write(this->symbol, TypedValue(v1));
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
+
+  frame_writer.Write(this->symbol, TypedValue(*e1));
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
