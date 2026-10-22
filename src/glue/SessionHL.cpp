@@ -208,20 +208,6 @@ std::optional<std::string> SessionHL::GetDefaultDB() const {
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
-
-std::string SessionHL::GetCurrentUser() const {
-  if (interpreter_.user_or_role_) {
-    if (const auto &name = interpreter_.user_or_role_->username()) return *name;
-    if (const auto &names = interpreter_.user_or_role_->rolenames(); !names.empty()) {
-      // This is only used to figure out if the impersonated user is different from the main user. Since
-      // this is a role; it will always be different since roles cannot be impersonated.
-      std::string res;
-      std::ranges::for_each(names, [&res](const auto &name) { res += name + ","; });
-      return res.substr(0, res.size() - 1);
-    }
-  }
-  return "";
-}
 #endif
 
 std::string SessionHL::GetCurrentDB() const {

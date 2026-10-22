@@ -49,12 +49,6 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
-  std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
-    if (user_) return {*user_};
-    if (roles_) return auth::RoleWUsername{*username_, *roles_};
-    return {};
-  }
-
  private:
   friend class AuthChecker;
   void RefreshPrincipal(const auth::Auth &auth) const;

@@ -14,7 +14,6 @@
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
 #include "query/auth_checker.hpp"
-#include "utils/spin_lock.hpp"
 
 namespace memgraph::glue {
 
@@ -42,14 +41,8 @@ class AuthChecker : public query::AuthChecker {
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
                                              std::optional<std::string_view> db_name = std::nullopt);
 
-  [[nodiscard]] static bool IsUserOrRoleAuthorized(const auth::UserOrRole &user_or_role,
-                                                   const std::vector<query::AuthQuery::Privilege> &privileges,
-                                                   std::optional<std::string_view> db_name = std::nullopt);
-
 #ifdef MG_ENTERPRISE
   [[nodiscard]] static bool CanImpersonate(const auth::User &user, const auth::User &target,
-                                           std::optional<std::string_view> db_name = std::nullopt);
-  [[nodiscard]] static bool CanImpersonate(const auth::Role &role, const auth::User &target,
                                            std::optional<std::string_view> db_name = std::nullopt);
   [[nodiscard]] static bool CanImpersonate(const auth::Roles &roles, const auth::User &target,
                                            std::optional<std::string_view> db_name = std::nullopt);
@@ -57,7 +50,6 @@ class AuthChecker : public query::AuthChecker {
 
  private:
   auth::SynchedAuth *auth_;
-  mutable utils::Synchronized<auth::UserOrRole, utils::SpinLock> user_or_role_;  // cached user
 };
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {

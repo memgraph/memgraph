@@ -188,8 +188,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::optional<std::string> GetDefaultUser() const;
 
-  std::string GetCurrentUser() const;
-
   memgraph::query::InterpreterContext *interpreter_context_;      // Global context used by all interpreters
   memgraph::query::Interpreter interpreter_;                      // Session specific interpreter
   std::shared_ptr<query::QueryUserOrRole> session_user_or_role_;  // Connected user/role
