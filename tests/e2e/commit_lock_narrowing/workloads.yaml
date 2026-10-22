@@ -6,8 +6,22 @@ commit_lock_narrowing_cluster: &commit_lock_narrowing_cluster
       setup_queries: []
       validation_queries: []
 
+# Own instance: creating users enables auth for every connection.
+commit_lock_narrowing_auth_cluster: &commit_lock_narrowing_auth_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=commit-lock-narrowing", "--scheduler=priority_queue", "--bolt-num-workers=2", "--storage-access-timeout-sec=30"]
+      log_file: "commit_lock_narrowing_auth.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Commit lock narrowing: parked commits and admissions are acknowledged"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["commit_lock_narrowing/test_commit_lock_narrowing.py"]
     <<: *commit_lock_narrowing_cluster
+
+  - name: "Commit lock narrowing: auth transactions under BEGIN contention"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["commit_lock_narrowing/test_auth_txn_contention.py"]
+    <<: *commit_lock_narrowing_auth_cluster

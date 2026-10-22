@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -538,26 +539,23 @@ TEST(TaskCollection, LargeTaskSet) {
   pool.AwaitShutdown();
 }
 
-// ==================================================================================
-// NB-3 productive_pending_ gate test
-// ==================================================================================
+namespace {
+constexpr auto kMainTag = memgraph::utils::WaitResource::MainLock;
+constexpr auto kCommitTag = memgraph::utils::WaitResource::CommitLock;
+// Monitor sweep never fires during a test, so only WakeMatching / the epoch re-post can run a parked task.
+constexpr auto kNoSweep = std::chrono::hours(1000);
+}  // namespace
 
-// Verifies the NB-3 admission-gate contract for QueuedProductiveTasks():
-//   - productive=false tasks (admission re-posts) never increment productive_pending_,
-//     so they cannot hold the gate open even when queued.
-//   - productive=true tasks (real queries) immediately open the gate on submission.
 TEST(PriorityThreadPool, QueuedProductiveTasksCountsProductiveNotAdmissionReposts) {
   using namespace memgraph;
 
-  // 4 mixed workers, 1 HP worker.
   constexpr int kN = 4;
   utils::PriorityThreadPool pool{kN, 1};
 
   std::atomic<int> occupied{0};
   std::atomic<bool> release{false};
 
-  // Occupy all kN mixed workers with non-productive tasks (productive=false) so that
-  // productive_pending_ stays at zero throughout the occupancy phase.
+  // Occupy all kN mixed workers with non-productive tasks so productive_pending_ stays at zero.
   for (int k = 1; k <= kN; ++k) {
     pool.ScheduledAddTask(
         [&](utils::Priority) {
@@ -574,29 +572,22 @@ TEST(PriorityThreadPool, QueuedProductiveTasksCountsProductiveNotAdmissionRepost
     ASSERT_EQ(occupied.load(std::memory_order_acquire), k) << "worker " << k << " did not start in time";
   }
 
-  // All kN workers are now spinning on `release`.  No productive task has ever been
-  // submitted, so productive_pending_ must be zero and the gate must be closed.
   ASSERT_EQ(pool.QueuedProductiveTasks(), 0U);
   ASSERT_FALSE(pool.ShouldParkAdmission());
 
-  // Submit an admission re-post (productive=false).  It queues behind a busy worker
-  // but must NOT open the gate.
-  pool.ScheduledAddTask([](utils::Priority) {}, utils::Priority::LOW, /*productive=*/false);
+  pool.ScheduledReAddTask([](utils::Priority) {}, 1000);
   ASSERT_EQ(pool.QueuedProductiveTasks(), 0U);
   ASSERT_FALSE(pool.ShouldParkAdmission());
 
-  // Submit a real productive task (productive=true).  push() increments productive_pending_
-  // before returning, so QueuedProductiveTasks() must be > 0 immediately after this call.
   std::atomic<bool> productive_ran{false};
   pool.ScheduledAddTask([&](utils::Priority) { productive_ran.store(true, std::memory_order_release); },
                         utils::Priority::LOW,
                         /*productive=*/true);
   ASSERT_GT(pool.QueuedProductiveTasks(), 0U);
+  ASSERT_TRUE(pool.ShouldParkAdmission());
 
-  // Release all occupiers so the pool can drain.
   release.store(true, std::memory_order_release);
 
-  // Wait (bounded) for the productive task to complete.
   constexpr int kMaxPollIter = 100'000;
   for (int i = 0; i < kMaxPollIter && !productive_ran.load(std::memory_order_acquire); ++i) {
     std::this_thread::yield();
@@ -609,20 +600,8 @@ TEST(PriorityThreadPool, QueuedProductiveTasksCountsProductiveNotAdmissionRepost
   pool.AwaitShutdown();
 }
 
-// ==================================================================================
-// Park subsystem tests
-// ==================================================================================
-
-// Convenience tag values used across park tests.
-namespace {
-constexpr auto kMainTag = memgraph::utils::WaitResource::MainLock;
-constexpr auto kCommitTag = memgraph::utils::WaitResource::CommitLock;
-// Monitor sweep never fires during a test, so only WakeMatching / the epoch re-post can run a parked task.
-constexpr auto kNoSweep = std::chrono::hours(1000);
-}  // namespace
-
-// A wake that lands between the epoch sample and ParkAdmission must not be lost: the task is re-posted
-// immediately instead of waiting for the monitor sweep.
+// A wake between the epoch sample and ParkAdmission must not be lost: the task is re-posted at once, not left
+// for the monitor sweep. With a still-current epoch it stays parked until WakeMatching.
 TEST(PriorityThreadPool, ParkAdmission_WakeAfterSampleBeforeParkRunsPromptly) {
   using namespace memgraph;
   utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
@@ -638,18 +617,26 @@ TEST(PriorityThreadPool, ParkAdmission_WakeAfterSampleBeforeParkRunsPromptly) {
 
   pool.ParkAdmission([&](utils::Priority) { ran.set_value(); }, 1000, deadline, kCommitTag, observed);
 
-  // The sweep is disabled, so only the epoch re-post can run the task.
   EXPECT_EQ(ran_future.wait_for(1s), std::future_status::ready);
+
+  std::promise<void> matched;
+  auto matched_future = matched.get_future();
+  pool.ParkAdmission([&](utils::Priority) { matched.set_value(); },
+                     999,
+                     deadline,
+                     kCommitTag,
+                     pool.WakeEpoch(utils::WaitResource::CommitLock));
+  EXPECT_EQ(matched_future.wait_for(50ms), std::future_status::timeout);
+  pool.WakeMatching(kCommitTag);
+  EXPECT_EQ(matched_future.wait_for(1s), std::future_status::ready);
 
   pool.ShutDown();
   pool.AwaitShutdown();
 }
 
-// Tasks still queued when the pool stops, and parked continuations, release their captured state by the time
-// AwaitShutdown returns, while the pool object is alive.
-TEST(PriorityThreadPool, AwaitShutdown_ReleasesUnrunQueuedAndParkedTasks) {
+TEST(PriorityThreadPool, AwaitShutdown_ReleasesUnrunQueuedTasks) {
   using namespace memgraph;
-  utils::PriorityThreadPool pool{1, 1};
+  utils::PriorityThreadPool pool{1, 1, nullptr, kNoSweep};
 
   std::promise<void> started;
   std::promise<void> release;
@@ -672,41 +659,31 @@ TEST(PriorityThreadPool, AwaitShutdown_ReleasesUnrunQueuedAndParkedTasks) {
         [sentinel = std::move(sentinel), &ran](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
         utils::Priority::LOW);
   }
-
-  auto parked_sentinel = std::make_shared<int>(42);
-  std::weak_ptr<int> parked_weak = parked_sentinel;
-  pool.ParkAdmission([sentinel = std::move(parked_sentinel)](utils::Priority) {},
-                     1000,
-                     std::chrono::steady_clock::now() + std::chrono::hours(1),
-                     kMainTag);
+  EXPECT_EQ(pool.QueuedProductiveTasks(), static_cast<uint64_t>(kQueued));
 
   pool.ShutDown();
-  EXPECT_TRUE(parked_weak.expired());
-
   release.set_value();
   pool.AwaitShutdown();
 
   EXPECT_EQ(ran.load(std::memory_order_acquire), 0);
   for (const auto &w : sentinels) EXPECT_TRUE(w.expired());
+  EXPECT_EQ(pool.QueuedProductiveTasks(), 0U);
 }
 
-// Test 4: ShutDown drain — every parked continuation runs exactly once, and while it drains admissions report
-// park-worthy with a shrunk budget so a drained commit never blocks inline.
+// ShutDown runs every parked continuation exactly once; while draining, admissions report park-worthy with the
+// minimum budget so a drained commit never blocks inline, and a park attempted from inside the drain is dropped.
 TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
   using namespace memgraph;
-  utils::PriorityThreadPool pool{2, 1};
+  utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
 
   constexpr int kN = 5;
   std::atomic<int> ran{0};
   auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
 
-  // Idle pool: no productive backlog, so no reason to park and the budget is the full no-pressure one.
-  ASSERT_FALSE(pool.ShouldParkAdmission());
-  const auto idle_budget = pool.AdmissionTryBudget();
-
   // Continuations run inline on this thread during ShutDown's drain; observe the pool state from inside one.
   bool drain_should_park = false;
   std::chrono::microseconds drain_budget{0};
+  std::weak_ptr<int> late_park;
 
   for (int i = 0; i < kN; ++i) {
     pool.ParkAdmission(
@@ -714,6 +691,13 @@ TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
           if (ran.fetch_add(1, std::memory_order_acq_rel) == 0) {
             drain_should_park = pool.ShouldParkAdmission();
             drain_budget = pool.AdmissionTryBudget();
+            auto sentinel = std::make_shared<int>(0);
+            late_park = sentinel;
+            pool.ParkAdmission([sentinel = std::move(sentinel),
+                                &ran](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
+                               500,
+                               std::chrono::steady_clock::now() + std::chrono::hours(1),
+                               kMainTag);
           }
         },
         static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
@@ -721,26 +705,41 @@ TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
         kMainTag);
   }
 
-  // ShutDown runs the drain synchronously in the caller thread before stopping workers;
-  // every parked continuation must have run by the time ShutDown returns.
   pool.ShutDown();
 
   ASSERT_EQ(ran.load(std::memory_order_acquire), kN);
   EXPECT_TRUE(drain_should_park);
-  EXPECT_LT(drain_budget, idle_budget);
+  EXPECT_EQ(drain_budget, utils::PriorityThreadPool::kTryBudgetMin);
+  EXPECT_TRUE(late_park.expired()) << "a task parked while draining must be dropped immediately";
 
   pool.AwaitShutdown();
 }
 
-// ==================================================================================
-// WakeMatching tests
-// ==================================================================================
+TEST(PriorityThreadPool, ScheduledReAddTask_AfterShutDown_ReparksUntilAwaitShutdown) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
 
-// Helper for Test 7 (re-park cycle simulation).
-// Each instance represents one parked admission slot that re-parks itself while
-// `still_contended` is true, simulating a stalled acquisition gate. `repark_count`
-// guards against an infinite re-park loop: if kMaxReparks is reached the task
-// completes regardless of the flag, so a stuck-flag bug cannot hang the suite.
+  std::atomic<int> ran{0};
+  std::weak_ptr<int> sentinel_weak;
+  {
+    auto sentinel = std::make_shared<int>(0);
+    sentinel_weak = sentinel;
+    pool.ShutDown();
+    pool.ScheduledReAddTask(
+        [sentinel = std::move(sentinel), &ran](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); }, 42);
+  }
+
+  EXPECT_EQ(ran.load(std::memory_order_acquire), 0);
+  EXPECT_FALSE(sentinel_weak.expired()) << "re-parked task must stay alive until AwaitShutdown";
+
+  pool.AwaitShutdown();
+
+  EXPECT_TRUE(sentinel_weak.expired());
+  EXPECT_EQ(ran.load(std::memory_order_acquire), 0);
+}
+
+// Parked admission slot that re-parks itself while `still_contended` is true, simulating a stalled gate;
+// kMaxReparks bounds the loop so a stuck flag cannot hang the suite.
 namespace {
 struct ParkReparker : std::enable_shared_from_this<ParkReparker> {
   std::atomic<bool> *still_contended{nullptr};
@@ -759,9 +758,8 @@ struct ParkReparker : std::enable_shared_from_this<ParkReparker> {
       const bool contended = self->still_contended->load(std::memory_order_acquire);
       if (contended && self->repark_count < kMaxReparks) {
         ++self->repark_count;
-        // Re-park first; signal only after the entry is in the deque so the
-        // main thread's parked_back wait is a true happens-before for the
-        // subsequent WakeMatching call.
+        // Re-park first, signal after: the main thread's parked_back wait then guarantees the entry is parked
+        // before WakeMatching.
         self->pool->ParkAdmission(self->MakeTask(), self->task_id, self->deadline, self->tag);
         self->parked_back->fetch_add(1, std::memory_order_release);
       } else {
@@ -772,12 +770,10 @@ struct ParkReparker : std::enable_shared_from_this<ParkReparker> {
 };
 }  // namespace
 
-// Test 7: Re-park cycle — each task re-parks itself while `still_contended` is true
-// (simulating a stalled engine_lock_ acquisition), then drains when the flag clears.
 TEST(PriorityThreadPool, WakeMatching_StillContendedReparkPattern) {
   using namespace memgraph;
   constexpr int kN = 3;
-  constexpr int kPollMs = 3000;  // 3 s per phase
+  constexpr int kPollMs = 3000;
 
   utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
   std::atomic<bool> still_contended{true};
@@ -796,7 +792,6 @@ TEST(PriorityThreadPool, WakeMatching_StillContendedReparkPattern) {
     pool.ParkAdmission(r->MakeTask(), r->task_id, deadline, kMainTag);
   }
 
-  // Phase A: wake all MainLock; still_contended=true → tasks re-park.
   pool.WakeMatching(kMainTag);
   for (int w = 0; parked_back.load(std::memory_order_acquire) < kN && w < kPollMs; ++w) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -804,7 +799,6 @@ TEST(PriorityThreadPool, WakeMatching_StillContendedReparkPattern) {
   ASSERT_EQ(parked_back.load(std::memory_order_acquire), kN) << "tasks did not re-park within timeout";
   ASSERT_EQ(completed.load(std::memory_order_acquire), 0) << "tasks must not complete while contended";
 
-  // Phase B: clear flag → tasks complete on next wake.
   still_contended.store(false, std::memory_order_release);
   pool.WakeMatching(kMainTag);
   for (int w = 0; completed.load(std::memory_order_acquire) < kN && w < kPollMs; ++w) {
@@ -816,35 +810,6 @@ TEST(PriorityThreadPool, WakeMatching_StillContendedReparkPattern) {
   pool.AwaitShutdown();
 }
 
-// Test 8: ParkAdmission called after ShutDown drops the task without running it.
-TEST(PriorityThreadPool, ParkDropsWhenDraining) {
-  using namespace memgraph;
-  utils::PriorityThreadPool pool{2, 1};
-
-  std::atomic<bool> task_ran{false};
-  auto sentinel = std::make_shared<int>(0);
-  std::weak_ptr<int> sentinel_weak = sentinel;
-
-  pool.ShutDown();
-
-  pool.ParkAdmission(
-      [&task_ran, sentinel = std::move(sentinel)](utils::Priority) { task_ran.store(true, std::memory_order_release); },
-      static_cast<utils::PriorityThreadPool::TaskID>(1000),
-      std::chrono::steady_clock::now() + std::chrono::hours(1),
-      kMainTag);
-
-  ASSERT_TRUE(sentinel_weak.expired()) << "task parked while draining must be dropped immediately";
-  ASSERT_FALSE(task_ran.load(std::memory_order_acquire));
-
-  pool.AwaitShutdown();
-}
-
-// ==================================================================================
-// Tagging extension tests (new in this port)
-// ==================================================================================
-
-// WakeMatching re-injects every entry parked on the woken resource (and only those); wakes on an empty deque
-// and wakes after everything drained are silent no-ops.
 TEST(PriorityThreadPool, WakeMatching_ResourceSelective) {
   using namespace memgraph;
   utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
@@ -855,7 +820,6 @@ TEST(PriorityThreadPool, WakeMatching_ResourceSelective) {
   std::atomic<int> commit_ran{0};
   auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
 
-  // Nothing parked yet: wakes must be safe no-ops.
   pool.WakeMatching(kMainTag);
   pool.WakeMatching(kCommitTag);
   pool.WakeMatching(kMainTag);
@@ -873,7 +837,6 @@ TEST(PriorityThreadPool, WakeMatching_ResourceSelective) {
                        kCommitTag);
   }
 
-  // Wake only MainLock: every MainLock task runs; CommitLock tasks stay parked.
   pool.WakeMatching(kMainTag);
   for (int w = 0; main_ran.load(std::memory_order_acquire) < kMain && w < 3000; ++w) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -881,35 +844,72 @@ TEST(PriorityThreadPool, WakeMatching_ResourceSelective) {
   ASSERT_EQ(main_ran.load(std::memory_order_acquire), kMain);
   ASSERT_EQ(commit_ran.load(std::memory_order_acquire), 0) << "CommitLock tasks must not run after MainLock wake";
 
-  // Repeat wake of the drained resource re-injects nothing.
   pool.WakeMatching(kMainTag);
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
   ASSERT_EQ(main_ran.load(std::memory_order_acquire), kMain);
   ASSERT_EQ(commit_ran.load(std::memory_order_acquire), 0);
 
-  // Now free CommitLock: CommitLock tasks run, and MainLock counts stay unchanged.
   pool.WakeMatching(kCommitTag);
   for (int w = 0; commit_ran.load(std::memory_order_acquire) < kCommit && w < 3000; ++w) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   ASSERT_EQ(commit_ran.load(std::memory_order_acquire), kCommit);
-
-  // Everything drained: further wakes on either resource run nothing more.
-  pool.WakeMatching(kMainTag);
-  pool.WakeMatching(kCommitTag);
-  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   ASSERT_EQ(main_ran.load(std::memory_order_acquire), kMain);
-  ASSERT_EQ(commit_ran.load(std::memory_order_acquire), kCommit);
 
   pool.ShutDown();
   pool.AwaitShutdown();
 }
 
-// The monitor sweep re-injects every deadline-expired entry (any tag) in one tick, not only the oldest.
-// The two far-deadline entries are parked first, so a one-per-tick "kick the oldest" backstop alone would run
-// them before the expired ones. With the expiry branch the three expired entries run in the first tick (plus
-// at most one far entry as the backstop); without it they would need five ticks and both far entries would
-// have run by then.
+TEST(PriorityThreadPool, WakeMatching_NeverRunsContinuationOnWaker) {
+  using namespace memgraph;
+  constexpr int kIterations = 200;
+  constexpr int kParked = 4;
+
+  for (int iter = 0; iter < kIterations; ++iter) {
+    utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+    std::atomic<std::thread::id> waker_id{};
+    std::atomic<bool> ran_on_waker{false};
+    std::array<std::atomic<int>, kParked> runs{};
+    std::vector<std::weak_ptr<int>> sentinels;
+    for (int i = 0; i < kParked; ++i) {
+      auto sentinel = std::make_shared<int>(i);
+      sentinels.emplace_back(sentinel);
+      pool.ParkAdmission(
+          [sentinel = std::move(sentinel), i, &runs, &waker_id, &ran_on_waker](utils::Priority) {
+            if (std::this_thread::get_id() == waker_id.load(std::memory_order_acquire)) {
+              ran_on_waker.store(true, std::memory_order_release);
+            }
+            runs[i].fetch_add(1, std::memory_order_acq_rel);
+          },
+          static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
+          deadline,
+          kMainTag);
+    }
+
+    std::atomic<bool> go{false};
+    std::thread waker{[&] {
+      waker_id.store(std::this_thread::get_id(), std::memory_order_release);
+      while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+      pool.WakeMatching(kMainTag);
+    }};
+    while (waker_id.load(std::memory_order_acquire) == std::thread::id{}) std::this_thread::yield();
+    go.store(true, std::memory_order_release);
+    pool.ShutDown();
+    waker.join();
+    pool.AwaitShutdown();
+
+    ASSERT_FALSE(ran_on_waker.load(std::memory_order_acquire)) << "iteration " << iter;
+    for (int i = 0; i < kParked; ++i) {
+      ASSERT_LE(runs[i].load(std::memory_order_acquire), 1) << "iteration " << iter << " task " << i;
+      ASSERT_TRUE(sentinels[i].expired()) << "iteration " << iter << " task " << i;
+    }
+  }
+}
+
+// Far-deadline entries are parked first, so an oldest-only backstop alone would run them before the expired ones;
+// all three expired entries (any tag) must run in the first tick, plus at most one far entry.
 TEST(PriorityThreadPool, MonitorSweep_DeadlineExpiredAnyTag) {
   using namespace memgraph;
   constexpr auto kTick = std::chrono::milliseconds{250};
@@ -935,6 +935,11 @@ TEST(PriorityThreadPool, MonitorSweep_DeadlineExpiredAnyTag) {
   }
   ASSERT_EQ(expired_ran.load(std::memory_order_acquire), 3);
   ASSERT_LE(far_ran.load(std::memory_order_acquire), 1) << "expired entries must not need one tick each";
+
+  for (int w = 0; far_ran.load(std::memory_order_acquire) < 1 && w < 2000; ++w) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_GE(far_ran.load(std::memory_order_acquire), 1) << "oldest-entry kick never ran a far-deadline entry";
 
   pool.ShutDown();
   pool.AwaitShutdown();

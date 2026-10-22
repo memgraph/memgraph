@@ -20,11 +20,14 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <future>
+#include <memory>
 #include <optional>
 #include <semaphore>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -1108,46 +1111,66 @@ TEST_F(LockFreeReadSnapshotRecovery, NoTransactionBeginsInsideADdlCommitWindow_O
   PublishAndEnd(*store, index_commit);
 }
 
-TEST(MainLockNotifyHook, ClearIsPermanent_TrySetAfterClearDoesNotInstall) {
+TEST(ParkWakeHooks, InstallOnceClearPermanent) {
   auto store = MakeStorage(/*flag_on=*/true);
-  int fired = 0;
+  std::atomic<int> main_fired{0};
+  std::atomic<int> commit_fired{0};
+  auto const touch_both = [&store] {
+    {
+      auto acc = store->Access(memgraph::storage::WRITE);
+    }
+    {
+      auto lock = store->LockCommitBlocking();
+    }
+  };
 
-  store->ClearMainLockNotifyHook();
-  EXPECT_TRUE(store->MainLockHookInstalled());
-  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  store->ClearParkWakeHooks();
+  EXPECT_TRUE(store->ParkWakeHooksInstalled());
+  EXPECT_FALSE(store->TryInstallParkWakeHooks([&main_fired] { ++main_fired; }, [&commit_fired] { ++commit_fired; }));
+  touch_both();
+  EXPECT_EQ(main_fired, 0);
+  EXPECT_EQ(commit_fired, 0);
 
+  auto fresh = MakeStorage(/*flag_on=*/true);
+  EXPECT_FALSE(fresh->ParkWakeHooksInstalled());
+  ASSERT_TRUE(fresh->TryInstallParkWakeHooks([&main_fired] { ++main_fired; }, [&commit_fired] { ++commit_fired; }));
+  EXPECT_TRUE(fresh->ParkWakeHooksInstalled());
   {
-    auto acc = store->Access(memgraph::storage::WRITE);
+    auto acc = fresh->Access(memgraph::storage::WRITE);
   }
-  EXPECT_EQ(fired, 0);
-}
-
-TEST(MainLockNotifyHook, ClearAfterInstallStopsFiringAndStaysDisarmed) {
-  auto store = MakeStorage(/*flag_on=*/true);
-  int fired = 0;
-
-  ASSERT_TRUE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  EXPECT_GT(main_fired, 0);
+  EXPECT_EQ(commit_fired, 0);
   {
-    auto acc = store->Access(memgraph::storage::WRITE);
+    auto lock = fresh->LockCommitBlocking();
   }
-  EXPECT_GT(fired, 0);
+  EXPECT_EQ(commit_fired, 1);
 
-  int second_fired = 0;
-  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&second_fired] { ++second_fired; }));
-  const int before_release = fired;
+  std::atomic<int> second_main{0};
+  std::atomic<int> second_commit{0};
+  EXPECT_FALSE(
+      fresh->TryInstallParkWakeHooks([&second_main] { ++second_main; }, [&second_commit] { ++second_commit; }));
   {
-    auto acc = store->Access(memgraph::storage::WRITE);
+    auto acc = fresh->Access(memgraph::storage::WRITE);
   }
-  EXPECT_GT(fired, before_release);
-  EXPECT_EQ(second_fired, 0);
+  {
+    auto lock = fresh->LockCommitBlocking();
+  }
+  EXPECT_EQ(commit_fired, 2);
+  EXPECT_EQ(second_main, 0);
+  EXPECT_EQ(second_commit, 0);
 
-  store->ClearMainLockNotifyHook();
-  const int after_clear = fired;
-  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  fresh->ClearParkWakeHooks();
+  auto const main_before = main_fired.load();
+  auto const commit_before = commit_fired.load();
+  EXPECT_FALSE(fresh->TryInstallParkWakeHooks([&main_fired] { ++main_fired; }, [&commit_fired] { ++commit_fired; }));
   {
-    auto acc = store->Access(memgraph::storage::WRITE);
+    auto acc = fresh->Access(memgraph::storage::WRITE);
   }
-  EXPECT_EQ(fired, after_clear);
+  {
+    auto lock = fresh->LockCommitBlocking();
+  }
+  EXPECT_EQ(main_fired, main_before);
+  EXPECT_EQ(commit_fired, commit_before);
 }
 
 TEST(PendingAccess, TimedAcquireHonoursTypeAndBudget) {
@@ -1178,6 +1201,151 @@ TEST(PendingAccess, TimedAcquireHonoursTypeAndBudget) {
     auto pending = store->MakePendingAccess(type);
     ASSERT_NE(pending, nullptr);
     auto acc = pending->TryAcquireFor(std::nullopt, std::chrono::seconds(5));
-    EXPECT_NE(acc, nullptr);
+    ASSERT_NE(acc, nullptr);
+
+    using memgraph::storage::StorageAccessType;
+    switch (type) {
+      case StorageAccessType::UNIQUE:
+        EXPECT_EQ(store->TryAccess(StorageAccessType::READ), nullptr);
+        break;
+      case StorageAccessType::READ_ONLY:
+        EXPECT_EQ(store->TryAccess(StorageAccessType::WRITE), nullptr);
+        break;
+      case StorageAccessType::WRITE:
+        EXPECT_EQ(store->TryAccess(StorageAccessType::READ_ONLY), nullptr);
+        break;
+      case StorageAccessType::READ:
+        EXPECT_NE(store->TryAccess(StorageAccessType::READ_ONLY), nullptr);
+        break;
+      case StorageAccessType::NO_ACCESS:
+        FAIL() << "NO_ACCESS is not a tested mode";
+    }
   }
+}
+
+namespace {
+// Runs `f` on a detached thread, waiting at most 10s, so a hang fails the test instead of blocking a join;
+// nullopt means it hung (the thread is leaked).
+template <typename F>
+auto RunBounded(F f) -> std::optional<decltype(f())> {
+  using R = decltype(f());
+  auto promise = std::make_shared<std::promise<R>>();
+  auto future = promise->get_future();
+  std::thread{[promise, f = std::move(f)]() mutable { promise->set_value(f()); }}.detach();
+  if (future.wait_for(std::chrono::seconds(10)) != std::future_status::ready) return std::nullopt;
+  return future.get();
+}
+}  // namespace
+
+TEST(CommitLockWake, FiresOnceAfterOwningRelease) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  std::atomic<int> fired{0};
+  bool in_hook = false;
+  bool free_inside_hook = false;
+  ASSERT_TRUE(store->TryInstallParkWakeHooks([] {},
+                                             [&] {
+                                               if (in_hook) return;
+                                               in_hook = true;
+                                               ++fired;
+                                               {
+                                                 // Probe after the count: owning it proves the mutex was released
+                                                 // before the hook ran, and its own release re-enters this hook, which
+                                                 // in_hook swallows.
+                                                 auto probe = store->TryCommitLockFor(std::chrono::microseconds{0});
+                                                 free_inside_hook = probe.owns_lock();
+                                               }
+                                               in_hook = false;
+                                             }));
+
+  {
+    auto lock = store->LockCommitBlocking();
+    ASSERT_TRUE(lock.owns_lock());
+    EXPECT_EQ(fired, 0);
+  }
+  EXPECT_EQ(fired, 1);
+  EXPECT_TRUE(free_inside_hook);
+
+  {
+    auto first = store->LockCommitBlocking();
+    {
+      memgraph::storage::CommitLock second{std::move(first)};
+      EXPECT_FALSE(first.owns_lock());
+      EXPECT_TRUE(second.owns_lock());
+    }
+    EXPECT_EQ(fired, 2);
+  }
+  EXPECT_EQ(fired, 2);
+
+  {
+    auto holder = store->LockCommitBlocking();
+    constexpr auto kBudget = std::chrono::milliseconds(50);
+    auto const waiter = RunBounded([&] {
+      auto const start = std::chrono::steady_clock::now();
+      auto lock = store->TryCommitLockFor(kBudget);
+      return std::pair{lock.owns_lock(), std::chrono::steady_clock::now() - start};
+    });
+    ASSERT_TRUE(waiter.has_value());
+    EXPECT_FALSE(waiter->first);
+    EXPECT_GE(waiter->second, kBudget);
+    EXPECT_EQ(fired, 2);
+  }
+  EXPECT_EQ(fired, 3);
+
+  store->ClearParkWakeHooks();
+  {
+    auto lock = store->LockCommitBlocking();
+  }
+  EXPECT_EQ(fired, 3);
+}
+
+TEST(PrepareForCommitPhase, AdoptsHeldCommitLock_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  std::atomic<int> fired{0};
+  ASSERT_TRUE(store->TryInstallParkWakeHooks([] {}, [&fired] { ++fired; }));
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  (void)acc->CreateVertex();
+
+  // Taken and released on the same thread: a std::timed_mutex must not be unlocked by another thread.
+  auto const res = RunBounded([&] {
+    auto lock = acc->TryLockCommitFor(std::chrono::seconds(1));
+    if (!lock.owns_lock()) return false;
+    return acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs(), std::move(lock)).has_value();
+  });
+  ASSERT_TRUE(res.has_value()) << "PrepareForCommitPhase hung: held commit lock was re-acquired";
+  EXPECT_TRUE(*res);
+
+  EXPECT_EQ(fired, 1);
+  EXPECT_TRUE(store->TryCommitLockFor(std::chrono::microseconds{0}).owns_lock());
+}
+
+TEST(ExistenceValid, PreCheckIsReadOnly_ON) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  auto const label = store->NameToLabel("L");
+  auto const prop = store->NameToProperty("p");
+  {
+    auto acc = store->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label, prop).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(prop, PropertyValue(1)).has_value());
+    EXPECT_TRUE(acc->ExistenceValid());
+    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_TRUE(vertex.AddLabel(label).has_value());
+  EXPECT_FALSE(acc->ExistenceValid());
+  // Not aborted: the transaction still accepts writes.
+  EXPECT_TRUE(vertex.SetProperty(store->NameToProperty("q"), PropertyValue(2)).has_value());
+
+  auto const res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(std::get<ConstraintViolation>(res.error()).type, ConstraintViolation::Type::EXISTENCE);
 }

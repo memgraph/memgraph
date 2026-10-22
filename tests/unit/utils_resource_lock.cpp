@@ -19,6 +19,7 @@
 #include <functional>
 #include <future>
 #include <latch>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -1410,10 +1411,6 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
   ASSERT_FALSE(monitor.Violated()) << monitor.Message();
 }
 
-// --- Notify hook: single-threaded fire-count tests ---
-// Hook fires after unlock + notify_all on each NotifyKind::All producer: WRITE/READ/READ_ONLY/UNIQUE
-// release, downgrade_to_read, and pending-scope destruction.
-
 TEST_F(ResourceLockTest, NotifyHookFiresOnRelease) {
   using Req = ResourceLock::LockReq;
 
@@ -1449,75 +1446,170 @@ TEST_F(ResourceLockTest, NotifyHookFiresOnRelease) {
   }
 }
 
-// downgrade_to_read<WRITE>: w_count hits 0 (first fire); releasing the READ frees the lock (second).
-TEST_F(ResourceLockTest, NotifyHookFiresOnWriteDowngradeThenReadRelease) {
+// downgrade_to_read<Req> fires when the downgraded mode's count reaches 0 (unlock_should_notify<Req>).
+TEST_F(ResourceLockTest, NotifyHookFiresOnDowngradeToRead) {
+  using Req = ResourceLock::LockReq;
   int fire_count = 0;
   lock.SetNotifyHook([&] { ++fire_count; });
 
-  lock.lock_shared<ResourceLock::LockReq::WRITE>();
+  lock.lock_shared<Req::WRITE>();
   EXPECT_EQ(fire_count, 0);
-
-  ASSERT_TRUE(lock.downgrade_to_read<ResourceLock::LockReq::WRITE>());
+  ASSERT_TRUE(lock.downgrade_to_read<Req::WRITE>());
   EXPECT_EQ(fire_count, 1);
+  lock.unlock_shared<Req::READ>();
 
-  lock.unlock_shared<ResourceLock::LockReq::READ>();
-  EXPECT_EQ(fire_count, 2);
+  fire_count = 0;
+  lock.lock_shared<Req::READ_ONLY>();
+  EXPECT_EQ(fire_count, 0);
+  ASSERT_TRUE(lock.downgrade_to_read<Req::READ_ONLY>());
+  EXPECT_EQ(fire_count, 1);
+  lock.unlock_shared<Req::READ>();
 }
 
-// A pending scope destroyed without acquiring fires once via unregister_pending when its pending
-// count reaches 0; releasing the blocking holder fires again.
+// Dropping a pending registration unacquired fires only on the pending-count -> 0 transition, via
+// acquire()'s timeout guard or unregister_pending. A count still above 0 must stay silent.
 TEST_F(ResourceLockTest, NotifyHookFiresOnPendingScopeDestroyedUnacquired) {
+  using namespace std::chrono_literals;
+  using Req = ResourceLock::LockReq;
   int fire_count = 0;
   lock.SetNotifyHook([&] { ++fire_count; });
 
   {
-    SCOPED_TRACE("NotifyHookFiresOnUniquePendingScopeDestroyedUnacquired");
+    SCOPED_TRACE("TimedOutUniqueAcquire");
+    lock.lock_shared<Req::READ>();  // UNIQUE needs UNLOCKED: cannot acquire
     fire_count = 0;
-    lock.lock_shared<ResourceLock::LockReq::READ>();  // UNIQUE needs UNLOCKED: cannot acquire
-    EXPECT_EQ(fire_count, 0);
-    {
-      UniquePendingScope scope(lock);
-      EXPECT_FALSE(scope.try_acquire().has_value());
-      EXPECT_EQ(fire_count, 0);
-    }
+    EXPECT_FALSE(lock.try_lock_for(1ms));
     EXPECT_EQ(fire_count, 1);
-    lock.unlock_shared<ResourceLock::LockReq::READ>();
-    EXPECT_EQ(fire_count, 2);
+    lock.unlock_shared<Req::READ>();
   }
 
   {
-    SCOPED_TRACE("NotifyHookFiresOnReadOnlyPendingScopeDestroyedUnacquired");
+    SCOPED_TRACE("TimedOutReadOnlyAcquire");
+    lock.lock_shared<Req::WRITE>();  // READ_ONLY needs w_count == 0: cannot acquire
     fire_count = 0;
-    lock.lock_shared<ResourceLock::LockReq::WRITE>();  // READ_ONLY needs w_count == 0: cannot acquire
-    EXPECT_EQ(fire_count, 0);
+    SharedResourceLockGuard guard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+    EXPECT_FALSE(guard.try_lock_for(1ms));
+    EXPECT_EQ(fire_count, 1);
+    lock.unlock_shared<Req::WRITE>();
+  }
+
+  {
+    SCOPED_TRACE("UniquePendingScope");
+    lock.lock_shared<Req::READ>();
+    fire_count = 0;
+    {
+      UniquePendingScope scope(lock);
+      EXPECT_FALSE(scope.try_acquire().has_value());
+      EXPECT_FALSE(scope.try_acquire_for(1ms).has_value());  // keeps the registration: no wake yet
+      EXPECT_EQ(fire_count, 0);
+    }
+    EXPECT_EQ(fire_count, 1);
+    lock.unlock_shared<Req::READ>();
+  }
+
+  {
+    SCOPED_TRACE("ReadOnlyPendingScope");
+    lock.lock_shared<Req::WRITE>();
+    fire_count = 0;
     {
       ReadOnlyPendingScope scope(lock);
       EXPECT_FALSE(scope.try_acquire().has_value());
       EXPECT_EQ(fire_count, 0);
     }
     EXPECT_EQ(fire_count, 1);
-    lock.unlock_shared<ResourceLock::LockReq::WRITE>();
-    EXPECT_EQ(fire_count, 2);
+    lock.unlock_shared<Req::WRITE>();
+  }
+
+  {
+    SCOPED_TRACE("TwoUniquePendingScopes");
+    lock.lock_shared<Req::READ>();
+    fire_count = 0;
+    {
+      UniquePendingScope outer(lock);
+      {
+        UniquePendingScope inner(lock);
+      }
+      EXPECT_EQ(fire_count, 0);  // unique_pending_count still 1
+    }
+    EXPECT_EQ(fire_count, 1);
+    lock.unlock_shared<Req::READ>();
   }
 }
 
-// Two concurrent WRITE holds: the first release leaves w_count at 1 (NotifyKind::None) and must not fire.
-TEST_F(ResourceLockTest, NotifyHookDoesNotFireOnPartialWriteRelease) {
+// Must stay silent: a count still above 0, a READ release while WRITE is held, and a pending scope
+// that acquires (try_acquire_pending deregisters without notifying; the eventual release wakes).
+TEST_F(ResourceLockTest, NotifyHookSilentOnNonAdmittingTransitions) {
+  using Req = ResourceLock::LockReq;
+
+  struct Row {
+    char const *name;
+    std::function<void()> setup;
+    std::function<void()> action;
+    std::function<void()> cleanup;
+  };
+
+  std::unique_ptr<UniquePendingScope> first_scope;
+  std::unique_ptr<UniquePendingScope> second_scope;
+  std::optional<ResourceLockGuard> acquired;
+
+  std::array<Row, 5> const rows{{
+      {"PartialWriteRelease",
+       [&] {
+         lock.lock_shared<Req::WRITE>();
+         lock.lock_shared<Req::WRITE>();
+       },
+       [&] { lock.unlock_shared<Req::WRITE>(); },
+       [&] { lock.unlock_shared<Req::WRITE>(); }},
+      {"ReadReleaseWhileWriteHeld",
+       [&] {
+         lock.lock_shared<Req::WRITE>();
+         lock.lock_shared<Req::READ>();
+       },
+       [&] { lock.unlock_shared<Req::READ>(); },
+       [&] { lock.unlock_shared<Req::WRITE>(); }},
+      {"PartialReadOnlyRelease",
+       [&] {
+         lock.lock_shared<Req::READ_ONLY>();
+         lock.lock_shared<Req::READ_ONLY>();
+       },
+       [&] { lock.unlock_shared<Req::READ_ONLY>(); },
+       [&] { lock.unlock_shared<Req::READ_ONLY>(); }},
+      {"OneOfTwoPendingScopesDestroyed",
+       [&] {
+         lock.lock_shared<Req::READ>();
+         first_scope = std::make_unique<UniquePendingScope>(lock);
+         second_scope = std::make_unique<UniquePendingScope>(lock);
+       },
+       [&] { first_scope.reset(); },
+       [&] {
+         second_scope.reset();
+         lock.unlock_shared<Req::READ>();
+       }},
+      {"TryAcquirePendingSuccess",
+       [&] { first_scope = std::make_unique<UniquePendingScope>(lock); },
+       [&] {
+         acquired = first_scope->try_acquire();
+         EXPECT_TRUE(acquired.has_value());
+       },
+       [&] {
+         acquired.reset();
+         first_scope.reset();
+       }},
+  }};
+
   int fire_count = 0;
   lock.SetNotifyHook([&] { ++fire_count; });
 
-  lock.lock_shared<ResourceLock::LockReq::WRITE>();
-  lock.lock_shared<ResourceLock::LockReq::WRITE>();
-  EXPECT_EQ(fire_count, 0);
-
-  lock.unlock_shared<ResourceLock::LockReq::WRITE>();
-  EXPECT_EQ(fire_count, 0);
-
-  lock.unlock_shared<ResourceLock::LockReq::WRITE>();
-  EXPECT_EQ(fire_count, 1);
+  for (auto const &row : rows) {
+    SCOPED_TRACE(row.name);
+    row.setup();
+    fire_count = 0;
+    row.action();
+    EXPECT_EQ(fire_count, 0);
+    row.cleanup();
+  }
 }
 
-// After ClearNotifyHook() the same acquire/release cycle must not call the hook again.
 TEST_F(ResourceLockTest, NotifyHookSilentAfterClearNotifyHook) {
   int fire_count = 0;
   lock.SetNotifyHook([&] { ++fire_count; });
@@ -1531,50 +1623,6 @@ TEST_F(ResourceLockTest, NotifyHookSilentAfterClearNotifyHook) {
   lock.lock_shared<ResourceLock::LockReq::WRITE>();
   lock.unlock_shared<ResourceLock::LockReq::WRITE>();
   EXPECT_EQ(fire_count, 1);
-}
-
-// All six producers on a lock with no hook complete, leave it acquirable, and never fire a hook
-// installed on a different lock (hooks are per-lock).
-TEST_F(ResourceLockTest, UnarmedLockIsSafeAndSilentWithoutHook) {
-  using Req = ResourceLock::LockReq;
-  int other_fire_count = 0;
-  lock.SetNotifyHook([&] { ++other_fire_count; });
-
-  ResourceLock unarmed_lock;
-
-  unarmed_lock.lock_shared<Req::WRITE>();
-  unarmed_lock.unlock_shared<Req::WRITE>();
-
-  unarmed_lock.lock_shared<Req::READ>();
-  unarmed_lock.unlock_shared<Req::READ>();
-
-  unarmed_lock.lock_shared<Req::READ_ONLY>();
-  unarmed_lock.unlock_shared<Req::READ_ONLY>();
-
-  unarmed_lock.lock();
-  unarmed_lock.unlock();
-
-  unarmed_lock.lock_shared<Req::WRITE>();
-  ASSERT_TRUE(unarmed_lock.downgrade_to_read<Req::WRITE>());
-  unarmed_lock.unlock_shared<Req::READ>();
-
-  unarmed_lock.lock_shared<Req::READ>();
-  {
-    UniquePendingScope scope(unarmed_lock);
-    EXPECT_FALSE(scope.try_acquire().has_value());
-  }
-  unarmed_lock.unlock_shared<Req::READ>();
-
-  unarmed_lock.lock_shared<Req::WRITE>();
-  {
-    ReadOnlyPendingScope scope(unarmed_lock);
-    EXPECT_FALSE(scope.try_acquire().has_value());
-  }
-  unarmed_lock.unlock_shared<Req::WRITE>();
-
-  ASSERT_TRUE(unarmed_lock.try_lock());  // fully released after every producer
-  unarmed_lock.unlock();
-  EXPECT_EQ(other_fire_count, 0);
 }
 
 // A pending UNIQUE waiter must not miss its wake-up to a waiter that cannot use it.
