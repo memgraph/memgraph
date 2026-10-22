@@ -20,6 +20,7 @@ target_sources(mg-communication
     context.cpp
     helpers.cpp
     init.cpp
+    v2/epoll_poller.cpp
     v2/session_registry.cpp
 
     PUBLIC
