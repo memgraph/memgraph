@@ -173,9 +173,12 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     }
   }
 
-  void Visit(Reduce &op) override { AcceptExpression(op.expression_); }
+  // The expression each of these holds is a body run once per element of a list, so an empty or Null
+  // list runs it no times. That makes a lookup inside one conditional in the same way as one behind
+  // an AND or an OR, and it is left to its own lookup for the same reason.
+  void Visit(Reduce &op) override {}
 
-  void Visit(Extract &op) override { AcceptExpression(op.expression_); }
+  void Visit(Extract &op) override {}
 
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
