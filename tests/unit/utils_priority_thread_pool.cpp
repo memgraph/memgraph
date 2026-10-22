@@ -670,49 +670,94 @@ TEST(PriorityThreadPool, AwaitShutdown_ReleasesUnrunQueuedTasks) {
   EXPECT_EQ(pool.QueuedProductiveTasks(), 0U);
 }
 
-// ShutDown runs every parked continuation exactly once; while draining, admissions report park-worthy with the
-// minimum budget so a drained commit never blocks inline, and a park attempted from inside the drain is dropped.
-TEST(PriorityThreadPool, ShutDown_DrainsParkedAdmissions) {
+// ShutDown never runs parked continuations (a drained COMMIT could block the caller on WAL/replication); they stay
+// parked, alive, until AwaitShutdown destroys them. Parks attempted while draining are dropped immediately.
+TEST(PriorityThreadPool, ShutDown_DoesNotRunParkedAdmissions) {
   using namespace memgraph;
   utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
 
   constexpr int kN = 5;
   std::atomic<int> ran{0};
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
 
-  // Continuations run inline on this thread during ShutDown's drain; observe the pool state from inside one.
-  bool drain_should_park = false;
-  std::chrono::microseconds drain_budget{0};
-  std::weak_ptr<int> late_park;
-
+  std::vector<std::weak_ptr<int>> sentinels;
   for (int i = 0; i < kN; ++i) {
-    pool.ParkAdmission(
-        [&](utils::Priority) {
-          if (ran.fetch_add(1, std::memory_order_acq_rel) == 0) {
-            drain_should_park = pool.ShouldParkAdmission();
-            drain_budget = pool.AdmissionTryBudget();
-            auto sentinel = std::make_shared<int>(0);
-            late_park = sentinel;
-            pool.ParkAdmission([sentinel = std::move(sentinel),
-                                &ran](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
-                               500,
-                               std::chrono::steady_clock::now() + std::chrono::hours(1),
-                               kMainTag);
-          }
-        },
-        static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
-        deadline,
-        kMainTag);
+    auto sentinel = std::make_shared<int>(0);
+    sentinels.emplace_back(sentinel);
+    pool.ParkAdmission([sentinel = std::move(sentinel), &ran](utils::Priority) { ran.fetch_add(1); },
+                       static_cast<utils::PriorityThreadPool::TaskID>(1000 - i),
+                       deadline,
+                       kMainTag);
   }
 
   pool.ShutDown();
 
-  ASSERT_EQ(ran.load(std::memory_order_acquire), kN);
-  EXPECT_TRUE(drain_should_park);
-  EXPECT_EQ(drain_budget, utils::PriorityThreadPool::kTryBudgetMin);
+  EXPECT_EQ(ran.load(), 0) << "ShutDown must not run parked continuations";
+  for (const auto &s : sentinels) EXPECT_FALSE(s.expired()) << "parked task must survive until AwaitShutdown";
+  EXPECT_TRUE(pool.ShouldParkAdmission());
+  EXPECT_EQ(pool.AdmissionTryBudget(), utils::PriorityThreadPool::kTryBudgetMin);
+
+  std::weak_ptr<int> late_park;
+  {
+    auto sentinel = std::make_shared<int>(0);
+    late_park = sentinel;
+    pool.ParkAdmission([sentinel = std::move(sentinel)](utils::Priority) {}, 500, deadline, kMainTag);
+  }
   EXPECT_TRUE(late_park.expired()) << "a task parked while draining must be dropped immediately";
 
+  pool.WakeMatching(kMainTag);  // no-op while draining
+  EXPECT_EQ(ran.load(), 0);
+
   pool.AwaitShutdown();
+
+  EXPECT_EQ(ran.load(), 0);
+  for (const auto &s : sentinels) EXPECT_TRUE(s.expired()) << "AwaitShutdown must destroy parked tasks";
+}
+
+// A waker that extracted parked entries and stalls across ShutDown+AwaitShutdown must not leak them: AwaitShutdown
+// waits for in-flight extractions, so the stalled waker's re-post is collected and destroyed.
+TEST(PriorityThreadPool, StalledWaker_AcrossShutdown_TaskDestroyedByAwaitShutdown) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1, nullptr, kNoSweep};
+
+  std::atomic<int> ran{0};
+  std::weak_ptr<int> sentinel_weak;
+  {
+    auto sentinel = std::make_shared<int>(0);
+    sentinel_weak = sentinel;
+    pool.ParkAdmission([sentinel = std::move(sentinel), &ran](utils::Priority) { ran.fetch_add(1); },
+                       1000,
+                       std::chrono::steady_clock::now() + std::chrono::hours(1),
+                       kMainTag);
+  }
+
+  std::promise<void> in_seam;
+  std::promise<void> release;
+  auto release_f = release.get_future();
+  pool.SetWakeExtractedHookForTest([&] {
+    in_seam.set_value();
+    release_f.wait();
+  });
+
+  std::thread waker{[&] { pool.WakeMatching(kMainTag); }};
+  in_seam.get_future().wait();  // entry extracted, parked_mtx_ released, waker stalled before re-post
+
+  pool.ShutDown();
+  std::promise<void> await_done;
+  auto await_done_f = await_done.get_future();
+  std::thread awaiter{[&] {
+    pool.AwaitShutdown();
+    await_done.set_value();
+  }};
+
+  // Unfixed code finishes AwaitShutdown here without the waker's task; fixed code blocks until the waker is done.
+  (void)await_done_f.wait_for(300ms);
+  release.set_value();
+  waker.join();
+  awaiter.join();
+
+  EXPECT_EQ(ran.load(), 0) << "a task must never run after stop";
+  EXPECT_TRUE(sentinel_weak.expired()) << "task leaked past AwaitShutdown";
 }
 
 TEST(PriorityThreadPool, ScheduledReAddTask_AfterShutDown_ReparksUntilAwaitShutdown) {

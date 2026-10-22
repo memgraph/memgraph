@@ -206,6 +206,10 @@ class PriorityThreadPool {
   // Lock order: parked_mtx_ is released before ScheduledReAddTask takes Worker::mtx_.
   void WakeMatching(WaitResource resource);
 
+  // Test seam: called by WakeMatching after it extracted entries and released parked_mtx_, before re-posting them.
+  // Must be set before any concurrent use of the pool.
+  void SetWakeExtractedHookForTest(std::function<void()> hook) { wake_extracted_hook_ = std::move(hook); }
+
   // True once ShutDown starts draining parks; session continuations drop themselves instead of re-parking.
   bool IsDrainingAdmissions() const noexcept { return draining_admissions_.load(std::memory_order_acquire); }
 
@@ -274,17 +278,19 @@ class PriorityThreadPool {
 
   std::array<WakeEpochCounter, 2> wake_epochs_;  // indexed by WaitResource
 
-  // Stop path of ScheduledReAddTask: parks with no deadline for AwaitShutdown to destroy; leaks it if AwaitShutdown
-  // already swapped the set.
+  // Stop path of ScheduledReAddTask: parks with no deadline for AwaitShutdown to destroy.
   void ReparkOnStop(TaskSignature task, TaskID id);
 
   std::mutex parked_mtx_;
-  bool parked_closed_{false};  // guarded by parked_mtx_; set once AwaitShutdown has swapped the parked set out
+  bool parked_closed_{false};          // guarded by parked_mtx_; set once AwaitShutdown has swapped the parked set out
+  int extracting_{0};                  // guarded by parked_mtx_; WakeMatching calls extracted-but-not-yet-re-posted
+  std::condition_variable parked_cv_;  // signalled when extracting_ drops; AwaitShutdown waits for 0
   std::deque<ParkedAdmission> parked_admissions_;  // FIFO: front = oldest
   std::atomic_bool draining_admissions_{false};    // set by ShutDown before the drain; new parks are dropped
   // Written under parked_mtx_; true iff deque is non-empty. seq_cst Dekker pairing with the wake epoch
   // (see ParkAdmission) means WakeMatching cannot miss a park; stale-true only costs a lock.
   std::atomic<bool> has_parked_{false};
+  std::function<void()> wake_extracted_hook_;  // test seam; empty in production
 
   std::stop_source pool_stop_source_;
 

@@ -222,6 +222,13 @@ PriorityThreadPool::~PriorityThreadPool() {
 void PriorityThreadPool::AwaitShutdown() {
   pool_.clear();
 
+  // A non-pool waker (lock-release hook on another thread) may have extracted parked entries and not yet re-posted
+  // them. Wait it out so its re-post (a worker queue push, or ReparkOnStop) lands before the takes below.
+  {
+    std::unique_lock lk{parked_mtx_};
+    parked_cv_.wait(lk, [&] { return extracting_ == 0; });
+  }
+
   // Workers exit on !run_ without draining, so queued tasks remain. They own DB accessors: release them here while
   // the DBMS is alive. Moved out under the mutex, destroyed unlocked, so a destructor re-entering the pool is a no-op.
   std::vector<TaskSignature> orphans;
@@ -253,21 +260,13 @@ void PriorityThreadPool::AwaitShutdown() {
 }
 
 void PriorityThreadPool::ShutDown() {
-  // Monitor first: a sweep tick must not race the parked-set swap below.
+  // Monitor first: a sweep tick must not race the stop below.
   monitoring_.Stop();
+  // Parked continuations are NOT run here: a drained COMMIT could block this thread in WAL/replication before the
+  // caller reaches replication shutdown. They stay parked (WakeMatching/ParkAdmission refuse while draining) and
+  // AwaitShutdown destroys them; teardown errors the clients.
   draining_admissions_.store(true, std::memory_order_release);
-  {
-    std::deque<ParkedAdmission> drain;
-    {
-      const std::unique_lock lk{parked_mtx_};
-      drain.swap(parked_admissions_);
-      has_parked_.store(false, std::memory_order_release);
-    }
-    // Continuations run inline here. While draining, admissions report park-worthy with the minimum budget, so a
-    // continuation either takes its lock at once or is dropped, leaving the client to connection teardown.
-    for (auto &e : drain) e.task(utils::Priority::LOW);
-  }
-  // Only after the drain: from here ScheduledReAddTask re-parks instead of posting.
+  // From here ScheduledReAddTask re-parks instead of posting.
   pool_stop_source_.request_stop();
   for (auto &worker : workers_) {
     worker->stop();
@@ -313,12 +312,17 @@ void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
 
 void PriorityThreadPool::ReparkOnStop(TaskSignature task, TaskID id) {
   const std::unique_lock lk{parked_mtx_};
-  if (parked_closed_) {
-    // Reachable only if a non-pool waker stalls across ShutDown->AwaitShutdown. Leaking keeps its session/DB
-    // accessor alive (may delay ~Gatekeeper) but never runs teardown on a lock-holding thread.
-    (void)new TaskSignature(std::move(task));
+  // AwaitShutdown waits for in-flight wakers before closing, so every re-post lands before parked_closed_ is set.
+  // This relies on ParkAdmission/ScheduledReAddTask callers being pool workers (joined first) or WakeMatching wakers
+  // (counted by extracting_).
+  DMG_ASSERT(!parked_closed_, "task re-parked after AwaitShutdown closed the parked set");
+  if (parked_closed_) [[unlikely]] {
+    // Release-build fallback: the by-value `task` is destroyed after `lk` is released on return; never leak it
+    // (a leaked DatabaseAccess hangs ~Gatekeeper).
+    spdlog::error("Task re-parked after AwaitShutdown closed the parked set; destroying it");
     return;
   }
+  // Inert after stop: nothing consults the tag, AwaitShutdown destroys the entry regardless of resource.
   parked_admissions_.push_back({.id = id,
                                 .task = std::move(task),
                                 .deadline = std::chrono::steady_clock::time_point::max(),
@@ -413,7 +417,18 @@ void PriorityThreadPool::WakeMatching(WaitResource resource) {
       }
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
+    if (wakeups.empty()) return;
+    ++extracting_;  // same critical section as the extraction: AwaitShutdown cannot miss these entries
   }  // parked_mtx_ released before ScheduledReAddTask takes Worker::mtx_
+  // Runs on the exception path too (Worker::push can throw OOM); otherwise AwaitShutdown would wait forever.
+  const utils::OnScopeExit release_extracting{[&] {
+    wakeups.clear();  // unmoved tasks own DB accessors: destroy before AwaitShutdown can proceed
+    const std::unique_lock lk{parked_mtx_};
+    --extracting_;
+    parked_cv_.notify_all();  // under the lock: the waker never touches parked_cv_ after AwaitShutdown can return
+  }};
+  if (wake_extracted_hook_) [[unlikely]]
+    wake_extracted_hook_();
   for (auto &[id, task] : wakeups) {
     ScheduledReAddTask(std::move(task), id);
   }
