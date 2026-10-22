@@ -73,7 +73,7 @@ fi
 # guarantee, so it needs its own container rather than the running one.
 if [[ "$MODE" == "fips" ]]; then
   test_fips_refuses_non_approved_algorithm
-  test_fips_requires_enterprise_licence
+  test_fips_unlicensed_accepts_only_license_settings
 fi
 
 # End timing and calculate execution time

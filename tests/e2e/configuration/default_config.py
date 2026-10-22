@@ -100,9 +100,13 @@ startup_config_dict = {
     "fips_mode": (
         "false",
         "false",
-        "Run Memgraph in FIPS 140-3 approved mode. Enterprise only. Requires the validated OpenSSL FIPS "
-        "provider to be available and restricts password hashing and TLS to FIPS-approved algorithms. "
-        "Experimental: existing users' passwords must be reset, as their hashes cannot be re-hashed.",
+        "Run Memgraph in FIPS 140-3 approved mode. Enterprise only: an instance started without a valid license "
+        "accepts only SET DATABASE SETTING 'organization.name' and 'enterprise.license' until one is set. "
+        "Requires the validated OpenSSL FIPS provider to be available and restricts password hashing and TLS to "
+        "FIPS-approved algorithms. Experimental: existing users whose passwords were hashed with bcrypt (the "
+        "default) or sha256 are locked out, because only pbkdf2-sha256 is approved and their hashes cannot be "
+        "re-hashed; reset their passwords, ideally on a non-FIPS instance started with "
+        "--password-encryption-algorithm=pbkdf2-sha256 before enabling this flag.",
     ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",

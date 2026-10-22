@@ -3466,6 +3466,28 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
   }
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+// Whether the query sets one of the two settings that license an instance. In FIPS mode these are the only
+// queries an unlicensed instance accepts, so that a license delivered over Bolt can still reach it.
+bool IsLicenseSettingQuery(ParsedQuery const &parsed_query) {
+  auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
+  if (!setting_query || setting_query->action_ != SettingQuery::Action::SET_SETTING) {
+    return false;
+  }
+  EvaluationContext evaluation_context;
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  auto const setting_name = EvaluateOptionalExpression(setting_query->setting_name_, evaluator);
+  if (!setting_name.IsString()) {
+    return false;
+  }
+  auto const name = std::string{setting_name.ValueString()};
+  return name == license::kEnterpriseLicenseSettingKey || name == license::kOrganizationNameSettingKey;
+}
+}  // namespace
+#endif
+
 Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
                               InterpreterContext *interpreter_context, Interpreter *interpreter) {
   EvaluationContext evaluation_context;
@@ -10683,6 +10705,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       throw QueryRuntimeException(
           license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "PARALLEL EXECUTION"));
   }
+
+#ifdef MG_ENTERPRISE
+  // FIPS mode is enterprise only, but an instance may start without a license and receive it over Bolt. Until it
+  // does, nothing is served except the two settings that license it.
+  if (utils::FipsEnabled() && !license::global_license_checker.IsEnterpriseValidFast() &&
+      !IsLicenseSettingQuery(parsed_query)) {
+    throw QueryRuntimeException(
+        "FIPS mode requires a valid enterprise license. Until one is set, only SET DATABASE SETTING '{}' and SET "
+        "DATABASE SETTING '{}' are accepted.",
+        license::kOrganizationNameSettingKey,
+        license::kEnterpriseLicenseSettingKey);
+  }
+#endif
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {

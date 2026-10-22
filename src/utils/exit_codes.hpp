@@ -25,6 +25,8 @@ enum class ExitCode : std::uint8_t {
   LogFileNotWritable = 13,
   FipsModeUnavailable = 14,
   FipsModeUnsupportedPasswordAlgorithm = 15,
+  // Retired: an unlicensed FIPS instance now starts and accepts only the
+  // license settings. Kept so the value is never reused for something else.
   FipsModeRequiresEnterprise = 16,
 };
 
