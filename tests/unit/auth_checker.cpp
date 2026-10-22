@@ -888,12 +888,12 @@ TEST(AuthChecker, RestoredOwnerIsMatchedByPersistedUuid) {
   auto const stored_uuid = original->UserUuid();
   ASSERT_TRUE(stored_uuid.has_value());
 
-  auto matching = auth_checker.GenRestoredQueryUser("owner", {}, stored_uuid);
+  auto matching = auth_checker.GenQueryUser("owner", {}, stored_uuid);
   EXPECT_EQ(matching->UserUuid(), stored_uuid);
   EXPECT_TRUE(matching->IsAuthorized({MATCH}, "memgraph", up_to_date));
 
   // Legacy record (no uuid): resolved by name alone.
-  auto legacy = auth_checker.GenRestoredQueryUser("owner", {}, std::nullopt);
+  auto legacy = auth_checker.GenQueryUser("owner", {}, std::nullopt);
   EXPECT_TRUE(legacy->IsAuthorized({MATCH}, "memgraph", up_to_date));
 
   // Re-created under the same name: the persisted uuid no longer matches, so the owner is refused but keeps its uuid.
@@ -902,14 +902,13 @@ TEST(AuthChecker, RestoredOwnerIsMatchedByPersistedUuid) {
   recreated.permissions().Grant(memgraph::auth::Permission::MATCH);
   auth->SaveUser(recreated);
 
-  auto stale = auth_checker.GenRestoredQueryUser("owner", {}, stored_uuid);
+  auto stale = auth_checker.GenQueryUser("owner", {}, stored_uuid);
   EXPECT_EQ(stale->username(), std::optional<std::string>{"owner"});
   EXPECT_EQ(stale->UserUuid(), stored_uuid);
   EXPECT_FALSE(stale->IsAuthorized({MATCH}, "memgraph", up_to_date));
   EXPECT_FALSE(stale->clone()->IsAuthorized({MATCH}, "memgraph", up_to_date));
 
-  EXPECT_TRUE(
-      auth_checker.GenRestoredQueryUser("owner", {}, std::nullopt)->IsAuthorized({MATCH}, "memgraph", up_to_date));
+  EXPECT_TRUE(auth_checker.GenQueryUser("owner", {}, std::nullopt)->IsAuthorized({MATCH}, "memgraph", up_to_date));
 }
 
 TEST(AuthChecker, OwnerCloneOfDroppedSessionPrincipalStaysRefused) {

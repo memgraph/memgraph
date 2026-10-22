@@ -33,16 +33,11 @@ class AuthChecker {
  public:
   virtual ~AuthChecker() = default;
 
+  // `expected_uuid` is a persisted owner's identity: a user principal whose current uuid differs behaves as dropped.
+  // Without it (e.g. a record written before it was persisted) the principal is resolved by name alone.
   virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
-                                                        const std::vector<std::string> &rolenames) const = 0;
-
-  // Rebuilds a persisted owner. A user principal whose current uuid differs from `expected_uuid` behaves as dropped.
-  // Without an expected uuid (records written before it was persisted) this is GenQueryUser.
-  virtual std::shared_ptr<QueryUserOrRole> GenRestoredQueryUser(const std::optional<std::string> &username,
-                                                                const std::vector<std::string> &rolenames,
-                                                                const std::optional<utils::UUID> & /*uuid*/) const {
-    return GenQueryUser(username, rolenames);
-  }
+                                                        const std::vector<std::string> &rolenames,
+                                                        std::optional<utils::UUID> expected_uuid = {}) const = 0;
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
@@ -236,8 +231,9 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 #endif
   };
 
-  std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &name,
-                                                       const std::vector<std::string> & /*roles*/) const override {
+  std::shared_ptr<query::QueryUserOrRole> GenQueryUser(
+      const std::optional<std::string> &name, const std::vector<std::string> & /*roles*/,
+      std::optional<utils::UUID> /*expected_uuid*/ = {}) const override {
     if (name) return std::make_shared<User>(*name);
     return std::make_shared<User>();
   }

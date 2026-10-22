@@ -96,17 +96,15 @@ struct DroppedUser final : FakeUser {
 
 struct RecordingAuthChecker final : memgraph::query::AuthChecker {
   std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
-      const std::optional<std::string> &username, const std::vector<std::string> & /*roles*/) const override {
-    ++by_name_calls;
-    return std::make_shared<UuidUser>(username.value_or(""), std::nullopt);
-  }
-
-  std::shared_ptr<memgraph::query::QueryUserOrRole> GenRestoredQueryUser(
       const std::optional<std::string> &username, const std::vector<std::string> & /*roles*/,
-      const std::optional<memgraph::utils::UUID> &uuid) const override {
+      std::optional<memgraph::utils::UUID> expected_uuid) const override {
+    if (!expected_uuid) {
+      ++by_name_calls;
+      return std::make_shared<UuidUser>(username.value_or(""), std::nullopt);
+    }
     ++restored_calls;
-    last_uuid = uuid;
-    return std::make_shared<UuidUser>(username.value_or(""), uuid);
+    last_uuid = expected_uuid;
+    return std::make_shared<UuidUser>(username.value_or(""), expected_uuid);
   }
 
   std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override {

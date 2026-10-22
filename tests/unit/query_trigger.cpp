@@ -58,14 +58,10 @@ const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
 
 class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
-  MOCK_CONST_METHOD2(GenQueryUser,
-                     std::shared_ptr<memgraph::query::QueryUserOrRole>(const std::optional<std::string> &username,
-                                                                       const std::vector<std::string> &rolenames));
-
-  MOCK_CONST_METHOD3(GenRestoredQueryUser,
+  MOCK_CONST_METHOD3(GenQueryUser,
                      std::shared_ptr<memgraph::query::QueryUserOrRole>(
                          const std::optional<std::string> &username, const std::vector<std::string> &rolenames,
-                         const std::optional<memgraph::utils::UUID> &expected_uuid));
+                         std::optional<memgraph::utils::UUID> expected_uuid));
 
   MOCK_CONST_METHOD0(GenEmptyUser, std::shared_ptr<memgraph::query::QueryUserOrRole>());
 
@@ -1830,13 +1826,15 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
 
   std::optional<std::string> nopt{};
   std::vector<std::string> novec{};
-  EXPECT_CALL(mock_checker, GenQueryUser(owner, novec)).WillOnce(Return(mock_user_ptr));
+  EXPECT_CALL(mock_checker, GenQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{}))
+      .WillOnce(Return(mock_user_ptr));
   EXPECT_CALL(mock_user,
               IsAuthorized(ElementsAre(Privilege::CREATE),
                            std::make_optional(memgraph::dbms::kDefaultDB),
                            &memgraph::query::up_to_date_policy))
       .WillOnce(Return(true));
-  EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec)).WillOnce(Return(mock_userless_ptr));
+  EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec, std::optional<memgraph::utils::UUID>{}))
+      .WillOnce(Return(mock_userless_ptr));
   EXPECT_CALL(mock_userless,
               IsAuthorized(ElementsAre(Privilege::CREATE),
                            std::make_optional(memgraph::dbms::kDefaultDB),
@@ -1896,13 +1894,13 @@ TYPED_TEST(TriggerStoreTest, DefinerUuidIsPersistedAndMatchedOnRestore) {
   };
 
   add_and_restore(owner_uuid, [&](auto &checker, const auto &user_ptr) {
-    EXPECT_CALL(checker, GenRestoredQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{owner_uuid}))
+    EXPECT_CALL(checker, GenQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{owner_uuid}))
         .WillOnce(Return(user_ptr));
   });
 
   // No persisted uuid (legacy record): resolved by name alone.
   add_and_restore(std::nullopt, [&](auto &checker, const auto &user_ptr) {
-    EXPECT_CALL(checker, GenQueryUser(owner, novec)).WillOnce(Return(user_ptr));
+    EXPECT_CALL(checker, GenQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{})).WillOnce(Return(user_ptr));
   });
 }
 
@@ -1985,7 +1983,8 @@ class CloneableUser final : public memgraph::query::QueryUserOrRole {
 class PrincipalRecordingAuthChecker final : public memgraph::query::AuthChecker {
  public:
   std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
-      const std::optional<std::string> & /*username*/, const std::vector<std::string> & /*roles*/) const override {
+      const std::optional<std::string> & /*username*/, const std::vector<std::string> & /*roles*/,
+      std::optional<memgraph::utils::UUID> /*expected_uuid*/) const override {
     return nullptr;
   }
 
