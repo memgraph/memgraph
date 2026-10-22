@@ -435,9 +435,22 @@ void TriggerStore::RestoreTrigger(AstCache *query_cache, DbAccessor *db_accessor
     return;
   }
 
+  // Absent in records written before the uuid was persisted: the owner is then resolved by name alone.
+  std::optional<utils::UUID> owner_uuid{};
+  const auto owner_uuid_json = json_trigger_data["owner_uuid"];
+  if (!owner_uuid_json.is_null()) {
+    try {
+      owner_uuid = owner_uuid_json.get<utils::UUID>();
+    } catch (const nlohmann::json::exception &) {
+      spdlog::warn(invalid_state_message);
+      return;
+    }
+  }
+
   std::shared_ptr<query::QueryUserOrRole> user = nullptr;
   try {
-    user = auth_checker->GenQueryUser(owner, roles);
+    user = owner_uuid ? auth_checker->GenRestoredQueryUser(owner, roles, owner_uuid)
+                      : auth_checker->GenQueryUser(owner, roles);
   } catch (const utils::BasicException &e) {
     spdlog::warn(
         fmt::format("Failed to load trigger '{}' because its owner is not an existing Memgraph user.", trigger_name));
@@ -549,16 +562,20 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
     const auto &maybe_username = owner_from_trigger->username();
     if (maybe_username) {
       data["owner"] = *maybe_username;
+      const auto owner_uuid = owner_from_trigger->UserUuid();
+      data["owner_uuid"] = owner_uuid ? nlohmann::json(*owner_uuid) : nlohmann::json(nullptr);
       // Roles need to be associated with a username
       const auto &maybe_rolename = owner_from_trigger->rolenames();
       data["owner_roles"] = maybe_rolename.empty() ? nullptr : nlohmann::json(maybe_rolename);
     } else {
       data["owner"] = nullptr;
       data["owner_roles"] = nullptr;
+      data["owner_uuid"] = nullptr;
     }
   } else {
     data["owner"] = nullptr;
     data["owner_roles"] = nullptr;
+    data["owner_uuid"] = nullptr;
   }
   storage_.Put(trigger->Name(), data.dump());
   store_guard.unlock();

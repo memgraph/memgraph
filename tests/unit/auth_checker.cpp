@@ -867,6 +867,51 @@ TEST(AuthChecker, RecreatedUserDoesNotReviveSession) {
   EXPECT_TRUE(fresh->IsAuthorized({MATCH}, "memgraph", session_long));
 }
 
+TEST(AuthChecker, RestoredOwnerIsMatchedByPersistedUuid) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_restored_owner"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto owner = *AddUser(*auth.Lock(), "owner");
+  owner.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(owner);
+
+  auto original = auth_checker.GenQueryUser("owner", {});
+  auto const stored_uuid = original->UserUuid();
+  ASSERT_TRUE(stored_uuid.has_value());
+
+  auto matching = auth_checker.GenRestoredQueryUser("owner", {}, stored_uuid);
+  EXPECT_EQ(matching->UserUuid(), stored_uuid);
+  EXPECT_TRUE(matching->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  // Legacy record (no uuid): resolved by name alone.
+  auto legacy = auth_checker.GenRestoredQueryUser("owner", {}, std::nullopt);
+  EXPECT_TRUE(legacy->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  // Re-created under the same name: the persisted uuid no longer matches, so the owner is refused but keeps its uuid.
+  ASSERT_TRUE(auth->RemoveUser("owner"));
+  auto recreated = *AddUser(*auth.Lock(), "owner");
+  recreated.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(recreated);
+
+  auto stale = auth_checker.GenRestoredQueryUser("owner", {}, stored_uuid);
+  EXPECT_EQ(stale->username(), std::optional<std::string>{"owner"});
+  EXPECT_EQ(stale->UserUuid(), stored_uuid);
+  EXPECT_FALSE(stale->IsAuthorized({MATCH}, "memgraph", up_to_date));
+  EXPECT_FALSE(stale->clone()->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  EXPECT_TRUE(
+      auth_checker.GenRestoredQueryUser("owner", {}, std::nullopt)->IsAuthorized({MATCH}, "memgraph", up_to_date));
+}
+
 TEST(AuthChecker, UserWithoutStoredUuidKeepsSessionAcrossRefresh) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_legacy_uuid"};
   memgraph::utils::OnScopeExit clean([&]() {

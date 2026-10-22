@@ -22,6 +22,7 @@
 #include "query/query_user.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 
@@ -34,6 +35,14 @@ class AuthChecker {
 
   virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
                                                         const std::vector<std::string> &rolenames) const = 0;
+
+  // Rebuilds a persisted owner. A user principal whose current uuid differs from `expected_uuid` behaves as dropped.
+  // Without an expected uuid (records written before it was persisted) this is GenQueryUser.
+  virtual std::shared_ptr<QueryUserOrRole> GenRestoredQueryUser(const std::optional<std::string> &username,
+                                                                const std::vector<std::string> &rolenames,
+                                                                const std::optional<utils::UUID> & /*uuid*/) const {
+    return GenQueryUser(username, rolenames);
+  }
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 

@@ -17,11 +17,13 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include "disk_test_utils.hpp"
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
+#include "kvstore/kvstore.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -67,6 +69,46 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
 #endif
 
   std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override { return std::make_shared<FakeUser>(*this); }
+};
+
+struct UuidUser final : FakeUser {
+  UuidUser(std::string name, std::optional<memgraph::utils::UUID> uuid) : uuid_{uuid} { username_ = std::move(name); }
+
+  std::optional<memgraph::utils::UUID> UserUuid() const override { return uuid_; }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override { return std::make_shared<UuidUser>(*this); }
+
+ private:
+  std::optional<memgraph::utils::UUID> uuid_;
+};
+
+struct RecordingAuthChecker final : memgraph::query::AuthChecker {
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
+      const std::optional<std::string> &username, const std::vector<std::string> & /*roles*/) const override {
+    ++by_name_calls;
+    return std::make_shared<UuidUser>(username.value_or(""), std::nullopt);
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenRestoredQueryUser(
+      const std::optional<std::string> &username, const std::vector<std::string> & /*roles*/,
+      const std::optional<memgraph::utils::UUID> &uuid) const override {
+    ++restored_calls;
+    last_uuid = uuid;
+    return std::make_shared<UuidUser>(username.value_or(""), uuid);
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override {
+    return std::make_shared<FakeUser>();
+  }
+
+  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
+      const memgraph::query::QueryUserOrRole & /*user*/, const memgraph::query::DbAccessor * /*dba*/) const override {
+    return std::make_unique<memgraph::query::AllowEverythingFineGrainedAuthChecker>();
+  }
+
+  mutable int by_name_calls{0};
+  mutable int restored_calls{0};
+  mutable std::optional<memgraph::utils::UUID> last_uuid;
 };
 
 struct StreamCheckData {
@@ -378,6 +420,102 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
   {
     SCOPED_TRACE("After stopping all streams");
     check_restore_logic();
+  }
+}
+
+TYPED_TEST(StreamsTestFixture, OwnerUuidIsPersistedAndRestored) {
+  RecordingAuthChecker checker;
+  this->interpreter_context_.auth_checker = &checker;
+  const memgraph::utils::UUID owner_uuid;
+  auto check_data = this->CreateDefaultStreamCheckData();
+  check_data.owner = std::make_shared<UuidUser>("owner", owner_uuid);
+  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+      check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
+
+  const auto restore_and_check = [&]() {
+    this->ResetStreamsObject();
+    this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
+    ASSERT_EQ(this->proxyStreams_->streams_->GetStreamInfo().size(), 1);
+    const auto locked_streams = this->proxyStreams_->ReadLock();
+    const auto *stream_data = std::get_if<StreamsTest::KafkaStream>(&locked_streams->at(check_data.name));
+    ASSERT_NE(stream_data, nullptr);
+    EXPECT_EQ(stream_data->owner, "owner");
+    EXPECT_EQ(stream_data->owner_uuid, std::optional{owner_uuid});
+  };
+
+  {
+    SCOPED_TRACE("After create");
+    restore_and_check();
+  }
+  EXPECT_EQ(checker.restored_calls, 1);
+  EXPECT_EQ(checker.by_name_calls, 0);
+  EXPECT_EQ(checker.last_uuid, std::optional{owner_uuid});
+
+  // Start and Stop rewrite the record and must keep the pinned uuid.
+  this->StartStream(check_data);
+  {
+    SCOPED_TRACE("After start");
+    restore_and_check();
+  }
+  this->StopStream(check_data);
+  {
+    SCOPED_TRACE("After stop");
+    restore_and_check();
+  }
+  EXPECT_EQ(checker.restored_calls, 3);
+}
+
+TYPED_TEST(StreamsTestFixture, LegacyRecordWithoutOwnerUuidRestoresByName) {
+  RecordingAuthChecker checker;
+  this->interpreter_context_.auth_checker = &checker;
+  auto check_data = this->CreateDefaultStreamCheckData();
+  check_data.owner = std::make_shared<UuidUser>("owner", memgraph::utils::UUID{});
+  this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+      check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
+
+  this->proxyStreams_->streams_.reset();
+  {
+    memgraph::kvstore::KVStore raw{this->streams_data_directory_};
+    auto record = nlohmann::json::parse(*raw.Get(check_data.name));
+    ASSERT_EQ(record.erase("owner_uuid"), 1);
+    ASSERT_TRUE(raw.Put(check_data.name, record.dump()));
+  }
+  this->ResetStreamsObject();
+  this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
+
+  EXPECT_EQ(this->proxyStreams_->streams_->GetStreamInfo().size(), 1);
+  EXPECT_EQ(checker.by_name_calls, 1);
+  EXPECT_EQ(checker.restored_calls, 0);
+}
+
+TYPED_TEST(StreamsTestFixture, MalformedOwnerUuidIsSkippedOnRestore) {
+  RecordingAuthChecker checker;
+  this->interpreter_context_.auth_checker = &checker;
+  int i = 0;
+  for (const auto &bad_uuid : {nlohmann::json("not-a-uuid"), nlohmann::json(42)}) {
+    SCOPED_TRACE(bad_uuid.dump());
+    auto check_data = this->CreateDefaultStreamCheckData();
+    check_data.name += std::to_string(i);
+    check_data.info.topics[0] += std::to_string(i++);
+    check_data.owner = std::make_shared<UuidUser>("owner", memgraph::utils::UUID{});
+    this->mock_cluster_.CreateTopic(check_data.info.topics[0]);
+    this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
+        check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
+
+    this->proxyStreams_->streams_.reset();
+    {
+      memgraph::kvstore::KVStore raw{this->streams_data_directory_};
+      auto record = nlohmann::json::parse(*raw.Get(check_data.name));
+      ASSERT_TRUE(record["owner_uuid"].is_array());
+      record["owner_uuid"] = bad_uuid;
+      ASSERT_TRUE(raw.Put(check_data.name, record.dump()));
+    }
+    this->ResetStreamsObject();
+    this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
+
+    EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
+    EXPECT_EQ(checker.by_name_calls, 0);
+    EXPECT_EQ(checker.restored_calls, 0);
   }
 }
 

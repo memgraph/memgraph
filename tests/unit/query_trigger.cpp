@@ -19,9 +19,11 @@
 #include <utility>
 
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "disk_test_utils.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -59,6 +61,11 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
   MOCK_CONST_METHOD2(GenQueryUser,
                      std::shared_ptr<memgraph::query::QueryUserOrRole>(const std::optional<std::string> &username,
                                                                        const std::vector<std::string> &rolenames));
+
+  MOCK_CONST_METHOD3(GenRestoredQueryUser,
+                     std::shared_ptr<memgraph::query::QueryUserOrRole>(
+                         const std::optional<std::string> &username, const std::vector<std::string> &rolenames,
+                         const std::optional<memgraph::utils::UUID> &expected_uuid));
 
   MOCK_CONST_METHOD0(GenEmptyUser, std::shared_ptr<memgraph::query::QueryUserOrRole>());
 
@@ -98,6 +105,17 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
 
  private:
   mutable std::weak_ptr<MockQueryUser> self_ptr_;
+};
+
+class UuidMockQueryUser : public MockQueryUser {
+ public:
+  UuidMockQueryUser(std::string name, std::optional<memgraph::utils::UUID> uuid)
+      : MockQueryUser(std::move(name)), uuid_{uuid} {}
+
+  std::optional<memgraph::utils::UUID> UserUuid() const override { return uuid_; }
+
+ private:
+  std::optional<memgraph::utils::UUID> uuid_;
 };
 }  // namespace
 
@@ -1835,6 +1853,107 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   const auto triggers = store->GetTriggerInfo();
   ASSERT_EQ(triggers.size(), 1);
   ASSERT_EQ(triggers.front().owner, owner);
+}
+
+TYPED_TEST(TriggerStoreTest, DefinerUuidIsPersistedAndMatchedOnRestore) {
+  using ::testing::_;
+  using ::testing::Return;
+  const memgraph::utils::UUID owner_uuid;
+  const std::optional<std::string> owner{"owner"};
+  const std::vector<std::string> novec{};
+
+  const auto add_and_restore = [&](std::optional<memgraph::utils::UUID> uuid, auto expect_restore) {
+    std::filesystem::remove_all(this->testing_directory);
+    auto user = std::make_shared<UuidMockQueryUser>(*owner, uuid);
+    std::shared_ptr<memgraph::query::QueryUserOrRole> user_ptr(user.get(), [](memgraph::query::QueryUserOrRole *) {});
+    user->InitializeSelfPtr(user_ptr);
+    ON_CALL(*user, IsAuthorized(_, _, _)).WillByDefault(Return(true));
+
+    std::optional<memgraph::query::TriggerStore> store{this->testing_directory};
+    store->AddTrigger("trigger",
+                      "CREATE (n:VERTEX) RETURN n",
+                      {},
+                      memgraph::query::TriggerEventType::EDGE_UPDATE,
+                      memgraph::query::TriggerPhase::AFTER_COMMIT,
+                      &this->ast_cache,
+                      &*this->dba,
+                      memgraph::query::InterpreterConfig::Query{},
+                      user_ptr,
+                      memgraph::dbms::kDefaultDB,
+                      memgraph::query::TriggerPrivilegeContext::DEFINER,
+                      nullptr);
+
+    store.emplace(this->testing_directory);
+    ::testing::StrictMock<MockAuthChecker> checker;
+    expect_restore(checker, user_ptr);
+    store->RestoreTriggers(&this->ast_cache,
+                           &*this->dba,
+                           memgraph::query::InterpreterConfig::Query{},
+                           &checker,
+                           memgraph::dbms::kDefaultDB,
+                           nullptr);
+    ASSERT_EQ(store->GetTriggerInfo().size(), 1);
+  };
+
+  add_and_restore(owner_uuid, [&](auto &checker, const auto &user_ptr) {
+    EXPECT_CALL(checker, GenRestoredQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{owner_uuid}))
+        .WillOnce(Return(user_ptr));
+  });
+
+  // No persisted uuid (legacy record): resolved by name alone.
+  add_and_restore(std::nullopt, [&](auto &checker, const auto &user_ptr) {
+    EXPECT_CALL(checker, GenQueryUser(owner, novec)).WillOnce(Return(user_ptr));
+  });
+}
+
+TYPED_TEST(TriggerStoreTest, MalformedOwnerUuidIsSkippedOnRestore) {
+  using ::testing::_;
+  using ::testing::Return;
+  const std::optional<std::string> owner{"owner"};
+
+  const auto add_corrupt_and_restore = [&](const nlohmann::json &bad_uuid) {
+    std::filesystem::remove_all(this->testing_directory);
+    auto user = std::make_shared<UuidMockQueryUser>(*owner, memgraph::utils::UUID{});
+    std::shared_ptr<memgraph::query::QueryUserOrRole> user_ptr(user.get(), [](memgraph::query::QueryUserOrRole *) {});
+    user->InitializeSelfPtr(user_ptr);
+    ON_CALL(*user, IsAuthorized(_, _, _)).WillByDefault(Return(true));
+
+    std::optional<memgraph::query::TriggerStore> store{this->testing_directory};
+    store->AddTrigger("trigger",
+                      "CREATE (n:VERTEX) RETURN n",
+                      {},
+                      memgraph::query::TriggerEventType::EDGE_UPDATE,
+                      memgraph::query::TriggerPhase::AFTER_COMMIT,
+                      &this->ast_cache,
+                      &*this->dba,
+                      memgraph::query::InterpreterConfig::Query{},
+                      user_ptr,
+                      memgraph::dbms::kDefaultDB,
+                      memgraph::query::TriggerPrivilegeContext::DEFINER,
+                      nullptr);
+    store.reset();
+
+    {
+      memgraph::kvstore::KVStore raw{this->testing_directory};
+      auto record = nlohmann::json::parse(*raw.Get("trigger"));
+      ASSERT_TRUE(record["owner_uuid"].is_array());
+      record["owner_uuid"] = bad_uuid;
+      ASSERT_TRUE(raw.Put("trigger", record.dump()));
+    }
+
+    store.emplace(this->testing_directory);
+    ::testing::StrictMock<MockAuthChecker> checker;  // no owner may be rebuilt from a record that failed validation
+    store->RestoreTriggers(&this->ast_cache,
+                           &*this->dba,
+                           memgraph::query::InterpreterConfig::Query{},
+                           &checker,
+                           memgraph::dbms::kDefaultDB,
+                           nullptr);
+    ASSERT_EQ(store->GetTriggerInfo().size(), 0);
+  };
+
+  add_corrupt_and_restore("not-a-uuid");
+  add_corrupt_and_restore(42);
 }
 
 #ifdef MG_ENTERPRISE
