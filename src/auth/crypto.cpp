@@ -400,19 +400,6 @@ auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm 
   return *maybe_parsed;
 }
 
-std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgorithm algo) {
-  // header = algo name + :
-  const auto header = std::string{AsString(algo)} + ":";
-  const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
-  if (str.size() == header.size() + hash_size) {
-    int i = 0;
-    if (std::ranges::all_of(header, [&](const auto ch) { return tolower(ch) == str[i++]; })) {
-      return str.substr(header.size());
-    }
-  }
-  return {};
-}
-
 // The stored pbkdf2-sha256 hash carries no iteration count, so a pre-hashed one
 // has to spell it out: "pbkdf2-sha256:600000:<salt>:<derived key>", salt and
 // key in lowercase hex. Only ITERATIONS is accepted -- a hash derived with the
@@ -439,27 +426,42 @@ std::optional<std::string> UsesPbkdf2(std::string_view str) {
   return fmt::format("{}{}", salt, key);
 }
 
-constexpr std::array kUserDefinedHashAlgos{
-    PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE};
+// Returns the hash a pre-hashed literal of `algo` holds, in its stored form.
+std::optional<std::string> UsesAlgo(std::string_view str, PasswordHashAlgorithm algo) {
+  if (algo == PasswordHashAlgorithm::PBKDF2_SHA256) {
+    return UsesPbkdf2(str);
+  }
+  // header = algo name + :
+  const auto header = std::string{AsString(algo)} + ":";
+  const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
+  if (str.size() == header.size() + hash_size) {
+    int i = 0;
+    if (std::ranges::all_of(header, [&](const auto ch) { return tolower(ch) == str[i++]; })) {
+      return std::string{str.substr(header.size())};
+    }
+  }
+  return {};
+}
+
+constexpr std::array kUserDefinedHashAlgos{PasswordHashAlgorithm::BCRYPT,
+                                           PasswordHashAlgorithm::SHA256,
+                                           PasswordHashAlgorithm::SHA256_MULTIPLE,
+                                           PasswordHashAlgorithm::PBKDF2_SHA256};
 }  // namespace
 
 std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
-  if (auto hash = UsesPbkdf2(password)) {
-    return HashedPassword{PasswordHashAlgorithm::PBKDF2_SHA256, std::move(*hash)};
-  }
   for (auto const algo : kUserDefinedHashAlgos) {
-    if (const auto hash = UsesAlgo(password, algo)) {
+    if (auto hash = UsesAlgo(password, algo)) {
       EnsureFipsApproved(algo);
-      return HashedPassword{algo, std::string{*hash}};
+      return HashedPassword{algo, std::move(*hash)};
     }
   }
   return {};
 }
 
 bool IsUserDefinedHashFormat(std::string_view password) {
-  return UsesPbkdf2(password).has_value() || std::ranges::any_of(kUserDefinedHashAlgos, [password](auto const algo) {
-           return UsesAlgo(password, algo).has_value();
-         });
+  return std::ranges::any_of(kUserDefinedHashAlgos,
+                             [password](auto const algo) { return UsesAlgo(password, algo).has_value(); });
 }
 
 // The `--password-encryption-algorithm` flag is the single source of truth. It is
