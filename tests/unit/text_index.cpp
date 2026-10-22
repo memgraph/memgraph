@@ -146,6 +146,45 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   }
 }
 
+// An index names the properties it covers in the order it was declared in, which has nothing to do
+// with the order a record holds them. Every covered property the node carries has to reach the
+// document whichever end of that order it was named at, and one the node does not carry has to be
+// left out of the document rather than written into it.
+TEST_F(TextIndexTest, CoveredPropertiesReachTheDocumentWhateverOrderTheIndexNamesThem) {
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    auto const label = unique_acc->NameToLabel(test_label.data());
+    // Interned in this order, so their ids ascend in it. The index then names them in reverse, so
+    // the declared order is the opposite of the order the record is read in.
+    auto const alpha = unique_acc->NameToProperty("alpha");
+    auto const gamma = unique_acc->NameToProperty("gamma");
+    ASSERT_LT(alpha.AsUint(), gamma.AsUint());
+
+    ASSERT_FALSE(!unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {gamma, alpha}}).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    MG_ASSERT(vertex.AddLabel(acc->NameToLabel(test_label)).has_value());
+    // "gamma" is covered by the index but left unset here, so the index names a property this node
+    // does not carry.
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty("alpha"), PropertyValue("apricot")).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->TextIndexSearch(
+                     test_index.data(), "data.alpha:apricot", text_search_mode::SPECIFIED_PROPERTIES, default_config)
+                  .size(),
+              1);
+    EXPECT_EQ(
+        acc->TextIndexSearch(test_index.data(), "apricot", text_search_mode::ALL_PROPERTIES, default_config).size(), 1);
+  }
+}
+
 TEST_F(TextIndexTest, ConcurrencyTest) {
   this->CreateIndex();
 

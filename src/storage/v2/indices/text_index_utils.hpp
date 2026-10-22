@@ -78,17 +78,15 @@ std::string MakeIndexPath(const std::string &base_path, std::string_view index_n
 // Serialize properties to JSON format
 nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, NameIdMapper *name_id_mapper);
 
+// As above, for values read in one pass: `values` holds one entry per path, in `paths` order.
+nlohmann::json SerializeProperties(std::span<PropertyPath const> paths, std::span<PropertyValue const> values,
+                                   NameIdMapper *name_id_mapper);
+
 // Convert properties to string representation (space-joined values for the "all" text field)
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
-// Extract properties from the property store and return them as a map
-std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
-                                                      std::span<PropertyId const> properties);
-
-// Filter which properties to index: if index_properties is empty, return all entity_properties;
-// otherwise return the intersection.
-std::vector<PropertyId> FilterPropertiesToIndex(std::span<const PropertyId> index_properties,
-                                                std::vector<PropertyId> entity_properties);
+// As above. Only the values are needed, since the joined text carries no names.
+std::string StringifyProperties(std::span<PropertyValue const> values);
 
 // Check if index properties match the given properties
 bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
@@ -104,6 +102,7 @@ struct TextIndexSpec {
 
   std::string index_name;
   LabelId label;
+  /// Naming none means indexing every property the entity carries.
   std::vector<PropertyId> properties;
 };
 
@@ -112,6 +111,7 @@ struct TextEdgeIndexSpec {
 
   std::string index_name;
   EdgeTypeId edge_type;
+  /// Naming none means indexing every property the entity carries.
   std::vector<PropertyId> properties;
 };
 

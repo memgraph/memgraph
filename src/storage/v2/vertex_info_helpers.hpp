@@ -16,6 +16,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/delta_action.hpp"
+#include "storage/v2/delta_action_methods.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
@@ -23,57 +24,6 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
-
-template <DeltaAction>
-struct DeltaAction_tag {};
-
-template <DeltaAction A, typename Method>
-struct ActionMethodImpl : Method {
-  // Uses tag dispatch to ensure method is only called for the correct action
-  void operator()(DeltaAction_tag<A> /*unused*/, Delta const &delta) { Method::operator()(delta); }
-};
-
-template <DeltaAction A, typename Method>
-auto ActionMethod(Method &&func) {
-  return ActionMethodImpl<A, Method>{std::forward<Method>(func)};
-}
-
-/// Converts runtime DeltaAction into compile time tag, this allows us to dispatch to the correct overload
-template <typename Func>
-void DeltaDispatch(Delta const &delta, Func &&func) {
-  // clang-format off
-#define dispatch(E) case E: return func(DeltaAction_tag<E>{}, delta); // NOLINT
-  // clang-format on
-  switch (delta.action) {
-    using enum DeltaAction;
-    dispatch(DELETE_DESERIALIZED_OBJECT);
-    dispatch(DELETE_OBJECT);
-    dispatch(RECREATE_OBJECT);
-    dispatch(SET_PROPERTY);
-    dispatch(ADD_LABEL);
-    dispatch(REMOVE_LABEL);
-    dispatch(ADD_IN_EDGE);
-    dispatch(ADD_OUT_EDGE);
-    dispatch(REMOVE_IN_EDGE);
-    dispatch(REMOVE_OUT_EDGE);
-  }
-#undef dispatch
-}
-
-inline auto Exists_ActionMethod(bool &exists) {
-  using enum DeltaAction;
-  // clang-format off
-  return utils::Overloaded{
-      ActionMethod<DELETE_DESERIALIZED_OBJECT>([&](Delta const & /*unused*/) { exists = false; }),
-      ActionMethod<DELETE_OBJECT>([&](Delta const & /*unused*/) { exists = false; })
-  };
-  // clang-format on
-}
-
-inline auto Deleted_ActionMethod(bool &deleted) {
-  using enum DeltaAction;
-  return ActionMethod<RECREATE_OBJECT>([&](Delta const & /*unused*/) { deleted = false; });
-}
 
 inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   using enum DeltaAction;
@@ -112,40 +62,6 @@ inline auto Labels_ActionMethod(TSmallVector &labels) {
       })
   };
   // clang-format on
-}
-
-inline auto PropertyValue_ActionMethod(PropertyValue &value, PropertyId property) {
-  using enum DeltaAction;
-  return ActionMethod<SET_PROPERTY>([&, property](Delta const &delta) {
-    if (delta.property.key == property) {
-      value = *delta.property.value;
-    }
-  });
-}
-
-inline auto PropertyValueMatch_ActionMethod(bool &match, PropertyId property, PropertyValue const &value) {
-  using enum DeltaAction;
-  return ActionMethod<SET_PROPERTY>([&, property](Delta const &delta) {
-    if (delta.property.key == property) match = (value == *delta.property.value);
-  });
-}
-
-inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &properties) {
-  using enum DeltaAction;
-  return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
-    auto it = properties.find(delta.property.key);
-    if (it != properties.end()) {
-      if (delta.property.value->IsNull()) {
-        // remove the property
-        properties.erase(it);
-      } else {
-        // set the value
-        it->second = *delta.property.value;
-      }
-    } else if (!delta.property.value->IsNull()) {
-      properties.emplace(delta.property.key, *delta.property.value);
-    }
-  });
 }
 
 template <EdgeDirection dir, typename TSmallVector>

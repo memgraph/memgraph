@@ -330,6 +330,11 @@ startup_config_dict = {
         "Define instance's timezone (IANA format).",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
+    "query_cache_properties": (
+        "true",
+        "true",
+        "Controls whether a RETURN/WITH that reads several properties of one node reads them in a single pass instead of one lookup per property.",
+    ),
     "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
     "query_ast_cache_max_size": (
         "1000",

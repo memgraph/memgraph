@@ -27,6 +27,7 @@
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
@@ -164,6 +165,7 @@ class ExpandVariable;
 class ConstructNamedPath;
 class Filter;
 class Produce;
+class CacheProperties;
 class Delete;
 class SetProperty;
 class SetProperties;
@@ -222,7 +224,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel,
     OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
     ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeProperty, ScanParallelByVertexProperty,
-    ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanChunk, ScanChunkByEdge, ParallelMerge, CacheProperties>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1300,6 +1302,104 @@ class Produce : public memgraph::query::plan::LogicalOperator {
    private:
     const Produce &self_;
     const UniqueCursorPtr input_cursor_;
+  };
+};
+
+/// One property to read, paired with the frame slot its value is written into.
+struct CachedProperty {
+  storage::PropertyId property_id;
+  Symbol output_symbol;
+};
+
+/// The properties to read of one symbol. Each group is one record, so each is its own pass; what
+/// they share is the pull that found them and the buffer their values are read into.
+///
+/// The order a record must be read in is settled here rather than when a cursor is made, so a plan
+/// reused for many executions establishes it once. It is derived from `properties` on construction,
+/// so the two cannot describe different sets.
+class CachedPropertyGroup {
+ public:
+  CachedPropertyGroup() = default;
+
+  CachedPropertyGroup(Symbol input_symbol, std::vector<CachedProperty> properties)
+      : input_symbol{std::move(input_symbol)}, properties{std::move(properties)} {
+    auto paths = std::vector<storage::PropertyPath>{};
+    paths.reserve(this->properties.size());
+    for (auto const &cached : this->properties) paths.emplace_back(cached.property_id);
+    ordered_ = storage::OrderedPropertyPaths{std::move(paths)};
+  }
+
+  /// `properties` in the order a record must be asked for them. Its permutation says which of
+  /// `properties` each read value belongs to.
+  auto ordered() const -> storage::OrderedPropertyPaths const & { return ordered_; }
+
+  Symbol input_symbol;
+  std::vector<CachedProperty> properties;
+
+ private:
+  storage::OrderedPropertyPaths ordered_;
+};
+
+/// Reads several properties of a single vertex-bound symbol in one pass over
+/// the record, writing each value into its own frame slot.
+///
+/// Looking the same properties up one at a time costs one lock acquisition, one
+/// shape resolution and one delta-chain walk per property; doing it in a single
+/// pass pays each of those once for the whole set.
+///
+/// A row whose input symbol does not hold a vertex (Null from an OPTIONAL
+/// MATCH, for instance) still passes through, with Null in every output slot.
+class CacheProperties : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CacheProperties() = default;
+
+  CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                  std::vector<CachedProperty> cached_properties);
+
+  CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = std::move(input); }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::vector<CachedPropertyGroup> groups_;
+
+  std::string ToString(const DbAccessor *dba) const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class CachePropertiesCursor : public Cursor {
+   public:
+    CachePropertiesCursor(const CacheProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    /// One group's properties arranged the way the read wants them, worked out once.
+    const CacheProperties &self_;
+    const UniqueCursorPtr input_cursor_;
+#ifdef MG_ENTERPRISE
+    /// Whether each of the current group's properties may be read, decided before the record is, and
+    /// reused between rows so deciding costs no allocation.
+    std::vector<bool> allowed_;
+#endif
+    /// Every group's values, end to end, so that reading a row allocates nothing whatever the row
+    /// is made of.
+    std::vector<storage::PropertyValue> values_;
   };
 };
 

@@ -5393,6 +5393,153 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
+CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                                 std::vector<CachedProperty> cached_properties)
+    : CacheProperties(input, std::vector<CachedPropertyGroup>{
+                                 CachedPropertyGroup{std::move(input_symbol), std::move(cached_properties)}}) {}
+
+CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups)
+    : input_(input ? input : std::make_shared<Once>()), groups_(std::move(groups)) {}
+
+ACCEPT_WITH_INPUT(CacheProperties)
+
+UniqueCursorPtr CacheProperties::MakeCursor(utils::MemoryResource *mem,
+                                            metrics::DatabaseMetricHandles &metric_handles) const {
+  return MakeUniqueCursorPtr<CachePropertiesCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> CacheProperties::OutputSymbols(const SymbolTable &symbol_table) const {
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> CacheProperties::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  for (const auto &group : groups_) {
+    symbols.reserve(symbols.size() + group.properties.size());
+    for (const auto &cached : group.properties) {
+      symbols.emplace_back(cached.output_symbol);
+    }
+  }
+  return symbols;
+}
+
+std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<CacheProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->groups_ = groups_;
+  return object;
+}
+
+std::string CacheProperties::ToString(const DbAccessor *dba) const {
+  return fmt::format("CacheProperties {{{}}}", utils::IterableToString(groups_, ", ", [&](const auto &group) {
+                       return utils::IterableToString(group.properties, ", ", [&](const auto &cached) {
+                         return fmt::format("{}.{} -> {}",
+                                            group.input_symbol.name(),
+                                            dba->PropertyToName(cached.property_id),
+                                            cached.output_symbol.name());
+                       });
+                     }));
+}
+
+CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CacheProperties &self, utils::MemoryResource *mem,
+                                                              metrics::DatabaseMetricHandles &metric_handles)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  auto total = std::size_t{0};
+  for (auto const &group : self_.groups_) total += group.properties.size();
+  values_.resize(total);
+}
+
+bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler const oom_exception;
+  SCOPED_PROFILE_OP_BY_REF(self_);
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+  auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+
+  auto values_begin = std::size_t{0};
+  for (auto const &group : self_.groups_) {
+    auto const slots = std::span{values_}.subspan(values_begin, group.properties.size());
+    values_begin += group.properties.size();
+
+    auto const &input_value = frame[group.input_symbol];
+    auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
+    if (!reads_a_vertex && input_value.type() != TypedValue::Type::Edge) {
+      // Only this group's slots. A row where one symbol is Null says nothing about the others.
+      for (const auto &cached : group.properties) {
+        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+      }
+      continue;
+    }
+
+#ifdef MG_ENTERPRISE
+    // A lookup answers Null for a property the caller may not read without ever reaching the record,
+    // so a group of nothing but denied properties must not read one either: doing so would report a
+    // deleted or missing record for a read the query was never allowed to make.
+    allowed_.assign(group.properties.size(), true);
+    auto any_allowed = false;
+    for (std::size_t slot = 0; slot != group.properties.size(); ++slot) {
+      auto const &cached = group.properties[group.ordered().position_lookup()[slot]];
+      allowed_[slot] =
+          reads_a_vertex ? PropertyReadAllowed(
+                               context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
+                         : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), cached.property_id);
+      any_allowed = any_allowed || allowed_[slot];
+    }
+    if (!any_allowed) {
+      for (const auto &cached : group.properties) {
+        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+      }
+      continue;
+    }
+#endif
+
+    // NEW so that the row sees writes made earlier in this same transaction, as a
+    // property lookup evaluated at this point would.
+    auto const read =
+        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
+                       : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+    if (!read) {
+      switch (read.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get a property from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting a property.");
+      }
+    }
+
+    for (std::size_t slot = 0; slot != slots.size(); ++slot) {
+      const auto &cached = group.properties[group.ordered().position_lookup()[slot]];
+      auto &value = slots[slot];
+#ifdef MG_ENTERPRISE
+      // Decided above, before the record was read.
+      if (!value.IsNull() && !allowed_[slot]) {
+        value = storage::PropertyValue{};
+      }
+#endif
+      if (value.IsNull()) {
+        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+      } else {
+        frame_writer.Write(cached.output_symbol,
+                           TypedValue(std::move(value), name_id_mapper, context.evaluation_context.memory));
+      }
+    }
+  }
+  return true;
+}
+
+void CacheProperties::CachePropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void CacheProperties::CachePropertiesCursor::Reset() { input_cursor_->Reset(); }
+
 Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
     : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}
 
