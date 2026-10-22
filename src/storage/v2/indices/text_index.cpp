@@ -454,15 +454,15 @@ void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper
     for (const auto *vertex : pending.to_add) {
       if (index_data_ptr->properties.empty()) {
         auto const vertex_properties = vertex->properties.Properties();
-        docs_to_add.push_back({vertex->gid.AsInt(),
-                               SerializeProperties(vertex_properties, name_id_mapper),
-                               StringifyProperties(vertex_properties)});
+        docs_to_add.push_back({.gid = vertex->gid.AsInt(),
+                               .properties = SerializeProperties(vertex_properties, name_id_mapper),
+                               .all_property_values = StringifyProperties(vertex_properties)});
         continue;
       }
       vertex->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
-      docs_to_add.push_back({vertex->gid.AsInt(),
-                             SerializeProperties(ordered.paths(), values, name_id_mapper),
-                             StringifyProperties(values)});
+      docs_to_add.push_back({.gid = vertex->gid.AsInt(),
+                             .properties = SerializeProperties(ordered.paths(), values, name_id_mapper),
+                             .all_property_values = StringifyProperties(values)});
     }
 
     const std::lock_guard lock(index_data_ptr->write_mutex);

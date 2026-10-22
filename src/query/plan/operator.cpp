@@ -5450,7 +5450,7 @@ CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CachePropert
 }
 
 bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
+  OOMExceptionEnabler const oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   AbortCheck(context);
