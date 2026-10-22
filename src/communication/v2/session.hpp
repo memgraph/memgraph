@@ -554,17 +554,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     };
 
     // Draining: drop the continuation; connection teardown errors the client.
-    if (session_context_->IsDrainingAdmissions()) return;
+    if (session_context_->IsDrainingAdmissions()) {
+      spdlog::trace("commit would block: dropped (draining)");
+      return;
+    }
 
     const auto id = pending_commit_task_id_.load(std::memory_order_relaxed);
     // id==0 always re-posts (mints a place-keeping id); then re-post up to the pressure-scaled cap before parking.
     const uint32_t cap = session_context_->RescheduleCap();
     if (id == 0 || pending_commit_retries_ < cap) {
       ++pending_commit_retries_;
+      spdlog::trace("commit would block: re-post (retry {})", pending_commit_retries_);
       pending_commit_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
     } else {
+      spdlog::trace("commit would block: park");
       session_context_->ParkAdmission(std::move(lambda),
                                       id,
                                       std::chrono::steady_clock::time_point::max(),
@@ -600,17 +605,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     };
 
     // Draining: drop the continuation; connection teardown errors the client.
-    if (session_context_->IsDrainingAdmissions()) return;
+    if (session_context_->IsDrainingAdmissions()) {
+      spdlog::trace("begin would block: dropped (draining)");
+      return;
+    }
 
     const auto id = pending_begin_task_id_.load(std::memory_order_relaxed);
     // Same re-post-then-park policy as PostFinishPendingCommit.
     const uint32_t cap = session_context_->RescheduleCap();
     if (id == 0 || pending_begin_retries_ < cap) {
       ++pending_begin_retries_;
+      spdlog::trace("begin would block: re-post (retry {})", pending_begin_retries_);
       pending_begin_task_id_.store(
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
     } else {
+      spdlog::trace("begin would block: park");
       const auto deadline = session_.PendingBeginDeadline();
       DMG_ASSERT(deadline != std::chrono::steady_clock::time_point::max(),
                  "PendingBegin park deadline must be finite (storage-access timeout)");

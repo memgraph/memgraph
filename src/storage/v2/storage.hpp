@@ -18,6 +18,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -257,7 +258,56 @@ struct PlanInvalidatorDefault : public PlanInvalidator {
 using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
 using CommitMutex = std::timed_mutex;
-using CommitLock = std::unique_lock<CommitMutex>;
+using CommitWakeSlot = std::atomic<std::move_only_function<void() const> *>;
+
+// Owning release (dtor / unlock() / move-assign over an owning lock) unlocks, THEN fires the slot's hook (if any),
+// so the hook never runs while the mutex is held. Move-only; moved-from is non-owning.
+class CommitLock {
+ public:
+  CommitLock() = default;
+
+  CommitLock(CommitMutex &m, CommitWakeSlot const *slot) : lk_(m), slot_(slot) {}
+
+  CommitLock(CommitMutex &m, CommitWakeSlot const *slot, std::chrono::microseconds budget)
+      : lk_(m, budget), slot_(slot) {}
+
+  CommitLock(CommitLock &&) noexcept = default;
+
+  CommitLock &operator=(CommitLock &&o) noexcept {
+    if (this != &o) {
+      Release();
+      lk_ = std::move(o.lk_);
+      slot_ = o.slot_;
+    }
+    return *this;
+  }
+
+  CommitLock(CommitLock const &) = delete;
+  CommitLock &operator=(CommitLock const &) = delete;
+
+  ~CommitLock() { Release(); }
+
+  bool owns_lock() const noexcept { return lk_.owns_lock(); }
+
+  void unlock() noexcept { Release(); }
+
+ private:
+  void Release() noexcept {
+    if (!lk_.owns_lock()) return;
+    lk_.unlock();
+    if (auto *h = slot_ ? slot_->load(std::memory_order_acquire) : nullptr) {
+      // A missed wake is recovered by the pool's monitor sweep; never throw from a release.
+      try {
+        (*h)();
+        // NOLINTNEXTLINE(bugprone-empty-catch)
+      } catch (...) {
+      }
+    }
+  }
+
+  std::unique_lock<CommitMutex> lk_;
+  CommitWakeSlot const *slot_{nullptr};
+};
 
 class Accessor;
 
@@ -410,10 +460,10 @@ class Storage {
   // Commit-mutex helpers: valid only when IsCommitSerialised(). The timed variant returns a
   // non-owning lock on timeout; check owns_lock().
   [[nodiscard]] CommitLock TryCommitLockFor(std::chrono::microseconds budget) noexcept {
-    return CommitLock{commit_mutex_, budget};
+    return CommitLock{commit_mutex_, &commit_wake_slot_, budget};
   }
 
-  [[nodiscard]] CommitLock LockCommitBlocking() { return CommitLock{commit_mutex_}; }
+  [[nodiscard]] CommitLock LockCommitBlocking() { return CommitLock{commit_mutex_, &commit_wake_slot_}; }
 
   // The flag is inert outside IN_MEMORY_TRANSACTIONAL, so gate on the mode as well.
   bool IsCommitSerialised() const noexcept {
@@ -467,24 +517,34 @@ class Storage {
   // creation.
   mutable utils::ResourceLock main_lock_;
 
-  // Install-once hook, fired from ResourceLock::maybe_notify. Cleared at shutdown; the worker pool is
-  // declared before dbms_handler in memgraph.cpp, so it outlives every storage.
-  std::atomic<bool> main_lock_hook_installed_{false};
+  // Install-once park wake hooks: main_lock_'s notify hook and commit_wake_fn_. Cleared at shutdown; the
+  // worker pool is declared before dbms_handler in memgraph.cpp, so it outlives every storage.
+  std::atomic<bool> park_wake_hooks_installing_{false};
+  std::atomic<bool> park_wake_hooks_installed_{false};
 
-  bool MainLockHookInstalled() const noexcept { return main_lock_hook_installed_.load(std::memory_order_acquire); }
+  bool ParkWakeHooksInstalled() const noexcept { return park_wake_hooks_installed_.load(std::memory_order_acquire); }
 
-  // Second call is a no-op (false); the exchange closes the race between concurrent first BEGINs.
-  bool TrySetMainLockNotifyHook(std::move_only_function<void()> hook) {
-    if (main_lock_hook_installed_.exchange(true, std::memory_order_acq_rel)) return false;
-    main_lock_.SetNotifyHook(std::move(hook));
+  // The winner installs both hooks, then publishes installed. A loser waits for that, so no caller proceeds to
+  // park before both hooks are live. Returns true for the winner only.
+  bool TryInstallParkWakeHooks(std::move_only_function<void()> main_lock_wake,
+                               std::move_only_function<void() const> commit_wake) {
+    if (park_wake_hooks_installing_.exchange(true, std::memory_order_acq_rel)) {
+      while (!park_wake_hooks_installed_.load(std::memory_order_acquire)) std::this_thread::yield();
+      return false;
+    }
+    main_lock_.SetNotifyHook(std::move(main_lock_wake));
+    commit_wake_fn_ = std::move(commit_wake);
+    commit_wake_slot_.store(&commit_wake_fn_, std::memory_order_release);
+    park_wake_hooks_installed_.store(true, std::memory_order_release);
     return true;
   }
 
-  // Permanent: the slot stays marked taken, so no later TrySet can reinstall and overwrite the hook
-  // under an in-flight reader.
-  void ClearMainLockNotifyHook() {
-    main_lock_hook_installed_.store(true, std::memory_order_release);
+  // Permanent: no later install can overwrite a hook under an in-flight reader. commit_wake_fn_ stays alive.
+  void ClearParkWakeHooks() {
+    park_wake_hooks_installing_.store(true, std::memory_order_release);
+    park_wake_hooks_installed_.store(true, std::memory_order_release);
     main_lock_.ClearNotifyHook();
+    commit_wake_slot_.store(nullptr, std::memory_order_release);
   }
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -504,6 +564,9 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
+  // Wake hook fired by CommitLock after unlock; declared before commit_mutex_ so they are destroyed after it.
+  CommitWakeSlot commit_wake_slot_{nullptr};
+  std::move_only_function<void() const> commit_wake_fn_;
   // EXPERIMENTAL (commit-lock-narrowing); only taken on the ON path. Serializes committers across
   // mint->durability->publish and guards the WAL group.
   // LOCK ORDER: main_lock_ -> commit_mutex_ -> engine_lock_. Never acquire commit_mutex_ while holding
@@ -624,6 +687,9 @@ class Accessor {
   Accessor(Accessor &&other) noexcept;
 
   virtual ~Accessor() = default;
+
+  // Read-only pre-commit existence-constraint check; false means commit would abort.
+  virtual bool ExistenceValid() { return true; }
 
   StorageAccessType original_access_type() const { return original_access_type_; }
 

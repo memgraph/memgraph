@@ -175,6 +175,13 @@ class InMemoryStorage final : public Storage {
   };
 
   class InMemoryAccessor : public Storage::Accessor {
+   public:
+    // Memoised on success only; PrepareForCommitPhase consumes and resets the memo to skip re-checking.
+    bool ExistenceValid() override {
+      if (!existence_checked_) existence_checked_ = ExistenceConstraintsViolation().has_value();
+      return existence_checked_;
+    }
+
    private:
     friend class InMemoryStorage;
 
@@ -183,6 +190,8 @@ class InMemoryStorage final : public Storage {
                               utils::ResourceLockGuard guard);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
+
+    bool existence_checked_{false};
 
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
@@ -940,7 +949,7 @@ class InMemoryStorage final : public Storage {
   // Engaged only under commit-lock-narrowing. Lock order: see Storage::commit_mutex_ (before engine_lock_).
   [[nodiscard]] std::optional<CommitLock> LockCommitMutexIfNarrowing() const {
     if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
-    return std::unique_lock{commit_mutex_};
+    return std::optional<CommitLock>{std::in_place, commit_mutex_, &commit_wake_slot_};
   }
 
  private:

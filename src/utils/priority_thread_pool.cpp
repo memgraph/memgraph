@@ -246,6 +246,7 @@ void PriorityThreadPool::AwaitShutdown() {
     const std::unique_lock lk{parked_mtx_};
     parked.swap(parked_admissions_);
     has_parked_.store(false, std::memory_order_release);
+    parked_closed_ = true;
   }
   orphans.clear();
   parked.clear();
@@ -266,7 +267,7 @@ void PriorityThreadPool::ShutDown() {
     // continuation either takes its lock at once or is dropped, leaving the client to connection teardown.
     for (auto &e : drain) e.task(utils::Priority::LOW);
   }
-  // Only after the drain: this arms ScheduledReAddTask's inline-run guard.
+  // Only after the drain: from here ScheduledReAddTask re-parks instead of posting.
   pool_stop_source_.request_stop();
   for (auto &worker : workers_) {
     worker->stop();
@@ -300,9 +301,7 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledAddTask(TaskSignature ne
 
 void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    // Run inline like ShutDown's drain: a task WakeMatching already pulled from the parked set
-    // after ShutDown's swap would otherwise be lost.
-    task(utils::Priority::LOW);
+    ReparkOnStop(std::move(task), id);
     return;
   }
   auto tid = hot_threads_.GetHotElement();
@@ -310,6 +309,21 @@ void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
     tid = last_wid_++ % max_wakeup_thread_;
   }
   workers_[*tid]->push(std::move(task), id, /*productive=*/false);
+}
+
+void PriorityThreadPool::ReparkOnStop(TaskSignature task, TaskID id) {
+  const std::unique_lock lk{parked_mtx_};
+  if (parked_closed_) {
+    // Reachable only if a non-pool waker stalls across ShutDown->AwaitShutdown. Leaking keeps its session/DB
+    // accessor alive (may delay ~Gatekeeper) but never runs teardown on a lock-holding thread.
+    (void)new TaskSignature(std::move(task));
+    return;
+  }
+  parked_admissions_.push_back({.id = id,
+                                .task = std::move(task),
+                                .deadline = std::chrono::steady_clock::time_point::max(),
+                                .resource = WaitResource::CommitLock});
+  has_parked_.store(true, std::memory_order_seq_cst);
 }
 
 std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcept {
@@ -388,6 +402,8 @@ void PriorityThreadPool::WakeMatching(WaitResource resource) {
   std::vector<WakeEntry> wakeups;
   {
     const std::unique_lock lk{parked_mtx_};
+    // Shutting down: ShutDown's swap owns the parked set (ParkAdmission refuses new parks while draining).
+    if (draining_admissions_.load(std::memory_order_acquire)) return;
     for (auto it = parked_admissions_.begin(); it != parked_admissions_.end();) {
       if (it->resource == resource) {
         wakeups.emplace_back(it->id, std::move(it->task));
@@ -398,15 +414,8 @@ void PriorityThreadPool::WakeMatching(WaitResource resource) {
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
   }  // parked_mtx_ released before ScheduledReAddTask takes Worker::mtx_
-  // Draining: run inline rather than post to workers about to stop; ScheduledReAddTask's stop-guard
-  // covers a stop requested after this check.
-  const bool draining = draining_admissions_.load(std::memory_order_acquire);
   for (auto &[id, task] : wakeups) {
-    if (draining) [[unlikely]] {
-      task(utils::Priority::LOW);
-    } else {
-      ScheduledReAddTask(std::move(task), id);
-    }
+    ScheduledReAddTask(std::move(task), id);
   }
 }
 

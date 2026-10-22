@@ -1260,7 +1260,7 @@ int main(int argc, char **argv) {
         spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
         // Stop all triggers, streams and ttl
         acc->StopAllBackgroundTasks();
-        acc->storage()->ClearMainLockNotifyHook();
+        acc->storage()->ClearParkWakeHooks();
         acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock(
             [](auto &clients) { clients.clear(); });
       });

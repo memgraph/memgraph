@@ -11369,12 +11369,12 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 }
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
-  // Install the main_lock wake hook lazily, once per DB.
   if (current_db_.db_acc_) {
     auto *storage = (*current_db_.db_acc_)->storage();
-    if (storage->IsCommitSerialised() && interpreter_context_->worker_pool && !storage->MainLockHookInstalled()) {
-      storage->TrySetMainLockNotifyHook(
-          [pool = interpreter_context_->worker_pool] { pool->WakeMatching(utils::WaitResource::MainLock); });
+    if (storage->IsCommitSerialised() && interpreter_context_->worker_pool && !storage->ParkWakeHooksInstalled()) {
+      storage->TryInstallParkWakeHooks(
+          [pool = interpreter_context_->worker_pool] { pool->WakeMatching(utils::WaitResource::MainLock); },
+          [pool = interpreter_context_->worker_pool]() { pool->WakeMatching(utils::WaitResource::CommitLock); });
     }
   }
   if (!pinned_begin_isolation_) pinned_begin_isolation_.emplace(GetIsolationLevelOverride());
@@ -11456,6 +11456,7 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
   pending_autocommit_.reset();
+  parked_prepare_.reset();
   pinned_begin_isolation_.reset();
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
@@ -11815,14 +11816,6 @@ void Interpreter::Commit() {
   // Write commits pre-take commit_mutex_ first so a blocked one throws CommitWouldBlockException before any
   // non-idempotent work. Lock order repl_state_ ReadLock -> commit_mutex_ matches DoToMainPromotion
   // (repl_state_ WRITE -> PrepareForNewEpoch); the reverse order would ABBA-deadlock.
-  // Declared before the locks below so the wake runs after both are released.
-  bool released_serializer = false;
-  auto *const wake_pool = interpreter_context_->worker_pool;
-  utils::OnScopeExit const wake_parked_commits([&released_serializer, wake_pool]() {
-    if (released_serializer && wake_pool != nullptr) {
-      wake_pool->WakeMatching(utils::WaitResource::CommitLock);
-    }
-  });
   decltype(std::optional{interpreter_context_->repl_state->ReadLock()}) locked_repl_state{std::nullopt};
   memgraph::storage::CommitLock preheld_commit_lock;
   // Before-commit triggers run ahead of the mutex acquire in PrepareForCommitPhase; pre-taking would serialise
@@ -11831,7 +11824,8 @@ void Interpreter::Commit() {
       current_db_.db_transactional_accessor_->IsCommitSerialised()) {
     auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
     bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
-    if (is_write) {
+    // An invalid accessor skips the pre-take so PrepareForCommitPhase reports the violation.
+    if (is_write && current_db_.db_transactional_accessor_->ExistenceValid()) {
       locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
       auto *pool = interpreter_context_->worker_pool;
       DMG_ASSERT(pool, "can_park_ requires a worker pool");
@@ -11844,7 +11838,6 @@ void Interpreter::Commit() {
         // Not worth parking (no waker, or idle spinners): block.
         preheld_commit_lock = current_db_.db_transactional_accessor_->LockCommitBlocking();
       }
-      released_serializer = preheld_commit_lock.owns_lock();
     }
   }
 
@@ -12024,6 +12017,11 @@ void Interpreter::Commit() {
     current_db_.CleanupDBTransaction(false);
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
+  // Declared after reset_members so both locks are released before the member teardown on unwind.
+  utils::OnScopeExit const release_locks([&]() {
+    preheld_commit_lock = {};
+    locked_repl_state.reset();
+  });
 
   if (!locked_repl_state) {
     locked_repl_state = interpreter_context_->repl_state->ReadLock();
@@ -12034,17 +12032,10 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  // A write commit that did not pre-take the serializer takes and releases it inside PrepareForCommitPhase.
-  if (!released_serializer && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
-    released_serializer = !curr_txn->deltas.empty() || !curr_txn->md_deltas.empty();
-  }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->PrepareForCommitPhase(
       make_commit_arg(is_main, *current_db_.db_acc_), std::move(preheld_commit_lock));
   // Proactively unlock repl_state
   locked_repl_state.reset();
-
-  // PrepareForNewEpoch also holds commit_mutex_ but has no pool handle to wake parked commits; the monitor sweep
-  // is the backstop.
 
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;

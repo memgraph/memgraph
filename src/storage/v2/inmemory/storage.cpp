@@ -1087,11 +1087,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{ReplicaShouldNotWriteError{}};
   }
 
-  if (auto const validation_result = ExistenceConstraintsViolation(); !validation_result.has_value()) {
-    Abort();
-    // We have not started a commit timestamp no cleanup needed for that
-    DMG_ASSERT(!commit_timestamp_.has_value());
-    return std::unexpected{validation_result.error()};
+  if (!std::exchange(existence_checked_, false)) {
+    if (auto const validation_result = ExistenceConstraintsViolation(); !validation_result.has_value()) {
+      Abort();
+      // We have not started a commit timestamp no cleanup needed for that
+      DMG_ASSERT(!commit_timestamp_.has_value());
+      return std::unexpected{validation_result.error()};
+    }
   }
 
   // Serialize committers across mint->publish: (1) mint order must equal watermark publish order;

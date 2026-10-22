@@ -153,9 +153,12 @@ class PriorityThreadPool {
 
   TaskID ScheduledAddTask(TaskSignature new_task, Priority priority, bool productive = true);
 
-  // Place-keeping re-post under the original id (FIFO order). Non-productive: retries are not counted
-  // in productive_pending_.
+  // Place-keeping, non-productive re-post under the original id. After stop it re-parks (ReparkOnStop) rather
+  // than running the task inline; callers must not hold parked_mtx_.
   void ScheduledReAddTask(TaskSignature task, TaskID id);
+
+  // Tightest AdmissionTryBudget() under max pressure (and while draining admissions); perf-tunable.
+  static constexpr std::chrono::microseconds kTryBudgetMin{2};
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -199,7 +202,7 @@ class PriorityThreadPool {
   // always true while draining.
   bool ShouldParkAdmission() const noexcept;
 
-  // Re-posts every task parked on the resource (runs them inline while draining).
+  // Re-posts every task parked on the resource; no-op while draining (ShutDown owns the set), never runs one inline.
   // Lock order: parked_mtx_ is released before ScheduledReAddTask takes Worker::mtx_.
   void WakeMatching(WaitResource resource);
 
@@ -252,7 +255,6 @@ class PriorityThreadPool {
 
  private:
   // Range for AdmissionTryBudget(); perf-tunable.
-  static constexpr std::chrono::microseconds kTryBudgetMin{2};        // tightest budget under max pressure
   static constexpr std::chrono::microseconds kTryBudgetMax{100'000};  // 100 ms: no-pressure long wait
 
   // Range for AdmissionRescheduleCap(); perf-tunable.
@@ -272,7 +274,12 @@ class PriorityThreadPool {
 
   std::array<WakeEpochCounter, 2> wake_epochs_;  // indexed by WaitResource
 
+  // Stop path of ScheduledReAddTask: parks with no deadline for AwaitShutdown to destroy; leaks it if AwaitShutdown
+  // already swapped the set.
+  void ReparkOnStop(TaskSignature task, TaskID id);
+
   std::mutex parked_mtx_;
+  bool parked_closed_{false};  // guarded by parked_mtx_; set once AwaitShutdown has swapped the parked set out
   std::deque<ParkedAdmission> parked_admissions_;  // FIFO: front = oldest
   std::atomic_bool draining_admissions_{false};    // set by ShutDown before the drain; new parks are dropped
   // Written under parked_mtx_; true iff deque is non-empty. seq_cst Dekker pairing with the wake epoch
