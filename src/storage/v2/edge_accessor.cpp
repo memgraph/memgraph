@@ -549,6 +549,12 @@ Result<void> EdgeAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordere
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
     edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
+    // A property backed by a vector index is stored as its index ids alone, and the vector itself is
+    // fetched from the index when the value is read. Reading one property at a time does this, so
+    // reading a set of them has to as well, or the value answers as an empty list.
+    auto const decoder = IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
+    for (auto &value : out) decoder.DecodeProperty(value);
     delta = edge_.ptr->delta();
   }
 
