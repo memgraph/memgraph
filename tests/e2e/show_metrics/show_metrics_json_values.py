@@ -50,6 +50,8 @@ EXPECTED_JSON_METRICS = {
         "ActiveExistenceConstraints",
         "ActiveUniqueConstraints",
         "ActiveTypeConstraints",
+        "ExistenceConstraintViolations",
+        "UniqueConstraintViolations",
     },
     "Operator": {
         "OnceOperator",
