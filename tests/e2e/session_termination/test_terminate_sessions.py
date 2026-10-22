@@ -954,5 +954,56 @@ def test_impersonating_session_owned_by_login_user(request):
     )
 
 
+def test_impersonating_caller_owns_sessions_by_login_user(request):
+    """An impersonating caller manages its login user's sessions, and only those, whatever user it executes as."""
+    superadmin_cursor = connect().cursor()
+    for user in ("imp_caller", "imp_exec"):
+        execute_and_fetch_all(superadmin_cursor, f"CREATE USER {user}")
+        execute_and_fetch_all(superadmin_cursor, f"REVOKE ALL PRIVILEGES FROM {user}")
+        execute_and_fetch_all(superadmin_cursor, f"CLEAR ROLE FOR {user}")
+    execute_and_fetch_all(superadmin_cursor, "GRANT IMPERSONATE_USER imp_exec TO imp_caller")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER imp_caller")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER imp_exec")
+
+    request.addfinalizer(on_exit)
+
+    def bolt_session(impersonated_user=None):
+        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("imp_caller", ""), max_connection_pool_size=1)
+        request.addfinalizer(driver.close)
+        session = driver.session(impersonated_user=impersonated_user) if impersonated_user else driver.session()
+        request.addfinalizer(session.close)
+        return session
+
+    impersonating = bolt_session(impersonated_user="imp_exec")
+    sibling = bolt_session()
+    impersonating_uuid = impersonating.run("SET SESSION TRACE OFF").single()[0]
+    sibling_uuid = sibling.run("SET SESSION TRACE OFF").single()[0]
+
+    # A session of another login user, which the caller has no privilege over.
+    other_cursor = connect(username="imp_exec", password="").cursor()
+    other_uuid = get_own_session_uuid(other_cursor)
+
+    # The impersonating session sees its own session and its login user's other session, but not another user's.
+    listed = {row[0]: row[1] for row in impersonating.run("SHOW SESSIONS").values()}
+    assert listed == {impersonating_uuid: "imp_caller", sibling_uuid: "imp_caller"}
+
+    # It cannot terminate another user's session, even the one it impersonates ...
+    assert [tuple(row) for row in impersonating.run(f"TERMINATE SESSIONS '{other_uuid}'").values()] == [
+        (other_uuid, False)
+    ]
+    assert_connection_alive(other_cursor)
+
+    # ... but can terminate its login user's other session.
+    assert [tuple(row) for row in impersonating.run(f"TERMINATE SESSIONS '{sibling_uuid}'").values()] == [
+        (sibling_uuid, True)
+    ]
+    wait_until(
+        lambda: sibling_uuid not in [row[0] for row in impersonating.run("SHOW SESSIONS").values()],
+        message="terminated sibling session is still listed in SHOW SESSIONS",
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

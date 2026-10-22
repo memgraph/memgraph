@@ -12,12 +12,14 @@
 
 import multiprocessing
 import sys
+import threading
 import time
 from typing import List
 
 import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
+from neo4j import GraphDatabase
 
 # Module-level setup
 # -------------------------
@@ -377,6 +379,152 @@ def test_user_cannot_see_admin_transaction(request):
     admin_connection_1.close()
     admin_connection_2.close()
     user_connection.close()
+
+
+def _create_impersonation_users(request, login: str, target: str):
+    """Creates privilege-less `login` (may impersonate `target`) and `target`; returns an observer's cursor.
+
+    The observer holds TRANSACTION_MANAGEMENT because the superadmin does not see other users' transactions.
+    """
+    superadmin_cursor = connect().cursor()
+    observer = f"{login}_observer"
+    execute_and_fetch_all(superadmin_cursor, f"CREATE USER {observer}")
+    execute_and_fetch_all(superadmin_cursor, f"GRANT TRANSACTION_MANAGEMENT TO {observer}")
+    execute_and_fetch_all(superadmin_cursor, f"GRANT DATABASE * TO {observer}")
+    for user in (login, target):
+        execute_and_fetch_all(superadmin_cursor, f"CREATE USER {user}")
+        execute_and_fetch_all(superadmin_cursor, f"REVOKE ALL PRIVILEGES FROM {user}")
+        execute_and_fetch_all(superadmin_cursor, f"CLEAR ROLE FOR {user}")
+    execute_and_fetch_all(superadmin_cursor, f"GRANT IMPERSONATE_USER {target} TO {login}")
+
+    def on_exit():
+        for user in (login, target, observer):
+            execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}")
+
+    request.addfinalizer(on_exit)
+    return connect(username=observer, password="").cursor()
+
+
+def _bolt_session(request, login: str, impersonated: str = None):
+    driver = GraphDatabase.driver("bolt://localhost:7687", auth=(login, ""), max_connection_pool_size=1)
+    request.addfinalizer(driver.close)
+    session = driver.session(impersonated_user=impersonated) if impersonated else driver.session()
+    request.addfinalizer(session.close)
+    return session
+
+
+def _start_long_query(request, session, observer_cursor):
+    def run():
+        try:
+            session.run(LONG_QUERY).consume()
+        except Exception:
+            pass  # terminated by the test
+
+    # Runs before the session is closed, which would otherwise block on a query that is still running.
+    request.addfinalizer(lambda: execute_and_fetch_all(observer_cursor, 'TERMINATE TRANSACTIONS "*"'))
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def _long_query_rows(rows):
+    return [row for row in rows if row[2] == [LONG_QUERY]]
+
+
+def test_impersonated_transaction_is_owned_by_login_user(request):
+    """A transaction run through an impersonating session belongs to its login user, not the impersonated one."""
+    observer_cursor = _create_impersonation_users(request, "tx_login", "tx_target")
+
+    long_thread = _start_long_query(
+        request, _bolt_session(request, "tx_login", impersonated="tx_target"), observer_cursor
+    )
+    wait_for_query_count(observer_cursor, LONG_QUERY, 1)
+    rows = _long_query_rows(execute_and_fetch_all(observer_cursor, "SHOW TRANSACTIONS"))
+    assert len(rows) == 1
+    assert rows[0][0] == "tx_login"
+    transaction_id = rows[0][1]
+
+    # The impersonated user does not own it: no row, and no kill without TRANSACTION_MANAGEMENT.
+    target_cursor = connect(username="tx_target", password="").cursor()
+    assert _long_query_rows(execute_and_fetch_all(target_cursor, "SHOW TRANSACTIONS")) == []
+    assert execute_and_fetch_all(target_cursor, f"TERMINATE TRANSACTIONS '{transaction_id}'") == [
+        (transaction_id, False)
+    ]
+    wait_for_query_count(observer_cursor, LONG_QUERY, 1)
+
+    # Another impersonating session of the same login user owns it: it sees the row and can kill it.
+    impersonating_caller = _bolt_session(request, "tx_login", impersonated="tx_target")
+    visible = impersonating_caller.run("SHOW TRANSACTIONS").values()
+    assert [row[1] for row in _long_query_rows(visible)] == [transaction_id]
+    assert [tuple(row) for row in impersonating_caller.run(f"TERMINATE TRANSACTIONS '{transaction_id}'").values()] == [
+        (transaction_id, True)
+    ]
+    wait_for_query_count(observer_cursor, LONG_QUERY, 0)
+    long_thread.join(timeout=10)
+
+
+def test_impersonating_caller_cannot_terminate_impersonated_users_transaction(request):
+    """An impersonating session acts as its login user, so the impersonated user's own transactions are not its own."""
+    observer_cursor = _create_impersonation_users(request, "tx_login_b", "tx_target_b")
+
+    long_thread = _start_long_query(request, _bolt_session(request, "tx_target_b"), observer_cursor)
+    wait_for_query_count(observer_cursor, LONG_QUERY, 1)
+    transaction_id = _long_query_rows(execute_and_fetch_all(observer_cursor, "SHOW TRANSACTIONS"))[0][1]
+
+    impersonating_caller = _bolt_session(request, "tx_login_b", impersonated="tx_target_b")
+    assert _long_query_rows(impersonating_caller.run("SHOW TRANSACTIONS").values()) == []
+    assert [tuple(row) for row in impersonating_caller.run(f"TERMINATE TRANSACTIONS '{transaction_id}'").values()] == [
+        (transaction_id, False)
+    ]
+    wait_for_query_count(observer_cursor, LONG_QUERY, 1)
+
+    owner_cursor = connect(username="tx_target_b", password="").cursor()
+    assert execute_and_fetch_all(owner_cursor, f"TERMINATE TRANSACTIONS '{transaction_id}'") == [(transaction_id, True)]
+    wait_for_query_count(observer_cursor, LONG_QUERY, 0)
+    long_thread.join(timeout=10)
+
+
+def test_privilege_fallback_uses_the_impersonated_user(request):
+    """TRANSACTION_MANAGEMENT is checked for the impersonated (executing) user, not the login user."""
+    superadmin_cursor = connect().cursor()  # opened before the first user exists
+    observer_cursor = _create_impersonation_users(request, "tx_login_p", "tx_target_p")
+    for user in ("tx_target_q", "tx_other"):
+        execute_and_fetch_all(superadmin_cursor, f"CREATE USER {user}")
+        execute_and_fetch_all(superadmin_cursor, f"REVOKE ALL PRIVILEGES FROM {user}")
+        execute_and_fetch_all(superadmin_cursor, f"CLEAR ROLE FOR {user}")
+    # Replaces the grant made by the helper, so both targets are listed.
+    execute_and_fetch_all(superadmin_cursor, "GRANT IMPERSONATE_USER tx_target_p, tx_target_q TO tx_login_p")
+    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO tx_target_p")
+    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO tx_target_p")
+    request.addfinalizer(
+        lambda: [execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}") for user in ("tx_target_q", "tx_other")]
+    )
+
+    # Owned by neither the login user nor any impersonated target.
+    long_thread = _start_long_query(request, _bolt_session(request, "tx_other"), observer_cursor)
+    wait_for_query_count(observer_cursor, LONG_QUERY, 1)
+    transaction_id = _long_query_rows(execute_and_fetch_all(observer_cursor, "SHOW TRANSACTIONS"))[0][1]
+
+    def sees_and_kills(session):
+        visible = [row[1] for row in _long_query_rows(session.run("SHOW TRANSACTIONS").values())]
+        killed = [tuple(row) for row in session.run(f"TERMINATE TRANSACTIONS '{transaction_id}'").values()]
+        return visible, killed
+
+    # Neither a target without the privilege nor the login user on its own (the target's grant must not leak).
+    for session in (
+        _bolt_session(request, "tx_login_p", impersonated="tx_target_q"),
+        _bolt_session(request, "tx_login_p"),
+    ):
+        assert sees_and_kills(session) == ([], [(transaction_id, False)])
+    wait_for_query_count(observer_cursor, LONG_QUERY, 1)
+
+    # The target holding the privilege makes the impersonating login session see and kill it.
+    assert sees_and_kills(_bolt_session(request, "tx_login_p", impersonated="tx_target_p")) == (
+        [transaction_id],
+        [(transaction_id, True)],
+    )
+    wait_for_query_count(observer_cursor, LONG_QUERY, 0)
+    long_thread.join(timeout=10)
 
 
 def test_wildcard_admin_kills_all(request):
