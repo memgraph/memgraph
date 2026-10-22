@@ -11,8 +11,8 @@
 
 """Shared helpers for the commit-lock-narrowing e2e suites (bounded calls, DDL contender, log probe, client runner)."""
 
-import glob
 import os
+import re
 import threading
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -22,10 +22,22 @@ from neo4j import Driver, GraphDatabase
 URI = f"bolt://127.0.0.1:{os.getenv('MEMGRAPH_BOLT_PORT', '7687')}"
 CALL_TIMEOUT_S = 60.0
 
-# The harness writes the log under <build>/e2e/logs/, dated by spdlog's daily_file_sink; the newest match is live.
-# The date digit ('_2...') keeps the auth workload's commit_lock_narrowing_auth_*.log out of the match.
+# The harness writes the log under <build>/e2e/logs/. spdlog's daily_file_sink inserts _YYYY-MM-DD before the extension,
+# and the parallel runner appends -w<slot> to the stem. The strict pattern keeps the auth workload's
+# commit_lock_narrowing_auth*.log out; the newest match is the live one.
 _BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-LOG_GLOB = os.path.join(_BUILD_DIR, "e2e", "logs", "commit_lock_narrowing_2*.log")
+LOG_DIR = os.path.join(_BUILD_DIR, "e2e", "logs")
+LOG_NAME_RE = re.compile(r"commit_lock_narrowing(-w\d+)?(_\d{4}-\d{2}-\d{2})?\.log")
+
+
+def find_log_files(log_dir: str = LOG_DIR) -> list[str]:
+    """Paths of this suite's memgraph log files (plain or date-suffixed) in log_dir."""
+    try:
+        names = os.listdir(log_dir)
+    except FileNotFoundError:
+        return []
+    return [os.path.join(log_dir, n) for n in names if LOG_NAME_RE.fullmatch(n)]
+
 
 # (driver, client index, iteration, nodes) -> nodes_created reported by the write's summary
 WriteFn = Callable[[Driver, int, int, int], int]
@@ -54,8 +66,8 @@ class LogProbe:
     """Incrementally scans the memgraph log, from the moment of construction, for lines containing a needle."""
 
     def __init__(self) -> None:
-        candidates = glob.glob(LOG_GLOB)
-        assert candidates, f"memgraph did not create a log file matching {LOG_GLOB}"
+        candidates = find_log_files()
+        assert candidates, f"memgraph did not create a log file matching {LOG_NAME_RE.pattern} in {LOG_DIR}"
         self._path = max(candidates, key=os.path.getmtime)
         self._pos = os.path.getsize(self._path)
         self._hits: set[str] = set()
