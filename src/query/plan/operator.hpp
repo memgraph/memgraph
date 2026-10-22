@@ -1392,6 +1392,11 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
     /// One group's properties arranged the way the read wants them, worked out once.
     const CacheProperties &self_;
     const UniqueCursorPtr input_cursor_;
+#ifdef MG_ENTERPRISE
+    /// Whether each of the current group's properties may be read, decided before the record is, and
+    /// reused between rows so deciding costs no allocation.
+    std::vector<bool> allowed_;
+#endif
     /// Every group's values, end to end, so that reading a row allocates nothing whatever the row
     /// is made of.
     std::vector<storage::PropertyValue> values_;

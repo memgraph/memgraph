@@ -2683,6 +2683,8 @@ namespace {
 // to `sink`. Shared by the vector-returning and into-buffer overloads.
 template <typename Sink>
 void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath const> ordered_properties, Sink sink) {
+  // Nothing asked for is nothing to read, and the deepest path of none has no depth to measure.
+  if (ordered_properties.empty()) return;
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
@@ -2742,6 +2744,11 @@ void PropertyStore::ArePropertiesEqual(OrderedPropertyPaths const &ordered_prope
                                        std::span<PropertyValue const> values, std::vector<bool> &result) const {
   auto const paths = ordered_properties.paths();
   auto const position_lookup = ordered_properties.position_lookup();
+  // Nothing asked for is nothing to compare, and the deepest path of none has no depth to measure.
+  if (paths.empty()) {
+    result.clear();
+    return;
+  }
   auto max_history_depth = r::max_element(paths, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
