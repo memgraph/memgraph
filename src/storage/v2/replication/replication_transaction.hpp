@@ -113,6 +113,10 @@ class TransactionReplication {
   // ASYNC replicas instead update their cache during durability-file recovery. Must be called after CollectAllFailures.
   void UpdateCommitTsInfo();
 
+  // Marks every ASYNC replica MAYBE_BEHIND so the frequent check schedules its durability-file recovery. Must run
+  // after the commit is published, including when the commit path unwinds after publishing.
+  void MarkAsyncReplicasForRecovery() noexcept;
+
  private:
   // Ships the transaction end for one replica: the 1st 2PC phase for STRICT_SYNC, the full finalize
   // when no 2PC runs. Quick and RPC-free for a null stream.

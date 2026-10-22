@@ -249,16 +249,20 @@ void TransactionReplication::UpdateCommitTsInfo() {
   CommitTsInfo const observed{.ldt_ = durability_commit_timestamp_, .num_committed_txns_ = commit_num_committed_txns_};
   for (auto const &client : *locked_clients) {
     if (failed_replicas_.contains(client->Name())) continue;
-    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      // The main transaction committed. Trigger periodic durability-file recovery without interrupting recovery that
-      // is already in progress.
-      client->MarkForRecovery();
-      continue;
-    }
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
     // Advance-only merge to this txn's absolute value rather than a blind +1, so a heartbeat that already folded in
     // the replica's self-reported count for this txn can't be double-counted.
     atomic_struct_update<CommitTsInfo>(client->commit_ts_info_,
                                        [observed](CommitTsInfo const &cur) { return Max(cur, observed); });
+  }
+}
+
+void TransactionReplication::MarkAsyncReplicasForRecovery() noexcept {
+  for (auto const &client : *locked_clients) {
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+      // Trigger periodic durability-file recovery without interrupting recovery that is already in progress.
+      client->MarkForRecovery();
+    }
   }
 }
 

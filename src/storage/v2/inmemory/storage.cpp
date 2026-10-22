@@ -1180,10 +1180,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto res = commit_args.apply_if_main(
       [&](DatabaseProtector const & /*protector*/) -> std::expected<void, StorageManipulationError> {
         // From this point on, only main executes this
+        // Once the commit is published, ASYNC replicas are marked behind even if the bookkeeping below throws;
+        // otherwise they would stay READY and stale until the next commit. Declared first so it runs after
+        // publish_on_unwind.
+        bool published = false;
+        utils::OnScopeExit const mark_async_on_exit{[&] {
+          if (published) replicating_txn.MarkAsyncReplicasForRecovery();
+        }};
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
           with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
+          published = true;
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1207,7 +1215,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
         // The WAL commit flag is durable and replicas may have committed: an exception below must still publish,
         // otherwise ~InMemoryAccessor aborts a transaction the WAL considers committed.
-        bool published = false;
         utils::OnScopeExit const publish_on_unwind{[&] {
           if (!repl_prepare_phase_ok || published) return;
           published = true;
