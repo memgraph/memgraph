@@ -724,9 +724,8 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &
 
 namespace {
 
-// Copies the current WAL, its on-disk prefix plus the buffered tail, into a temporary file next to the WAL
-// directory. Runs under engine_lock_, so no append lands between the two parts and the copy ends on a
-// transaction boundary.
+// Copies the on-disk part of the current WAL into a temporary file next to the WAL directory. Runs under
+// engine_lock_ with flushing disabled, so the file does not change while it is read.
 auto CopyCurrentWal(durability::WalFile &wal_file, std::filesystem::path const &root_data_dir)
     -> std::optional<FileToSend> {
   wal_file.DisableFlushing();
@@ -751,8 +750,6 @@ auto CopyCurrentWal(durability::WalFile &wal_file, std::filesystem::path const &
       if (!copy.Write(buffer.data(), chunk)) return false;
       remaining -= chunk;
     }
-    auto const [tail, tail_size] = wal_file.CurrentFileBuffer();
-    if (tail_size > 0 && !copy.Write(tail, tail_size)) return false;
     copy.Close();
     return true;
   }();
