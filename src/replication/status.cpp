@@ -37,6 +37,7 @@ constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kVersion = "durability_version";
 constexpr auto *kMainUUID = "main_uuid";
 constexpr auto *kDeltasBatchProgressSize = "deltas_batch_progress_size";
+constexpr auto kMinReplicaCheckFrequency = std::chrono::seconds{1};
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
@@ -117,11 +118,21 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   using io::network::Endpoint;
 
-  auto const seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
+  auto name = j.at(kReplicaName).get<std::string>();
+  auto replica_check_frequency = std::chrono::seconds{j.at(kCheckFrequency).get<std::chrono::seconds::rep>()};
+  // Older versions accepted 0, which disables the periodic check that catches up ASYNC replicas.
+  if (replica_check_frequency < kMinReplicaCheckFrequency) {
+    spdlog::warn("Recovered replica {} with {}={}s, which is below the supported minimum; using {}s instead.",
+                 name,
+                 kCheckFrequency,
+                 replica_check_frequency.count(),
+                 kMinReplicaCheckFrequency.count());
+    replica_check_frequency = kMinReplicaCheckFrequency;
+  }
   auto config = ReplicationClientConfig{
-      .name = j.at(kReplicaName).get<std::string>(),
+      .name = std::move(name),
       .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
-      .replica_check_frequency = std::chrono::seconds{seconds},
+      .replica_check_frequency = replica_check_frequency,
   };
 
   auto repl_server_endpoint = [j]() -> Endpoint {
