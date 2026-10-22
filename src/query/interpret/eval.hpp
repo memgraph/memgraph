@@ -1257,8 +1257,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
-  /// Which record a cache entry was read from. Vertices and edges are numbered apart, so an id alone does
-  /// not tell one from the other, and a single symbol can hold either: `UNWIND [n, e] AS x` binds both to it.
+  /// Which record a cache entry was read from. Vertex ids and edge ids come from separate sequences, so one
+  /// number can name one of each, and a single symbol can hold either: `UNWIND [n, e] AS x` binds both to it.
   struct RecordIdentity {
     enum class Kind : uint8_t { Vertex, Edge };
     Kind kind;
@@ -1310,6 +1310,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <RecordIdentity::Kind kind, class TRecordAccessor>
   TypedValue CachedPropertyValue(const TRecordAccessor &record_accessor, const PropertyLookup &property_lookup) {
     auto const record = RecordIdentity{kind, record_accessor.Gid()};
+    DMG_ASSERT(property_lookup.expression_->GetTypeInfo() == Identifier::kType,
+               "A lookup reading every property must read them off an identifier, which is the only expression "
+               "the evaluation mode is assigned to");
     auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
     auto it = property_lookup_cache_.find(symbol_pos);
     if (it == property_lookup_cache_.end() || it->second.record != record) {
@@ -1364,8 +1367,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   ///
   /// A list comprehension steps its element through a list, and an operator whose evaluator outlives a
   /// row rebinds on each one, neither of them reaching this cache. An entry therefore answers only for
-  /// the record it names.
-  mutable std::unordered_map<int32_t, CachedProperties> property_lookup_cache_{};
+  /// the record it names. Whether that record's own properties have since been written is a separate
+  /// question, which an entry cannot answer and the aggregation's per-row clear covers.
+  std::unordered_map<int32_t, CachedProperties> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;
