@@ -664,9 +664,7 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
 
       std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        owner = status.owner_uuid
-                    ? ic->auth_checker->GenRestoredQueryUser(status.owner, status.owner_roles, status.owner_uuid)
-                    : ic->auth_checker->GenQueryUser(status.owner, status.owner_roles);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_roles, status.owner_uuid);
       } catch (const utils::BasicException &e) {
         spdlog::warn(
             fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));

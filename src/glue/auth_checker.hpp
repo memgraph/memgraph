@@ -23,11 +23,8 @@ class AuthChecker : public query::AuthChecker {
   explicit AuthChecker(auth::SynchedAuth *auth);
 
   std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
-                                                       const std::vector<std::string> &rolenames) const override;
-
-  std::shared_ptr<query::QueryUserOrRole> GenRestoredQueryUser(
-      const std::optional<std::string> &username, const std::vector<std::string> &rolenames,
-      const std::optional<utils::UUID> &expected_uuid) const override;
+                                                       const std::vector<std::string> &rolenames,
+                                                       std::optional<utils::UUID> expected_uuid = {}) const override;
 
   static std::unique_ptr<query::QueryUserOrRole> GenQueryUser(auth::SynchedAuth *auth,
                                                               const std::optional<auth::UserOrRole> &user_or_role);
