@@ -5489,6 +5489,28 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       continue;
     }
 
+#ifdef MG_ENTERPRISE
+    // A lookup answers Null for a property the caller may not read without ever reaching the record,
+    // so a group of nothing but denied properties must not read one either: doing so would report a
+    // deleted or missing record for a read the query was never allowed to make.
+    allowed_.assign(group.properties.size(), true);
+    auto any_allowed = false;
+    for (std::size_t slot = 0; slot != group.properties.size(); ++slot) {
+      auto const &cached = group.properties[group.ordered().position_lookup()[slot]];
+      allowed_[slot] =
+          reads_a_vertex ? PropertyReadAllowed(
+                               context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
+                         : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), cached.property_id);
+      any_allowed = any_allowed || allowed_[slot];
+    }
+    if (!any_allowed) {
+      for (const auto &cached : group.properties) {
+        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+      }
+      continue;
+    }
+#endif
+
     // NEW so that the row sees writes made earlier in this same transaction, as a
     // property lookup evaluated at this point would.
     auto const read =
@@ -5511,13 +5533,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       const auto &cached = group.properties[group.ordered().position_lookup()[slot]];
       auto &value = slots[slot];
 #ifdef MG_ENTERPRISE
-      // A property the caller may not read reads back as Null from an expression, so it has to read back as Null from
-      // the cache too; otherwise moving a lookup into the cache would hand out a value the query could not have got.
-      auto const allowed =
-          reads_a_vertex ? PropertyReadAllowed(
-                               context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
-                         : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), cached.property_id);
-      if (!value.IsNull() && !allowed) {
+      // Decided above, before the record was read.
+      if (!value.IsNull() && !allowed_[slot]) {
         value = storage::PropertyValue{};
       }
 #endif

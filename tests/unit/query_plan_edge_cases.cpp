@@ -420,6 +420,30 @@ TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
   EXPECT_EQ(mixed[0][2].ValueInt(), 1);
 }
 
+// AND stops on a false first operand and OR on a true one, so whether the second is read at all is
+// decided while the row is evaluated. A pass reads what it was asked for before that happens, so a
+// lookup reachable only through one of them is left to the lookup.
+TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
+  this->Execute("CREATE (:Q {a: 1, b: 2}), (:G {t: true})");
+
+  auto explained = [this](const std::string &query) {
+    auto results = this->Execute(query);
+    std::string joined;
+    for (const auto &row : results) joined += row[0].ValueString();
+    return joined;
+  };
+
+  CachePropertiesFlagGuard guard{true};
+  // The first operand is read from another node, so it is not folded away before planning.
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, g.t OR n.b AS y").find("CacheProperties"),
+            std::string::npos);
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, g.t AND n.b AS q").find("CacheProperties"),
+            std::string::npos);
+
+  // A projection reading the same properties outside a short circuit still gets its pass.
+  EXPECT_NE(explained("EXPLAIN MATCH (n:Q) RETURN n.a AS r, n.b AS s").find("CacheProperties"), std::string::npos);
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesReadsAGroupWhoseOrderIsNotTheRecordsOrder) {
   // One pass over a record finds each property from where the last one stopped, so it cannot go
   // back for one it has already passed. A projection names its properties in whatever order the

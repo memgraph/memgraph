@@ -20,6 +20,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
 /// Replaying a delta chain over a record means handling one delta action at a time, and the actions
@@ -123,6 +124,12 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
 inline auto PropertyValues_ActionMethod(std::span<PropertyPath const> ordered_properties,
                                         std::span<PropertyValue> values) {
   using enum DeltaAction;
+  // The search below orders on the leaf of each path, which agrees with the order the paths are held
+  // in only while every path names a single property. A delta carries a top-level property and the
+  // whole of its new value, so a nested path would both sort elsewhere and need re-walking: it would
+  // find no slot and quietly leave the old value in place.
+  DMG_ASSERT(std::ranges::all_of(ordered_properties, [](PropertyPath const &path) { return path.size() == 1; }),
+             "Replaying a property delta over a set of paths handles only single-property paths");
   return ActionMethod<SET_PROPERTY>([ordered_properties, values](Delta const &delta) {
     auto const it = std::ranges::lower_bound(
         ordered_properties, delta.property.key, std::less<>{}, [](PropertyPath const &path) { return path.back(); });

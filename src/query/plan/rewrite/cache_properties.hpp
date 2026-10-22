@@ -148,9 +148,7 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     AcceptExpression(op.expression2_); \
   }
 
-  BINARY_VISIT(OrOperator)
   BINARY_VISIT(XorOperator)
-  BINARY_VISIT(AndOperator)
   BINARY_VISIT(NotEqualOperator)
   BINARY_VISIT(EqualOperator)
   BINARY_VISIT(InListOperator)
@@ -180,6 +178,14 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   void Visit(Extract &op) override { AcceptExpression(op.expression_); }
 
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
+
+  // These decide at runtime whether their second operand is evaluated at all: AND stops on a false
+  // first operand and OR on a true one. A pass reads what it was asked for before any expression
+  // runs, so caching a lookup reachable only through one would read a record the query never asked
+  // to be read, and answer with an error where the lookup was never going to happen.
+  void Visit(AndOperator &op) override {}
+
+  void Visit(OrOperator &op) override {}
 
   // An Aggregation's inner expression is evaluated by the Aggregate operator below this Produce, so a cache inserted
   // above it would leave the slot unwritten. Pattern comprehensions and subqueries are likewise evaluated by a
