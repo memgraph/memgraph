@@ -263,6 +263,7 @@ fips_unlicensed_checks() {
   fips_unlicensed_refuses "CREATE USER fips_unlicensed IDENTIFIED BY 'fips_unlicensed1234';" || return 1
   # SET DATABASE SETTING itself is not enough; only the two license settings pass.
   fips_unlicensed_refuses "SET DATABASE SETTING 'log.level' TO 'TRACE';" || return 1
+  fips_unlicensed_refuses "BEGIN;" || return 1
 
   fips_unlicensed_accepts "SET DATABASE SETTING 'organization.name' TO '$MEMGRAPH_ORGANIZATION_NAME';" \
     "SET DATABASE SETTING 'organization.name'" || return 1

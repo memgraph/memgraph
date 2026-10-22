@@ -3492,6 +3492,16 @@ bool AllowedUnlicensedInFipsMode(ParsedQuery const &parsed_query) {
   auto const name = std::string{setting_name.ValueString()};
   return name == license::kEnterpriseLicenseSettingKey || name == license::kOrganizationNameSettingKey;
 }
+
+bool UnlicensedInFipsMode() { return utils::FipsEnabled() && !license::global_license_checker.IsEnterpriseValidFast(); }
+
+[[noreturn]] void ThrowUnlicensedInFipsMode() {
+  throw QueryRuntimeException(
+      "FIPS mode requires a valid enterprise license. Until one is set, only SHOW DATABASE SETTINGS, SET DATABASE "
+      "SETTING '{}' and SET DATABASE SETTING '{}' are accepted.",
+      license::kOrganizationNameSettingKey,
+      license::kEnterpriseLicenseSettingKey);
+}
 }  // namespace
 #endif
 
@@ -3957,6 +3967,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
       // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
       // becomes large.
       handler = [this, extras = extras] {
+#ifdef MG_ENTERPRISE
+        // None of the queries an unlicensed FIPS instance accepts can run in an explicit transaction.
+        if (UnlicensedInFipsMode()) {
+          ThrowUnlicensedInFipsMode();
+        }
+#endif
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
@@ -10715,14 +10731,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
 #ifdef MG_ENTERPRISE
   // FIPS mode is enterprise only, but an instance may start without a license and receive it over Bolt. Until it
-  // does, nothing is served except reading the settings and the two settings that license it.
-  if (utils::FipsEnabled() && !license::global_license_checker.IsEnterpriseValidFast() &&
-      !AllowedUnlicensedInFipsMode(parsed_query)) {
-    throw QueryRuntimeException(
-        "FIPS mode requires a valid enterprise license. Until one is set, only SHOW DATABASE SETTINGS, SET DATABASE "
-        "SETTING '{}' and SET DATABASE SETTING '{}' are accepted.",
-        license::kOrganizationNameSettingKey,
-        license::kEnterpriseLicenseSettingKey);
+  // does, nothing is served except reading the settings and the two settings that license it. BEGIN is refused in
+  // its handler.
+  if (UnlicensedInFipsMode() && !AllowedUnlicensedInFipsMode(parsed_query)) {
+    ThrowUnlicensedInFipsMode();
   }
 #endif
 

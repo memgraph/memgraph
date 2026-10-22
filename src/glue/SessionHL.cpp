@@ -319,6 +319,8 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(co
       interpreter_.SetUser(session_user_or_role_);
 #endif
       interpreter_.SetSessionInfo(UUID(), std::string{auth::kInternalSystemUsername}, GetLoginTimestamp());
+      // The principal carries no username, so name it for the slow- and failed-query logs.
+      interpreter_.GetLogContext()->SetUser(std::string{auth::kInternalSystemUsername});
       TryDefaultDB();
       return {};
     case auth::InternalSystemUserLogin::kRejected:
@@ -485,6 +487,7 @@ std::optional<bool> SessionHL::CoordinatorInternalSystemUserAuthenticate(const s
                                         static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
   interpreter_.SetCoordinatorRoles({});
   interpreter_.SetSessionInfo(UUID(), std::string{auth::kInternalSystemUsername}, GetLoginTimestamp());
+  interpreter_.GetLogContext()->SetUser(std::string{auth::kInternalSystemUsername});
   return true;
 }
 
