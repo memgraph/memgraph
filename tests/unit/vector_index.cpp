@@ -287,6 +287,7 @@ TEST_F(VectorIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
   std::atomic<bool> stop{false};
   std::atomic<uint64_t> wrong_values{0};
   std::atomic<uint64_t> failed_reads{0};
+  std::atomic<uint64_t> checked_reads{0};
   std::atomic<uint64_t> aborts_started{0};
   std::atomic<uint64_t> aborts_done{0};
 
@@ -317,10 +318,10 @@ TEST_F(VectorIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
           const auto started_after = aborts_started.load();
           if (!ok) {
             failed_reads.fetch_add(1, std::memory_order_relaxed);
-          } else if (out != committed) {
+          } else if (started_after == done_before) {
             // Rollback restores the store before the index, so a read overlapping any Abort() is not checked.
-            const bool overlaps_abort = started_after > done_before;
-            if (!overlaps_abort) wrong_values.fetch_add(1, std::memory_order_relaxed);
+            checked_reads.fetch_add(1, std::memory_order_relaxed);
+            if (out != committed) wrong_values.fetch_add(1, std::memory_order_relaxed);
           }
         }
       }
@@ -334,6 +335,7 @@ TEST_F(VectorIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
 
   EXPECT_EQ(wrong_values.load(), 0u);
   EXPECT_EQ(failed_reads.load(), 0u);
+  EXPECT_GT(checked_reads.load(), 0u) << "every read overlapped an abort, so nothing was checked";
 }
 
 TEST_F(VectorIndexTest, DeleteVertexTest) {

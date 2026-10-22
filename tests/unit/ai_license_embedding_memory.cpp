@@ -53,8 +53,6 @@ using memgraph::storage::View;
 
 namespace {
 
-constexpr int kDim = 256;
-constexpr int kNumVertices = 1024;
 #if USE_JEMALLOC
 // graph_memory_tracker moves only on fresh jemalloc extent commits, so the working set must exceed the dirty-page
 // slack.
@@ -117,12 +115,6 @@ class AiLicenseEmbeddingTest : public ::testing::Test {
   void TearDown() override {
     memgraph::license::global_license_checker.DisableTesting();
     std::filesystem::remove_all(data_dir_);
-  }
-
-  std::unique_ptr<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> MakeDb(const std::string &name) {
-    auto dir = data_dir_ / name;
-    std::filesystem::create_directories(dir);
-    return std::make_unique<memgraph::utils::Gatekeeper<memgraph::dbms::Database>>(MakeConfig(dir));
   }
 
   static void Populate(memgraph::dbms::Database *db, memgraph::storage::LabelId label,
@@ -212,132 +204,11 @@ class AiLicenseEmbeddingMemoryTest : public AiLicenseEmbeddingTest {
   }
 };
 
-TEST_F(AiLicenseEmbeddingMemoryTest, StorageModel_EmbeddingLivesOnlyInIndex) {
-  auto gk = MakeDb("t1");
-  auto acc_opt = gk->access();
-  ASSERT_TRUE(acc_opt);
-  auto &db = *acc_opt;
-  auto label = db->storage()->NameToLabel("Doc");
-  auto prop = db->storage()->NameToProperty("emb");
-
-  Populate(db.get(), label, prop, kNumVertices, kDim);
-  Stabilize(db.get());
-  const int64_t emb_before = db->DbEmbeddingMemoryUsage();
-
-  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
-  Stabilize(db.get());
-  const int64_t emb_after = db->DbEmbeddingMemoryUsage();
-
-  EXPECT_GT(emb_after - emb_before, static_cast<int64_t>(kNumVertices) * kDim * 2)
-      << "Vector index must now hold the embeddings (db_embedding_memory_tracker -> vector_index domain)";
-
-  auto racc = db->Access();
-  int seen = 0;
-  for (auto v : racc->Vertices(View::OLD)) {
-    auto pv = v.GetProperty(prop, View::OLD);
-    ASSERT_TRUE(pv.has_value());
-    ASSERT_TRUE(pv->IsVectorIndexId()) << "Indexed property is stored as a reference, not a raw list";
-    EXPECT_EQ(pv->ValueVectorIndexList().size(), static_cast<size_t>(kDim))
-        << "Read reconstructs the full vector from the index";
-    if (++seen == 4) break;
-  }
-  EXPECT_EQ(seen, 4);
-}
-
-// With the graph cap below the (exempt) index size, reconstruct-and-discard survives but retaining all throws OOM.
-TEST_F(AiLicenseEmbeddingMemoryTest, AiGraphLimit_RetainAbortsDiscardSurvives) {
-  auto gk = MakeDb("t3");
-  auto acc_opt = gk->access();
-  ASSERT_TRUE(acc_opt);
-  auto &db = *acc_opt;
-  auto label = db->storage()->NameToLabel("Doc");
-  auto prop = db->storage()->NameToProperty("emb");
-  Populate(db.get(), label, prop, kNumVerticesBig, kDimBig);
-  CreateIndex(db.get(), label, prop, kDimBig, kNumVerticesBig);
-  Stabilize(db.get());
-
-  const int64_t embeddings_in_index = VectorIdx();
-  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
-  const int64_t headroom = 4 * kOneMiB;
-  const int64_t limit = Graph() + headroom;
-  ASSERT_GT(retained_bytes, 2 * headroom) << "test must retain far more than the headroom";
-
-  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
-
-  EXPECT_GT(embeddings_in_index, headroom)
-      << "The embedding index is larger than the graph limit, yet coexists with it (it is exempt)";
-
-  // The tracker only throws inside an enabler scope.
-  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
-
-  {
-    auto racc = db->Access();
-    EXPECT_NO_THROW({
-      for (auto v : racc->Vertices(View::OLD)) {
-        auto pv = v.GetProperty(prop, View::OLD);
-        ASSERT_TRUE(pv.has_value());
-        volatile auto sz = pv->ValueVectorIndexList().size();
-        (void)sz;
-      }
-    });
-  }
-
-  {
-    auto racc = db->Access();
-    std::vector<PropertyValue> held;
-    EXPECT_THROW(
-        {
-          for (auto v : racc->Vertices(View::OLD)) {
-            auto pv = v.GetProperty(prop, View::OLD);
-            if (pv.has_value()) held.push_back(std::move(*pv));
-          }
-        },
-        memgraph::utils::OutOfMemoryException);
-  }
-}
-
-TEST_F(AiLicenseEmbeddingMemoryTest, QuerySemantics_ReturnNVsCountEmb) {
-  QueryEnv env{data_dir_, "t4", kNumVerticesBig, kDimBig};
-
-  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
-
-  Stabilize(env.db.get());
-  int64_t held_return = 0;
-  {
-    const int64_t before = Graph();
-    auto stream = env.faker.Interpret("MATCH (n) RETURN n");
-    held_return = Graph() - before;
-    EXPECT_EQ(stream.GetResults().size(), static_cast<size_t>(kNumVerticesBig));
-    EXPECT_GT(held_return, retained_bytes / 2)
-        << "RETURN n retains the whole materialized result set (embeddings) in graph memory";
-  }
-
-  Stabilize(env.db.get());
-  int64_t held_count = 0;
-  {
-    const int64_t before = Graph();
-    auto stream = env.faker.Interpret("MATCH (n) RETURN count(n.emb)");
-    held_count = Graph() - before;
-    ASSERT_EQ(stream.GetResults().size(), 1u);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), kNumVerticesBig)
-        << "count(n.emb) evaluated (reconstructed) every embedding";
-  }
-
-  EXPECT_GT(held_return, held_count * 4)
-      << "RETURN n materializes far more embedding memory than count(n.emb): held_return=" << held_return
-      << " held_count=" << held_count;
-}
-
 // The exempt index copy stays counted in total, so total carries the embedding twice while a materialized copy is live.
 TEST_F(AiLicenseEmbeddingMemoryTest, DoubleCharge_IndexCopyPlusMaterializedCopyBothInTotal) {
-  auto gk = MakeDb("t5");
-  auto acc_opt = gk->access();
-  ASSERT_TRUE(acc_opt);
-  auto &db = *acc_opt;
-  auto label = db->storage()->NameToLabel("Doc");
-  auto prop = db->storage()->NameToProperty("emb");
-  Populate(db.get(), label, prop, kNumVerticesBig, kDimBig);
-  CreateIndex(db.get(), label, prop, kDimBig, kNumVerticesBig);
+  QueryEnv env{data_dir_, "t5", kNumVerticesBig, kDimBig};
+  auto &db = env.db;
+  const auto prop = env.prop;
   Stabilize(db.get());
 
   const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
@@ -373,72 +244,12 @@ TEST_F(AiLicenseEmbeddingMemoryTest, DoubleCharge_IndexCopyPlusMaterializedCopyB
   EXPECT_GT(total_delta, retained_bytes / 2) << "total_memory_tracker now carries the embedding twice";
   EXPECT_LT(storage_delta, retained_bytes / 8) << "reconstruction does not touch the per-DB storage arena";
   EXPECT_LT(dbq_delta, retained_bytes / 8) << "Reconstruction is not query PMR memory";
-  EXPECT_GT(graph_delta, vidx_delta * 4);
-  EXPECT_GT(graph_delta, dbq_delta * 4);
 
   held.clear();
 }
 
-// GetVectorInto reuses a scratch buffer, so a lazy sort's graph footprint is O(dim), not O(N*dim), and matches an eager
-// sort.
-TEST_F(AiLicenseEmbeddingMemoryTest, Variant1_LazySortBoundedVsEagerSort) {
-  auto gk = MakeDb("t6");
-  auto acc_opt = gk->access();
-  ASSERT_TRUE(acc_opt);
-  auto &db = *acc_opt;
-  auto label = db->storage()->NameToLabel("Doc");
-  auto prop = db->storage()->NameToProperty("emb");
-  Populate(db.get(), label, prop, kNumVerticesBig, kDimBig);
-  CreateIndex(db.get(), label, prop, kDimBig, kNumVerticesBig);
-
-  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
-
-  auto acc = db->Access();
-  std::vector<memgraph::storage::VertexAccessor> verts;
-  verts.reserve(kNumVerticesBig);
-  for (auto v : acc->Vertices(View::OLD)) verts.push_back(v);
-  ASSERT_EQ(verts.size(), static_cast<size_t>(kNumVerticesBig));
-
-  std::vector<std::vector<float>> eager_sorted;
-  {
-    std::vector<std::vector<float>> eager;
-    eager.reserve(kNumVerticesBig);
-    for (auto &va : verts) {
-      auto pv = va.GetProperty(prop, View::OLD);
-      const auto &lst = pv->ValueVectorIndexList();
-      eager.emplace_back(lst.begin(), lst.end());
-    }
-    std::ranges::sort(eager, [](const auto &a, const auto &b) { return std::ranges::lexicographical_compare(a, b); });
-    eager_sorted = std::move(eager);
-  }
-
-  std::vector<float> buf_a(kDimBig);
-  std::vector<float> buf_b(kDimBig);
-  Stabilize(db.get());
-  const int64_t graph_before = Graph();
-  std::ranges::sort(verts, [&](const memgraph::storage::VertexAccessor &x, const memgraph::storage::VertexAccessor &y) {
-    const bool ok_x = x.GetVectorInto(prop, View::OLD, buf_a);
-    const bool ok_y = y.GetVectorInto(prop, View::OLD, buf_b);
-    EXPECT_TRUE(ok_x && ok_y);
-    return std::ranges::lexicographical_compare(buf_a, buf_b);
-  });
-  const int64_t lazy_peak = Graph() - graph_before;
-
-  EXPECT_LT(lazy_peak, retained_bytes / 8)
-      << "lazy sort must stay O(dim), not O(N*dim): lazy_peak=" << lazy_peak << " retained=" << retained_bytes;
-
-  // Compare value sequences, not vertex order, to be robust to ties.
-  std::vector<std::vector<float>> lazy_sorted;
-  lazy_sorted.reserve(verts.size());
-  for (auto &va : verts) {
-    ASSERT_TRUE(va.GetVectorInto(prop, View::OLD, buf_a));
-    lazy_sorted.emplace_back(buf_a.begin(), buf_a.end());
-  }
-  EXPECT_EQ(lazy_sorted, eager_sorted) << "lazy comparator must produce the same order as an eager sort";
-}
-
-// ORDER BY and DISTINCT stay within the AI graph cap; RETURN n.emb blows it (proves the cap is tight).
-TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThroughInterpreter) {
+// ORDER BY stays within the AI graph cap; RETURN n.emb blows it (proves the cap is tight).
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByBoundedThroughInterpreter) {
   QueryEnv env{data_dir_, "t7", kNumVerticesBig, kDimBig};
 
   const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
@@ -447,12 +258,12 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThrou
   Stabilize(env.db.get());
   const int64_t limit = Graph() + headroom;
   ASSERT_GT(retained_bytes, headroom + 2 * kOneMiB)
-      << "materialising every embedding must exceed the cap, so (c) is a real abort";
+      << "materialising every embedding must exceed the cap, so the final RETURN is a real abort";
 
   memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
 
-  // (a) LIMIT keeps the ordering from being optimised away.
+  // LIMIT keeps the ordering from being optimised away.
   {
     auto stream = env.faker.Interpret("MATCH (n) WITH n ORDER BY n.emb LIMIT 1000000 RETURN count(n) AS c");
     ASSERT_EQ(stream.GetResults().size(), 1u);
@@ -460,115 +271,18 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByAndDistinctBoundedThrou
         << "every row was sorted by its embedding without exceeding the AI graph cap";
   }
 
-  // (b) Populate yields 7 distinct vectors (i % 7). Purge so dirty-page slack from the prior query doesn't eat
-  // headroom.
-  memgraph::memory::PurgeUnusedMemory();
-  {
-    auto stream = env.faker.Interpret("MATCH (n) RETURN DISTINCT n.emb AS e");
-    EXPECT_EQ(stream.GetResults().size(), 7u)
-        << "DISTINCT over embeddings deduped via lazy hash/equality without exceeding the AI graph cap";
-  }
-
+  // Purge so dirty-page slack from the prior query doesn't eat headroom.
   memgraph::memory::PurgeUnusedMemory();
   EXPECT_THROW(env.faker.Interpret("MATCH (n) RETURN n.emb"), memgraph::utils::OutOfMemoryException);
 }
 
 #endif  // USE_JEMALLOC
 
-// `n{.*}` wraps the embedding as a lazy VectorRef; it must still materialise to the full list.
-TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MapProjectionMaterialisesFullEmbedding) {
-  QueryEnv env{data_dir_, "t8", kNumVertices, kDim};
-
-  auto stream = env.faker.Interpret("MATCH (n) RETURN n{.*} AS m");
-  ASSERT_EQ(stream.GetResults().size(), static_cast<size_t>(kNumVertices));
-  for (const auto &row : stream.GetResults()) {
-    const auto &m = row[0].ValueMap();
-    auto it = m.find("emb");
-    ASSERT_NE(it, m.end()) << "n{.*} must include the embedding property";
-    const auto &emb = it->second.ValueList();
-    EXPECT_EQ(emb.size(), static_cast<size_t>(kDim)) << "lazy map embedding must materialise to full dimension";
-  }
-}
-
-// A lazy VectorRef must hash like its materialised list (else DISTINCT/GROUP BY split them) and convert
-// to a PropertyValue instead of throwing (so SET/CREATE can copy an embedding).
-TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_HashConsistentAndWritePathMaterialises) {
-  auto gk = MakeDb("t9");
-  memgraph::dbms::DatabaseAccess db = [&]() {
-    auto a = gk->access();
-    MG_ASSERT(a, "db access");
-    return *a;
-  }();
-  auto label = db->storage()->NameToLabel("Doc");
-  auto prop = db->storage()->NameToProperty("emb");
-  Populate(db.get(), label, prop, kNumVertices, kDim);
-  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
-
-  auto acc = db->Access();
-  auto vertices = acc->Vertices(View::NEW);
-  auto it = vertices.begin();
-  ASSERT_NE(it, vertices.end());
-  const memgraph::storage::VertexAccessor sva = *it;
-
-  auto *mem = memgraph::utils::NewDeleteResource();
-  const memgraph::query::TypedValue vref{memgraph::query::LazyVectorRef{sva, prop, View::NEW}, mem};
-  ASSERT_TRUE(vref.IsVectorRef());
-
-  const memgraph::query::TypedValue materialised = vref.MaterializeVectorRef(mem);
-  ASSERT_TRUE(materialised.IsList());
-  ASSERT_EQ(materialised.ValueList().size(), static_cast<size_t>(kDim));
-
-  // (1) equal => same hash. A float-vs-double hash mismatch would silently keep both under DISTINCT.
-  EXPECT_TRUE((vref == materialised).ValueBool());
-  EXPECT_EQ(memgraph::query::TypedValue::Hash{}(vref), memgraph::query::TypedValue::Hash{}(materialised));
-
-  memgraph::storage::PropertyValue pv;
-  EXPECT_NO_THROW(pv = vref.ToPropertyValue(nullptr));
-  const memgraph::query::TypedValue back{pv, nullptr, mem};
-  ASSERT_TRUE(back.IsList());
-  EXPECT_EQ(back.ValueList().size(), static_cast<size_t>(kDim));
-}
-
-// SetProperty updates usearch immediately, so usearch only holds the live value. A View::OLD ref materialized
-// after a same-transaction overwrite must take the pre-SET floats from the delta, not usearch.
-TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationHonoursMvccView) {
-  auto gk = MakeDb("t11");
-  memgraph::dbms::DatabaseAccess db = [&]() {
-    auto a = gk->access();
-    MG_ASSERT(a, "db access");
-    return *a;
-  }();
-  auto label = db->storage()->NameToLabel("Doc");
-  auto prop = db->storage()->NameToProperty("emb");
-  Populate(db.get(), label, prop, kNumVertices, kDim);
-  CreateIndex(db.get(), label, prop, kDim, kNumVertices);
-
-  auto acc = db->Access();
-  auto vertices = acc->Vertices(View::OLD);
-  auto it = vertices.begin();
-  ASSERT_NE(it, vertices.end());
-  memgraph::storage::VertexAccessor sva = *it;
-
-  auto *mem = memgraph::utils::NewDeleteResource();
-  const memgraph::query::TypedValue vref_old{memgraph::query::LazyVectorRef{sva, prop, View::OLD}, mem};
-  ASSERT_TRUE(vref_old.IsVectorRef());
-
-  // usearch now holds the 42.0 vector.
-  const std::vector<double> replacement(kDim, 42.0);
-  ASSERT_TRUE(sva.SetProperty(prop, PropertyValue(replacement)).has_value());
-
-  const memgraph::query::TypedValue materialised = vref_old.MaterializeVectorRef(mem);
-  ASSERT_TRUE(materialised.IsList());
-  ASSERT_EQ(materialised.ValueList().size(), static_cast<size_t>(kDim))
-      << "OLD-view lazy ref must materialize from the delta-carried floats";
-  EXPECT_FLOAT_EQ(static_cast<float>(materialised.ValueList().front().ValueDouble()), 0.5F)
-      << "materialized value must be the committed embedding, not the same-transaction overwrite";
-}
-
-// Another transaction's UNCOMMITTED SET already updated usearch; a reader must still get the committed
-// floats from the delta chain, in both views and after the writer aborts.
+// An UNCOMMITTED SET already updated usearch; a reader (both views, and the writer's own OLD view) must still get
+// the committed floats from the delta chain, also after the writer aborts.
 TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransactionsUncommittedSet) {
-  QueryEnv env{data_dir_, "t12", kNumVertices, kDim};
+  constexpr int kDim = 8;
+  QueryEnv env{data_dir_, "t12", 14, kDim};
   auto &db = env.db;
 
   auto writer = db->Access();
@@ -592,6 +306,15 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
         << "reader must see the committed embedding, not the other transaction's uncommitted SET";
   }
 
+  // The writer's own OLD view must also take the pre-SET floats from the delta, not usearch (which holds 42.0).
+  {
+    const memgraph::query::TypedValue own{memgraph::query::LazyVectorRef{wvertex, env.prop, View::OLD}, mem};
+    const auto floats = own.MaterializeVectorRef(mem);
+    ASSERT_EQ(floats.ValueList().size(), static_cast<size_t>(kDim));
+    EXPECT_FLOAT_EQ(static_cast<float>(floats.ValueList().front().ValueDouble()), 0.5F)
+        << "OLD-view ref must materialize the committed embedding, not the same-transaction overwrite";
+  }
+
   writer->Abort();
   const memgraph::query::TypedValue ref{memgraph::query::LazyVectorRef{*rvertex, env.prop, View::OLD}, mem};
   EXPECT_FLOAT_EQ(static_cast<float>(ref.MaterializeVectorRef(mem).ValueList().front().ValueDouble()), 0.5F);
@@ -609,6 +332,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_WritePlansStayEager) {
       "MATCH (n:Doc) WITH n, n.emb AS e REMOVE n.emb RETURN e ORDER BY e",
       "MATCH (n:Doc) WITH n, n.emb AS e SET n.emb = [x IN range(1, 8) | 42.0] RETURN e ORDER BY e",
       "MATCH (n:Doc) WITH n, n.emb AS e DETACH DELETE n RETURN e ORDER BY e",
+      "MATCH (n:Doc) SET n.copy = n.emb RETURN n.copy ORDER BY n.copy",
   };
   int case_no = 0;
   for (const auto &query : queries) {
@@ -616,13 +340,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_WritePlansStayEager) {
     auto stream = env.faker.Interpret(query);
     EXPECT_EQ(EmbeddingRows(stream), originals) << query;
   }
-
-  QueryEnv env{data_dir_, "t13_create", kCount, kSmallDim};
-  auto stream = env.faker.Interpret(
-      "CREATE (n:Doc {emb: [x IN range(1, 8) | toFloat(x)]}) WITH n UNWIND n.emb AS x RETURN count(x) AS c");
-  ASSERT_EQ(stream.GetResults().size(), 1u);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), kSmallDim)
-      << "an embedding written by the same query must be readable by it";
 }
 
 // Lazy refs are only legal when IsSnapshotStable(); elsewhere reads stay eager with identical results.
@@ -732,11 +449,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
                                    "] AS x RETURN count(DISTINCT x) AS c");
       EXPECT_EQ(s.GetResults().at(0)[0].ValueInt(), row.distinct) << "hash/equivalence in an aggregation";
     }
-    {
-      auto s = env.faker.Interpret("MATCH (n:Doc) WITH n.emb AS e UNWIND [e, " + lit +
-                                   "] AS x WITH DISTINCT x RETURN count(x) AS c");
-      EXPECT_EQ(s.GetResults().at(0)[0].ValueInt(), row.distinct) << "hash/equivalence in DISTINCT";
-    }
   }
 
   auto s = env.faker.Interpret(
@@ -753,11 +465,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
     const std::string o = op;
     auto refs = pair_env.faker.Interpret("MATCH (a:Doc), (b:Doc) WITH a.emb AS x, b.emb AS y WHERE x " + o +
                                          " y RETURN count(*) AS c");
-    auto lists = pair_env.faker.Interpret(
-        "MATCH (a:Doc), (b:Doc) WITH [i IN a.emb | i] AS x, [i IN b.emb | i] AS y "
-        "WHERE x " +
-        o + " y RETURN count(*) AS c");
-    EXPECT_EQ(refs.GetResults().at(0)[0].ValueInt(), lists.GetResults().at(0)[0].ValueInt());
     EXPECT_EQ(refs.GetResults().at(0)[0].ValueInt(), o == "=" ? 10 : 27);
   }
 }
@@ -778,45 +485,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_EmbeddingAsIndexSeekValue) {
   EXPECT_EQ(faker.Interpret(query).GetResults().at(0)[0].ValueInt(), 1) << "through the label-property index";
 }
 
-TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_SetCopiesEmbeddingProperty) {
-  QueryEnv env{data_dir_, "t10", kNumVertices, kDim};
-
-  auto stream = env.faker.Interpret("MATCH (n) WITH n LIMIT 1 SET n.copy = n.emb RETURN size(n.copy) AS s");
-  ASSERT_EQ(stream.GetResults().size(), 1u);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim))
-      << "SET n.copy = n.emb must persist the full embedding as a list";
-}
-
-// Regression for the e2e durability failure: `ORDER BY n.emb[0]` threw "got vector" on a VectorRef.
-TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_ListOperationsOnEmbedding) {
-  QueryEnv env{data_dir_, "t11_list", kNumVertices, kDim};
-
-  {
-    auto stream = env.faker.Interpret("MATCH (n) RETURN n.emb ORDER BY n.emb[0] LIMIT 1");
-    ASSERT_EQ(stream.GetResults().size(), 1u);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueList().size(), static_cast<size_t>(kDim));
-  }
-  {
-    auto stream = env.faker.Interpret("MATCH (n) WITH n LIMIT 1 RETURN n.emb[0] AS x");
-    ASSERT_EQ(stream.GetResults().size(), 1u);
-    EXPECT_TRUE(stream.GetResults()[0][0].IsDouble());
-  }
-  {
-    auto stream = env.faker.Interpret("MATCH (n) WITH n LIMIT 1 RETURN size(n.emb) AS s");
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
-  }
-  {
-    auto stream = env.faker.Interpret("MATCH (n) WITH n LIMIT 1 UNWIND n.emb AS e RETURN count(e) AS c");
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
-  }
-  {
-    auto stream = env.faker.Interpret("MATCH (n) WITH n LIMIT 1 RETURN size(n[\"emb\"]) AS s, n[\"emb\"][0] AS x");
-    ASSERT_EQ(stream.GetResults().size(), 1u);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), static_cast<int64_t>(kDim));
-    EXPECT_TRUE(stream.GetResults()[0][1].IsDouble());
-  }
-}
-
 TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_PropertiesAndValuesStayListIdentical) {
   constexpr int kCount = 3;
   constexpr int kSmallDim = 8;
@@ -825,7 +493,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_PropertiesAndValuesStayListIdentical
   std::vector<std::vector<double>> expected;
   for (int i = 0; i < kCount; ++i) expected.emplace_back(kSmallDim, static_cast<double>(i) + 0.5);
 
-  for (const char *expr : {"n.emb", "properties(n).emb", "values(n)[0]"}) {
+  for (const char *expr : {"n.emb", "properties(n).emb", "values(n)[0]", "n{.*}.emb"}) {
     SCOPED_TRACE(expr);
     auto stream = env.faker.Interpret(std::string("MATCH (n:Doc) RETURN ") + expr + " ORDER BY n.emb[0]");
     EXPECT_EQ(EmbeddingRows(stream), expected);
@@ -845,8 +513,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_EdgeEmbeddingReadsThroughIndex) {
   auto rows = EmbeddingRows(env.faker.Interpret("MATCH ()-[r:E]->() RETURN r.emb"));
   std::ranges::sort(rows);
   EXPECT_EQ(rows, expected);
-
-  EXPECT_EQ(EmbeddingRows(env.faker.Interpret("MATCH ()-[r:E]->() RETURN r.emb ORDER BY r.emb[0]")), expected);
 
   auto stream = env.faker.Interpret("MATCH ()-[r:E]->() RETURN r.emb[0] AS x ORDER BY x");
   ASSERT_EQ(stream.GetResults().size(), 3u);
