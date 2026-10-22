@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 
@@ -56,6 +57,10 @@ struct QueryUserOrRole {
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;
 #endif
+
+  // Identity of the user principal (not of a role-only principal); persisted with a definer so a restored owner is
+  // matched to the same user, not to a same-named one created later. Immutable; safe to read from any thread.
+  virtual std::optional<utils::UUID> UserUuid() const { return std::nullopt; }
 
   const std::optional<std::string> &username() const { return username_; }
 

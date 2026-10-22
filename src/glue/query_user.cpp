@@ -117,8 +117,11 @@ QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_
                                                    }},
                                  user_or_role)},
       auth_{auth} {
-  std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
-                               [&](auth::RoleWUsername &&roles) { roles_.emplace(std::move(roles)); }},
+  std::visit(utils::Overloaded{[this](auth::User &&user) {
+                                 user_uuid_ = user.uuid();
+                                 user_.emplace(std::move(user));
+                               },
+                               [this](auth::RoleWUsername &&roles) { roles_.emplace(std::move(roles)); }},
              std::move(user_or_role));
 }
 

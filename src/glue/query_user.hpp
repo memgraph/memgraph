@@ -27,6 +27,8 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
 
+  std::optional<utils::UUID> UserUuid() const override { return user_uuid_; }
+
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
                       std::optional<std::string_view> db_name = std::nullopt) const override;
@@ -48,6 +50,8 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   void RefreshPrincipal(const auth::Auth &auth) const;
 
   auth::SynchedAuth *auth_;
+  // Not written once the principal is shared (a uuid mismatch latches dropped_ instead): any thread may read it.
+  std::optional<utils::UUID> user_uuid_{};
   // user_/roles_/auth_epoch_ are a lazily refreshed cache; IsAuthorized and CanImpersonate write them.
   // Do not share one instance across threads — give each thread its own clone().
   mutable std::optional<auth::User> user_{};
