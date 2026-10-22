@@ -114,6 +114,9 @@ class Encoder final : public BaseEncoder {
   // Enable flushing of the internal buffer.
   void EnableFlushing()
     requires std::same_as<FileType, utils::OutputFile>;
+  // Enable flushing of the internal buffer without flushing it.
+  void ReleaseFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Try flushing the internal buffer.
   void TryFlushing()
     requires std::same_as<FileType, utils::OutputFile>;

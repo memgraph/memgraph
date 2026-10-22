@@ -93,6 +93,29 @@ auto TotalFileBytes(const T &paths) -> std::optional<uint64_t> {
   return total;
 }
 
+// A file shipped under a relative path other than its own, e.g. a temporary copy of the current WAL.
+struct FileToSend {
+  std::filesystem::path path;
+  std::filesystem::path path_to_write;
+};
+
+template <typename T>
+  requires(std::is_same_v<T, FileToSend>)
+auto TotalFileBytes(const T &file) -> std::optional<uint64_t> {
+  return TotalFileBytes(file.path);
+}
+
+template <typename T>
+  requires(std::is_same_v<T, FileToSend>)
+bool WriteFiles(const T &file, std::filesystem::path const & /*root_data_dir*/, replication::Encoder &encoder,
+                utils::PageCachePolicy const page_cache) {
+  if (!encoder.WriteFile(file.path, file.path_to_write, page_cache)) {
+    spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", file.path);
+    return false;
+  }
+  return true;
+}
+
 template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
                                                             std::filesystem::path const &root_data_dir,

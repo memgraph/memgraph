@@ -367,6 +367,12 @@ class OutputFile {
   /// is flushed.
   void EnableFlushing();
 
+  /// Enable flushing of the internal buffer without flushing it; the next
+  /// write flushes. Unlike `EnableFlushing`, this never touches the file after
+  /// the flush lock is released, so it is safe when another thread may close
+  /// the file as soon as flushing is enabled.
+  void ReleaseFlushing();
+
   /// Try flushing the internal buffer.
   void TryFlushing();
 

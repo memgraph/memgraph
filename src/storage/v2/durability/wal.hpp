@@ -656,6 +656,8 @@ class WalFile {
   void DisableFlushing();
   // Enable flushing of the internal buffer.
   void EnableFlushing();
+  // Enable flushing of the internal buffer without flushing it.
+  void ReleaseFlushing();
   // Try flushing the internal buffer.
   void TryFlushing();
   // Get the internal buffer with its size.

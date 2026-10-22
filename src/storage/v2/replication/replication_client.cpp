@@ -16,6 +16,7 @@
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -24,6 +25,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
@@ -720,6 +722,49 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &
   TryCheckReplicaStateSync(storage, protector);
 }
 
+namespace {
+
+// Copies the current WAL, its on-disk prefix plus the buffered tail, into a temporary file next to the WAL
+// directory. Runs under engine_lock_, so no append lands between the two parts and the copy ends on a
+// transaction boundary.
+auto CopyCurrentWal(durability::WalFile &wal_file, std::filesystem::path const &root_data_dir)
+    -> std::optional<FileToSend> {
+  wal_file.DisableFlushing();
+  // A finalizer waiting on the flush lock may free the WalFile the moment it is released, so nothing may
+  // touch it afterwards, not even a flush attempt.
+  utils::OnScopeExit const release_flushing{[&wal_file] { wal_file.ReleaseFlushing(); }};
+
+  auto const &wal_path = wal_file.Path();
+  auto const tmp_dir = wal_path.parent_path().parent_path() / durability::kReplicationTmpDirectory;
+  if (!utils::EnsureDir(tmp_dir)) return std::nullopt;
+  auto const tmp_path = tmp_dir / std::string{utils::UUID{}};
+
+  auto const copied = [&] {
+    utils::InputFile source;
+    if (!source.Open(wal_path)) return false;
+    utils::OutputFile copy;
+    if (!copy.Open(tmp_path, utils::OutputFile::Mode::OVERWRITE_EXISTING)) return false;
+    std::vector<uint8_t> buffer(utils::kFileBufferSize);
+    for (auto remaining = source.GetSize(); remaining > 0;) {
+      auto const chunk = std::min(remaining, utils::kFileBufferSize);
+      if (!source.Read(buffer.data(), chunk)) return false;
+      if (!copy.Write(buffer.data(), chunk)) return false;
+      remaining -= chunk;
+    }
+    auto const [tail, tail_size] = wal_file.CurrentFileBuffer();
+    if (tail_size > 0 && !copy.Write(tail, tail_size)) return false;
+    copy.Close();
+    return true;
+  }();
+  if (!copied) {
+    utils::DeleteFile(tmp_path);
+    return std::nullopt;
+  }
+  return FileToSend{.path = tmp_path, .path_to_write = GetFilePathWithoutDataDir(wal_path, root_data_dir)};
+}
+
+}  // namespace
+
 // The function is finished by setting replica to READY state or by setting it to MAYBE_BEHIND state.
 // The replica will be considered as READY if it gets fully recovered. If there are commits taking place while recovery
 // is running, the replica will be again set to MAYBE_BEHIND state.
@@ -917,7 +962,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                main_uuid = main_uuid_,
                &main_db_name,
                repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
-                // Keeps the WAL stable while reading seq and toggling flushing.
+                // Keeps the WAL stable while reading seq and copying the file.
                 auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 auto *const current_wal_file = main_mem_storage->wal_file_.get();
@@ -926,19 +971,22 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
                   return;
                 }
-                // Flushing is disabled while engine_lock_ is held and stays disabled for the whole transfer.
-                // Every path that finalizes or destroys the current WAL first takes the flush lock exclusively,
-                // so the WalFile and the path captured here outlive the transfer although engine_lock_ is
-                // released below. wal_file_ itself is not read again without the lock.
-                current_wal_file->DisableFlushing();
-                utils::OnScopeExit const on_exit([current_wal_file]() { current_wal_file->EnableFlushing(); });
-                auto const current_wal_path = current_wal_file->Path();
+                // The WAL is copied under engine_lock_ and shipped from the copy. Holding its flush lock through
+                // the transfer instead would block every WAL append on main for the whole round.
+                auto const maybe_copy =
+                    CopyCurrentWal(*current_wal_file, main_mem_storage->config_.durability.root_data_directory);
                 transaction_guard.unlock();
                 commit_serializer.reset();
+                if (!maybe_copy) {
+                  spdlog::error("Couldn't copy the current wal file for {} for db {}.", client_.name_, main_db_name);
+                  recovery_failed = true;
+                  return;
+                }
+                utils::OnScopeExit const remove_copy{[&path = maybe_copy->path] { utils::DeleteFile(path); }};
                 spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
 
                 auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
-                    current_wal_path,
+                    *maybe_copy,
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,

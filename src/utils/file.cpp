@@ -739,6 +739,8 @@ void OutputFile::EnableFlushing() {
   TryFlushing();
 }
 
+void OutputFile::ReleaseFlushing() { flush_lock_.unlock_shared(); }
+
 std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
   return {buffer_.data(), buffer_position_.load(std::memory_order_acquire)};
 }

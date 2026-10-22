@@ -341,6 +341,13 @@ void Encoder<FileType>::EnableFlushing()
 }
 
 template <typename FileType>
+void Encoder<FileType>::ReleaseFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
+  file_.ReleaseFlushing();
+}
+
+template <typename FileType>
 void Encoder<FileType>::TryFlushing()
   requires std::same_as<FileType, utils::OutputFile>
 {
