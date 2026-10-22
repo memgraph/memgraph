@@ -259,14 +259,14 @@ struct ResourceLock {
 
   /// Installs a callback fired off `mtx` on every NotifyKind::All, to wake parked schedulers.
   /// Install at most once (Storage guards with an exchange); clear before pool destruction.
-  void SetNotifyHook(std::move_only_function<void()> hook) {
+  void SetNotifyHook(std::move_only_function<void()> hook) noexcept {
     on_notify_all_storage_ = std::move(hook);
     on_notify_all_.store(on_notify_all_storage_ ? &on_notify_all_storage_ : nullptr, std::memory_order_release);
   }
 
   /// Disarms the hook; in-flight maybe_notify readers holding the old pointer stay safe because
   /// on_notify_all_storage_ lives until ~ResourceLock.
-  void ClearNotifyHook() { on_notify_all_.store(nullptr, std::memory_order_release); }
+  void ClearNotifyHook() noexcept { on_notify_all_.store(nullptr, std::memory_order_release); }
 
   template <LockReq Req = LockReq::WRITE>
     requires(Req != LockReq::UNIQUE)

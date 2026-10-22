@@ -527,7 +527,7 @@ class Storage {
   // The winner installs both hooks, then publishes installed. A loser waits for that, so no caller proceeds to
   // park before both hooks are live. Returns true for the winner only.
   bool TryInstallParkWakeHooks(std::move_only_function<void()> main_lock_wake,
-                               std::move_only_function<void() const> commit_wake) {
+                               std::move_only_function<void() const> commit_wake) noexcept {
     if (park_wake_hooks_installing_.exchange(true, std::memory_order_acq_rel)) {
       while (!park_wake_hooks_installed_.load(std::memory_order_acquire)) std::this_thread::yield();
       return false;
@@ -539,7 +539,8 @@ class Storage {
     return true;
   }
 
-  // Permanent: no later install can overwrite a hook under an in-flight reader. commit_wake_fn_ stays alive.
+  // Marks the hooks installed so no later install runs; an installer already past the exchange may still re-arm
+  // them, which is harmless (the pool outlives storages and WakeMatching is a no-op while draining).
   void ClearParkWakeHooks() {
     park_wake_hooks_installing_.store(true, std::memory_order_release);
     park_wake_hooks_installed_.store(true, std::memory_order_release);
