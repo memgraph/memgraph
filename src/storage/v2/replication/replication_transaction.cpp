@@ -105,11 +105,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
   std::exception_ptr first_error;
   for (auto &[client, ship_result] : ship_futures_) {
     try {
-      auto const finalized = ship_result.get();
-      // Even if it failed, we don't care, it's ASYNC
-      if (client->Mode() != replication_coordination_glue::ReplicationMode::ASYNC) {
-        record_failure(client, finalized);
-      }
+      record_failure(client, ship_result.get());
     } catch (...) {
       if (!first_error) {
         first_error = std::current_exception();

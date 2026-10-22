@@ -169,7 +169,6 @@ class ReplicationStorageClient {
   // StartTransactionReplication, stream is created.
   template <InvocableWithStream F>
   void IfStreamingTransaction(F &&callback, std::optional<ReplicaStream> &replica_stream) {
-    if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) return;
     // We can only check the state because it guarantees to be only
     // valid during a single transaction replication (if the assumption
     // that this and other transaction replication functions can only be
