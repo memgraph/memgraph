@@ -198,11 +198,12 @@ class Session {
 
   bool HasBufferedData() const { return input_stream_.size() > 0; }
 
-  void StashPendingCommit(std::optional<int> n, std::optional<int> qid) {
+  void StashPendingCommit(std::optional<int> n, std::optional<int> qid, bool is_pull) {
     pending_commit_ = true;
     pending_commit_from_message_ = false;
     pending_commit_n_ = n;
     pending_commit_qid_ = qid;
+    pending_commit_is_pull_ = is_pull;
   }
 
   void StashPendingCommitMessage() {
@@ -255,7 +256,8 @@ class Session {
     const auto n = pending_commit_n_;
     const auto qid = pending_commit_qid_;
 
-    state_ = details::HandlePullDiscard</*is_pull=*/true>(impl, n, qid);
+    state_ = pending_commit_is_pull_ ? details::HandlePullDiscard</*is_pull=*/true>(impl, n, qid)
+                                     : details::HandlePullDiscard</*is_pull=*/false>(impl, n, qid);
 
     switch (state_) {
       case State::PendingCommit:
@@ -385,6 +387,7 @@ class Session {
 
   std::optional<int> pending_commit_n_{};
   std::optional<int> pending_commit_qid_{};
+  bool pending_commit_is_pull_{true};
 
   bool pending_begin_{false};
   bool pending_begin_from_message_{false};  // true = retry via BeginTransaction(); false = via HandlePrepare

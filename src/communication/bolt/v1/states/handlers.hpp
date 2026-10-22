@@ -128,7 +128,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
     return State::Idle;
   } catch (const memgraph::query::CommitWouldBlockException &) {
     // Commit() throws before mutating, so the parked PULL/DISCARD can be retried with the stashed n/qid.
-    session.StashPendingCommit(n, qid);
+    session.StashPendingCommit(n, qid, is_pull);
     return State::PendingCommit;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
