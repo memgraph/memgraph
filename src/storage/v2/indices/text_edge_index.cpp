@@ -112,7 +112,6 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
     const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
       if (index_info.properties.empty()) {
-        // Naming no properties means indexing every property the edge carries.
         auto const edge_properties = edge.Properties(View::NEW).value();
         TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(),
                                           edge.FromVertex().Gid().AsInt(),
@@ -170,7 +169,6 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
 
         auto *edge = edge_ref.ptr;
         if (index_info.properties.empty()) {
-          // Naming no properties means indexing every property the edge carries.
           auto const edge_properties = edge->properties.Properties();
           if (edge_properties.empty()) continue;
           TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
@@ -461,7 +459,6 @@ void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMa
 
     for (const auto &edge_with_vertices : pending.to_add) {
       if (index_data_ptr->properties.empty()) {
-        // Naming no properties means indexing every property the edge carries.
         auto const edge_properties = edge_with_vertices.edge->properties.Properties();
         docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
                                edge_with_vertices.from_vertex->gid.AsInt(),
