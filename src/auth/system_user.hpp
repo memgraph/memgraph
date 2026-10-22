@@ -28,11 +28,12 @@ inline constexpr std::string_view kInternalSystemUsername{"memgraph_internal"};
 [[nodiscard]] bool IsInternalSystemUsername(std::string_view name);
 
 /// Enables the internal system user with the hash read from `path`: a single pre-hashed bcrypt literal
-/// (`bcrypt:$2a$...`) of a non-empty password, the same format CREATE USER ... IDENTIFIED BY accepts, surrounding
-/// whitespace ignored. bcrypt
-/// carries its own salt and cost. Called once at startup, before any session exists -- the hash is read without a lock
+/// (`bcrypt:$2a$...`) or pbkdf2-sha256 literal (`pbkdf2-sha256:600000:<salt>:<key>`) of a non-empty password, the
+/// same formats CREATE USER ... IDENTIFIED BY accepts, surrounding whitespace ignored. bcrypt carries its own salt
+/// and cost; the pbkdf2 literal names its iteration count, which must be Memgraph's own. Under FIPS mode only the
+/// pbkdf2 literal is accepted. Called once at startup, before any session exists -- the hash is read without a lock
 /// afterwards.
-/// @throw AuthException if the file can't be read, holds anything else, or FIPS mode is on (bcrypt isn't approved).
+/// @throw AuthException if the file can't be read, holds anything else, or holds bcrypt while FIPS mode is on.
 void LoadInternalSystemUser(std::filesystem::path const &path);
 
 enum class InternalSystemUserLogin : uint8_t {

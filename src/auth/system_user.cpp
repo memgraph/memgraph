@@ -16,7 +16,6 @@
 #include <spdlog/spdlog.h>
 
 #include "auth/exceptions.hpp"
-#include "utils/fips.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::auth {
@@ -39,13 +38,6 @@ bool IsUsable(HashedPassword hash) {
 bool IsInternalSystemUsername(std::string_view name) { return utils::ToLowerCase(name) == kInternalSystemUsername; }
 
 void LoadInternalSystemUser(std::filesystem::path const &path) {
-  // Checked first: the bcrypt parser would also refuse under FIPS mode, but name pbkdf2 as the way out, which this
-  // file doesn't accept.
-  if (utils::FipsEnabled()) {
-    throw AuthException(
-        "The internal system user's hash file holds a bcrypt hash, which FIPS mode doesn't permit; leave "
-        "--system-user-internal-hash-file empty when --fips-mode is on.");
-  }
   std::ifstream file{path};
   if (!file) {
     throw AuthException("Couldn't read the internal system user's hash file {}.", path.string());
@@ -54,12 +46,24 @@ void LoadInternalSystemUser(std::filesystem::path const &path) {
   if (file.bad()) {
     throw AuthException("Couldn't read the internal system user's hash file {}.", path.string());
   }
-  auto hash = UserDefinedHash(utils::Trim(contents));
-  if (!hash || hash->HashAlgo() != PasswordHashAlgorithm::BCRYPT || !IsUsable(*hash)) {
+  std::optional<HashedPassword> hash;
+  try {
+    hash = UserDefinedHash(utils::Trim(contents));
+  } catch (AuthException const &) {
+    // Only a hash of an algorithm FIPS mode doesn't approve gets here.
+    throw AuthException(
+        "The internal system user's hash file {} holds a hash FIPS mode doesn't permit; with --fips-mode on it must "
+        "hold a pbkdf2-sha256 hash in the form \"pbkdf2-sha256:600000:<salt>:<key>\".",
+        path.string());
+  }
+  if (!hash ||
+      (hash->HashAlgo() != PasswordHashAlgorithm::BCRYPT && hash->HashAlgo() != PasswordHashAlgorithm::PBKDF2_SHA256) ||
+      !IsUsable(*hash)) {
     // The contents are a credential: never echo them.
     throw AuthException(
-        "The internal system user's hash file {} must hold a single bcrypt hash of a non-empty password in the form "
-        "\"bcrypt:$2a$...\".",
+        "The internal system user's hash file {} must hold a single bcrypt hash (\"bcrypt:$2a$...\") or "
+        "pbkdf2-sha256 hash (\"pbkdf2-sha256:600000:<salt>:<key>\", salt and key in lowercase hex) of a non-empty "
+        "password.",
         path.string());
   }
   internal_system_user_hash = std::move(*hash);

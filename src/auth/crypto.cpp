@@ -413,16 +413,40 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
   return {};
 }
 
+// The stored pbkdf2-sha256 hash carries no iteration count, so a pre-hashed one
+// has to spell it out: "pbkdf2-sha256:600000:<salt>:<derived key>", salt and
+// key in lowercase hex. Only ITERATIONS is accepted -- a hash derived with the
+// SP 800-132 floor of 1000 must never verify as though it were as strong.
+// Returns the hash in its stored form, hex(salt) || hex(derived key).
+std::optional<std::string> UsesPbkdf2(std::string_view str) {
+  auto const header = fmt::format("{}:{}:", AsString(PasswordHashAlgorithm::PBKDF2_SHA256), PBKDF2::ITERATIONS);
+  if (!str.starts_with(header)) {
+    return {};
+  }
+  auto const salt_and_key = str.substr(header.size());
+  if (salt_and_key.size() != PBKDF2::SALT_SIZE_DURABLE + 1 + PBKDF2::HASH_LENGTH ||
+      salt_and_key[PBKDF2::SALT_SIZE_DURABLE] != ':') {
+    return {};
+  }
+  auto const salt = salt_and_key.substr(0, PBKDF2::SALT_SIZE_DURABLE);
+  auto const key = salt_and_key.substr(PBKDF2::SALT_SIZE_DURABLE + 1);
+  auto const is_hex = [](std::string_view hex) {
+    return std::ranges::all_of(hex, [](char ch) { return ('0' <= ch && ch <= '9') || ('a' <= ch && ch <= 'f'); });
+  };
+  if (!is_hex(salt) || !is_hex(key)) {
+    return {};
+  }
+  return fmt::format("{}{}", salt, key);
+}
+
 constexpr std::array kUserDefinedHashAlgos{
     PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE};
 }  // namespace
 
-// NOTE: Deliberately no pbkdf2-sha256 branch. A user-supplied hash carries no
-// iteration count, so accepting one would mean assuming it was derived with
-// ITERATIONS when it may have used the SP 800-132 floor of 1000 -- we would
-// verify a far weaker hash as though it were strong. Set a pbkdf2 password
-// through the plaintext path instead.
 std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
+  if (auto hash = UsesPbkdf2(password)) {
+    return HashedPassword{PasswordHashAlgorithm::PBKDF2_SHA256, std::move(*hash)};
+  }
   for (auto const algo : kUserDefinedHashAlgos) {
     if (const auto hash = UsesAlgo(password, algo)) {
       EnsureFipsApproved(algo);
@@ -433,8 +457,9 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
 }
 
 bool IsUserDefinedHashFormat(std::string_view password) {
-  return std::ranges::any_of(kUserDefinedHashAlgos,
-                             [password](auto const algo) { return UsesAlgo(password, algo).has_value(); });
+  return UsesPbkdf2(password).has_value() || std::ranges::any_of(kUserDefinedHashAlgos, [password](auto const algo) {
+           return UsesAlgo(password, algo).has_value();
+         });
 }
 
 // The `--password-encryption-algorithm` flag is the single source of truth. It is
