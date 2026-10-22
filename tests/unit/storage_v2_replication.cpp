@@ -919,7 +919,9 @@ TEST_F(ReplicationTest, AsyncRecoveryIntervalSpacesRounds) {
   auto const saved_interval = FLAGS_replication_async_recovery_interval_sec;
   memgraph::utils::OnScopeExit const restore_interval{
       [saved_interval] { FLAGS_replication_async_recovery_interval_sec = saved_interval; }};
-  FLAGS_replication_async_recovery_interval_sec = 3600;
+  // The maintenance thread reads the flag, so it is set before the client starts and restored after main is gone.
+  constexpr auto kInterval = std::chrono::seconds{3};
+  FLAGS_replication_async_recovery_interval_sec = kInterval.count();
 
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);
@@ -961,17 +963,16 @@ TEST_F(ReplicationTest, AsyncRecoveryIntervalSpacesRounds) {
   wait_for_ready();
   ASSERT_TRUE(replica_has_vertex(first));
 
-  // The next commit marks the replica behind, but a second round is held back by the interval.
+  // The next commit marks the replica behind, but a second round is held back for the interval.
   auto const second = create_vertex();
-  auto const hold_until = std::chrono::steady_clock::now() + std::chrono::seconds{3};
+  auto const hold_until = std::chrono::steady_clock::now() + kInterval / 3;
   while (std::chrono::steady_clock::now() < hold_until) {
     ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::MAYBE_BEHIND);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
   ASSERT_FALSE(replica_has_vertex(second));
 
-  // Dropping the interval lets the frequent check start the held-back round.
-  FLAGS_replication_async_recovery_interval_sec = 0;
+  // Once the interval elapses the frequent check starts the held-back round.
   wait_for_ready();
   ASSERT_TRUE(replica_has_vertex(second));
 }
