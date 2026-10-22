@@ -1018,7 +1018,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph stress-plain
+          test-memgraph stress-plain-parallel
 
       - name: Run stress test (SSL)
         run: |
@@ -1032,21 +1032,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph stress-ssl
-
-      - name: Run durability test (plain)
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          --enable-monitoring \
-          --monitoring-host $MONITORING_HOST \
-          --cluster-id $CLUSTER_ID \
-          --cluster-env $CLUSTER_ENV \
-          test-memgraph durability
+          test-memgraph stress-ssl-parallel
 
       - name: Run durability test (large)
         run: |
