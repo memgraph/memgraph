@@ -25,9 +25,8 @@ namespace memgraph::storage {
  *
  * A store reads several properties in one forward pass over the record, finding each from where the
  * previous one stopped, so it can only find a path it has not already passed. Asking out of order
- * reads Null for a property that is set, which is a wrong answer rather than a refusal. Holding the
- * order in the type rather than in a convention means a caller cannot express the bad order, and
- * pays for establishing it once per set rather than once per entity read.
+ * reads Null for a property that is set, a wrong answer rather than a refusal. Holding the order in
+ * the type means a caller cannot express the bad one.
  */
 class OrderedPropertyPaths {
  public:

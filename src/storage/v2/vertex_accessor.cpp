@@ -852,9 +852,7 @@ Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &orde
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     vertex_->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
-    // A property backed by a vector index is stored as its index ids alone, and the vector itself is
-    // fetched from the index when the value is read. Reading one property at a time does this, so
-    // reading a set of them has to as well, or the value answers as an empty list.
+    // Reading one property at a time decodes, so reading a set of them has to as well.
     auto const decoder = IndexedPropertyDecoder<Vertex>{
         .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_};
     for (auto &value : out) decoder.DecodeProperty(value);
