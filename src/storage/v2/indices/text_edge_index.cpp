@@ -460,19 +460,19 @@ void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMa
     for (const auto &edge_with_vertices : pending.to_add) {
       if (index_data_ptr->properties.empty()) {
         auto const edge_properties = edge_with_vertices.edge->properties.Properties();
-        docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
-                               edge_with_vertices.from_vertex->gid.AsInt(),
-                               edge_with_vertices.to_vertex->gid.AsInt(),
-                               SerializeProperties(edge_properties, name_id_mapper),
-                               StringifyProperties(edge_properties)});
+        docs_to_add.push_back({.edge_gid = edge_with_vertices.edge->gid.AsInt(),
+                               .from_vertex_gid = edge_with_vertices.from_vertex->gid.AsInt(),
+                               .to_vertex_gid = edge_with_vertices.to_vertex->gid.AsInt(),
+                               .properties = SerializeProperties(edge_properties, name_id_mapper),
+                               .all_property_values = StringifyProperties(edge_properties)});
         continue;
       }
       edge_with_vertices.edge->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
-      docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
-                             edge_with_vertices.from_vertex->gid.AsInt(),
-                             edge_with_vertices.to_vertex->gid.AsInt(),
-                             SerializeProperties(ordered.paths(), values, name_id_mapper),
-                             StringifyProperties(values)});
+      docs_to_add.push_back({.edge_gid = edge_with_vertices.edge->gid.AsInt(),
+                             .from_vertex_gid = edge_with_vertices.from_vertex->gid.AsInt(),
+                             .to_vertex_gid = edge_with_vertices.to_vertex->gid.AsInt(),
+                             .properties = SerializeProperties(ordered.paths(), values, name_id_mapper),
+                             .all_property_values = StringifyProperties(values)});
     }
 
     const std::lock_guard lock(index_data_ptr->write_mutex);
