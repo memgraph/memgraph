@@ -124,13 +124,12 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
   return killed;
 }
 
-/// A caller may kill a transaction it owns, or any transaction on a database it holds
+/// A caller may kill a transaction its login user owns, or any transaction on a database the executing user holds
 /// TRANSACTION_MANAGEMENT for.
-bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
+bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *caller_login, QueryUserOrRole *user_or_role,
                   std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
-  // user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it safely for cross-thread reads.
-  auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
-  if (SameUser(user_snapshot, user_or_role)) return true;
+  auto const session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+  if (SameUser(session ? session->user : nullptr, caller_login)) return true;
 
   // Foreign thread: route through foreign_db_view() (takes db_acc_mutex_). The VERIFYING CAS in
   // TryTerminateInterpreter does NOT order against SetCurrentDB, so an unlocked name() could tear
@@ -143,7 +142,8 @@ bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
-    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
+    QueryUserOrRole *caller_login, QueryUserOrRole *user_or_role,
+    std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
   auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
@@ -153,7 +153,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       auto it = std::find(maybe_kill_transaction_ids.begin(), not_found_midpoint, transaction_id);
       if (it == not_found_midpoint) return false;
 
-      if (!MayTerminate(interpreter, user_or_role, privilege_checker)) {
+      if (!MayTerminate(interpreter, caller_login, user_or_role, privilege_checker)) {
         spdlog::warn("Not enough rights to kill the transaction");
         return false;
       }
@@ -179,8 +179,8 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransactions(
-    const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
-    std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
+    const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *caller_login,
+    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
   std::vector<uint64_t> killed_transaction_ids;
 
   for (Interpreter *interpreter : interpreters) {
@@ -189,7 +189,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransaction
     if (interpreter == self) continue;
 
     TryTerminateInterpreter(interpreter, [&](uint64_t transaction_id) {
-      if (!MayTerminate(interpreter, user_or_role, privilege_checker)) {
+      if (!MayTerminate(interpreter, caller_login, user_or_role, privilege_checker)) {
         spdlog::warn("Not enough rights to kill the transaction");
         return false;
       }
@@ -214,7 +214,8 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransaction
 
 TerminateSessionsResult InterpreterContext::TerminateSessions(
     const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
-    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
+    QueryUserOrRole *caller_login, QueryUserOrRole *user_or_role,
+    std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
     std::string_view caller_session_uuid) {
   TerminateSessionsResult result;
   result.rows.reserve(session_ids.size());
@@ -248,11 +249,13 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     }
 
     Interpreter *target = nullptr;
+    std::shared_ptr<const Interpreter::SessionInfo> target_session;
     for (Interpreter *interpreter : interpreters) {
-      // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
+      // A null snapshot means pre-login or logged off, so it cannot carry a non-empty uuid.
       auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
       if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
         target = interpreter;
+        target_session = session_snapshot;
         break;
       }
     }
@@ -269,8 +272,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     // (termination is by session uuid, not by database), so at worst a session is closed against a database the
     // caller no longer holds privilege on — an availability effect, not a data-access escalation. This is the
     // same check-time property as the pre-existing TERMINATE TRANSACTIONS path.
-    auto const target_user_snapshot = target->foreign_user_view_.load(std::memory_order_acquire);
-    if (!SameUser(target_user_snapshot, user_or_role)) {
+    if (!SameUser(target_session->user, caller_login)) {
       // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
       auto target_db = target->current_db_.foreign_db_view().name;
       if (target_db.empty()) {
