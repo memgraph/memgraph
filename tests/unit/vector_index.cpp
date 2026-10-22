@@ -113,6 +113,43 @@ class VectorIndexTest : public testing::Test {
   }
 };
 
+// The store keeps a vector-indexed property as its index ids, and the vector is fetched from the
+// index as the value is read. A read of a set of properties has to fetch it too, or it answers with
+// an empty vector where reading the one property answers with the embedding.
+TEST_F(VectorIndexTest, ReadingASetOfPropertiesFetchesAVectorFromItsIndex) {
+  auto const other = std::string{"other_property"};
+  Gid gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = this->CreateVertex(acc.get(),
+                                     test_property,
+                                     PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)}),
+                                     test_label);
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty(other), PropertyValue("x")).has_value());
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto vertex = acc->FindVertex(gid, View::OLD).value();
+  auto const embedding = acc->NameToProperty(test_property);
+
+  auto const one_at_a_time = vertex.GetProperty(embedding, View::OLD);
+  ASSERT_TRUE(one_at_a_time.has_value());
+
+  auto const ordered =
+      memgraph::storage::OrderedPropertyPaths::FromPropertyIds(std::array{embedding, acc->NameToProperty(other)});
+  auto values = std::vector<PropertyValue>(ordered.size());
+  ASSERT_TRUE(vertex.ReadPropertyValues(ordered, values, View::OLD).has_value());
+  auto const &as_a_set = values[ordered.paths()[0].back() == embedding ? 0 : 1];
+
+  ASSERT_EQ(one_at_a_time->type(), PropertyValue::Type::VectorIndexId);
+  ASSERT_EQ(as_a_set.type(), PropertyValue::Type::VectorIndexId);
+  EXPECT_EQ(as_a_set.ValueVectorIndexList(), one_at_a_time->ValueVectorIndexList());
+  EXPECT_EQ(as_a_set.ValueVectorIndexList().size(), 2u);
+}
+
 TEST_F(VectorIndexTest, HighDimensionalSearchTest) {
   // Create index with high dimension
   this->CreateIndex(1000, 2);

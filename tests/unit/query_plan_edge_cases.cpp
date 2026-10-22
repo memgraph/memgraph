@@ -444,6 +444,27 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
   EXPECT_NE(explained("EXPLAIN MATCH (n:Q) RETURN n.a AS r, n.b AS s").find("CacheProperties"), std::string::npos);
 }
 
+// The body of a reduce or an extract runs once per element of its list, so an empty or Null list
+// runs it no times. A lookup there is conditional in the same way as one behind an AND or an OR.
+TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
+  this->Execute("CREATE (:Q {a: 1, b: 2})");
+
+  auto explained = [this](const std::string &query) {
+    std::string joined;
+    for (const auto &row : this->Execute(query)) joined += row[0].ValueString();
+    return joined;
+  };
+
+  CachePropertiesFlagGuard guard{true};
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q) RETURN reduce(s = 0, x IN [] | s + n.a) AS u, "
+                      "reduce(s = 0, y IN [] | s + n.b) AS v")
+                .find("CacheProperties"),
+            std::string::npos);
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q) RETURN extract(x IN [] | n.a) AS p, extract(y IN [] | n.b) AS q")
+                .find("CacheProperties"),
+            std::string::npos);
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesReadsAGroupWhoseOrderIsNotTheRecordsOrder) {
   // One pass over a record finds each property from where the last one stopped, so it cannot go
   // back for one it has already passed. A projection names its properties in whatever order the
