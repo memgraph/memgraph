@@ -673,70 +673,52 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   MG_ASSERT(client_.mode_ != replication_coordination_glue::ReplicationMode::ASYNC,
             "ASYNC replicas must recover from durability files instead of finalizing transaction streams");
 
-  auto *arena_pool = replica_stream->DbArenaPool();
-  auto task = [this,
-               protector = protector.clone(),
-               replica_stream_obj = std::move(replica_stream),
-               arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
-    // Tenant was sealed between AddTask and this task executing: retire the RPC connection (framing
-    // correctness — the stream is still open on the replica's side; a subsequent RPC would read stale
-    // bytes from it) and stop replicating to a tenant that is going away.
-    if (protector->sealed()) {
-      this->RetireForSealedTenant(replica_stream_obj);
-      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-    }
-    MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
-    try {
-      const memory::DbArenaScope db_arena_scope{arena_pool};
-      auto response = replica_stream_obj->Finalize();
-      // NOLINTNEXTLINE
-      return replica_state_.WithLock(
-          [response,
-           &replica_stream_obj](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
-            replica_stream_obj.reset();
+  try {
+    auto response = replica_stream->Finalize();
+    // NOLINTNEXTLINE
+    return replica_state_.WithLock(
+        [response, &replica_stream](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
+          replica_stream.reset();
 
-            // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
-            // moment we started committing, we cannot set the ready state. We could have got into
-            // MAYBE_BEHIND state if we missed next txn.
-            if (state != ReplicaState::REPLICATING) {
-              return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-            }
+          // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
+          // moment we started committing, we cannot set the ready state. We could have got into
+          // MAYBE_BEHIND state if we missed next txn.
+          if (state != ReplicaState::REPLICATING) {
+            return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+          }
 
-            if (!response.success) {
-              state = ReplicaState::MAYBE_BEHIND;
-              return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-            }
+          if (!response.success) {
+            state = ReplicaState::MAYBE_BEHIND;
+            return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+          }
 
-            state = ReplicaState::READY;
-            return {};
-          });
-    } catch (rpc::RpcTimeoutException const &) {
-      replica_state_.WithLock([&replica_stream_obj](auto &state) {
-        replica_stream_obj.reset();
-        state = ReplicaState::MAYBE_BEHIND;
-      });
-      spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
-      return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
-    } catch (rpc::RpcFailedException const &) {
-      replica_state_.WithLock([&replica_stream_obj](auto &state) {
-        replica_stream_obj.reset();
-        state = ReplicaState::MAYBE_BEHIND;
-      });
-      LogRpcFailure();
-      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-    } catch (...) {
-      // An escaping exception (e.g. bad_alloc while decoding the response) would leave the replica in
-      // REPLICATING with its stream still open.
-      replica_state_.WithLock([&replica_stream_obj](auto &state) {
-        replica_stream_obj.reset();
-        state = ReplicaState::MAYBE_BEHIND;
-      });
-      LogRpcFailure();
-      return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
-    }
-  };
-
-  return task();
+          state = ReplicaState::READY;
+          return {};
+        });
+  } catch (rpc::RpcTimeoutException const &) {
+    replica_state_.WithLock([&replica_stream](auto &state) {
+      replica_stream.reset();
+      state = ReplicaState::MAYBE_BEHIND;
+    });
+    spdlog::error("Couldn't replicate data to {} because timeout occurred.", client_.name_);
+    return std::unexpected{io::network::ClientCommunicationError::TIMEOUT_ERROR};
+  } catch (rpc::RpcFailedException const &) {
+    replica_state_.WithLock([&replica_stream](auto &state) {
+      replica_stream.reset();
+      state = ReplicaState::MAYBE_BEHIND;
+    });
+    LogRpcFailure();
+    return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+  } catch (...) {
+    // An escaping exception (e.g. bad_alloc while decoding the response) would leave the replica in
+    // REPLICATING with its stream still open.
+    replica_state_.WithLock([&replica_stream](auto &state) {
+      replica_stream.reset();
+      state = ReplicaState::MAYBE_BEHIND;
+    });
+    LogRpcFailure();
+    return std::unexpected{io::network::ClientCommunicationError::GENERIC_ERROR};
+  }
 }
 
 void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &protector) {
