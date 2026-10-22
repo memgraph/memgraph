@@ -551,13 +551,14 @@ int main(int argc, char **argv) {
   // from settings, which need the data directory. An unlicensed instance still
   // starts, because the license may only arrive over Bolt (a Kubernetes operator
   // delivers it that way, so a fresh pod has none at startup), but until it does
-  // the interpreter accepts nothing except setting the license and organization
-  // name, so no data is served in approved mode without a valid licence.
+  // the interpreter accepts nothing except reading the settings and setting the
+  // license and organization name, so no data is served in approved mode
+  // without a valid licence.
   if (FLAGS_fips_mode) {
     if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
       spdlog::warn(
-          "{}\nUntil a valid license is set, only SET DATABASE SETTING '{}' and SET DATABASE SETTING '{}' are "
-          "accepted.",
+          "{}\nUntil a valid license is set, only SHOW DATABASE SETTINGS, SET DATABASE SETTING '{}' and SET DATABASE "
+          "SETTING '{}' are accepted.",
           memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"),
           memgraph::license::kOrganizationNameSettingKey,
           memgraph::license::kEnterpriseLicenseSettingKey);
