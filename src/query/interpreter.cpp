@@ -6189,6 +6189,25 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
       .rw_type = RWType::NONE};
 }
 
+PreparedQuery PrepareResetQueryPlanCacheQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                              CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw QueryException("RESET QUERY PLAN CACHE is not allowed in an explicit transaction.");
+  }
+  if (!current_db.db_acc_) {
+    throw DatabaseContextRequiredException("Database required to reset query plan cache.");
+  }
+  auto *plan_cache = current_db.db_acc_->get()->plan_cache();
+  return PreparedQuery{.header = {},
+                       .privileges = std::move(parsed_query.required_privileges),
+                       .query_handler = [plan_cache](AnyStream * /*stream*/,
+                                                     std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         plan_cache->WithLock([](auto &cache) { cache.reset(); });
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       .rw_type = RWType::NONE};
+}
+
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
@@ -11030,6 +11049,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+    } else if (utils::Downcast<ResetQueryPlanCacheQuery>(parsed_query.query)) {
+      prepared_query = PrepareResetQueryPlanCacheQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {

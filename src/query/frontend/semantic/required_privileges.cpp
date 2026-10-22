@@ -109,6 +109,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(LockPathQuery & /*lock_path_query*/) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
+  void Visit(ResetQueryPlanCacheQuery & /*query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+
   void Visit(FreeMemoryQuery & /*free_memory_query*/) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
   void Visit(ShowConfigQuery & /*show_config_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
