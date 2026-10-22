@@ -7277,8 +7277,8 @@ class AggregateCursor : public Cursor {
   void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
     // Preallocated group_by, since most of the time the aggregation key won't be unique
     reused_group_by_.clear();
-    // This evaluator spans every input row, and a row can carry a record whose properties an earlier
-    // operator has since written. Naming the record an entry was read from does not catch that.
+    // This evaluator spans every input row, and a row can carry a record an earlier operator has since
+    // written to. Naming the record an entry was read from does not catch that.
     evaluator->ResetPropertyLookupCache();
 
     // An aggregation with no grouping key has exactly one group, so holding it spares every row

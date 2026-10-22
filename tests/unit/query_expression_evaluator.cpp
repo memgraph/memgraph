@@ -1994,8 +1994,8 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
     return this->Eval(op);
   }
 
-  /// `{age: element.age, height: element.height}`, annotated the way the semantic phase annotates it.
-  /// Two lookups on one identifier are what earn the evaluation mode that loads the properties in one read.
+  /// `{age: element.age, height: element.height}`. Two lookups on one identifier are what earn the
+  /// evaluation mode that loads the properties in one read.
   auto MapOfAgeAndHeight() -> MapLiteral * {
     auto *map = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
         {this->storage.GetPropertyIx(prop_age.first),

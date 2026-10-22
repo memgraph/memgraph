@@ -1257,8 +1257,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
-  /// Which record a cache entry was read from. Vertex ids and edge ids come from separate sequences, so one
-  /// number can name one of each, and a single symbol can hold either: `UNWIND [n, e] AS x` binds both to it.
+  /// Which record a cache entry was read from. Vertex and edge ids come from separate sequences, so one
+  /// number can name one of each, and `UNWIND [n, e] AS x` binds both kinds to a single symbol.
   struct RecordIdentity {
     enum class Kind : uint8_t { Vertex, Edge };
     Kind kind;
@@ -1306,13 +1306,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_props);
   }
 
-  /// One lookup out of the properties loaded in a single read for the record a symbol holds.
   template <RecordIdentity::Kind kind, class TRecordAccessor>
   TypedValue CachedPropertyValue(const TRecordAccessor &record_accessor, const PropertyLookup &property_lookup) {
     auto const record = RecordIdentity{kind, record_accessor.Gid()};
     DMG_ASSERT(property_lookup.expression_->GetTypeInfo() == Identifier::kType,
-               "A lookup reading every property must read them off an identifier, which is the only expression "
-               "the evaluation mode is assigned to");
+               "The evaluation mode that loads every property is only assigned to a lookup on an identifier");
     auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
     auto it = property_lookup_cache_.find(symbol_pos);
     if (it == property_lookup_cache_.end() || it->second.record != record) {
@@ -1363,12 +1361,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameChangeCollector *frame_change_collector_;
   FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
 
-  /// Properties loaded in one read, so that several lookups on one symbol share that read.
-  ///
-  /// A list comprehension steps its element through a list, and an operator whose evaluator outlives a
-  /// row rebinds on each one, neither of them reaching this cache. An entry therefore answers only for
-  /// the record it names. Whether that record's own properties have since been written is a separate
-  /// question, which an entry cannot answer and the aggregation's per-row clear covers.
+  /// Properties loaded in one read, so that several lookups on one symbol share that read. A list
+  /// comprehension steps its element through a list, and an operator whose evaluator outlives a row rebinds
+  /// on each one, neither reaching this cache. An entry therefore answers for the record it names, which is
+  /// not the same as answering for that record's current properties.
   std::unordered_map<int32_t, CachedProperties> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;

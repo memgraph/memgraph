@@ -9,10 +9,10 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Two or more property lookups on one identifier inside a map literal are evaluated by loading the
-# record's properties in one read. Every query here binds that identifier to a succession of records,
-# so each answers correctly only while the loaded properties follow the identifier's current record.
-# The map projection and single-lookup forms alongside them read the same data without taking that path.
+# Two or more property lookups on one identifier inside a map literal load the record's properties in one
+# read. Every query here binds that identifier to a succession of records, so each answers correctly only
+# while the load follows the current record. The map projection and single-lookup forms alongside them read
+# the same data without taking that path.
 
 import sys
 
@@ -37,8 +37,8 @@ def three_nodes(cursor):
 
 @pytest.fixture(scope="function")
 def diamond(cursor):
-    # The direct edge is the heavier of the two routes, so a weight read from the wrong edge changes
-    # which path is shortest, and a filter on it changes which edges are walkable.
+    # The direct edge is the heavier route, so a weight read from the wrong edge changes which path is
+    # shortest and a filter on it changes which edges are walkable.
     execute_and_fetch_all(
         cursor,
         """CREATE (a:A), (b:B), (c:C),
@@ -120,8 +120,7 @@ def test_map_literal_over_edges(diamond):
 
 
 def test_one_symbol_holding_a_node_then_an_edge(diamond):
-    # Nodes and edges are numbered apart, so the first node and the first edge can carry the same id
-    # while being different records.
+    # The first node and the first edge carry the same id, since the two come from separate sequences.
     results = execute_and_fetch_all(
         diamond,
         "MATCH (a:A)-[e]->(:B) RETURN [x IN [a, e] | {first: x.w, second: x.z}] AS maps",
