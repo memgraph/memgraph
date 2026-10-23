@@ -398,6 +398,7 @@ namespace memgraph::replication {
 // GetDatabaseHistoriesRpcV1 above.
 using SystemRecoveryRpcV1 = rpc::RequestResponse<SystemRecoveryReqV1, SystemRecoveryResV1>;
 using SystemRecoveryRpcV2 = rpc::RequestResponse<SystemRecoveryReqV2, SystemRecoveryResV2>;
+using SystemRecoveryRpcV3 = rpc::RequestResponse<SystemRecoveryReqV3, SystemRecoveryResV3>;
 }  // namespace memgraph::replication
 
 // SystemRecoveryRpc backward-compat: a pre-V3 MAIN (no hot/cold) sends a V1 or V2 SystemRecoveryReq. A
@@ -486,6 +487,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   }};
 
   std::vector<memgraph::storage::ColdTenantRecovery> seen_cold;
+  bool seen_includes_auth_and_databases = false;
   rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
       [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
@@ -494,6 +496,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
         memgraph::replication::SystemRecoveryReq req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
         seen_cold = req.cold_databases;
+        seen_includes_auth_and_databases = req.includes_auth_and_databases;
         memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -518,17 +521,18 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   cold.stats.schema_vertex_count = 9;
 
   auto stream =
-      client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
-                                                              0,
-                                                              std::vector<memgraph::storage::SalientConfig>{},
-                                                              memgraph::auth::Auth::Config{},
-                                                              std::vector<memgraph::auth::User>{},
-                                                              std::vector<memgraph::auth::Role>{},
-                                                              std::vector<memgraph::auth::UserProfiles::Profile>{},
-                                                              std::vector<memgraph::parameters::ParameterInfo>{},
-                                                              std::vector{cold});
+      client.Stream<memgraph::replication::SystemRecoveryRpcV3>(memgraph::utils::UUID{},
+                                                                0,
+                                                                std::vector<memgraph::storage::SalientConfig>{},
+                                                                memgraph::auth::Auth::Config{},
+                                                                std::vector<memgraph::auth::User>{},
+                                                                std::vector<memgraph::auth::Role>{},
+                                                                std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                                std::vector<memgraph::parameters::ParameterInfo>{},
+                                                                std::vector{cold});
   auto reply = stream.SendAndWait();
-  EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+  EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryResV3::Result::SUCCESS);
+  EXPECT_TRUE(seen_includes_auth_and_databases) << "an older MAIN's lists must be read as its full state";
 
   ASSERT_EQ(seen_cold.size(), 1U);
   EXPECT_EQ(*seen_cold[0].salient.name.str_view(), "cold_tenant");
@@ -541,6 +545,50 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_EQ(seen_cold[0].stats.isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
+}
+
+// An unlicensed MAIN leaves auth and the database list out; the V4 request must carry that to the replica.
+TEST(RpcVersioning, SystemRecoveryRpc_V4Request_CarriesAuthAndDatabasesLeftOut) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  bool seen_includes_auth_and_databases = true;
+  rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::replication::SystemRecoveryReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        seen_includes_auth_and_databases = req.includes_auth_and_databases;
+        memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  auto stream =
+      client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
+                                                              0,
+                                                              std::vector<memgraph::storage::SalientConfig>{},
+                                                              memgraph::auth::Auth::Config{},
+                                                              std::vector<memgraph::auth::User>{},
+                                                              std::vector<memgraph::auth::Role>{},
+                                                              std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                              std::vector<memgraph::parameters::ParameterInfo>{},
+                                                              std::vector<memgraph::storage::ColdTenantRecovery>{},
+                                                              /*includes_auth_and_databases=*/false);
+  EXPECT_EQ(stream.SendAndWait().result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+  EXPECT_FALSE(seen_includes_auth_and_databases);
 }
 
 #ifdef MG_ENTERPRISE

@@ -131,7 +131,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::User>{},
                                                             std::vector<auth::Role>{},
                                                             std::vector<auth::UserProfiles::Profile>{},
-                                                            params_snapshot);
+                                                            params_snapshot,
+                                                            std::vector<storage::ColdTenantRecovery>{},
+                                                            /*includes_auth_and_databases=*/false);
       }
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -141,7 +143,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           std::move(auth_roles),
                                                           std::move(auth_profiles),
                                                           params_snapshot,
-                                                          std::move(db_info.cold_databases));
+                                                          std::move(db_info.cold_databases),
+                                                          /*includes_auth_and_databases=*/true);
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -150,7 +153,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           std::vector<auth::User>{},
                                                           std::vector<auth::Role>{},
                                                           std::vector<auth::UserProfiles::Profile>{},
-                                                          params_snapshot);
+                                                          params_snapshot,
+                                                          std::vector<storage::ColdTenantRecovery>{},
+                                                          /*includes_auth_and_databases=*/false);
 #endif
     });
     guard.reset();
