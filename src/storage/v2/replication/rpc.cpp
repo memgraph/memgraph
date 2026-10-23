@@ -269,11 +269,10 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
 }
 
-// Visitor-complete SalientConfig wire pair (gh5190): every field the sender runs with crosses the
-// boundary. Driven by the single SalientConfigForEachField list (storage/v2/config.hpp), so a field
-// added there travels the wire at once. Used only by the version-bumped carriers (CreateDatabaseReq
-// v2, SystemRecoveryReq v4). The five-field pair above stays frozen: it is the V1 layout the old
-// request versions (and the V3 cold payload) still use, and must not grow.
+// Visitor-complete SalientConfig wire pair: every field the sender runs with crosses the boundary.
+// Driven by SalientConfigForEachField (storage/v2/config.hpp), so a field added there travels the wire
+// at once. Used only by the version-bumped carriers (CreateDatabaseReq v2, SystemRecoveryReq v4); the
+// five-field pair above stays frozen as the V1 layout and must not grow.
 void SaveSalientConfigComplete(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
   memgraph::storage::SalientConfigForEachField(
       self, [builder](const char * /*key*/, const auto &value) { memgraph::slk::Save(value, builder); });

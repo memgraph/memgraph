@@ -23,7 +23,7 @@ TEST(StorageV2Config, Default) {
 
 TEST(StorageV2Config, RoundTrip) {
   // Every Items field is set away from its struct default, so a field missing from either direction
-  // of the JSON pair is caught by the whole-struct comparison. gh5190: delta_on_identical_property_update
+  // of the JSON pair is caught by the whole-struct comparison. delta_on_identical_property_update
   // was absent from both to_json and from_json, so it silently reset to its default on read-back.
   SalientConfig::Items items{};
   items.properties_on_edges = false;

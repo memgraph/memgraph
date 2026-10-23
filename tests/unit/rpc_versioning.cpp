@@ -846,7 +846,7 @@ TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
   EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkReaderException);
 }
 
-// gh5190: the SalientConfig SLK pair carried by CreateDatabaseReq must round-trip every field the
+// The SalientConfig SLK pair carried by CreateDatabaseReq must round-trip every field the
 // sender runs with. Before the fix the pair wrote only five fields, so the other eight (including
 // items.enable_schema_info) silently reset to their struct defaults on the replica and SHOW SCHEMA
 // INFO stayed disabled on a replicated tenant whose MAIN ran --schema-info-enabled.
