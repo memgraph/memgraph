@@ -897,7 +897,7 @@ void SaveSalientConfigV1Wire(memgraph::storage::SalientConfig const &config, mem
 }
 }  // namespace
 
-// A4: CreateDatabaseReq V1->V2 upgrade. A pre-fix MAIN sends a V1 request (five-field SalientConfig); the
+// CreateDatabaseReq V1->V2 upgrade. A pre-fix MAIN sends a V1 request (five-field SalientConfig); the
 // V2 receiver's LoadWithUpgrade dispatches it through Upgrade(V1), keeping the five fields it did carry
 // and defaulting the eight it did not (pre-fix behavior) — property_store_compression_level among them.
 TEST(RpcVersioning, CreateDatabaseReq_V1UpgradeDefaults) {
@@ -939,7 +939,7 @@ TEST(RpcVersioning, CreateDatabaseReq_V1UpgradeDefaults) {
       << "enable_schema_info was never on the V1 wire, so it must keep its struct default";
 }
 
-// A4: SystemRecoveryReq V3->V4 upgrade. A V3 MAIN sends the pre-V4 layout (five-field SalientConfig inside
+// SystemRecoveryReq V3->V4 upgrade. A V3 MAIN sends the pre-V4 layout (five-field SalientConfig inside
 // database_configs and cold_databases); the V4 receiver's LoadWithUpgrade dispatches it through Upgrade(V3),
 // carrying cold_databases through unchanged and defaulting the fields V3 never carried.
 TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
@@ -997,7 +997,7 @@ TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
   EXPECT_EQ(loaded.cold_databases[0].stats, cold.stats) << "the cold set must survive the V3->V4 upgrade";
 }
 
-// A4: new-sender/old-receiver refusal. The complete-config payloads grow the positional wire, so the two
+// new-sender/old-receiver refusal. The complete-config payloads grow the positional wire, so the two
 // carriers are version-bumped (CreateDatabaseReq 1->2, SystemRecoveryReq 3->4) and a receiver that only
 // knows the pre-fix version refuses a request at the sender's version — LoadWithUpgrade finds no upgrade
 // path and throws — rather than parsing the larger payload at the old layout.
