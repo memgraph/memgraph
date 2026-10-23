@@ -847,10 +847,9 @@ TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
   EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkReaderException);
 }
 
-// The SalientConfig SLK pair carried by CreateDatabaseReq must round-trip every field the
-// sender runs with. Before the fix the pair wrote only five fields, so the other eight (including
-// items.enable_schema_info) silently reset to their struct defaults on the replica and SHOW SCHEMA
-// INFO stayed disabled on a replicated tenant whose MAIN ran --schema-info-enabled.
+// The SalientConfig SLK pair carried by CreateDatabaseReq must round-trip every field the sender runs
+// with. Before the fix it wrote only five fields, so the rest (incl. items.enable_schema_info) reset to
+// struct defaults on the replica and SHOW SCHEMA INFO stayed disabled for a replicated tenant.
 TEST(RpcVersioning, SlkSalientConfig_FullFieldRoundTrip) {
   memgraph::storage::SalientConfig config;
   config.name = "tenant";
@@ -884,10 +883,8 @@ TEST(RpcVersioning, SlkSalientConfig_FullFieldRoundTrip) {
 }
 
 namespace {
-// Write a SalientConfig in the pre-fix five-field SLK layout (the frozen slk::Save(SalientConfig) pair):
-// name, uuid, storage_mode, items.properties_on_edges, items.enable_schema_metadata. Built here from the
-// public slk primitives so an upgrade test can forge a genuine old-sender payload; the receive-side old
-// carrier struct itself is not needed.
+// Forges the pre-fix five-field slk::Save(SalientConfig) wire layout from public slk primitives so an
+// upgrade test can build a genuine old-sender payload without needing the old carrier struct.
 void SaveSalientConfigV1Wire(memgraph::storage::SalientConfig const &config, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(*config.name.str_view(), builder);
   memgraph::slk::Save(config.uuid, builder);
@@ -897,9 +894,8 @@ void SaveSalientConfigV1Wire(memgraph::storage::SalientConfig const &config, mem
 }
 }  // namespace
 
-// CreateDatabaseReq V1->V2 upgrade. A pre-fix MAIN sends a V1 request (five-field SalientConfig); the
-// V2 receiver's LoadWithUpgrade dispatches it through Upgrade(V1), keeping the five fields it did carry
-// and defaulting the eight it did not (pre-fix behavior) — property_store_compression_level among them.
+// CreateDatabaseReq V1->V2 upgrade: a pre-fix sender sends a five-field SalientConfig; the upgraded
+// request must keep the five carried fields and default the eight it did not carry.
 TEST(RpcVersioning, CreateDatabaseReq_V1UpgradeDefaults) {
   memgraph::storage::SalientConfig v1_sender;
   v1_sender.name = "tenant";
@@ -939,9 +935,8 @@ TEST(RpcVersioning, CreateDatabaseReq_V1UpgradeDefaults) {
       << "enable_schema_info was never on the V1 wire, so it must keep its struct default";
 }
 
-// SystemRecoveryReq V3->V4 upgrade. A V3 MAIN sends the pre-V4 layout (five-field SalientConfig inside
-// database_configs and cold_databases); the V4 receiver's LoadWithUpgrade dispatches it through Upgrade(V3),
-// carrying cold_databases through unchanged and defaulting the fields V3 never carried.
+// SystemRecoveryReq V3->V4 upgrade: a V3 sender sends the pre-V4 layout (five-field SalientConfig in
+// database_configs and cold_databases); cold_databases must pass through unchanged, missing fields default.
 TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
   memgraph::storage::SalientConfig hot;
   hot.name = "hot_tenant";
@@ -998,12 +993,8 @@ TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
 }
 
 namespace {
-// A carrier whose positional payload grew is version-bumped; the pre-fix receiver — the previous
-// version's struct, the argument of the new carrier's Upgrade — knows only the old layout and has no
-// path forward, so LoadWithUpgrade must refuse a request at the new version rather than parse the
-// larger payload under the old layout. On the pre-fix tree that struct does not exist yet (the carrier
-// itself is the newest, with no Upgrade), so the helper executes nothing there and the version
-// assertions below carry the red.
+// A receiver that knows only the previous version of a version-bumped carrier has no upgrade path, so
+// LoadWithUpgrade must refuse (throw) rather than parse the new, larger payload under the old layout.
 template <typename NewCarrier>
 void ExpectOldReceiverRefusesNewVersion() {
   if constexpr (requires { &NewCarrier::Upgrade; }) {
@@ -1021,19 +1012,15 @@ void ExpectOldReceiverRefusesNewVersion() {
 }
 }  // namespace
 
-// new-sender/old-receiver refusal. The complete-config payloads grow the positional wire, so the two
-// carriers are version-bumped (CreateDatabaseReq 1->2, SystemRecoveryReq 3->4) and a receiver that only
-// knows the pre-fix version refuses a request at the sender's version — LoadWithUpgrade finds no upgrade
-// path and throws — rather than parsing the larger payload at the old layout.
+// New-sender/old-receiver refusal for the version-bumped carriers (CreateDatabaseReq 1->2,
+// SystemRecoveryReq 3->4) that grew the positional wire to the complete SalientConfig.
 TEST(RpcVersioning, SalientConfigCarriers_NewSenderOldReceiverRefused) {
   EXPECT_EQ(memgraph::storage::replication::CreateDatabaseReq::kVersion, 2U)
       << "the complete-SalientConfig CreateDatabaseReq must be version 2";
   EXPECT_EQ(memgraph::replication::SystemRecoveryReq::kVersion, 4U)
       << "the complete-SalientConfig SystemRecoveryReq must be version 4";
 
-  // CreateDatabaseReq V2 vs its V1 receiver, SystemRecoveryReq V4 vs its V3 receiver. Those old structs
-  // (CreateDatabaseReqV1 / SystemRecoveryReqV3) exist only on the fix tree, so the helper takes them from
-  // the new carrier's Upgrade argument rather than naming them directly.
+  // The old receiver types are taken from each carrier's Upgrade argument, not named directly here.
   ExpectOldReceiverRefusesNewVersion<memgraph::storage::replication::CreateDatabaseReq>();
   ExpectOldReceiverRefusesNewVersion<memgraph::replication::SystemRecoveryReq>();
 }

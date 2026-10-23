@@ -63,8 +63,7 @@ struct SalientConfig {
   friend void from_json(const nlohmann::json &data, SalientConfig &config);
 };
 
-// Single ordered list of SalientConfig::Items' fields, driving the Items JSON pair (config.cpp);
-// templated on Self so one list serves save (const) and load.
+// One list drives the Items JSON pair (config.cpp); templated on Self so it serves save (const) and load.
 template <typename Self, typename Visit>
 void SalientConfigItemsForEachField(Self &s, Visit &&visit) {
   visit("properties_on_edges", s.properties_on_edges);
@@ -78,9 +77,8 @@ void SalientConfigItemsForEachField(Self &s, Visit &&visit) {
   visit("property_store_compression_enabled", s.property_store_compression_enabled);
 }
 
-// Single ordered list of SalientConfig's 13 fields (4 top-level + the 9 Items booleans, delegated).
-// The visitor-complete SLK pair and the JSON pair both derive from it; the frozen five-field
-// slk::Save/Load(SalientConfig) pair stays separate as the old V1-carrier layout.
+// Shared by the JSON pair (config.cpp) and the visitor-complete SLK pair (replication/rpc.cpp); the
+// frozen five-field slk::Save/Load(SalientConfig) pair stays separate as the old V1-carrier layout.
 template <typename Self, typename Visit>
 void SalientConfigForEachField(Self &s, Visit &&visit) {
   visit("name", s.name);

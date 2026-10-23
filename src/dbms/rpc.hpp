@@ -40,9 +40,8 @@ struct CreateDatabaseReqV1 {
   storage::SalientConfig config;
 };
 
-// V2: the SalientConfig payload grew to the complete set, so the carrier version gates the larger
-// positional wire. A pre-fix V1 sender's config is parsed under the old layout and upgraded here; the
-// fields it never carried keep their struct defaults (pre-fix behavior).
+// v2: SalientConfig serialized field-complete (SalientConfigForEachField); v1 senders are parsed on
+// the frozen five-field wire and upgraded, keeping struct defaults for fields they never carried.
 struct CreateDatabaseReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReq"};
   static constexpr uint64_t kVersion{2};
@@ -83,8 +82,8 @@ struct CreateDatabaseResV1 {
   Result result;
 };
 
-// The RPC framework resolves the response at the request's version (SaveWithDowngrade), so a v2
-// request gets a v2 response; the content is unchanged and Downgrade answers a pre-fix v1 client.
+// Downgrade is lossless (both versions carry only Result); the framework answers a pre-fix v1
+// request on this v1 wire (SaveWithDowngrade).
 struct CreateDatabaseRes {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseRes"};
   static constexpr uint64_t kVersion{2};

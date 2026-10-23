@@ -144,14 +144,12 @@ struct SystemRecoveryReqV3 {
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
   std::vector<parameters::ParameterInfo> parameters;
-  // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
-  // the earlier parallel cold_database_configs/cold_database_stats vectors.
   std::vector<storage::ColdTenantRecovery> cold_databases;
 };
 
-// V4: the nested SalientConfig layout grew to the complete set, so the carrier version gates the
-// larger positional wire. A V3 sender's request is parsed under the old five-field layout and
-// upgraded here; the fields V3 never carried keep their struct defaults.
+// V4: the SalientConfig element wire grew from the frozen five-field pair to the complete layout, so
+// the carrier version gates the difference. A V3 sender's request is parsed with the five-field pair
+// and upgraded here; the SalientConfig fields beyond those five keep their struct defaults.
 struct SystemRecoveryReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
   static constexpr uint64_t kVersion{4};

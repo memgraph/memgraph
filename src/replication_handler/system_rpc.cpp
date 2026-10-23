@@ -199,7 +199,6 @@ void Save(const memgraph::replication::SystemRecoveryResV2 &self, memgraph::slk:
   memgraph::slk::Save(self.result, builder);
 }
 
-// SystemRecoveryResV3 / SystemRecoveryRes (v4): same single-Result layout as V1/V2
 void Save(const memgraph::replication::SystemRecoveryResV3 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.result, builder);
 }
