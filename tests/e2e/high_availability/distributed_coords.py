@@ -886,7 +886,7 @@ def test_old_main_comes_back_on_new_leader_as_main(test_name):
     # 4. Start the old main instance
     # 5. Run SHOW INSTANCES on the new leader and check that the old main instance is main once again
 
-    inner_memgraph_instances = get_instances_description_no_setup(test_name=test_name)
+    inner_memgraph_instances = add_nuraft_log_files(get_instances_description_no_setup(test_name=test_name), test_name)
     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
