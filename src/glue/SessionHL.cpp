@@ -20,6 +20,7 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
+#include "auth/system_user.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/coordinator_state.hpp"
 #endif
@@ -35,6 +36,7 @@
 #include "glue/coordinator_sso_authenticator.hpp"
 #endif
 #include "glue/communication.hpp"
+#include "glue/query_user.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -306,6 +308,26 @@ void SessionHL::TryDefaultDB() {
 std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
                                                                               const std::string &password) {
   interpreter_.ResetUser();
+  switch (auth::AuthenticateInternalSystemUser(username, password)) {
+    case auth::InternalSystemUserLogin::kAccepted:
+      // Unrestricted, like a session on an instance without users, but named, so SHOW SESSIONS and the audit log
+      // tell its queries apart from everyone else's.
+      session_user_or_role_ = std::make_shared<QueryUserOrRole>(QueryUserOrRole::InternalSystemUser(auth_));
+#ifdef MG_ENTERPRISE
+      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for the system user */});
+#else
+      interpreter_.SetUser(session_user_or_role_);
+#endif
+      interpreter_.SetSessionInfo(UUID(), std::string{auth::kInternalSystemUsername}, GetLoginTimestamp());
+      // The principal carries no username, so name it for the slow- and failed-query logs.
+      interpreter_.GetLogContext()->SetUser(std::string{auth::kInternalSystemUsername});
+      TryDefaultDB();
+      return {};
+    case auth::InternalSystemUserLogin::kRejected:
+      return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+    case auth::InternalSystemUserLogin::kNotInternal:
+      break;
+  }
   bool const access_controlled = auth_->ReadLock()->AccessControlled();
   // Auth lock is not held past this point; bcrypt and module calls run outside the lock.
   if (access_controlled) {
@@ -448,6 +470,25 @@ std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
   // that ties a control-plane query -- FORCE RESET CLUSTER STATE, SET INSTANCE TO MAIN -- back to a person.
   interpreter_.SetSessionInfo(UUID(), std::move(auth_result->username), GetLoginTimestamp());
   return {};
+}
+
+std::optional<bool> SessionHL::CoordinatorInternalSystemUserAuthenticate(const std::string &username,
+                                                                         const std::string &password) {
+  switch (auth::AuthenticateInternalSystemUser(username, password)) {
+    case auth::InternalSystemUserLogin::kNotInternal:
+      return std::nullopt;
+    case auth::InternalSystemUserLogin::kRejected:
+      return false;
+    case auth::InternalSystemUserLogin::kAccepted:
+      break;
+  }
+  // Role-less, so the login-time mask is authoritative: full coordinator privileges, independent of the role set.
+  interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                                        static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
+  interpreter_.SetCoordinatorRoles({});
+  interpreter_.SetSessionInfo(UUID(), std::string{auth::kInternalSystemUsername}, GetLoginTimestamp());
+  interpreter_.GetLogContext()->SetUser(std::string{auth::kInternalSystemUsername});
+  return true;
 }
 
 void SessionHL::CoordinatorPassthroughAuthenticate() {

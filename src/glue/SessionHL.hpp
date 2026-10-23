@@ -132,6 +132,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // re-authentication restores the privileges LogOff cleared.
   void CoordinatorPassthroughAuthenticate();
 
+  // Called during Init on a coordinator for a basic login, before SSO or passthrough is considered. nullopt when the
+  // login isn't the internal system user's (or it isn't configured), so the usual rules apply; true when it is, with
+  // the right password, and the session then carries the full coordinator privilege mask; false when the password is
+  // wrong, which must close the connection rather than fall through to passthrough.
+  std::optional<bool> CoordinatorInternalSystemUserAuthenticate(const std::string &username,
+                                                                const std::string &password);
+
   // Whether the coordinator's committed role set contains a role holding COORDINATOR_WRITE, i.e. an identity that
   // could administer the cluster once basic/none auth is denied. Returns nullopt when the role set can't be read
   // (no coordinator state, or the leader is unreachable). Used by the Init break-glass decision: with SSO configured

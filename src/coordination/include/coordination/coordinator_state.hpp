@@ -71,6 +71,9 @@ class CoordinatorState {
   // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
   auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
 
+  // This coordinator's own copy of the committed role set, restored from disk; see CoordinatorInstance::GetLocalRoles.
+  auto GetLocalRoles() const -> std::vector<CoordinatorRole>;
+
   auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
 
   auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;

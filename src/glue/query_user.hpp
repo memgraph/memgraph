@@ -35,6 +35,15 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
 
+  // The internal system user's principal: authorized for every privilege on every database, whether or not other users
+  // exist. It carries no username, so fine-grained access control (which only applies to a named user or role) never
+  // filters what it sees, and it can't impersonate anyone.
+  static QueryUserOrRole InternalSystemUser(auth::SynchedAuth *auth) {
+    auto principal = QueryUserOrRole{auth};
+    principal.internal_system_user_ = true;
+    return principal;
+  }
+
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
   std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
@@ -53,6 +62,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
   mutable bool dropped_{false};
+  bool internal_system_user_{false};
   mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
 };
 

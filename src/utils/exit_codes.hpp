@@ -25,7 +25,6 @@ enum class ExitCode : std::uint8_t {
   LogFileNotWritable = 13,
   FipsModeUnavailable = 14,
   FipsModeUnsupportedPasswordAlgorithm = 15,
-  FipsModeRequiresEnterprise = 16,
 };
 
 /// `std::exit`-ready status of an ExitCode.

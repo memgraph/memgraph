@@ -75,6 +75,10 @@ def authenticate(scheme: str, response: str):
     if response == "architect_user":
         return_dict = {"authenticated": True, "username": "architect_user", "roles": ["architect"]}
 
+    # An identity provider claiming the internal system user's reserved name.
+    if response == "internal_system_user":
+        return_dict = {"authenticated": True, "username": "memgraph_internal", "roles": ["admin"]}
+
     # New multi-role interface - roles is just a list of role names
     if response == "multi_role_admin":
         return_dict = {"authenticated": True, "username": "admin_user", "roles": ["admin", "architect", "user"]}

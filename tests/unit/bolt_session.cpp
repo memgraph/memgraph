@@ -164,6 +164,11 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void CoordinatorPassthroughAuthenticate() {}
 
+  std::optional<bool> CoordinatorInternalSystemUserAuthenticate(const std::string & /*username*/,
+                                                                const std::string & /*password*/) {
+    return std::nullopt;
+  }
+
   std::optional<bool> CoordinatorHasWritableRole() const { return std::nullopt; }
 #endif
 

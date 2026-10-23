@@ -12,6 +12,7 @@
 import base64
 import concurrent
 import os
+import subprocess
 import sys
 import time
 
@@ -1186,7 +1187,7 @@ def enable_sso_on_cluster(description):
     return description
 
 
-def start_sso_cluster(test_name, bootstrap=None):
+def start_sso_cluster(test_name, bootstrap=None, extra_args=()):
     """Bring up an SSO-gated coordinator cluster the way SSO is meant to be enabled in production.
 
     Once an SSO module is configured and a COORDINATOR_WRITE role exists, basic/none auth is denied on the coordinator,
@@ -1196,8 +1197,11 @@ def start_sso_cluster(test_name, bootstrap=None):
     the cluster and create the roles through the basic/none passthrough, then restart every coordinator with the SSO
     module configured. The roles persist across the restart through the Raft log, and after the restart all access is
     via SSO. The 'architect' admin role (COORDINATOR_WRITE) is always created; `bootstrap(admin_cursor)` may create
-    additional test-specific roles. Returns the description (now carrying the SSO flag)."""
+    additional test-specific roles. `extra_args` are appended to every coordinator's arguments from the first start.
+    Returns the description (now carrying the SSO flag)."""
     description = get_coords_only_description(test_name=test_name)
+    for coordinator in description.values():
+        coordinator["args"].extend(extra_args)
     interactive_mg_runner.start_all(description, keep_directories=False)
 
     admin_cursor = get_leader_cursor()
@@ -1677,6 +1681,249 @@ def test_explicit_transactions_are_rejected_on_a_coordinator(test_name):
     # Role changes still work outside a transaction.
     execute_and_fetch_all(cursor, "CREATE ROLE no_txn")
     assert show_roles(cursor) == ["no_txn"]
+
+
+# ---------------------------------------------------------------------------
+# Internal system user (--system-user-internal-hash-file)
+#
+# memgraph_internal is the identity cluster automation (the Kubernetes operator) logs in with. It is configured by a
+# hash file, never created: it must work on data instances and coordinators whether or not other users, roles or SSO
+# exist, a wrong password must never fall through to another auth path, and no query or identity provider may create,
+# change, drop or claim it.
+# ---------------------------------------------------------------------------
+
+INTERNAL_SYSTEM_USER = "memgraph_internal"
+INTERNAL_SYSTEM_USER_PASSWORD = "word"
+# bcrypt hash of "word": the same literal tests/e2e/auth/auth_queries.py creates a user with.
+INTERNAL_SYSTEM_USER_HASH = "bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"
+STANDALONE_DATA_PORT = 7687
+
+# Every way a query could name the internal system user. Each must fail: it is not a stored user or role, and its
+# name can't become one.
+RESERVED_NAME_QUERIES = [
+    f"CREATE USER {INTERNAL_SYSTEM_USER}",
+    f"CREATE USER {INTERNAL_SYSTEM_USER.upper()} IDENTIFIED BY 'other'",
+    f"CREATE USER IF NOT EXISTS {INTERNAL_SYSTEM_USER} IDENTIFIED BY 'other'",
+    f"CREATE ROLE {INTERNAL_SYSTEM_USER}",
+    f"DROP USER {INTERNAL_SYSTEM_USER}",
+    f"SET PASSWORD FOR {INTERNAL_SYSTEM_USER} TO 'other'",
+    f"GRANT ALL PRIVILEGES TO {INTERNAL_SYSTEM_USER}",
+    f"DENY MATCH TO {INTERNAL_SYSTEM_USER}",
+    f"REVOKE ALL PRIVILEGES FROM {INTERNAL_SYSTEM_USER}",
+    f"SET ROLE FOR {INTERNAL_SYSTEM_USER} TO reserved_name_role",
+    f"GRANT DATABASE memgraph TO {INTERNAL_SYSTEM_USER}",
+    f"SET MAIN DATABASE memgraph FOR {INTERNAL_SYSTEM_USER}",
+    f"GRANT IMPERSONATE_USER {INTERNAL_SYSTEM_USER} TO reserved_name_role",
+    f"SHOW PRIVILEGES FOR {INTERNAL_SYSTEM_USER}",
+]
+
+
+def internal_system_user_flag(tmp_path):
+    hash_file = tmp_path / "system_user_internal_hash"
+    hash_file.write_text(INTERNAL_SYSTEM_USER_HASH + "\n")
+    return f"--system-user-internal-hash-file={hash_file}"
+
+
+def internal_system_user_cursor(port, password=INTERNAL_SYSTEM_USER_PASSWORD):
+    return connect(host="localhost", port=port, username=INTERNAL_SYSTEM_USER, password=password).cursor()
+
+
+def connect_error(port, **credentials):
+    """The handshake rejection message, or None if the connection is accepted."""
+    try:
+        connect(host="localhost", port=port, **credentials)
+        return None
+    except Exception as e:
+        return str(e)
+
+
+def query_error(cursor, query):
+    """The error a query fails with, or None if it succeeds."""
+    try:
+        execute_and_fetch_all(cursor, query)
+        return None
+    except Exception as e:
+        return str(e)
+
+
+def get_standalone_data_instance_description(test_name, *extra_args):
+    return {
+        "instance_1": {
+            "args": [
+                f"--bolt-port={STANDALONE_DATA_PORT}",
+                "--log-level=TRACE",
+                *extra_args,
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+            "setup_queries": [],
+        }
+    }
+
+
+def assert_internal_system_user_has_full_data_access(cursor):
+    assert execute_and_fetch_all(cursor, "SHOW CURRENT USER") == [(INTERNAL_SYSTEM_USER,)]
+    execute_and_fetch_all(cursor, "CREATE (:InternalSystemUser)")
+    assert execute_and_fetch_all(cursor, "MATCH (n:InternalSystemUser) RETURN count(n)") == [(1,)]
+    # What the operator runs on a data instance: settings, config and the license.
+    execute_and_fetch_all(cursor, "SHOW DATABASE SETTINGS")
+    execute_and_fetch_all(cursor, "SHOW CONFIG")
+    execute_and_fetch_all(cursor, 'SET DATABASE SETTING "log.level" TO "TRACE"')
+
+
+def assert_reserved_name_queries_fail(cursor):
+    for query in RESERVED_NAME_QUERIES:
+        assert query_error(cursor, query) is not None, f"{query} must fail"
+    # Creating the user or role says why.
+    for query in RESERVED_NAME_QUERIES[:4]:
+        assert "reserved" in query_error(cursor, query), query
+
+
+def test_internal_system_user_on_data_instance_without_users(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    assert_internal_system_user_has_full_data_access(internal_system_user_cursor(STANDALONE_DATA_PORT))
+
+    # Without users any other login is accepted as before...
+    assert connect_error(STANDALONE_DATA_PORT) is None
+    assert connect_error(STANDALONE_DATA_PORT, username="whoever", password="whatever") is None
+    # ...but the internal system user with a wrong password is not.
+    assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER, password="wrong") is not None
+    assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER.upper(), password="wrong") is not None
+
+
+def test_internal_system_user_on_data_instance_with_users(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    anonymous = connect(host="localhost", port=STANDALONE_DATA_PORT).cursor()
+    execute_and_fetch_all(anonymous, "CREATE USER admin IDENTIFIED BY 'admin'")  # The first user gets every privilege.
+    admin = connect(host="localhost", port=STANDALONE_DATA_PORT, username="admin", password="admin").cursor()
+    execute_and_fetch_all(admin, "CREATE USER reader IDENTIFIED BY 'reader'")
+
+    internal = internal_system_user_cursor(STANDALONE_DATA_PORT)
+    assert_internal_system_user_has_full_data_access(internal)
+    # Including user management, which needs the AUTH privilege no stored user granted it.
+    execute_and_fetch_all(internal, "GRANT MATCH TO reader")
+    # It is not a stored user.
+    assert sorted(row[0] for row in execute_and_fetch_all(internal, "SHOW USERS")) == ["admin", "reader"]
+
+    assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER, password="wrong") is not None
+    assert connect_error(STANDALONE_DATA_PORT) is not None
+    assert connect_error(STANDALONE_DATA_PORT, username="admin", password="admin") is None
+
+
+def test_internal_system_user_name_is_reserved_on_data_instance(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    anonymous = connect(host="localhost", port=STANDALONE_DATA_PORT).cursor()
+    execute_and_fetch_all(anonymous, "CREATE USER admin IDENTIFIED BY 'admin'")
+    admin = connect(host="localhost", port=STANDALONE_DATA_PORT, username="admin", password="admin").cursor()
+    execute_and_fetch_all(admin, "CREATE ROLE reserved_name_role")
+
+    # Neither an administrator nor the internal system user itself can do anything to it.
+    assert_reserved_name_queries_fail(admin)
+    assert_reserved_name_queries_fail(internal_system_user_cursor(STANDALONE_DATA_PORT))
+
+    assert sorted(row[0] for row in execute_and_fetch_all(admin, "SHOW USERS")) == ["admin"]
+    assert INTERNAL_SYSTEM_USER not in [row[0] for row in execute_and_fetch_all(admin, "SHOW ROLES")]
+    # Its password is still the one from the hash file.
+    assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER, password="other") is not None
+    assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER, password="word") is None
+
+
+def test_internal_system_user_on_coordinators_without_sso(test_name, tmp_path):
+    description = get_coords_only_description(test_name=test_name)
+    flag = internal_system_user_flag(tmp_path)
+    for coordinator in description.values():
+        coordinator["args"].append(flag)
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    for port in COORD_PORTS:
+        internal = internal_system_user_cursor(port)
+        assert show_current_user(internal) == [INTERNAL_SYSTEM_USER]
+        assert len(show_instances(internal)) == 3
+
+    # Full coordinator privileges: role management runs on the leader.
+    internal = internal_system_user_cursor(leader_port)
+    create_role_with_privilege(internal, "created_by_internal", grant="COORDINATOR_READ")
+    assert show_roles(internal) == ["created_by_internal"]
+
+    # Passthrough still admits any other credentials, but never the internal system user with a wrong password.
+    assert connect_error(leader_port, username="whoever", password="whatever") is None
+    assert connect_error(leader_port, username=INTERNAL_SYSTEM_USER, password="wrong") is not None
+
+    # Its name can't become a coordinator role.
+    for cursor in (internal, connect(host="localhost", port=leader_port).cursor()):
+        assert "reserved" in query_error(cursor, f"CREATE ROLE {INTERNAL_SYSTEM_USER}")
+    assert show_roles(internal) == ["created_by_internal"]
+
+
+def test_internal_system_user_on_coordinators_with_sso(test_name, tmp_path):
+    start_sso_cluster(test_name, extra_args=[internal_system_user_flag(tmp_path)])
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # SSO closes basic auth for everyone else...
+    assert (
+        "basic authentication is disabled"
+        in connect_error(leader_port, username="whoever", password="whatever").lower()
+    )
+    # ...but not for the internal system user, on any coordinator.
+    for port in COORD_PORTS:
+        internal = internal_system_user_cursor(port)
+        assert show_current_user(internal) == [INTERNAL_SYSTEM_USER]
+        assert len(show_instances(internal)) == 3
+
+    internal = internal_system_user_cursor(leader_port)
+    create_role_with_privilege(internal, "created_by_internal", grant="COORDINATOR_READ")
+    assert show_roles(internal) == sorted([ADMIN_TOKEN, "created_by_internal"])
+    assert "reserved" in query_error(internal, f"CREATE ROLE {INTERNAL_SYSTEM_USER}")
+
+    # A wrong password is a plain authentication failure, decided before SSO is considered.
+    error = connect_error(leader_port, username=INTERNAL_SYSTEM_USER, password="wrong")
+    assert error is not None and "basic authentication is disabled" not in error.lower()
+
+    # An identity provider can't log anyone in as the internal system user, while regular SSO logins keep working.
+    assert sso_connect_error(leader_port, ADMIN_SCHEME, f"as:{INTERNAL_SYSTEM_USER}:{ADMIN_TOKEN}") is not None
+    assert sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        None,  # The file doesn't exist.
+        "",
+        "plaintext-not-a-hash",  # A plaintext password.
+        "sha256:" + "0" * 64,  # A hash literal CREATE USER accepts, but not bcrypt.
+        f"{INTERNAL_SYSTEM_USER_HASH}\n{INTERNAL_SYSTEM_USER_HASH}",
+    ],
+)
+def test_internal_system_user_hash_file_must_load(tmp_path, contents):
+    # Fail closed: a configured system user that can't be loaded stops startup instead of running without it.
+    hash_file = tmp_path / "system_user_internal_hash"
+    if contents is not None:
+        hash_file.write_text(contents)
+    result = subprocess.run(
+        [
+            interactive_mg_runner.MEMGRAPH_BINARY,
+            f"--data-directory={tmp_path / 'data'}",
+            "--bolt-port=7699",
+            "--log-file=",
+            "--also-log-to-stderr=true",
+            f"--system-user-internal-hash-file={hash_file}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode != 0
+    assert "internal system user's hash file" in result.stdout + result.stderr
+    # The file's contents are a credential and are never logged.
+    if contents:
+        assert contents.splitlines()[0] not in result.stdout + result.stderr
 
 
 if __name__ == "__main__":
