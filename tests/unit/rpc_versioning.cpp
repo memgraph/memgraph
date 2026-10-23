@@ -997,6 +997,30 @@ TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
   EXPECT_EQ(loaded.cold_databases[0].stats, cold.stats) << "the cold set must survive the V3->V4 upgrade";
 }
 
+namespace {
+// A carrier whose positional payload grew is version-bumped; the pre-fix receiver — the previous
+// version's struct, the argument of the new carrier's Upgrade — knows only the old layout and has no
+// path forward, so LoadWithUpgrade must refuse a request at the new version rather than parse the
+// larger payload under the old layout. On the pre-fix tree that struct does not exist yet (the carrier
+// itself is the newest, with no Upgrade), so the helper executes nothing there and the version
+// assertions below carry the red.
+template <typename NewCarrier>
+void ExpectOldReceiverRefusesNewVersion() {
+  if constexpr (requires { &NewCarrier::Upgrade; }) {
+    using OldReceiver = typename memgraph::utils::function_traits<decltype(&NewCarrier::Upgrade)>::template argument<0>;
+    static_assert(OldReceiver::kVersion + 1 == NewCarrier::kVersion,
+                  "the old receiver must be exactly the previous version of the carrier");
+
+    OldReceiver old_receiver;
+    std::vector<uint8_t> const empty;
+    memgraph::slk::Reader reader(empty.data(), empty.size());
+    EXPECT_THROW(memgraph::rpc::LoadWithUpgrade(old_receiver, NewCarrier::kVersion, &reader), std::runtime_error)
+        << "a receiver that only knows " << OldReceiver::kType.name << " (version " << OldReceiver::kVersion
+        << ") must refuse a version-" << NewCarrier::kVersion << " request instead of misreading it";
+  }
+}
+}  // namespace
+
 // new-sender/old-receiver refusal. The complete-config payloads grow the positional wire, so the two
 // carriers are version-bumped (CreateDatabaseReq 1->2, SystemRecoveryReq 3->4) and a receiver that only
 // knows the pre-fix version refuses a request at the sender's version — LoadWithUpgrade finds no upgrade
@@ -1007,12 +1031,11 @@ TEST(RpcVersioning, SalientConfigCarriers_NewSenderOldReceiverRefused) {
   EXPECT_EQ(memgraph::replication::SystemRecoveryReq::kVersion, 4U)
       << "the complete-SalientConfig SystemRecoveryReq must be version 4";
 
-  // A pre-fix receiver knows only SystemRecoveryReq V1 (kVersion 1, no Upgrade). A V2 request has no
-  // upgrade path into it, so it must be refused instead of misread.
-  memgraph::replication::SystemRecoveryReqV1 old_receiver;
-  std::vector<uint8_t> const empty;
-  memgraph::slk::Reader reader(empty.data(), empty.size());
-  EXPECT_THROW(memgraph::rpc::LoadWithUpgrade(old_receiver, 2, &reader), std::runtime_error);
+  // CreateDatabaseReq V2 vs its V1 receiver, SystemRecoveryReq V4 vs its V3 receiver. Those old structs
+  // (CreateDatabaseReqV1 / SystemRecoveryReqV3) exist only on the fix tree, so the helper takes them from
+  // the new carrier's Upgrade argument rather than naming them directly.
+  ExpectOldReceiverRefusesNewVersion<memgraph::storage::replication::CreateDatabaseReq>();
+  ExpectOldReceiverRefusesNewVersion<memgraph::replication::SystemRecoveryReq>();
 }
 
 #endif  // MG_ENTERPRISE
