@@ -298,4 +298,10 @@ void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader);
 
+// Wire format of SystemRecoveryReq up to V3 and CreateDatabaseReq V1: name, uuid, storage mode,
+// properties_on_edges and enable_schema_metadata only.
+void SaveSalientConfigV1(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
+
+void LoadSalientConfigV1(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader);
+
 }  // namespace memgraph::slk

@@ -22,6 +22,7 @@
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
+#include "dbms/rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include "rpc_messages.hpp"
@@ -394,10 +395,11 @@ TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1)
 
 namespace memgraph::replication {
 // Old-version typed RPCs so the test can send a genuine V1/V2 SystemRecoveryReq on the wire (the
-// SystemRecoveryRpc alias always serializes at the latest version, V3). Same pattern as
+// SystemRecoveryRpc alias always serializes at the latest version). Same pattern as
 // GetDatabaseHistoriesRpcV1 above.
 using SystemRecoveryRpcV1 = rpc::RequestResponse<SystemRecoveryReqV1, SystemRecoveryResV1>;
 using SystemRecoveryRpcV2 = rpc::RequestResponse<SystemRecoveryReqV2, SystemRecoveryResV2>;
+using SystemRecoveryRpcV3 = rpc::RequestResponse<SystemRecoveryReqV3, SystemRecoveryResV3>;
 }  // namespace memgraph::replication
 
 // SystemRecoveryRpc backward-compat: a pre-V3 MAIN (no hot/cold) sends a V1 or V2 SystemRecoveryReq. A
@@ -542,6 +544,199 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
 }
+
+namespace {
+// Every field differs from its SalientConfig default, so a field dropped on the wire shows up as a mismatch.
+memgraph::storage::SalientConfig NonDefaultSalientConfig(std::string_view name) {
+  memgraph::storage::SalientConfig config{};
+  config.name = std::string{name};
+  config.uuid = memgraph::utils::UUID{};
+  config.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL;
+  config.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  config.items = {.properties_on_edges = false,
+                  .enable_edges_metadata = true,
+                  .enable_schema_metadata = true,
+                  .enable_schema_info = true,
+                  .enable_label_index_auto_creation = true,
+                  .enable_edge_type_index_auto_creation = true,
+                  .storage_light_edge = true,
+                  .delta_on_identical_property_update = false,
+                  .property_store_compression_enabled = true};
+  return config;
+}
+
+// What a replica sees of `sent` through the pre-V4 SystemRecoveryReq / V1 CreateDatabaseReq layout.
+memgraph::storage::SalientConfig ThroughV1SalientLayout(memgraph::storage::SalientConfig const &sent) {
+  memgraph::storage::SalientConfig config{};
+  config.name = sent.name;
+  config.uuid = sent.uuid;
+  config.storage_mode = sent.storage_mode;
+  config.items.properties_on_edges = sent.items.properties_on_edges;
+  config.items.enable_schema_metadata = sent.items.enable_schema_metadata;
+  return config;
+}
+}  // namespace
+
+// SystemRecoveryRpc V4: the whole SalientConfig of HOT and COLD tenants survives the SLK round-trip.
+TEST(RpcVersioning, SystemRecoveryRpc_V4Request_CarriesFullSalientConfig) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  memgraph::replication::SystemRecoveryReq seen_req;
+  rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::rpc::LoadWithUpgrade(seen_req, request_version, req_reader);
+        memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+
+  auto const hot = NonDefaultSalientConfig("hot_tenant");
+  auto const cold = memgraph::storage::ColdTenantRecovery{.salient = NonDefaultSalientConfig("cold_tenant")};
+  auto stream =
+      client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
+                                                              0,
+                                                              std::vector{hot},
+                                                              memgraph::auth::Auth::Config{},
+                                                              std::vector<memgraph::auth::User>{},
+                                                              std::vector<memgraph::auth::Role>{},
+                                                              std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                              std::vector<memgraph::parameters::ParameterInfo>{},
+                                                              std::vector{cold});
+  auto reply = stream.SendAndWait();
+  EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+
+  ASSERT_EQ(seen_req.database_configs.size(), 1U);
+  EXPECT_EQ(seen_req.database_configs[0], hot);
+  ASSERT_EQ(seen_req.cold_databases.size(), 1U);
+  EXPECT_EQ(seen_req.cold_databases[0].salient, cold.salient);
+}
+
+// SystemRecoveryRpc V3 (pre-full-SalientConfig MAIN): the replica reads the V3 SalientConfig layout and
+// answers with a V3 response; fields absent from that layout keep their defaults.
+TEST(RpcVersioning, SystemRecoveryRpc_V3Request_UpgradeOnServer) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  uint64_t seen_version = 0;
+  memgraph::replication::SystemRecoveryReq seen_req;
+  rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::rpc::LoadWithUpgrade(seen_req, request_version, req_reader);
+        seen_version = request_version;
+        memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+
+  auto const hot = NonDefaultSalientConfig("hot_tenant");
+  auto const cold = memgraph::storage::ColdTenantRecovery{.salient = NonDefaultSalientConfig("cold_tenant")};
+  auto stream =
+      client.Stream<memgraph::replication::SystemRecoveryRpcV3>(memgraph::utils::UUID{},
+                                                                0,
+                                                                std::vector{hot},
+                                                                memgraph::auth::Auth::Config{},
+                                                                std::vector<memgraph::auth::User>{},
+                                                                std::vector<memgraph::auth::Role>{},
+                                                                std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                                std::vector<memgraph::parameters::ParameterInfo>{},
+                                                                std::vector{cold});
+  auto reply = stream.SendAndWait();
+  EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryResV3::Result::SUCCESS);
+  EXPECT_EQ(seen_version, 3U);
+
+  ASSERT_EQ(seen_req.database_configs.size(), 1U);
+  EXPECT_EQ(seen_req.database_configs[0], ThroughV1SalientLayout(hot));
+  ASSERT_EQ(seen_req.cold_databases.size(), 1U);
+  EXPECT_EQ(seen_req.cold_databases[0].salient, ThroughV1SalientLayout(cold.salient));
+}
+
+#ifdef MG_ENTERPRISE
+namespace memgraph::storage::replication {
+using CreateDatabaseRpcV1 = rpc::RequestResponse<CreateDatabaseReqV1, CreateDatabaseResV1>;
+}  // namespace memgraph::storage::replication
+
+// CreateDatabaseRpc V2 carries the whole SalientConfig; a V1 request (older MAIN) still loads, with the
+// fields absent from the V1 layout left at their defaults.
+TEST(RpcVersioning, CreateDatabaseRpc_CarriesFullSalientConfig) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  uint64_t seen_version = 0;
+  memgraph::storage::SalientConfig seen_config;
+  rpc_server.Register<memgraph::storage::replication::CreateDatabaseRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::storage::replication::CreateDatabaseReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        seen_version = request_version;
+        seen_config = req.config;
+        memgraph::storage::replication::CreateDatabaseRes const res(
+            memgraph::storage::replication::CreateDatabaseRes::Result::SUCCESS);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+
+  auto const config = NonDefaultSalientConfig("tenant");
+  {
+    auto stream =
+        client.Stream<memgraph::storage::replication::CreateDatabaseRpc>(memgraph::utils::UUID{}, 0, 1, config);
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::storage::replication::CreateDatabaseRes::Result::SUCCESS);
+    EXPECT_EQ(seen_version, 2U);
+    EXPECT_EQ(seen_config, config);
+  }
+  {
+    auto stream =
+        client.Stream<memgraph::storage::replication::CreateDatabaseRpcV1>(memgraph::utils::UUID{}, 0, 1, config);
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::storage::replication::CreateDatabaseResV1::Result::SUCCESS);
+    EXPECT_EQ(seen_version, 1U);
+    EXPECT_EQ(seen_config, ThroughV1SalientLayout(config));
+  }
+}
+#endif
 
 #ifdef MG_ENTERPRISE
 
