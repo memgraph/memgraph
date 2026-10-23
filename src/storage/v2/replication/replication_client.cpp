@@ -747,22 +747,7 @@ auto CopyCurrentWal(durability::WalFile &wal_file, std::filesystem::path const &
   if (!utils::EnsureDir(tmp_dir)) return std::nullopt;
   auto const tmp_path = tmp_dir / std::string{utils::UUID{}};
 
-  auto const copied = [&] {
-    utils::InputFile source;
-    if (!source.Open(wal_path)) return false;
-    utils::OutputFile copy;
-    if (!copy.Open(tmp_path, utils::OutputFile::Mode::OVERWRITE_EXISTING)) return false;
-    std::vector<uint8_t> buffer(utils::kFileBufferSize);
-    for (auto remaining = source.GetSize(); remaining > 0;) {
-      auto const chunk = std::min(remaining, utils::kFileBufferSize);
-      if (!source.Read(buffer.data(), chunk)) return false;
-      if (!copy.Write(buffer.data(), chunk)) return false;
-      remaining -= chunk;
-    }
-    copy.Close();
-    return true;
-  }();
-  if (!copied) {
+  if (!utils::CopyFile(wal_path, tmp_path)) {
     utils::DeleteFile(tmp_path);
     return std::nullopt;
   }
