@@ -868,6 +868,21 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
 }
 
+namespace {
+
+// Polls until the predicate holds; false once the deadline passes, so a stuck replica fails the test instead of
+// hanging the binary.
+auto WaitUntil(auto const &predicate) -> bool {
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (!predicate()) {
+    if (std::chrono::steady_clock::now() > deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return true;
+}
+
+}  // namespace
+
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   auto const saved_interval = FLAGS_replication_async_recovery_interval_sec;
   FLAGS_replication_async_recovery_interval_sec = 0;
@@ -904,9 +919,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     ASSERT_NE(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
   }
 
-  while (main.db.storage()->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState("REPLICA_ASYNC") == ReplicaState::READY; }));
 
   ASSERT_TRUE(std::ranges::all_of(created_vertices, [&](const auto vertex_gid) {
     const memgraph::memory::DbArenaScope arena_scope{&replica_async.db.Arena()};
@@ -956,14 +969,12 @@ TEST_F(ReplicationTest, AsyncRecoveryIntervalSpacesRounds) {
   };
 
   auto const wait_for_ready = [&] {
-    while (main.db.storage()->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    return WaitUntil([&] { return main.db.storage()->GetReplicaState("REPLICA_ASYNC") == ReplicaState::READY; });
   };
 
   // No round has run yet, so the first commit is recovered without waiting for the interval.
   auto const first = create_vertex();
-  wait_for_ready();
+  ASSERT_TRUE(wait_for_ready());
   ASSERT_TRUE(replica_has_vertex(first));
 
   // The next commit marks the replica behind, but a second round is held back for the interval.
@@ -976,7 +987,7 @@ TEST_F(ReplicationTest, AsyncRecoveryIntervalSpacesRounds) {
   ASSERT_FALSE(replica_has_vertex(second));
 
   // Once the interval elapses the frequent check starts the held-back round.
-  wait_for_ready();
+  ASSERT_TRUE(wait_for_ready());
   ASSERT_TRUE(replica_has_vertex(second));
 }
 
@@ -1097,15 +1108,6 @@ TEST_F(ReplicationTest, EpochTest) {
 }
 
 namespace {
-
-auto WaitUntil(auto const &predicate) -> bool {
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{60};
-  while (!predicate()) {
-    if (std::chrono::steady_clock::now() > deadline) return false;
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  return true;
-}
 
 auto FindReplicationClient(MinMemgraph &main, std::string_view name) -> memgraph::replication::ReplicationClient * {
   auto locked_repl_state = main.repl_state.Lock();
