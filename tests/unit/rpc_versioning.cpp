@@ -33,6 +33,9 @@
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
+
+#include "replication_coordination_glue/handler.hpp"
+
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "slk/streams.hpp"
 #include "system/state.hpp"
@@ -844,3 +847,36 @@ TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
 }
 
 #endif  // MG_ENTERPRISE
+
+// A replica reports each database's commit timestamp in the frequent heartbeat. An older MAIN sends a V1 request and
+// must still get a V1 response; a V2 request gets the timestamps.
+TEST(RpcVersioning, FrequentHeartbeatRpc_V1RequestGetsV1Response_V2RequestGetsTimestamps) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  memgraph::replication_coordination_glue::DatabaseCommitTimestamps const timestamps{{memgraph::utils::UUID{}, 0},
+                                                                                     {memgraph::utils::UUID{}, 42}};
+  rpc_server.Register<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::replication_coordination_glue::FrequentHeartbeatHandler(
+            request_version, req_reader, res_builder, timestamps);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  EXPECT_NO_THROW(client.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpcV1>().SendAndWait());
+  auto const reply = client.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>().SendAndWait();
+  EXPECT_EQ(reply.database_commit_timestamps, timestamps);
+}

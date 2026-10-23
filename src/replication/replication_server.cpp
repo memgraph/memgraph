@@ -32,11 +32,12 @@ ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationSer
     : rpc_server_context_{communication::CreateServerContext(config.tls_config)},
       rpc_server_{config.repl_server, &rpc_server_context_, kReplicationServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>(
-      [](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version,
-         auto *req_reader,
-         auto *res_builder) {
-        replication_coordination_glue::FrequentHeartbeatHandler(request_version, req_reader, res_builder);
+      [this](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+             uint64_t const request_version,
+             auto *req_reader,
+             auto *res_builder) {
+        replication_coordination_glue::FrequentHeartbeatHandler(
+            request_version, req_reader, res_builder, database_commit_timestamps_());
       });
 }
 

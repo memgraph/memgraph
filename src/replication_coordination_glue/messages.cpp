@@ -16,11 +16,27 @@
 
 namespace memgraph::slk {
 // Serialize code for FrequentHeartbeatRes
-void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {}
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatResV1 & /*self*/,
+          memgraph::slk::Builder * /*builder*/) {}
 
-void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {}
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatResV1 * /*self*/,
+          memgraph::slk::Reader * /*reader*/) {}
+
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.database_commit_timestamps, builder);
+}
+
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->database_commit_timestamps, reader);
+}
 
 // Serialize code for FrequentHeartbeatReq
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReqV1 & /*self*/,
+          memgraph::slk::Builder * /*builder*/) {}
+
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReqV1 * /*self*/,
+          memgraph::slk::Reader * /*reader*/) {}
+
 void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReq & /*self*/,
           memgraph::slk::Builder * /*builder*/) {
   /* Nothing to serialize */
@@ -53,6 +69,22 @@ void Load(memgraph::replication_coordination_glue::SwapMainUUIDReq *self, memgra
 }  // namespace memgraph::slk
 
 namespace memgraph::replication_coordination_glue {
+
+void FrequentHeartbeatReqV1::Save(const FrequentHeartbeatReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void FrequentHeartbeatReqV1::Load(FrequentHeartbeatReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void FrequentHeartbeatResV1::Save(const FrequentHeartbeatResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void FrequentHeartbeatResV1::Load(FrequentHeartbeatResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
 
 void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
