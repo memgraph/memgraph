@@ -1378,6 +1378,8 @@ class Accessor {
 
   bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
 
+  bool IsTransactionActive() const { return is_transaction_active_; }
+
   // TTL methods
   ttl::TTL &ttl() { return storage_->ttl_; }
 
