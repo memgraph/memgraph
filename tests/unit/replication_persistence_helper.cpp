@@ -210,6 +210,22 @@ TEST(ReplicationDurability, ReplicaEntryZeroCheckFrequencyIsClamped) {
   ASSERT_EQ(deser.config.replica_check_frequency, 1s);
 }
 
+TEST(ReplicationDurability, ReplicaEntryCheckFrequencyAboveMaxIsClamped) {
+  using namespace std::chrono_literals;
+  using namespace std::string_literals;
+  auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
+                                                         .name = "TEST_NAME"s,
+                                                         .mode = ReplicationMode::ASYNC,
+                                                         .repl_server_endpoint = Endpoint("000.123.456.789", 2023),
+                                                         .replica_check_frequency = 100000s,
+                                                     }};
+  nlohmann::json j;
+  to_json(j, replica_entry);
+  ReplicationReplicaEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(deser.config.replica_check_frequency, 24h);
+}
+
 TEST(ReplicationDurability, ReplicaEntryMigrationNoVersionToV4) {
   using namespace std::chrono_literals;
   using namespace std::string_literals;

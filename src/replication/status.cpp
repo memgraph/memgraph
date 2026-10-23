@@ -11,6 +11,7 @@
 
 #include "replication/status.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -37,7 +38,9 @@ constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kVersion = "durability_version";
 constexpr auto *kMainUUID = "main_uuid";
 constexpr auto *kDeltasBatchProgressSize = "deltas_batch_progress_size";
+// Matches the range of --replication-replica-check-frequency-sec.
 constexpr auto kMinReplicaCheckFrequency = std::chrono::seconds{1};
+constexpr auto kMaxReplicaCheckFrequency = std::chrono::hours{24};
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
@@ -120,14 +123,17 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
 
   auto name = j.at(kReplicaName).get<std::string>();
   auto replica_check_frequency = std::chrono::seconds{j.at(kCheckFrequency).get<std::chrono::seconds::rep>()};
-  // Older versions accepted 0, which disables the periodic check that catches up ASYNC replicas.
-  if (replica_check_frequency < kMinReplicaCheckFrequency) {
-    spdlog::warn("Recovered replica {} with {}={}s, which is below the supported minimum; using {}s instead.",
+  // Older versions accepted any value, including 0, which disables the periodic check that catches up ASYNC
+  // replicas.
+  if (auto const clamped = std::clamp<std::chrono::seconds>(
+          replica_check_frequency, kMinReplicaCheckFrequency, kMaxReplicaCheckFrequency);
+      clamped != replica_check_frequency) {
+    spdlog::warn("Recovered replica {} with {}={}s, which is outside the supported range; using {}s instead.",
                  name,
                  kCheckFrequency,
                  replica_check_frequency.count(),
-                 kMinReplicaCheckFrequency.count());
-    replica_check_frequency = kMinReplicaCheckFrequency;
+                 clamped.count());
+    replica_check_frequency = clamped;
   }
   auto config = ReplicationClientConfig{
       .name = std::move(name),
