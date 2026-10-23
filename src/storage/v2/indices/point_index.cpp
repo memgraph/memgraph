@@ -85,7 +85,7 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
     DMG_ASSERT(tracked_changes_it != tracked_changes.end(),
                "We expect the set of label+properties we are tracking to not have changed");
 
-    auto changed_vertices = tracked_changes_it->second;
+    auto const &changed_vertices = tracked_changes_it->second;
     if (changed_vertices.empty()) {
       // unmodified, no changes, just copy as is
       auto it = src.find(key);

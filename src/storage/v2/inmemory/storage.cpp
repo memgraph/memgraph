@@ -1283,10 +1283,10 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   DMG_ASSERT(engine_guard.owns_lock() && engine_guard.mutex() == &mem_storage->engine_lock_,
              "PublishCommit requires engine_lock_ held");
 
+  // The WAL and the replicas are already done, so this must not be the thing that fails.
+  utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+
   if (mem_storage->config_.experimental_commit_lock_narrowing) {
-    // Before any visibility side effect, and exempt from the tracker's OOM throw: the WAL and the
-    // replicas are already done, so this must not be the thing that fails.
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
     auto &windows = mem_storage->commit_windows_;
     if (mem_storage->timestamp_ > *commit_timestamp_ + 1) {
       windows.push_back({.commit_ts = *commit_timestamp_, .end_ts = mem_storage->timestamp_});
@@ -1425,6 +1425,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return result;
   }
 
+  // The batch is committed and is_transaction_active_ is false until the next batch starts. A throw
+  // in between would reach Abort() with no active transaction, so nothing here may refuse memory.
+  utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
   FinalizeTransaction();
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

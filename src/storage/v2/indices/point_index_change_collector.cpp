@@ -59,7 +59,7 @@ auto PointIndexChangeCollector::PreviousChanges() const -> TrackedChanges const 
     // Lazy initialization - create empty sets for all current keys
     auto rng = current_changes_ | std::views::keys |
                std::views::transform([](auto &key) { return std::pair{key, absl::flat_hash_set<Vertex const *>{}}; });
-    utils::AtomicMemoryBlock([&] { previous_changes_ = TrackedChanges{rng.begin(), rng.end()}; });
+    previous_changes_ = TrackedChanges{rng.begin(), rng.end()};
   }
   return *previous_changes_;
 }
@@ -75,7 +75,7 @@ void PointIndexChangeCollector::ArchiveCurrentChanges() {
 }
 
 PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
-    : current_changes_{utils::AtomicMemoryBlock([&]() {
+    : current_changes_{std::invoke([&]() {
         auto rng = ctx.IndexKeys() | std::views::transform([](auto key) {
                      return std::pair{key, absl::flat_hash_set<Vertex const *>{}};
                    });
