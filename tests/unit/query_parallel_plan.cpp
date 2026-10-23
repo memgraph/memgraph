@@ -13,13 +13,16 @@
 #ifdef MG_ENTERPRISE
 #include "query_plan_checker.hpp"
 
+#include <filesystem>
 #include <iostream>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <typeinfo>
 #include <unordered_map>
@@ -30,14 +33,20 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "metrics/prometheus_metrics.hpp"
+#include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/frame.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rewrite/parallel_rewrite.hpp"
+#include "query/query_user.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 #include "query_common.hpp"
 #include "utils/bound.hpp"
@@ -1046,6 +1055,93 @@ TEST_F(ParallelConditionalOnMainChain, ConflictInABranchOrAFoldKeepsTheScanSeria
   auto const fold_chain = RewrittenChain({{.pattern_filters = {fold}, .plan = ReturnOne()}});
   EXPECT_THAT(fold_chain, testing::Contains("ScanAll"));
   EXPECT_THAT(fold_chain, testing::Not(testing::Contains("ScanParallel")));
+}
+
+// Records, per principal object, who touched it; clone() hands out distinct objects.
+struct PrincipalProbe {
+  std::mutex mutex;
+  std::set<const void *> used;
+  std::vector<std::thread::id> version_threads;
+  size_t used_before_version{0};
+  size_t clones{0};
+};
+
+struct ProbePrincipal : memgraph::query::QueryUserOrRole {
+  explicit ProbePrincipal(PrincipalProbe *probe) : QueryUserOrRole{"probe", {}}, probe_(probe) {}
+
+  std::shared_ptr<QueryUserOrRole> clone() const override {
+    const std::lock_guard lock(probe_->mutex);
+    ++probe_->clones;
+    return std::make_shared<ProbePrincipal>(probe_);
+  }
+
+  uint64_t PrincipalVersion() const override {
+    const std::lock_guard lock(probe_->mutex);
+    probe_->version_threads.push_back(std::this_thread::get_id());
+    probe_->used_before_version = probe_->used.size();
+    return 0;
+  }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override {
+    const std::lock_guard lock(probe_->mutex);
+    probe_->used.insert(this);
+    return {};
+  }
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
+                    std::optional<std::string_view> /*db_name*/) const override {
+    return true;
+  }
+
+  bool CanImpersonate(const std::string & /*target*/, std::optional<std::string_view> /*db_name*/) const override {
+    return true;
+  }
+
+  std::string GetDefaultDB() const override { return "memgraph"; }
+
+  PrincipalProbe *probe_;
+};
+
+TEST(ParallelBranchPrincipal, EachWorkerGetsItsOwnCopyRefreshedOnTheOwnerThread) {
+  LicenseWrapper license_wrapper;
+  constexpr size_t kBranches = 3;
+  AstStorage storage;
+  SymbolTable symbol_table;
+  // Every branch evaluates roles(), which reaches the principal of that branch's context.
+  auto *roles = storage.Create<memgraph::query::Function>("ROLES", std::vector<memgraph::query::Expression *>{});
+  auto aggregate =
+      std::make_shared<Aggregate>(std::make_shared<Once>(),
+                                  std::vector<Aggregate::Element>{{.arg1 = roles,
+                                                                   .arg2 = nullptr,
+                                                                   .op = memgraph::query::Aggregation::Op::COUNT,
+                                                                   .output_sym = symbol_table.CreateSymbol("c", true)}},
+                                  std::vector<memgraph::query::Expression *>{},
+                                  std::vector<Symbol>{});
+  AggregateParallel parallel(aggregate, kBranches);
+
+  auto const data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_parallel_plan";
+  memgraph::storage::Config config;
+  config.durability.storage_directory = data_directory;
+  memgraph::storage::InMemoryStorage db(config);
+  auto storage_dba = db.Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  PrincipalProbe probe;
+  memgraph::metrics::DatabaseMetricHandles metric_handles;
+  memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &metric_handles};
+  context.symbol_table = symbol_table;
+  context.stopping_context.exception_occurred = std::make_shared<std::atomic<uint8_t>>(0);
+  context.user_or_role = std::make_shared<ProbePrincipal>(&probe);
+
+  auto cursor = parallel.MakeCursor(memgraph::utils::NewDeleteResource(), metric_handles);
+  memgraph::query::Frame frame(symbol_table.max_position());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+
+  EXPECT_EQ(probe.version_threads, std::vector<std::thread::id>{std::this_thread::get_id()});
+  EXPECT_EQ(probe.used_before_version, 0U);
+  EXPECT_EQ(probe.clones, kBranches - 1);
+  EXPECT_EQ(probe.used.size(), kBranches);
+  std::filesystem::remove_all(data_directory);
 }
 
 }  // namespace

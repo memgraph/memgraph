@@ -1088,8 +1088,8 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSelfOnlyForUnprivilegedCaller
   struct DenyAllUser : memgraph::query::QueryUserOrRole {
     explicit DenyAllUser(std::string name) : memgraph::query::QueryUserOrRole{std::move(name), {}} {}
 
-    bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &, std::optional<std::string_view>,
-                      memgraph::query::UserPolicy *) const override {
+    bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &,
+                      std::optional<std::string_view>) const override {
       return false;
     }
 
@@ -1099,10 +1099,7 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSelfOnlyForUnprivilegedCaller
 
     std::vector<std::string> GetRolenames(std::optional<std::string>) const override { return {}; }
 #ifdef MG_ENTERPRISE
-    bool CanImpersonate(const std::string &, memgraph::query::UserPolicy *,
-                        std::optional<std::string_view>) const override {
-      return false;
-    }
+    bool CanImpersonate(const std::string &, std::optional<std::string_view>) const override { return false; }
 
     std::string GetDefaultDB() const override { return std::string{memgraph::dbms::kDefaultDB}; }
 #endif

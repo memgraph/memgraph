@@ -1,6 +1,7 @@
 copy_e2e_python_files(reset_session_isolation common.py)
 copy_e2e_python_files(reset_session_isolation reset_leak_tests.py)
 copy_e2e_python_files_from_parent_folder(reset_session_isolation ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(reset_session_isolation ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(reset_session_isolation ".." interactive_mg_runner.py)
 
 copy_e2e_files(reset_session_isolation workloads.yaml)

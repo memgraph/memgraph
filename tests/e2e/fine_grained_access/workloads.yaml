@@ -146,6 +146,8 @@ property_fga_cluster: &property_fga_cluster
     main:
       args: *property_fga_args
       log_file: "fine_grained_access.log"
+      username: admin
+      password: "test"
       setup_queries: *property_fga_setup_queries
       validation_queries: []
 
@@ -267,6 +269,8 @@ text_search_fga_cluster: &text_search_fga_cluster
     main:
       args: *args
       log_file: "text_search_fga.log"
+      username: admin
+      password: "test"
       setup_queries: *text_search_fga_setup_queries
       validation_queries: []
 
@@ -275,6 +279,8 @@ vector_search_fga_cluster: &vector_search_fga_cluster
     main:
       args: *args
       log_file: "vector_search_fga.log"
+      username: admin
+      password: "test"
       setup_queries: *vector_search_fga_setup_queries
       validation_queries: []
 
@@ -283,6 +289,8 @@ base_cluster: &base_cluster
     main:
       args: *args
       log_file: "fine_grained_access.log"
+      username: admin
+      password: "test"
       setup_queries: *base_setup_queries
       validation_queries: []
 
@@ -291,6 +299,8 @@ edge_type_filtering_cluster: &edge_type_filtering_cluster
     main:
       args: *args
       log_file: "fine_grained_access.log"
+      username: admin
+      password: "test"
       setup_queries: *edge_type_filtering_setup_queries
       validation_queries: []
 
@@ -299,6 +309,8 @@ path_filtering_cluster: &path_filtering_cluster
     main:
       args: *args
       log_file: "fine_grained_access.log"
+      username: admin
+      password: "test"
       setup_queries: *path_filtering_setup_queries
       validation_queries: []
 
@@ -307,6 +319,8 @@ show_databases_w_user: &show_databases_w_user
     main:
       args: *args
       log_file: "fine_grained_access.log"
+      username: admin
+      password: "test"
       setup_queries: *show_databases_w_user_setup_queries
 
 workloads:

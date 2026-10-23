@@ -128,12 +128,14 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
 
 template <typename TStream>
 StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transformation_name,
-                                   std::optional<std::string> owner, const TStream &stream) {
+                                   std::optional<std::string> owner, std::optional<utils::UUID> owner_uuid,
+                                   const TStream &stream) {
   return {.name = std::move(stream_name),
           .type = StreamType(stream),
           .is_running = stream.IsRunning(),
           .info = stream.Info(std::move(transformation_name)),
-          .owner = std::move(owner)};
+          .owner = std::move(owner),
+          .owner_uuid = owner_uuid};
 }
 
 // nlohmann::json doesn't support string_view access yet
@@ -141,6 +143,7 @@ const std::string kStreamName{"name"};
 const std::string kIsRunningKey{"is_running"};
 const std::string kOwner{"owner"};
 const std::string kOwnerRoles{"owner_roles"};
+constexpr const char *kOwnerUuid = "owner_uuid";
 const std::string kType{"type"};
 }  // namespace
 
@@ -157,6 +160,7 @@ void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
     } else {
       data[kOwnerRoles] = nullptr;
     }
+    data[kOwnerUuid] = status.owner_uuid ? nlohmann::json(*status.owner_uuid) : nlohmann::json(nullptr);
   } else {
     data[kOwner] = nullptr;
   }
@@ -175,6 +179,10 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
       owner_roles.get_to(status.owner_roles);
     } else {
       status.owner_roles.clear();
+    }
+    // Absent in records written before the uuid was persisted.
+    if (const auto it = data.find(kOwnerUuid); it != data.end() && !it->is_null()) {
+      status.owner_uuid = it->get<utils::UUID>();
     }
   } else {
     status.owner = {};
@@ -483,6 +491,11 @@ void Streams::RegisterPulsarProcedures() {
 template <typename TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
                      std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc, InterpreterContext *ic) {
+  // The session principal can outlive its user (dropped between prepare and execution).
+  if (!owner->IsAuthorized({AuthQuery::Privilege::STREAM}, db_acc->name())) {
+    throw StreamsException{"The owner of stream '{}' is not authorized to create it!", stream_name};
+  }
+
   auto locked_streams = streams_.Lock();
   auto it = CreateConsumer<TStream, TDbAccess>(
       *locked_streams, stream_name, std::move(info), std::move(owner), std::move(db_acc), ic);
@@ -491,7 +504,11 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
     std::visit(
         [&](const auto &stream_data) {
           const auto stream_source_ptr = stream_data.stream_source->ReadLock();
-          Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
+          Persist(CreateStatus(stream_name,
+                               stream_data.transformation_name,
+                               stream_data.owner,
+                               stream_data.owner_uuid,
+                               *stream_source_ptr));
         },
         it->second);
   } catch (...) {
@@ -519,6 +536,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   }
 
   auto ownername = owner->username();
+  auto owner_uuid = owner->UserUuid();
   auto rolenames = owner->rolenames();
 
   auto *memory_resource = utils::NewDeleteResource();
@@ -574,7 +592,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
               query,
               [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
               {});
-          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db, &up_to_date_policy)) {
+          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
@@ -611,6 +629,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
                           std::move(ownername),
                           std::move(rolenames),
+                          owner_uuid,
                           std::make_unique<SynchronizedStreamSource<TStream>>(
                               stream_name, std::move(stream_info), std::move(consumer_function), arena_pool_)});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
@@ -645,7 +664,7 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
 
       std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_roles);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_roles, status.owner_uuid);
       } catch (const utils::BasicException &e) {
         spdlog::warn(
             fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));
@@ -742,7 +761,11 @@ void Streams::Start(const std::string &stream_name) {
       [&, this](const auto &stream_data) {
         auto stream_source_ptr = stream_data.stream_source->Lock();
         stream_source_ptr->Start();
-        Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
+        Persist(CreateStatus(stream_name,
+                             stream_data.transformation_name,
+                             stream_data.owner,
+                             stream_data.owner_uuid,
+                             *stream_source_ptr));
       },
       it->second);
 }
@@ -771,7 +794,11 @@ void Streams::Stop(const std::string &stream_name) {
         auto stream_source_ptr = stream_data.stream_source->Lock();
         stream_source_ptr->Stop();
 
-        Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
+        Persist(CreateStatus(stream_name,
+                             stream_data.transformation_name,
+                             stream_data.owner,
+                             stream_data.owner_uuid,
+                             *stream_source_ptr));
       },
       it->second);
 }
@@ -783,8 +810,11 @@ void Streams::StartAll() {
           auto locked_stream_source = stream_data.stream_source->Lock();
           if (!locked_stream_source->IsRunning()) {
             locked_stream_source->Start();
-            Persist(
-                CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
+            Persist(CreateStatus(stream_name,
+                                 stream_data.transformation_name,
+                                 stream_data.owner,
+                                 stream_data.owner_uuid,
+                                 *locked_stream_source));
           }
         },
         stream_data);
@@ -798,8 +828,11 @@ void Streams::StopAll() {
           auto locked_stream_source = stream_data.stream_source->Lock();
           if (locked_stream_source->IsRunning()) {
             locked_stream_source->Stop();
-            Persist(
-                CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
+            Persist(CreateStatus(stream_name,
+                                 stream_data.transformation_name,
+                                 stream_data.owner,
+                                 stream_data.owner_uuid,
+                                 *locked_stream_source));
           }
         },
         stream_data);
@@ -835,7 +868,8 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
                                                locked_stream_source->IsRunning(),
                                                std::move(info.common_info),
                                                stream_data.owner,
-                                               stream_data.owner_roles});
+                                               stream_data.owner_roles,
+                                               stream_data.owner_uuid});
           },
           stream_data);
     }

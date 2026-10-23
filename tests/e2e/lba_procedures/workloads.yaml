@@ -74,6 +74,8 @@ read_query_modules_in_memory_cluster: &read_query_modules_in_memory_cluster
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: admin
+      password: "test"
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
@@ -82,6 +84,8 @@ update_query_modules_in_memory_cluster: &update_query_modules_in_memory_cluster
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: admin
+      password: "test"
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
@@ -90,6 +94,7 @@ show_privileges_in_memory_cluster: &show_privileges_in_memory_cluster
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: josip
       setup_queries: *show_privileges_setup_queries
       validation_queries: []
 
@@ -98,6 +103,8 @@ read_permission_in_memory_queries: &read_permission_in_memory_queries
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: admin
+      password: "test"
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
@@ -106,6 +113,8 @@ create_delete_query_modules_in_memory_cluster: &create_delete_query_modules_in_m
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: admin
+      password: "test"
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
@@ -114,6 +123,8 @@ update_permission_queries_in_memory_cluster: &update_permission_queries_in_memor
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: admin
+      password: "test"
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
@@ -122,6 +133,7 @@ schema_info_in_memory_queries: &schema_info_in_memory_queries
     main:
       args: *args
       log_file: "lba-e2e.log"
+      username: admin
       setup_queries: *schema_info_setup_queries
       validation_queries: []
 

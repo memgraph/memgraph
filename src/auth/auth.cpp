@@ -114,8 +114,6 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_vie
 
 namespace memgraph::auth {
 
-const Auth::Epoch Auth::kStartEpoch = 1;
-
 namespace {
 
 /**

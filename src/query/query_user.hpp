@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,24 +20,9 @@
 #include <vector>
 
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
-
-class UserPolicy {
- public:
-  virtual bool DoUpdate() const = 0;
-  virtual ~UserPolicy() = default;
-};
-
-extern struct SessionLongPolicy : UserPolicy {
- public:
-  bool DoUpdate() const override { return false; }
-} session_long_policy;
-
-extern struct UpToDatePolicy : UserPolicy {
- public:
-  bool DoUpdate() const override { return true; }
-} up_to_date_policy;
 
 struct QueryUserOrRole {
   QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
@@ -47,15 +33,24 @@ struct QueryUserOrRole {
   virtual std::shared_ptr<QueryUserOrRole> clone() const = 0;
 
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges,
-                            std::optional<std::string_view> db_name, UserPolicy *policy) const = 0;
+                            std::optional<std::string_view> db_name) const = 0;
 
   virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
 
+  // Owner-thread-only (may refresh the cached principal). Changes whenever the cached principal may have changed;
+  // callers that cache anything derived from the principal rebuild when it differs. May throw on a failed refresh.
+  virtual uint64_t PrincipalVersion() const { return 0; }
+
 #ifdef MG_ENTERPRISE
-  virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,
+  // Re-reads the impersonator first: false when it was dropped, revoked or its refresh failed.
+  virtual bool CanImpersonate(const std::string &target,
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;
 #endif
+
+  // Identity of the user principal (not of a role-only principal); persisted with a definer so a restored owner is
+  // matched to the same user, not to a same-named one created later. Immutable; safe to read from any thread.
+  virtual std::optional<utils::UUID> UserUuid() const { return std::nullopt; }
 
   const std::optional<std::string> &username() const { return username_; }
 

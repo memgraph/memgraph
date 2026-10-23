@@ -3096,8 +3096,8 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 
   db_acc->metric_handles()->streams_created.Increment();
 
-  // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
+  // Clone the session principal (not a by-name rebuild) so the owner keeps its uuid and dropped state.
+  auto owner = user_or_role->clone();
 
   return [db_acc = std::move(db_acc),
           interpreter_context,
@@ -3138,8 +3138,8 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
   db->metric_handles()->streams_created.Increment();
 
-  // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
+  // Clone the session principal (not a by-name rebuild) so the owner keeps its uuid and dropped state.
+  auto owner = user_or_role->clone();
 
   return [db = std::move(db),
           interpreter_context,
@@ -3712,7 +3712,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
   }
   ctx_.evaluation_context.resolved_user_functions = ResolveUserFunctions(plan->ast_storage().user_functions_);
-  ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
+  ctx_.user_or_role = user_or_role;
 #ifdef MG_ENTERPRISE
   ctx_.auth_checker = auth_checker;
 #else
@@ -6300,8 +6300,6 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
                        metrics::DatabaseMetricHandles &metric_handles) {
-  // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {.header = {},
           // NOLINTNEXTLINE(bugprone-exception-escape)
           .fn = [trigger_name = std::move(trigger_query->trigger_name_),
@@ -6312,7 +6310,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                  interpreter_context,
                  dba,
                  user_parameters,
-                 owner = std::move(owner),
+                 owner = std::move(user_or_role),
                  db_name,
                  privilege_context = trigger_query->privilege_context_,
                  metric_handles]() mutable -> std::vector<std::vector<TypedValue>> {
@@ -7573,9 +7571,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> login_user, const Parameters &parameters,
                                      InterpreterContext *interpreter_context, Interpreter const *self) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-    return user_or_role &&
-           user_or_role->IsAuthorized(
-               {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
+    return user_or_role && user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
   };
 
   Callback callback;
@@ -7699,9 +7695,7 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
                             std::shared_ptr<QueryUserOrRole> login_user, const Parameters &parameters,
                             InterpreterContext *interpreter_context, std::string caller_session_uuid) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-    return user_or_role &&
-           user_or_role->IsAuthorized(
-               {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
+    return user_or_role && user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
   };
 
   Callback callback;
@@ -8861,10 +8855,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   interpreter_context->interpreters.WithLock(
                       [db_name, interpreter_context, interpreter](auto &interpreters) {
                         auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name,
-                                                            &query::up_to_date_policy);
+                          return user_or_role && user_or_role->IsAuthorized(
+                                                     {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
                         };
                         interpreter_context->TerminateTransactions(
                             interpreters,
@@ -10422,6 +10414,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 
 void Interpreter::ResetInterpreter() {
   query_executions_.clear();
+  cached_fga_->ReleaseRetired();
   system_transaction_.reset();
   auth_transaction_.reset();
   transaction_queries_->clear();
@@ -11271,8 +11264,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db)) {
     Abort();
+    if (!user_or_role_->username() && user_or_role_->rolenames().empty()) {
+      throw QueryException("Authentication is now required on this server: reconnect with credentials.");
+    }
     if (!db) {
       throw QueryException(
           "You are not authorized to execute this query! Please contact your database administrator. This issue "

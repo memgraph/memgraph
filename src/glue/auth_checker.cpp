@@ -25,7 +25,6 @@
 #include "query/query_user.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
@@ -94,13 +93,19 @@ namespace memgraph::glue {
 AuthChecker::AuthChecker(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
 std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(const std::optional<std::string> &username,
-                                                                  const std::vector<std::string> &rolenames) const {
+                                                                  const std::vector<std::string> &rolenames,
+                                                                  std::optional<utils::UUID> expected_uuid) const {
   const auto user_or_role = auth_->ReadLock()->GetUserOrRole(username, rolenames);
-  if (user_or_role) {
-    return std::make_shared<QueryUserOrRole>(auth_, *user_or_role);
+  if (!user_or_role) {
+    return std::make_shared<QueryUserOrRole>(auth_);
   }
-  // No user or role
-  return std::make_shared<QueryUserOrRole>(auth_);
+  auto principal = std::make_shared<QueryUserOrRole>(auth_, *user_or_role);
+  if (expected_uuid && principal->user_) {
+    // Pin the persisted identity so it is re-persisted unchanged; a same-named user with another uuid is a dropped one.
+    if (principal->user_->uuid() != *expected_uuid) principal->dropped_ = true;
+    principal->user_uuid_ = *expected_uuid;
+  }
+  return principal;
 }
 
 std::unique_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(auth::SynchedAuth *auth,
@@ -129,17 +134,18 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   }
 
   // Convert from query user to auth user or role
-  // NOTE: Make a copy of the user/role. At preparation time, the interpreter check if the user/role is authorized, and
-  // update (if needed), so no need to update after that.
+  // NOTE: Copy the user/role after refreshing it; a failed refresh throws auth::AuthException. A dropped principal
+  // keeps its last-known grants (RefreshPrincipal only latches dropped_), so its checker is not revoked.
   try {
-    auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
+    auto const &glue_ref = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
+    glue_ref.EnsureFresh();
     DMG_ASSERT(dba, "DbAccessor must be non-null for fine-grained auth checking");
-    if (glue_user.user_) {
-      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
+    if (glue_ref.user_) {
+      return std::make_unique<glue::FineGrainedAuthChecker>(glue_ref.user_.value(), dba);
     }
-    if (glue_user.roles_) {
+    if (glue_ref.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba);
+          auth::RoleWUsername{glue_ref.username().value(), glue_ref.roles_.value()}, dba);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
   } catch (std::bad_cast &) {
@@ -181,25 +187,10 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Roles &roles,
   });
 }
 
-bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_or_role,
-                                         const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                         std::optional<std::string_view> db_name) {
-  return std::visit(
-      utils::Overloaded{
-          [&](const auth::User &user) -> bool { return AuthChecker::IsUserAuthorized(user, privileges, db_name); },
-          [&](const auth::Roles &roles) -> bool { return AuthChecker::IsRoleAuthorized(roles, privileges, db_name); }},
-      user_or_role);
-}
-
 #ifdef MG_ENTERPRISE
 bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgraph::auth::User &target,
                                  std::optional<std::string_view> db_name) {
   return user.CanImpersonate(target, db_name);
-}
-
-bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target,
-                                 std::optional<std::string_view> db_name) {
-  return role.CanImpersonate(target, db_name);
 }
 
 bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgraph::auth::User &target,

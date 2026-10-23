@@ -22,6 +22,7 @@
 #include "query/query_user.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 
@@ -32,8 +33,11 @@ class AuthChecker {
  public:
   virtual ~AuthChecker() = default;
 
+  // `expected_uuid` is a persisted owner's identity: a user principal whose current uuid differs behaves as dropped.
+  // Without it (e.g. a record written before it was persisted) the principal is resolved by name alone.
   virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
-                                                        const std::vector<std::string> &rolenames) const = 0;
+                                                        const std::vector<std::string> &rolenames,
+                                                        std::optional<utils::UUID> expected_uuid = {}) const = 0;
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
@@ -210,7 +214,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
     User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
 
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
-                      std::optional<std::string_view> /*db_name*/, UserPolicy * /*policy*/) const override {
+                      std::optional<std::string_view> /*db_name*/) const override {
       return true;
     }
 
@@ -218,7 +222,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
     std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
-    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
+    bool CanImpersonate(const std::string & /*target*/,
                         std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
       return true;
     }
@@ -227,8 +231,9 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 #endif
   };
 
-  std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &name,
-                                                       const std::vector<std::string> & /*roles*/) const override {
+  std::shared_ptr<query::QueryUserOrRole> GenQueryUser(
+      const std::optional<std::string> &name, const std::vector<std::string> & /*roles*/,
+      std::optional<utils::UUID> /*expected_uuid*/ = {}) const override {
     if (name) return std::make_shared<User>(*name);
     return std::make_shared<User>();
   }
@@ -250,42 +255,49 @@ struct CachedFineGrainedAuth {
   };
 
   std::unique_ptr<FineGrainedAuthChecker> checker;
+  // Replaced checkers stay alive: earlier executions of an open transaction still hold raw pointers to them.
+  std::vector<std::unique_ptr<FineGrainedAuthChecker>> retired;
   std::string db_name;
+  uint64_t principal_version{0};
   State state{State::EMPTY};
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string current_db) {
-    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+    // Must precede the rebuild so it sees current grants.
+    auto const version = user.PrincipalVersion();
+    bool const must_rebuild =
+        state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db || version != principal_version;
 
     if (!must_rebuild) {
       if (checker) checker->UpdateDbAccessor(dba);
       return;
     }
 
-    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    auto fresh = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    if (checker) retired.push_back(std::move(checker));
+    checker = std::move(fresh);
 
+    auto next = State::ACTIVE;
     if (!checker) {
-      db_name = std::move(current_db);
-      state = State::NO_LICENSE;
-      return;
+      next = State::NO_LICENSE;
+    } else if (!checker->NeedsFineGrainedAuthChecker()) {
+      checker.reset();  // not retired: never handed out before Refresh returns
+      next = State::NO_RESTRICTIONS;
     }
-
-    if (!checker->NeedsFineGrainedAuthChecker()) {
-      checker.reset();
-      db_name = std::move(current_db);
-      state = State::NO_RESTRICTIONS;
-      return;
-    }
-
     db_name = std::move(current_db);
-    state = State::ACTIVE;
+    state = next;
+    // Last, after everything that can throw: a failed rebuild must be retried, not recorded as done.
+    principal_version = version;
   }
 
+  void ReleaseRetired() { retired.clear(); }
+
   void Reset() {
-    checker.reset();
+    if (checker) retired.push_back(std::move(checker));
     db_name.clear();
+    principal_version = 0;
     state = State::EMPTY;
   }
 };

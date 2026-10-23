@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import concurrent.futures
+import contextlib
 import sys
 import threading
 import time
@@ -17,10 +18,26 @@ import time
 import pytest
 from neo4j import GraphDatabase
 
+ADMIN_AUTH = ("admin", "")
+
+
+@pytest.fixture(autouse=True)
+def admin_user():
+    """Create the first user (it holds every privilege) so tests continue as it; an anonymous session is denied once
+    a user exists. Dropped last."""
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+        with driver.session() as session:
+            session.run("CREATE USER admin;").consume()
+    yield
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
+        with driver.session() as session:
+            with contextlib.suppress(Exception):
+                session.run("DROP USER admin;").consume()
+
 
 def test_basic_profile_operations():
     """Test basic profile creation, update, and deletion operations."""
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profiles with different limits
             session.run("CREATE PROFILE basic_profile;").consume()
@@ -105,7 +122,7 @@ def test_basic_profile_operations():
 def test_profile_assignment_and_management():
     """Test profile assignment to users and roles."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profiles and users
             session.run("CREATE PROFILE basic_profile;").consume()
@@ -196,7 +213,7 @@ def test_profile_assignment_and_management():
 def test_profile_inheritance_and_merging():
     """Test profile inheritance when users have both user and role profiles."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profiles with different limits
             session.run("CREATE PROFILE user_profile LIMIT sessions 5;").consume()
@@ -246,7 +263,7 @@ def test_profile_inheritance_and_merging():
 def test_error_handling_and_edge_cases():
     """Test error handling for invalid operations."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Test creating duplicate profile
             session.run("CREATE PROFILE test_profile;").consume()
@@ -292,7 +309,7 @@ def test_concurrent_profile_operations():
 
     def create_profiles(thread_id, num_profiles):
         """Create multiple profiles concurrently."""
-        with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+        with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
             with driver.session() as session:
                 for i in range(num_profiles):
                     profile_name = f"concurrent_profile_{thread_id}_{i}"
@@ -303,7 +320,7 @@ def test_concurrent_profile_operations():
 
     def update_profiles(thread_id, num_updates):
         """Update profiles concurrently."""
-        with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+        with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
             with driver.session() as session:
                 for i in range(num_updates):
                     profile_name = f"concurrent_profile_{thread_id % 3}_{i % 5}"
@@ -313,7 +330,7 @@ def test_concurrent_profile_operations():
                         pass  # Expected for non-existent profiles
 
     # Create some initial profiles
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             for i in range(3):
                 session.run(f"CREATE PROFILE concurrent_profile_{i}_0;").consume()
@@ -358,7 +375,7 @@ def test_concurrent_profile_operations():
 def test_resource_exhaustion_scenarios():
     """Test resource exhaustion and recovery scenarios."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profile with strict limits
             session.run("CREATE PROFILE strict_profile LIMIT sessions 1, transactions_memory 1KB;").consume()
@@ -414,7 +431,7 @@ def test_resource_exhaustion_scenarios():
 def test_profile_lifecycle_with_active_users():
     """Test profile lifecycle management with active users."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profile and users
             session.run("CREATE PROFILE lifecycle_profile LIMIT sessions 3;").consume()
@@ -466,7 +483,7 @@ def test_profile_lifecycle_with_active_users():
 def test_stress_test_with_multiple_operations():
     """Stress test with multiple concurrent operations."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profiles and users for stress testing
             session.run("CREATE PROFILE stress_profile LIMIT sessions 10, transactions_memory 1MB;").consume()
@@ -475,7 +492,7 @@ def test_stress_test_with_multiple_operations():
 
         def stress_operation(operation_id):
             """Perform various profile operations."""
-            with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as op_driver:
+            with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as op_driver:
                 with op_driver.session() as session:
                     try:
                         # Create temporary profiles
@@ -530,7 +547,7 @@ def test_stress_test_with_multiple_operations():
 def test_profile_syntax_variations():
     """Test various syntax variations for profile operations."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Test different case variations
             session.run("CREATE PROFILE CaseProfile;").consume()
@@ -583,7 +600,7 @@ def test_profile_syntax_variations():
 def test_profile_with_different_memory_units():
     """Test profile creation with different memory units."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Test different memory units
             session.run("CREATE PROFILE kb_profile LIMIT transactions_memory 1KB;").consume()
@@ -622,7 +639,7 @@ def test_profile_with_different_memory_units():
 def test_profile_cleanup_on_user_deletion():
     """Test that profile assignments are cleaned up when users are deleted."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profile and users
             session.run("CREATE PROFILE cleanup_profile;").consume()
@@ -668,7 +685,7 @@ def test_profile_cleanup_on_user_deletion():
 def test_profile_with_role_hierarchy():
     """Test profile behavior with role hierarchies."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create profiles and roles
             session.run("CREATE PROFILE admin_profile LIMIT sessions 10;").consume()
@@ -725,7 +742,7 @@ def test_profile_with_role_hierarchy():
 def test_profile_performance_under_load():
     """Test profile performance under various load conditions."""
 
-    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+    with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as driver:
         with driver.session() as session:
             # Create multiple profiles and users
             for i in range(10):
@@ -753,7 +770,7 @@ def test_profile_performance_under_load():
 
         # Test concurrent profile lookups
         def concurrent_lookup(thread_id):
-            with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as lookup_driver:
+            with GraphDatabase.driver("bolt://localhost:7687", auth=ADMIN_AUTH) as lookup_driver:
                 with lookup_driver.session() as session:
                     for i in range(20):
                         profile_id = (thread_id + i) % 10

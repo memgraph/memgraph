@@ -19,9 +19,11 @@
 #include <utility>
 
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "disk_test_utils.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -56,9 +58,10 @@ const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
 
 class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
-  MOCK_CONST_METHOD2(GenQueryUser,
-                     std::shared_ptr<memgraph::query::QueryUserOrRole>(const std::optional<std::string> &username,
-                                                                       const std::vector<std::string> &rolenames));
+  MOCK_CONST_METHOD3(GenQueryUser,
+                     std::shared_ptr<memgraph::query::QueryUserOrRole>(
+                         const std::optional<std::string> &username, const std::vector<std::string> &rolenames,
+                         std::optional<memgraph::utils::UUID> expected_uuid));
 
   MOCK_CONST_METHOD0(GenEmptyUser, std::shared_ptr<memgraph::query::QueryUserOrRole>());
 
@@ -74,8 +77,8 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
  public:
   MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUserOrRole(std::move(name), {}) {}
 
-  MOCK_CONST_METHOD3(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                        std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy));
+  MOCK_CONST_METHOD2(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                        std::optional<std::string_view> db_name));
   MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
 
   void InitializeSelfPtr(const std::shared_ptr<memgraph::query::QueryUserOrRole> &wrapper_ptr) {
@@ -91,13 +94,23 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
   }
 
 #ifdef MG_ENTERPRISE
-  MOCK_CONST_METHOD3(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy,
-                                          std::optional<std::string_view> db_name));
+  MOCK_CONST_METHOD2(CanImpersonate, bool(const std::string &target, std::optional<std::string_view> db_name));
   MOCK_CONST_METHOD0(GetDefaultDB, std::string());
 #endif
 
  private:
   mutable std::weak_ptr<MockQueryUser> self_ptr_;
+};
+
+class UuidMockQueryUser : public MockQueryUser {
+ public:
+  UuidMockQueryUser(std::string name, std::optional<memgraph::utils::UUID> uuid)
+      : MockQueryUser(std::move(name)), uuid_{uuid} {}
+
+  std::optional<memgraph::utils::UUID> UserUuid() const override { return uuid_; }
+
+ private:
+  std::optional<memgraph::utils::UUID> uuid_;
 };
 }  // namespace
 
@@ -1752,10 +1765,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   ::testing::InSequence s;
 
   // TODO Userless
-  EXPECT_CALL(mock_user,
-              IsAuthorized(ElementsAre(Privilege::CREATE),
-                           std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(true));
   ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1",
                                     "CREATE (n:VERTEX) RETURN n",
@@ -1771,9 +1781,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     nullptr));
 
   EXPECT_CALL(mock_userless,
-              IsAuthorized(ElementsAre(Privilege::CREATE),
-                           std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(true));
   ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2",
                                     "CREATE (n:VERTEX) RETURN n",
@@ -1788,10 +1796,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     memgraph::query::TriggerPrivilegeContext::DEFINER,
                                     nullptr));
 
-  EXPECT_CALL(mock_user,
-              IsAuthorized(ElementsAre(Privilege::MATCH),
-                           std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::MATCH), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(false));
   ASSERT_THROW(store->AddTrigger("unprivileged_trigger",
                                  "MATCH (n:VERTEX) RETURN n",
@@ -1812,17 +1817,14 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
 
   std::optional<std::string> nopt{};
   std::vector<std::string> novec{};
-  EXPECT_CALL(mock_checker, GenQueryUser(owner, novec)).WillOnce(Return(mock_user_ptr));
-  EXPECT_CALL(mock_user,
-              IsAuthorized(ElementsAre(Privilege::CREATE),
-                           std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_checker, GenQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{}))
+      .WillOnce(Return(mock_user_ptr));
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(true));
-  EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec)).WillOnce(Return(mock_userless_ptr));
+  EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec, std::optional<memgraph::utils::UUID>{}))
+      .WillOnce(Return(mock_userless_ptr));
   EXPECT_CALL(mock_userless,
-              IsAuthorized(ElementsAre(Privilege::CREATE),
-                           std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(false));
 
   ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache,
@@ -1837,6 +1839,107 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   ASSERT_EQ(triggers.front().owner, owner);
 }
 
+TYPED_TEST(TriggerStoreTest, DefinerUuidIsPersistedAndMatchedOnRestore) {
+  using ::testing::_;
+  using ::testing::Return;
+  const memgraph::utils::UUID owner_uuid;
+  const std::optional<std::string> owner{"owner"};
+  const std::vector<std::string> novec{};
+
+  const auto add_and_restore = [&](std::optional<memgraph::utils::UUID> uuid, auto expect_restore) {
+    std::filesystem::remove_all(this->testing_directory);
+    auto user = std::make_shared<UuidMockQueryUser>(*owner, uuid);
+    std::shared_ptr<memgraph::query::QueryUserOrRole> user_ptr(user.get(), [](memgraph::query::QueryUserOrRole *) {});
+    user->InitializeSelfPtr(user_ptr);
+    ON_CALL(*user, IsAuthorized(_, _)).WillByDefault(Return(true));
+
+    std::optional<memgraph::query::TriggerStore> store{this->testing_directory};
+    store->AddTrigger("trigger",
+                      "CREATE (n:VERTEX) RETURN n",
+                      {},
+                      memgraph::query::TriggerEventType::EDGE_UPDATE,
+                      memgraph::query::TriggerPhase::AFTER_COMMIT,
+                      &this->ast_cache,
+                      &*this->dba,
+                      memgraph::query::InterpreterConfig::Query{},
+                      user_ptr,
+                      memgraph::dbms::kDefaultDB,
+                      memgraph::query::TriggerPrivilegeContext::DEFINER,
+                      nullptr);
+
+    store.emplace(this->testing_directory);
+    ::testing::StrictMock<MockAuthChecker> checker;
+    expect_restore(checker, user_ptr);
+    store->RestoreTriggers(&this->ast_cache,
+                           &*this->dba,
+                           memgraph::query::InterpreterConfig::Query{},
+                           &checker,
+                           memgraph::dbms::kDefaultDB,
+                           nullptr);
+    ASSERT_EQ(store->GetTriggerInfo().size(), 1);
+  };
+
+  add_and_restore(owner_uuid, [&](auto &checker, const auto &user_ptr) {
+    EXPECT_CALL(checker, GenQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{owner_uuid}))
+        .WillOnce(Return(user_ptr));
+  });
+
+  // No persisted uuid (legacy record): resolved by name alone.
+  add_and_restore(std::nullopt, [&](auto &checker, const auto &user_ptr) {
+    EXPECT_CALL(checker, GenQueryUser(owner, novec, std::optional<memgraph::utils::UUID>{})).WillOnce(Return(user_ptr));
+  });
+}
+
+TYPED_TEST(TriggerStoreTest, MalformedOwnerUuidIsSkippedOnRestore) {
+  using ::testing::_;
+  using ::testing::Return;
+  const std::optional<std::string> owner{"owner"};
+
+  const auto add_corrupt_and_restore = [&](const nlohmann::json &bad_uuid) {
+    std::filesystem::remove_all(this->testing_directory);
+    auto user = std::make_shared<UuidMockQueryUser>(*owner, memgraph::utils::UUID{});
+    std::shared_ptr<memgraph::query::QueryUserOrRole> user_ptr(user.get(), [](memgraph::query::QueryUserOrRole *) {});
+    user->InitializeSelfPtr(user_ptr);
+    ON_CALL(*user, IsAuthorized(_, _)).WillByDefault(Return(true));
+
+    std::optional<memgraph::query::TriggerStore> store{this->testing_directory};
+    store->AddTrigger("trigger",
+                      "CREATE (n:VERTEX) RETURN n",
+                      {},
+                      memgraph::query::TriggerEventType::EDGE_UPDATE,
+                      memgraph::query::TriggerPhase::AFTER_COMMIT,
+                      &this->ast_cache,
+                      &*this->dba,
+                      memgraph::query::InterpreterConfig::Query{},
+                      user_ptr,
+                      memgraph::dbms::kDefaultDB,
+                      memgraph::query::TriggerPrivilegeContext::DEFINER,
+                      nullptr);
+    store.reset();
+
+    {
+      memgraph::kvstore::KVStore raw{this->testing_directory};
+      auto record = nlohmann::json::parse(*raw.Get("trigger"));
+      ASSERT_TRUE(record["owner_uuid"].is_array());
+      record["owner_uuid"] = bad_uuid;
+      ASSERT_TRUE(raw.Put("trigger", record.dump()));
+    }
+
+    store.emplace(this->testing_directory);
+    ::testing::StrictMock<MockAuthChecker> checker;  // no owner may be rebuilt from a record that failed validation
+    store->RestoreTriggers(&this->ast_cache,
+                           &*this->dba,
+                           memgraph::query::InterpreterConfig::Query{},
+                           &checker,
+                           memgraph::dbms::kDefaultDB,
+                           nullptr);
+    ASSERT_EQ(store->GetTriggerInfo().size(), 0);
+  };
+
+  add_corrupt_and_restore("not-a-uuid");
+  add_corrupt_and_restore(42);
+}
+
 #ifdef MG_ENTERPRISE
 namespace {
 class CloneableUser final : public memgraph::query::QueryUserOrRole {
@@ -1844,8 +1947,7 @@ class CloneableUser final : public memgraph::query::QueryUserOrRole {
   CloneableUser() : memgraph::query::QueryUserOrRole{"owner", {}} {}
 
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
-                    std::optional<std::string_view> /*db_name*/,
-                    memgraph::query::UserPolicy * /*policy*/) const override {
+                    std::optional<std::string_view> /*db_name*/) const override {
     return true;
   }
 
@@ -1855,8 +1957,7 @@ class CloneableUser final : public memgraph::query::QueryUserOrRole {
 
   std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 
-  bool CanImpersonate(const std::string & /*target*/, memgraph::query::UserPolicy * /*policy*/,
-                      std::optional<std::string_view> /*db_name*/) const override {
+  bool CanImpersonate(const std::string & /*target*/, std::optional<std::string_view> /*db_name*/) const override {
     return true;
   }
 
@@ -1866,7 +1967,8 @@ class CloneableUser final : public memgraph::query::QueryUserOrRole {
 class PrincipalRecordingAuthChecker final : public memgraph::query::AuthChecker {
  public:
   std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
-      const std::optional<std::string> & /*username*/, const std::vector<std::string> & /*roles*/) const override {
+      const std::optional<std::string> & /*username*/, const std::vector<std::string> & /*roles*/,
+      std::optional<memgraph::utils::UUID> /*expected_uuid*/) const override {
     return nullptr;
   }
 

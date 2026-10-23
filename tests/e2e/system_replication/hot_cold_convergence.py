@@ -1433,11 +1433,11 @@ def test_suspend_resume_requires_multi_database_edit(connection, test_name):
     execute_and_fetch_all(admin_cursor, "USE DATABASE memgraph;")
     # NB: "admin" is a built-in role name (ambiguous in GRANT), so the admin user is named dbadmin.
     execute_and_fetch_all(admin_cursor, "CREATE USER dbadmin IDENTIFIED BY 'dbadmin';")
+
+    # Creating the first user denies the anonymous connection; reconnect as the real admin.
+    admin_cursor = connection(BOLT_PORTS["main"], "main", username="dbadmin", password="dbadmin").cursor()
     execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO dbadmin;")
     execute_and_fetch_all(admin_cursor, "GRANT DATABASE * TO dbadmin;")
-
-    # Creating the first user downgrades the anonymous connection; reconnect as the real admin.
-    admin_cursor = connection(BOLT_PORTS["main"], "main", username="dbadmin", password="dbadmin").cursor()
     # `limited` gets database access to A but NOT the MULTI_DATABASE_EDIT privilege. Granting DATABASE *
     # rules out "no DB access" as the reason for denial, isolating MULTI_DATABASE_EDIT as the gate.
     execute_and_fetch_all(admin_cursor, "CREATE USER limited IDENTIFIED BY 'limited';")

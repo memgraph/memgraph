@@ -14,6 +14,7 @@ copy_e2e_files(sso workloads.yaml)
 add_subdirectory(data)
 
 copy_e2e_python_files_from_parent_folder(sso ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(sso ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(sso ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(sso ".." mg_utils.py)
 copy_e2e_python_files_from_parent_folder(sso "../../../src/auth/reference_modules" oidc.py)

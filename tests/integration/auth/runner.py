@@ -208,10 +208,11 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
         ]
     )
 
-    # Prepare all users
+    # Prepare all users. The first user is created on its own connection: an anonymous session is denied
+    # once any user exists, so the remaining queries run as that user.
+    execute_admin_queries(["CREATE USER ADmin IDENTIFIED BY 'admin'"])
     execute_admin_queries(
         [
-            "CREATE USER ADmin IDENTIFIED BY 'admin'",
             "GRANT ALL PRIVILEGES TO USER admIN",
             "GRANT DATABASE * TO USER admin",
             "CREATE USER usEr IDENTIFIED BY 'user'",

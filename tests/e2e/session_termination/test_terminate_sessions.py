@@ -18,6 +18,7 @@ from queue import Empty
 
 import mgclient
 import pytest
+from auth_helpers import first_user_cursor
 from common import (
     assert_connection_alive,
     connect,
@@ -37,10 +38,11 @@ from neo4j import GraphDatabase
 # users, and AuthQueryHandler::CreateUser (src/glue/auth_handler.cpp) auto-promotes whichever user
 # happens to be created while HasUsers() == false to a full superuser -- there is no way to durably
 # suppress that without keeping a permanent user around, and a permanent user is not an option here:
-# once ANY user exists, mgclient's anonymous connect() (used by every superadmin_cursor bootstrap
-# connection below) is refused outright with "Authentication failure" -- confirmed empirically
-# against this instance; that is a Bolt-handshake-level rule, not the later per-query
-# CheckAuthorized bypass. Nor does `CREATE ROLE` first help (transaction_queue's identically-named
+# once ANY user exists, mgclient's anonymous connect() is refused outright with "Authentication
+# failure" (a Bolt-handshake-level rule) and an already-open anonymous session is denied on its next
+# query. So each test creates its first user with `first_user_cursor` (auth_helpers.py): it
+# returns the `superadmin_cursor`, logged in as that auto-promoted, fully privileged user, and drops
+# the user last. Nor does `CREATE ROLE` first help (transaction_queue's identically-named
 # fixture does this, and it looked like it worked here by coincidence): Auth::CreateBuiltinRoles
 # skips creating the "admin"/"readonly"/"readwrite" roles once ANY role already exists, so a
 # pre-existing dummy role only changes *how* the first user gets promoted (direct permission grants
@@ -55,17 +57,14 @@ def test_idle_session_terminated(request):
     The admin cursor must itself be an AUTHENTICATED connection: TerminateSessions' per-target
     check is `same_user(target, caller) || privilege_checker(caller, ...)`, and an anonymous
     caller (user_or_role_ == nullptr) fails both halves once a real user (idle_bob) exists --
-    see InterpreterContext::TerminateSessions in src/query/interpreter_context.cpp. The bootstrap
-    connection (superadmin_cursor) stays anonymous on purpose: CheckAuthorized exempts anonymous
-    callers from the general privilege gate, which is what lets it CREATE USER/GRANT at all.
+    see InterpreterContext::TerminateSessions in src/query/interpreter_context.cpp. superadmin_cursor
+    is therefore the first user (auto-promoted to full privileges), not an anonymous connection.
     """
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER idle_admin")
+    superadmin_cursor = first_user_cursor(request, connect, "idle_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO idle_admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER idle_bob")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER idle_admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER idle_bob")
 
     request.addfinalizer(on_exit)
@@ -116,13 +115,11 @@ def test_busy_session_terminated(request):
     Same admin-must-be-authenticated requirement as test_idle_session_terminated -- see its
     docstring for why an anonymous caller cannot terminate a real user's session.
     """
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER busy_admin")
+    superadmin_cursor = first_user_cursor(request, connect, "busy_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO busy_admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER busy_bob")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER busy_admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER busy_bob")
 
     request.addfinalizer(on_exit)
@@ -234,15 +231,13 @@ def test_unprivileged_user_refused(request):
     Mirrors TERMINATE TRANSACTIONS's own idiom on purpose -- there is deliberately no statement-level
     privilege for TERMINATE SESSIONS either.
     """
-    superadmin_cursor = connect().cursor()
+    superadmin_cursor = first_user_cursor(request, connect, "unpriv_root")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER unpriv_actor")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER unpriv_target")
     # unpriv_actor must start genuinely unprivileged for the "cross-user, unprivileged: refused"
-    # assertion below to mean anything. If the instance currently has zero *other* users, CREATE
-    # USER auto-promotes the new user to a superuser (see the module-level comment above) -- either
-    # as direct permission grants or, once a builtin "admin" role already exists from an earlier
-    # such promotion, as membership in that role. Strip both forms unconditionally: which one (if
-    # either) actually applied depends on this instance's history, not on this test.
+    # assertion below to mean anything. It is not the first user so it should hold nothing, but strip
+    # both direct grants and any role membership unconditionally to make that independent of the
+    # instance's history.
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM unpriv_actor")
     execute_and_fetch_all(superadmin_cursor, "CLEAR ROLE FOR unpriv_actor")
 
@@ -264,7 +259,7 @@ def test_unprivileged_user_refused(request):
 
     # SHOW ACTIVE USERS INFO requires the STATS privilege (required_privileges.cpp), which
     # unpriv_actor was just stripped of -- so the uuid lookups below go through superadmin_cursor
-    # (anonymous callers bypass CheckAuthorized entirely) rather than actor_cursor_1. SET SESSION
+    # (the fully privileged unpriv_root) rather than actor_cursor_1. SET SESSION
     # TRACE OFF, used by get_own_session_uuid, needs no privilege at all and works on either.
     actor_own_uuid = get_own_session_uuid(actor_cursor_1)
     actor_second_uuid = get_session_uuid_by_username(superadmin_cursor, "unpriv_actor", exclude_uuid=actor_own_uuid)
@@ -422,8 +417,7 @@ def test_force_abort_converges_after_terminate(request):
     if not _drop_force_abort_supported():
         pytest.skip("DROP DATABASE ... FORCE ABORT (tenant-lifecycle stack #4574/#4575) not present on this build")
 
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER fa_admin")
+    superadmin_cursor = first_user_cursor(request, connect, "fa_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO fa_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO fa_admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER fa_bob")
@@ -433,7 +427,6 @@ def test_force_abort_converges_after_terminate(request):
             execute_and_fetch_all(superadmin_cursor, "DROP DATABASE fa_db")
         except mgclient.Error:
             pass  # expected once the test itself already dropped it
-        execute_and_fetch_all(superadmin_cursor, "DROP USER fa_admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER fa_bob")
 
     request.addfinalizer(on_exit)
@@ -517,14 +510,13 @@ def test_database_scoped_admin_confined_to_own_tenant(request):
     happily if TERMINATE SESSIONS were simply broken for everyone; the same-tenant kill that follows
     is what proves the new check is *scoped* rather than merely denying.
     """
-    superadmin_cursor = connect().cursor()
 
     # CREATE DATABASE needs MULTI_DATABASE_EDIT, which scoped_admin must not have -- so the tenant
     # DDL goes through a separate fully privileged user, as in test_force_abort_converges_after_
     # terminate. Creating it first also means scoped_admin is never this instance's first user, and
     # so is never auto-promoted (see the module-level comment); the explicit stripping below makes
     # that guarantee independent of ordering anyway.
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER tenant_ddl_admin")
+    superadmin_cursor = first_user_cursor(request, connect, "tenant_ddl_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO tenant_ddl_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO tenant_ddl_admin")
 
@@ -558,7 +550,7 @@ def test_database_scoped_admin_confined_to_own_tenant(request):
                 execute_and_fetch_all(ddl_cursor, f"DROP DATABASE {db}")
             except mgclient.Error:
                 pass  # an earlier assertion failed and left a session parked inside the tenant
-        for user in ("scoped_admin", "victim_a", "victim_b", "tenant_ddl_admin"):
+        for user in ("scoped_admin", "victim_a", "victim_b"):
             execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}")
 
     request.addfinalizer(on_exit)
@@ -635,12 +627,12 @@ def test_dbless_session_terminated_via_default_db_fallback(request):
 
     Enterprise only: the entire multi-database surface used here is MG_ENTERPRISE-gated.
     """
-    superadmin_cursor = connect().cursor()
 
-    # full_admin is created first on purpose: that makes nodb_victim a non-first user, so its dbless
-    # state below is produced by the explicit REVOKE rather than having to fight first-user
-    # auto-promotion (see the module-level comment). Any auto-promotion full_admin itself receives
-    # only reinforces what the two explicit grants already give it.
+    # dbless_root is created first on purpose: unlike full_admin it is not polled for by
+    # release_sessions, so its own live session cannot keep that poll from ever succeeding.
+    # It also makes nodb_victim a non-first user, so its dbless state below is produced by the
+    # explicit REVOKE rather than having to fight first-user auto-promotion.
+    superadmin_cursor = first_user_cursor(request, connect, "dbless_root")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER full_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO full_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO full_admin")
@@ -756,12 +748,11 @@ def test_dbless_session_refused_when_caller_lacks_default_db_access(request):
     test_database_scoped_admin_confined_to_own_tenant), so a caller confined to some other tenant
     fails the check even while holding the privilege everywhere it does have access.
     """
-    superadmin_cursor = connect().cursor()
 
     # A side tenant purely so scoped_only_admin has somewhere to log in without touching `memgraph` --
     # CREATE DATABASE needs MULTI_DATABASE_EDIT, which scoped_only_admin must not have, so the DDL
     # goes through a separately privileged user, as in test_database_scoped_admin_confined_to_own_tenant.
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER tenant_ddl_admin2")
+    superadmin_cursor = first_user_cursor(request, connect, "tenant_ddl_admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO tenant_ddl_admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO tenant_ddl_admin2")
 
@@ -786,7 +777,7 @@ def test_dbless_session_refused_when_caller_lacks_default_db_access(request):
             execute_and_fetch_all(ddl_cursor, "DROP DATABASE side_tenant")
         except mgclient.Error:
             pass  # an earlier assertion failed and left a session parked inside the tenant
-        for user in ("tenant_ddl_admin2", "scoped_only_admin", "nodb_victim2"):
+        for user in ("scoped_only_admin", "nodb_victim2"):
             execute_and_fetch_all(superadmin_cursor, f"DROP USER {user}")
 
     request.addfinalizer(on_exit)
@@ -849,22 +840,19 @@ def test_show_sessions_lists_and_terminate_by_listed_id(request):
        their own row -- visibility mirrors TERMINATE SESSIONS's same-user-only rule for unprivileged
        callers, so no cross-user information leaks through SHOW SESSIONS either.
 
-    Same admin-must-be-authenticated constraint as test_idle_session_terminated; the anonymous
-    superadmin_cursor is used only for user lifecycle DDL, not for the SHOW SESSIONS assertion
-    itself.
+    Same admin-must-be-authenticated constraint as test_idle_session_terminated; superadmin_cursor
+    is used only for user lifecycle DDL, not for the SHOW SESSIONS assertions themselves.
     """
-    superadmin_cursor = connect().cursor()
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER show_admin")
+    superadmin_cursor = first_user_cursor(request, connect, "show_admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO show_admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER show_victim")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER show_unpriv")
     # show_unpriv must start genuinely unprivileged (same reasoning as test_unprivileged_user_refused
-    # and the module-level comment): strip both direct grants and any auto-promoted role membership.
+    # and the module-level comment): strip both direct grants and any role membership.
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM show_unpriv")
     execute_and_fetch_all(superadmin_cursor, "CLEAR ROLE FOR show_unpriv")
 
     def on_exit():
-        execute_and_fetch_all(superadmin_cursor, "DROP USER show_admin")
         execute_and_fetch_all(superadmin_cursor, "DROP USER show_victim")
         execute_and_fetch_all(superadmin_cursor, "DROP USER show_unpriv")
 
@@ -914,7 +902,8 @@ def test_show_sessions_lists_and_terminate_by_listed_id(request):
 
 def test_impersonating_session_owned_by_login_user(request):
     """An impersonating session is owned by, and listed as, its login user (imp_login), not the impersonated one."""
-    superadmin_cursor = connect().cursor()
+    # imp_login is stripped below, so it cannot be the first user that superadmin_cursor logs in as.
+    superadmin_cursor = first_user_cursor(request, connect, "imp_root")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER imp_login")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER imp_target")
     for user in ("imp_login", "imp_target"):
@@ -956,7 +945,7 @@ def test_impersonating_session_owned_by_login_user(request):
 
 def test_impersonating_caller_owns_sessions_by_login_user(request):
     """An impersonating caller manages its login user's sessions, and only those, whatever user it executes as."""
-    superadmin_cursor = connect().cursor()
+    superadmin_cursor = first_user_cursor(request, connect, "imp_caller_root")
     for user in ("imp_caller", "imp_exec"):
         execute_and_fetch_all(superadmin_cursor, f"CREATE USER {user}")
         execute_and_fetch_all(superadmin_cursor, f"REVOKE ALL PRIVILEGES FROM {user}")

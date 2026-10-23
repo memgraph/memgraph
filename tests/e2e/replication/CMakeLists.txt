@@ -30,6 +30,7 @@ copy_e2e_python_files(replication replicate_text_index.py)
 copy_e2e_python_files(replication switching_roles.py)
 copy_e2e_python_files(replication ttl.py)
 copy_e2e_python_files_from_parent_folder(replication ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(replication ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(replication ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(replication ".." mg_utils.py)
 

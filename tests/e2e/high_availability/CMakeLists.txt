@@ -27,6 +27,7 @@ copy_e2e_python_files(high_availability workloads.yaml)
 
 
 copy_e2e_python_files_from_parent_folder(high_availability ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(high_availability ".." auth_helpers.py)
 copy_e2e_python_files_from_parent_folder(high_availability ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(high_availability ".." mg_utils.py)
 

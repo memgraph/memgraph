@@ -2264,14 +2264,13 @@ TEST_F(AuthWithStorage, DeleteDatabaseRewritesOnlyAffectedPrincipals) {
     carol->db_access().Grant("y");
     auth->SaveUser(*carol);
   }
-  Auth::Epoch epoch;
-  auth->UpToDate(epoch);
+  auto epoch = auth->CurrentEpoch();
 
   auth->DeleteDatabase("z");
-  EXPECT_TRUE(auth->UpToDate(epoch)) << "unaffected principal was rewritten";
+  EXPECT_EQ(auth->CurrentEpoch(), epoch) << "unaffected principal was rewritten";
 
   auth->DeleteDatabase("y");
-  EXPECT_FALSE(auth->UpToDate(epoch));
+  EXPECT_NE(auth->CurrentEpoch(), epoch);
   EXPECT_FALSE(auth->GetUser("alice")->db_access().Grants("y"));
   EXPECT_FALSE(auth->GetRole("readers")->db_access().Grants("y"));
 

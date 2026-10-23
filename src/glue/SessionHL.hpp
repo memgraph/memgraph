@@ -10,12 +10,16 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
+#include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
@@ -34,13 +38,17 @@ struct ParseRes {
 #ifdef MG_ENTERPRISE
 class RuntimeConfig {
  public:
-  explicit RuntimeConfig(SessionHL *session) : session_(session) {}
+  RuntimeConfig(SessionHL *session, std::atomic<uint64_t> const *epoch_src)
+      : session_(session), epoch_src_(epoch_src) {}
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
   // Invalidate Configure()'s "run_time_info unchanged => skip" cache on LOGOFF so re-used
   // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
-  void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
+  void ResetForConnectionReuse() {
+    previous_run_time_info_.reset();
+    validated_impersonation_.reset();
+  }
 
   void OnUseDatabase() { db_selected_by_use_ = true; }
 
@@ -48,8 +56,22 @@ class RuntimeConfig {
   // True if the bound database matches run_time_info's "db"; with no "db", a live one is required unless USE chose it.
   bool BoundDbMatches(const bolt_map_t &run_time_info) const;
 
+  // Throws ClientError if the impersonator may no longer impersonate; returns true if the target was dropped and must
+  // be rebuilt.
+  bool RecheckImpersonation();
+
   SessionHL *session_;
+  std::atomic<uint64_t> const *epoch_src_;
   std::optional<bolt_map_t> previous_run_time_info_;
+
+  struct ValidatedImpersonation {
+    std::string db;
+    std::shared_ptr<const QueryUserOrRole> principal;
+    uint64_t epoch;  // auth epoch read before the last successful impersonator check
+  };
+
+  // Last successful impersonating Configure; re-checked on cache hits and inside explicit transactions.
+  std::optional<ValidatedImpersonation> validated_impersonation_;
   bool db_selected_by_use_{false};
 };
 #endif
@@ -165,8 +187,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::string GetCurrentDB() const;
 
   std::optional<std::string> GetDefaultUser() const;
-
-  std::string GetCurrentUser() const;
 
   memgraph::query::InterpreterContext *interpreter_context_;      // Global context used by all interpreters
   memgraph::query::Interpreter interpreter_;                      // Session specific interpreter
