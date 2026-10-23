@@ -1122,7 +1122,8 @@ auto FindReplicationClient(MinMemgraph &main, std::string_view name) -> memgraph
 class MaintenancePoolHold {
  public:
   explicit MaintenancePoolHold(memgraph::replication::ReplicationClient &client) {
-    client.maintenance_pool_.AddTask([this] { release_.wait(); });
+    // The task shares the latch so it outlives this object even if a failed assertion ends the test early.
+    client.maintenance_pool_.AddTask([release = release_] { release->wait(); });
   }
 
   MaintenancePoolHold(MaintenancePoolHold const &) = delete;
@@ -1133,12 +1134,12 @@ class MaintenancePoolHold {
   void Release() {
     if (!released_) {
       released_ = true;
-      release_.count_down();
+      release_->count_down();
     }
   }
 
  private:
-  std::latch release_{1};
+  std::shared_ptr<std::latch> release_ = std::make_shared<std::latch>(1);
   bool released_{false};
 };
 
