@@ -20,7 +20,8 @@ void QueryUserOrRole::RefreshPrincipal(const auth::Auth &auth) const {
   if (dropped_) return;  // latched: a same-named user created later must not revive the session
   if (user_) {
     auto user = auth.GetUser(user_->username());
-    if (!user) {
+    // A same-named user with a different uuid is a different identity: treat as dropped.
+    if (!user || user->uuid() != user_->uuid()) {
       dropped_ = true;
       return;
     }
@@ -116,8 +117,11 @@ QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_
                                                    }},
                                  user_or_role)},
       auth_{auth} {
-  std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
-                               [&](auth::RoleWUsername &&roles) { roles_.emplace(std::move(roles)); }},
+  std::visit(utils::Overloaded{[this](auth::User &&user) {
+                                 user_uuid_ = user.uuid();
+                                 user_.emplace(std::move(user));
+                               },
+                               [this](auth::RoleWUsername &&roles) { roles_.emplace(std::move(roles)); }},
              std::move(user_or_role));
 }
 
