@@ -16,46 +16,30 @@
 namespace memgraph::storage {
 
 void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
-  data = nlohmann::json{
-      {"properties_on_edges", items.properties_on_edges},
-      {"enable_schema_metadata", items.enable_schema_metadata},
-      {"enable_schema_info", items.enable_schema_info},
-      {"enable_edges_metadata", items.enable_edges_metadata},
-      {"enable_label_index_auto_creation", items.enable_label_index_auto_creation},
-      {"enable_edge_type_index_auto_creation", items.enable_edge_type_index_auto_creation},
-      {"storage_light_edge", items.storage_light_edge},
-      {"property_store_compression_enabled", items.property_store_compression_enabled},
-  };
+  data = nlohmann::json::object();
+  SalientConfigItemsForEachField(items, [&](const char *key, const auto &value) { data[key] = value; });
 }
 
 void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
-  data.at("properties_on_edges").get_to(items.properties_on_edges);
-  data.at("enable_edges_metadata").get_to(items.enable_edges_metadata);
-  data.at("enable_schema_metadata").get_to(items.enable_schema_metadata);
-  data.at("enable_schema_info").get_to(items.enable_schema_info);
-  data.at("enable_label_index_auto_creation").get_to(items.enable_label_index_auto_creation);
-  data.at("enable_edge_type_index_auto_creation").get_to(items.enable_edge_type_index_auto_creation);
-  // Single lookup; key may be absent in durability files written before the flag existed.
-  if (auto it = data.find("storage_light_edge"); it != data.end()) {
-    it->get_to(items.storage_light_edge);
-  }
-  data.at("property_store_compression_enabled").get_to(items.property_store_compression_enabled);
+  // Single tolerant lookup per field: a key absent from a durability file written before that field
+  // existed leaves the struct default in place instead of throwing (storage_light_edge precedent).
+  SalientConfigItemsForEachField(items, [&](const char *key, auto &value) {
+    if (auto it = data.find(key); it != data.end()) {
+      it->get_to(value);
+    }
+  });
 }
 
 void to_json(nlohmann::json &data, SalientConfig const &config) {
-  data = nlohmann::json{{"items", config.items},
-                        {"name", config.name},
-                        {"uuid", config.uuid},
-                        {"storage_mode", config.storage_mode},
-                        "property_store_compression_level",
-                        config.property_store_compression_level};
+  data = nlohmann::json::object();
+  SalientConfigForEachField(config, [&](const char *key, const auto &value) { data[key] = value; });
 }
 
 void from_json(const nlohmann::json &data, SalientConfig &config) {
-  data.at("items").get_to(config.items);
-  data.at("name").get_to(config.name);
-  data.at("uuid").get_to(config.uuid);
-  data.at("storage_mode").get_to(config.storage_mode);
-  data.at("property_store_compression_level").get_to(config.property_store_compression_level);
+  SalientConfigForEachField(config, [&](const char *key, auto &value) {
+    if (auto it = data.find(key); it != data.end()) {
+      it->get_to(value);
+    }
+  });
 }
 }  // namespace memgraph::storage

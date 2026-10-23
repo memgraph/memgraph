@@ -113,8 +113,8 @@ void Load(memgraph::replication::SystemRecoveryReqV2 *self, memgraph::slk::Reade
   memgraph::slk::Load(&self->parameters, reader);
 }
 
-// Serialize code for SystemRecoveryReq (v3, with the hot/cold COLD set)
-void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
+// SystemRecoveryReqV3: pre-V4 layout — five-field SalientConfig in database_configs and cold entries
+void Save(const memgraph::replication::SystemRecoveryReqV3 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.forced_group_timestamp, builder);
   memgraph::slk::Save(self.database_configs, builder);
@@ -126,7 +126,7 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
   memgraph::slk::Save(self.cold_databases, builder);
 }
 
-void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::replication::SystemRecoveryReqV3 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->forced_group_timestamp, reader);
   memgraph::slk::Load(&self->database_configs, reader);
@@ -136,6 +136,49 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->profiles, reader);
   memgraph::slk::Load(&self->parameters, reader);
   memgraph::slk::Load(&self->cold_databases, reader);
+}
+
+// SystemRecoveryReq (v4): complete SalientConfig; explicit element loop (generic vector would use the frozen pair).
+void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.forced_group_timestamp, builder);
+  memgraph::slk::Save(static_cast<uint64_t>(self.database_configs.size()), builder);
+  for (auto const &config : self.database_configs) {
+    SaveSalientConfigComplete(config, builder);
+  }
+  memgraph::slk::Save(self.auth_config, builder);
+  memgraph::slk::Save(self.users, builder);
+  memgraph::slk::Save(self.roles, builder);
+  memgraph::slk::Save(self.profiles, builder);
+  memgraph::slk::Save(self.parameters, builder);
+  memgraph::slk::Save(static_cast<uint64_t>(self.cold_databases.size()), builder);
+  for (auto const &cold : self.cold_databases) {
+    SaveSalientConfigComplete(cold.salient, builder);
+    memgraph::slk::Save(cold.stats, builder);
+  }
+}
+
+void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->forced_group_timestamp, reader);
+  uint64_t database_configs_size = 0;
+  memgraph::slk::Load(&database_configs_size, reader);
+  self->database_configs.resize(database_configs_size);
+  for (auto &config : self->database_configs) {
+    LoadSalientConfigComplete(&config, reader);
+  }
+  memgraph::slk::Load(&self->auth_config, reader);
+  memgraph::slk::Load(&self->users, reader);
+  memgraph::slk::Load(&self->roles, reader);
+  memgraph::slk::Load(&self->profiles, reader);
+  memgraph::slk::Load(&self->parameters, reader);
+  uint64_t cold_databases_size = 0;
+  memgraph::slk::Load(&cold_databases_size, reader);
+  self->cold_databases.resize(cold_databases_size);
+  for (auto &cold : self->cold_databases) {
+    LoadSalientConfigComplete(&cold.salient, reader);
+    memgraph::slk::Load(&cold.stats, reader);
+  }
 }
 
 // Serialize code for SystemRecoveryResV1 (same layout as Res)
@@ -156,7 +199,15 @@ void Save(const memgraph::replication::SystemRecoveryResV2 &self, memgraph::slk:
   memgraph::slk::Save(self.result, builder);
 }
 
-// Serialize code for SystemRecoveryRes
+// SystemRecoveryResV3 / SystemRecoveryRes (v4): same single-Result layout as V1/V2
+void Save(const memgraph::replication::SystemRecoveryResV3 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.result, builder);
+}
+
+void Load(memgraph::replication::SystemRecoveryResV3 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->result, reader);
+}
+
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.result, builder);
 }
@@ -185,6 +236,14 @@ void SystemRecoveryReqV2::Load(SystemRecoveryReqV2 *self, memgraph::slk::Reader 
   memgraph::slk::Load(self, reader);
 }
 
+void SystemRecoveryReqV3::Save(const SystemRecoveryReqV3 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void SystemRecoveryReqV3::Load(SystemRecoveryReqV3 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
@@ -198,6 +257,14 @@ void SystemRecoveryResV2::Save(const SystemRecoveryResV2 &self, memgraph::slk::B
 }
 
 void SystemRecoveryResV2::Load(SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void SystemRecoveryResV3::Save(const SystemRecoveryResV3 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void SystemRecoveryResV3::Load(SystemRecoveryResV3 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
