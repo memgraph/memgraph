@@ -26,6 +26,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -38,6 +39,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::license {
@@ -190,23 +192,29 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   };
 
   std::vector<Candidate> valid_candidates;
+  std::vector<std::string> failures;
+  // An incomplete pair is usually a licence still being set up, one setting at a time; it is not a rejected licence.
+  bool licence_rejected = false;
 
   auto try_add = [&](std::string_view key, std::string_view org, int priority, std::string_view source_name) {
+    auto const reject = [&](std::string_view reason, bool const rejected = true) {
+      failures.push_back(fmt::format("[{}] {}", source_name, reason));
+      spdlog::warn("{}", failures.back());
+      licence_rejected |= rejected;
+    };
     if (key.empty() && org.empty()) return;
     if (key.empty() || org.empty()) {
-      spdlog::warn("[{}] Both license key and organization name are required.", source_name);
+      reject("Both license key and organization name are required.", false);
       return;
     }
     const auto maybe_license = GetLicense(key);
     if (!maybe_license) {
-      spdlog::warn("[{}] {}",
-                   source_name,
-                   LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
+      reject(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
       return;
     }
     const auto check = IsValidLicenseInternal(*maybe_license, org);
     if (!check) {
-      spdlog::warn("[{}] {}", source_name, LicenseCheckErrorToString(check.error(), "Enterprise features"));
+      reject(LicenseCheckErrorToString(check.error(), "Enterprise features"));
       return;
     }
     valid_candidates.push_back({*maybe_license, std::string{key}, std::string{org}, priority});
@@ -219,10 +227,12 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   if (env_license_info_) try_add(env_license_info_->first, env_license_info_->second, 1, "ENV");
   if (cli_license_info_) try_add(cli_license_info_->first, cli_license_info_->second, 2, "CLI");
 
+  auto const failures_changed = std::exchange(*license_failures_.Lock(), failures) != failures;
+
   if (valid_candidates.empty()) {
     auto locked = previous_license_info_.Lock();
-    if (*locked) {
-      spdlog::warn("No valid license found. Running in community mode.");
+    if (*locked || (failures_changed && licence_rejected)) {
+      spdlog::error("No valid license found. Running in community mode. {}", utils::Join(failures, " "));
       locked->reset();
     }
     atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
@@ -392,7 +402,8 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 
   if (!locked_previous_license_info) {
     info.is_valid = false;
-    info.status = "You have not provided any license!";
+    auto failures = license_failures_.Lock();
+    info.status = failures->empty() ? "You have not provided any license!" : utils::Join(*failures, " ");
     return info;
   }
 

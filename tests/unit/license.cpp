@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "license/license.hpp"
@@ -231,6 +232,8 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityExpired) {
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
+  EXPECT_TRUE(detailed_license_info.status.contains("[CLI] Your license key has expired."))
+      << detailed_license_info.status;
 }
 
 TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityNonExpiredIsInvalid) {
@@ -255,6 +258,15 @@ TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
   license_checker->SetCliLicense(license_key, fmt::format("{}wrong", organization_name), *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
+  EXPECT_TRUE(detailed_license_info.status.contains(
+      "[CLI] The organization name contained in the license key is not the same as the one defined in the settings."))
+      << detailed_license_info.status;
+}
+
+TEST_F(LicenseTest, DetailedLicenseInfo_NothingProvided) {
+  auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_FALSE(detailed_license_info.is_valid);
+  ASSERT_EQ(detailed_license_info.status, "You have not provided any license!");
 }
 
 // ===========================================================================
