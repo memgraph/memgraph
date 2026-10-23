@@ -46,8 +46,14 @@
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
+#include <chrono>
+#include <thread>
 
+#include <gtest/gtest.h>
+#include <prometheus/gauge.h>
+
+#include "memory/db_arena.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -775,6 +781,238 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
   EXPECT_EQ(fork->Gid(), edge_gid);
   EXPECT_EQ(*fork->GetProperty(prop_w, ms::View::OLD), ms::PropertyValue(1));
   EXPECT_EQ(*stub->GetProperty(prop_w, ms::View::NEW), ms::PropertyValue(3));
+}
+
+// Graph Versioning v2 (S3-c): the diff engine runs its own GC with main's GC config and charges its memory to main's
+// tenant (arena pool, embedding tracker, unreleased-delta gauge). Main here is built the way Database builds it:
+// with a per-DB arena pool, and the calling thread inside that pool's DbArenaScope.
+class VersioningBranchGcTest : public testing::Test {
+ protected:
+  virtual ms::Config MainConfig() const {
+    ms::Config config;
+    config.gc = {.type = ms::Config::Gc::Type::NONE};
+    return config;
+  }
+
+  void SetUp() override {
+    pool_ = std::make_unique<memgraph::memory::ArenaPool>(&db_tracker_);
+    scope_ = std::make_unique<memgraph::memory::DbArenaScope>(pool_.get());
+    memgraph::metrics::DatabaseMetricHandles handles{};
+    handles.unreleased_delta_objects = {&delta_gauge_};
+    storage_ = std::make_unique<ms::InMemoryStorage>(MainConfig(),
+                                                     std::nullopt,
+                                                     std::make_unique<ms::PlanInvalidatorDefault>(),
+                                                     handles,
+                                                     nullptr,
+                                                     pool_.get(),
+                                                     &embedding_tracker_);
+    label_ = storage_->NameToLabel("L");
+    prop_x_ = storage_->NameToProperty("x");
+    edge_type_ = storage_->NameToEdgeType("E");
+    {
+      auto acc = storage_->Access(ms::WRITE);
+      auto v = acc->CreateVertex();
+      v_gid_ = v.Gid();
+      EXPECT_TRUE(v.AddLabel(label_).has_value());
+      EXPECT_TRUE(v.SetProperty(prop_x_, ms::PropertyValue(0)).has_value());
+      auto a = acc->CreateVertex();
+      a_gid_ = a.Gid();
+      auto e = acc->CreateEdge(&v, &a, edge_type_);
+      EXPECT_TRUE(e.has_value());
+      edge_gid_ = e->Gid();
+      EXPECT_TRUE(e->SetProperty(prop_x_, ms::PropertyValue(1)).has_value());
+      EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    fork_ts_ = storage_->RegisterForkPin();
+    auto built = mv::BranchContext::BuildFromFork(*storage_, fork_ts_, memgraph::tests::MakeMainCommitArgs());
+    ASSERT_TRUE(built.has_value());
+    ctx_ = std::move(*built);
+    Collect();
+    baseline_ = Deltas();
+  }
+
+  void TearDown() override {
+    ctx_.reset();
+    storage_->ReleaseForkPin(fork_ts_);
+    storage_.reset();
+    scope_.reset();
+    pool_.reset();
+  }
+
+  ms::InMemoryStorage &Diff() { return ctx_->diff_engine(); }
+
+  int64_t Deltas() const { return static_cast<int64_t>(delta_gauge_.Value()); }
+
+  // Explicit GC passes on the diff engine (unlinking and freeing can take separate passes).
+  void Collect() {
+    for (int i = 0; i < 3; ++i) Diff().FreeMemory({}, false);
+  }
+
+  void CommitStubWrite(int64_t value) {
+    auto acc = Diff().Access(ms::WRITE);
+    auto v = acc->FindVertex(v_gid_, ms::View::NEW);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->SetProperty(prop_x_, ms::PropertyValue(value)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  void MaterializeVertexStub() {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    ASSERT_TRUE(ctx_->CowVertex(v_gid_).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+
+  prometheus::Gauge delta_gauge_;
+  memgraph::utils::MemoryTracker db_tracker_;
+  memgraph::utils::MemoryTracker embedding_tracker_;
+  std::unique_ptr<memgraph::memory::ArenaPool> pool_;
+  std::unique_ptr<memgraph::memory::DbArenaScope> scope_;
+  std::unique_ptr<ms::InMemoryStorage> storage_;
+  std::unique_ptr<mv::BranchContext> ctx_;
+  uint64_t fork_ts_{};
+  int64_t baseline_{};
+  ms::LabelId label_;
+  ms::PropertyId prop_x_;
+  ms::EdgeTypeId edge_type_;
+  ms::Gid v_gid_, a_gid_, edge_gid_;
+};
+
+class VersioningBranchPeriodicGcTest : public VersioningBranchGcTest {
+ protected:
+  ms::Config MainConfig() const override {
+    ms::Config config;
+    config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(20)};
+    return config;
+  }
+};
+
+TEST_F(VersioningBranchGcTest, DiffEngineSharesMainsArenaTrackersAndGcConfig) {
+  EXPECT_EQ(Diff().DbArenaPool(), pool_.get());
+  EXPECT_EQ(Diff().DbEmbeddingMemoryTracker(), &embedding_tracker_);
+  EXPECT_TRUE(Diff().config_.gc == storage_->config_.gc);
+}
+
+// Another session's open transaction defeats fast-discard, so every committed branch update keeps its delta until GC.
+TEST_F(VersioningBranchGcTest, DeltasRetainedBehindOpenTransactionAreFreedByGc) {
+  MaterializeVertexStub();
+  constexpr int64_t kCommits = 2000;
+  {
+    auto session_b = Diff().Access(ms::READ);
+    for (int64_t i = 1; i <= kCommits; ++i) CommitStubWrite(i);
+    Collect();
+    EXPECT_GE(Deltas() - baseline_, kCommits) << "an older open transaction must pin the committed deltas";
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 4);
+
+  auto acc = Diff().Access(ms::READ);
+  EXPECT_EQ(*acc->FindVertex(v_gid_, ms::View::NEW)->GetProperty(prop_x_, ms::View::NEW), ms::PropertyValue(kCommits));
+}
+
+TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
+  MaterializeVertexStub();
+  constexpr int64_t kWrites = 2000;
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    auto v = acc->FindVertex(v_gid_, ms::View::NEW);
+    ASSERT_TRUE(v.has_value());
+    for (int64_t i = 0; i < kWrites; ++i) {
+      acc->CreateVertex();
+      ASSERT_TRUE(v->SetProperty(prop_x_, ms::PropertyValue(i)).has_value());
+    }
+    EXPECT_GE(Deltas() - baseline_, 2 * kWrites);
+    acc->Abort();
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 4);
+
+  auto acc = Diff().Access(ms::READ);
+  size_t natives = 0;
+  for (auto v : acc->Vertices(ms::View::NEW)) {
+    if (!ctx_->IsForkGid(v.Gid())) ++natives;
+  }
+  EXPECT_EQ(natives, 0u);
+  EXPECT_TRUE(acc->FindVertex(v_gid_, ms::View::NEW).has_value()) << "the stub is never collected";
+}
+
+// A deleted edge stub is a normal MVCC delete, so GC frees it. The delete is recorded on the endpoint stubs, so the fork
+// edge stays hidden and CowEdge refuses it; the storage layer can still materialize a fresh stub under the same gid.
+TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRematerialized) {
+  auto fork_edge_of = [&] {
+    auto from = ctx_->historical().FindVertex(v_gid_, ms::View::OLD);
+    EXPECT_TRUE(from.has_value());
+    auto out = from->OutEdges(ms::View::OLD);
+    EXPECT_TRUE(out.has_value());
+    EXPECT_EQ(out->edges.size(), 1u);
+    return out->edges[0];
+  };
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    auto stub = ctx_->CowEdge(fork_edge_of());
+    ASSERT_TRUE(stub.has_value());
+    ASSERT_TRUE(stub->SetProperty(prop_x_, ms::PropertyValue(7)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    auto deleted = ctx_->DeleteForkEdge(fork_edge_of());
+    ASSERT_TRUE(deleted.has_value());
+    EXPECT_TRUE(*deleted);
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 4) << "the stub's and the delete's deltas must be freed";
+
+  auto acc = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  auto fork_edge = fork_edge_of();
+  EXPECT_FALSE(ctx_->FindDiffEdge(edge_gid_, ms::View::NEW).has_value());
+  EXPECT_TRUE(ctx_->IsForkEdgeHidden(fork_edge, ms::View::NEW));
+  EXPECT_TRUE(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::OUT, ms::View::NEW, {}).empty());
+  EXPECT_FALSE(ctx_->CowEdge(fork_edge).has_value());
+
+  auto fresh =
+      static_cast<ms::ReplicationAccessor *>(acc.get())->MaterializeStubEdge(edge_gid_, v_gid_, a_gid_, edge_type_);
+  EXPECT_EQ(fresh.Gid(), edge_gid_);
+  EXPECT_TRUE(fresh.Properties(ms::View::NEW)->empty());
+  EXPECT_TRUE(ctx_->IsForkEdgeHidden(fork_edge, ms::View::NEW));
+  acc->Abort();
+  ctx_->EndTransaction();
+}
+
+TEST_F(VersioningBranchGcTest, BranchWritesAreChargedToMainsMemoryTracker) {
+#if !USE_JEMALLOC
+  GTEST_SKIP() << "per-DB arena tracking needs jemalloc";
+#endif
+  Collect();
+  const auto before = db_tracker_.Amount();
+  auto acc = Diff().Access(ms::WRITE);
+  for (int i = 0; i < 40000; ++i) {
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(prop_x_, ms::PropertyValue(std::string(64, 'a'))).has_value());
+  }
+  EXPECT_GT(db_tracker_.Amount() - before, 1024 * 1024);
+  acc->Abort();
+}
+
+TEST_F(VersioningBranchPeriodicGcTest, PeriodicGcThreadFreesDeltasWithoutExplicitCollect) {
+  MaterializeVertexStub();
+  {
+    auto session_b = Diff().Access(ms::READ);
+    for (int64_t i = 1; i <= 500; ++i) CommitStubWrite(i);
+    EXPECT_GE(Deltas() - baseline_, 500);
+  }
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (Deltas() - baseline_ > 4 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  EXPECT_LE(Deltas() - baseline_, 4);
 }
 
 }  // namespace

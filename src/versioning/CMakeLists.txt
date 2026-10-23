@@ -8,20 +8,13 @@ target_sources(mg-versioning
         branch_change_filter.hpp
         branch_change_kind.hpp
         branch_engine.hpp
-        branch_log.hpp
-        branch_reconstruction.hpp
-        edge_lookup.hpp
         gate.hpp
-        merge.hpp
         name.hpp
         version_store.hpp
 
         PRIVATE
         branch_engine.cpp
-        branch_log.cpp
-        branch_reconstruction.cpp
         gate.cpp
-        merge.cpp
         name.cpp
         version_store.cpp
 )

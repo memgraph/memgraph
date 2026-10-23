@@ -98,24 +98,9 @@ add_unit_test(versioning_version_store
         LINK_TARGETS mg::versioning mg-kvstore
 )
 
-add_unit_test(versioning_branch_log
-        SOURCES versioning_branch_log.cpp
-        LINK_TARGETS mg::versioning mg::storage
-)
-
 add_unit_test(versioning_branch_engine
         SOURCES versioning_branch_engine.cpp
-        LINK_TARGETS mg::versioning mg::storage
-)
-
-add_unit_test(versioning_branch_reconstruction
-        SOURCES versioning_branch_reconstruction.cpp
-        LINK_TARGETS mg::versioning mg::storage
-)
-
-add_unit_test(versioning_merge
-        SOURCES versioning_merge.cpp
-        LINK_TARGETS mg::versioning mg::storage
+        LINK_TARGETS mg::versioning mg::storage mg-memory-utils
 )
 
 add_unit_test(versioning_durability_restart

@@ -550,14 +550,6 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_versioning_branches_dropped_total")
                                               .Help("Number of versioning branches dropped")
                                               .Register(registry_)},
-      versioning_branches_merged_family_{prometheus::BuildCounter()
-                                             .Name("memgraph_versioning_branches_merged_total")
-                                             .Help("Number of versioning branches merged into main")
-                                             .Register(registry_)},
-      versioning_branch_commits_captured_family_{prometheus::BuildCounter()
-                                                     .Name("memgraph_versioning_branch_commits_captured_total")
-                                                     .Help("Number of branch commits captured to a branch change-log")
-                                                     .Register(registry_)},
       versioning_active_branches_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_branches")
                                              .Help("Current number of existing versioning branches")
@@ -851,8 +843,6 @@ PrometheusMetrics::PrometheusMetrics()
 
   global.versioning_branches_created = &versioning_branches_created_family_.Add(no_labels);
   global.versioning_branches_dropped = &versioning_branches_dropped_family_.Add(no_labels);
-  global.versioning_branches_merged = &versioning_branches_merged_family_.Add(no_labels);
-  global.versioning_branch_commits_captured = &versioning_branch_commits_captured_family_.Add(no_labels);
   global.versioning_active_branches = &versioning_active_branches_family_.Add(no_labels);
   global.versioning_active_checkouts = &versioning_active_checkouts_family_.Add(no_labels);
   // No-db fallback counters: same family as per-db, but with no database label.
@@ -2064,14 +2054,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  "Versioning",
                  "Counter",
                  static_cast<int64_t>(global.versioning_branches_dropped->Value())});
-  out.push_back({"VersioningBranchesMerged",
-                 "Versioning",
-                 "Counter",
-                 static_cast<int64_t>(global.versioning_branches_merged->Value())});
-  out.push_back({"VersioningBranchCommitsCaptured",
-                 "Versioning",
-                 "Counter",
-                 static_cast<int64_t>(global.versioning_branch_commits_captured->Value())});
   out.push_back({"VersioningActiveBranches",
                  "Versioning",
                  "Gauge",

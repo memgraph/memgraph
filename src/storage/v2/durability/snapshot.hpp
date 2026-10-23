@@ -13,7 +13,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <optional>
 #include <string>
 
 #include "replication/epoch.hpp"
@@ -101,8 +100,7 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snaps
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
-                                  utils::FileRetainer *file_retainer,
-                                  std::optional<uint64_t> oldest_fork_ts = std::nullopt);
+                                  utils::FileRetainer *file_retainer);
 
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,

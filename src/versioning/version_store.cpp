@@ -95,7 +95,7 @@ VersionStore::VersionStore(std::filesystem::path directory, std::function<uint64
   }
 
   // Seed the active-branches gauge so it reflects persisted state immediately after restart.
-  // Without this, the gauge reads 0 until the first CREATE/DROP/MERGE mutates it.
+  // Without this, the gauge reads 0 until the first CREATE/DROP mutates it.
   memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
 }
 
@@ -108,14 +108,6 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   }
   if (parent != "main" && !branches_.contains(parent)) {
     return std::unexpected(fmt::format("Parent branch '{}' does not exist.", parent));
-  }
-  // HIGH-2 fix: refuse to fork off a parent that is mid-merge (BeginMerge'd but not yet
-  // Finish/AbortMerge'd) -- otherwise a child could appear between a merge's own atomic
-  // existence/no-children check and its completion, which is exactly the race BeginMerge exists
-  // to close (see its doc-comment in version_store.hpp).
-  if (merging_.contains(parent)) {
-    return std::unexpected(
-        fmt::format("Parent branch '{}' is currently being merged; retry after it completes.", parent));
   }
 
   BranchInfo info{
@@ -166,12 +158,6 @@ bool VersionStore::DropBranch(std::string_view name) {
       return false;
     }
     if (HasChildrenLocked(name)) {
-      return false;
-    }
-    // HIGH-2 fix: a branch mid-merge (BeginMerge'd) must not be droppable out from under the
-    // merge in progress -- FinishMerge (not a bare DropBranch) is the only way to remove it once a
-    // merge has begun.
-    if (merging_.contains(name)) {
       return false;
     }
     // A branch with an attached session must not be dropped out from under it; each session must
@@ -232,71 +218,11 @@ bool VersionStore::HasChildrenLocked(std::string_view name) const {
   return std::ranges::any_of(branches_, [&](const auto &kv) { return kv.second.parent == name; });
 }
 
-std::expected<BranchInfo, std::string> VersionStore::BeginMerge(std::string_view name) {
-  std::lock_guard guard{lock_};
-
-  auto it = branches_.find(name);
-  if (it == branches_.end()) {
-    return std::unexpected(fmt::format("Branch '{}' does not exist.", name));
-  }
-  if (HasChildrenLocked(name)) {
-    return std::unexpected(fmt::format("Branch '{}' has child branches.", name));
-  }
-  if (merging_.contains(name)) {
-    return std::unexpected(fmt::format("Branch '{}' is already being merged.", name));
-  }
-  // A session attached to `name` writes straight into the branch's shared diff engine, not into a captured
-  // change-log this merge could see -- refuse rather than silently merge a stale view.
-  if (checked_out_.contains(name)) {
-    return std::unexpected(
-        fmt::format("Branch '{}' is currently checked out by a session; check out 'main' there "
-                    "before merging.",
-                    name));
-  }
-
-  merging_.emplace(name);
-  return it->second;
-}
-
-void VersionStore::FinishMerge(std::string_view name) {
-  uint64_t number = 0;
-  {
-    std::lock_guard guard{lock_};
-
-    // BeginMerge already excluded new children and a second concurrent merge/drop for the ENTIRE
-    // window since it was called, so `it` existing (and childless) here is guaranteed -- this is
-    // not a re-check, just retrieving the fork pin to release.
-    auto it = branches_.find(name);
-    MG_ASSERT(
-        it != branches_.end(), "FinishMerge: branch '{}' absent; BeginMerge/DropBranch guarantee presence", name);
-    number = it->second.number;
-    release_pin_(it->second.fork_ts);
-    storage_.Delete(name);
-    branches_.erase(it);
-
-    // Graph Versioning v1 chunk 10 (observability): branch merged + refresh the active-branches gauge.
-    memgraph::metrics::Metrics().global.versioning_branches_merged->Increment();
-    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
-    merging_.erase(std::string{name});
-  }
-  RetireCore(number);
-}
-
-void VersionStore::AbortMerge(std::string_view name) {
-  std::lock_guard guard{lock_};
-  merging_.erase(std::string{name});
-}
-
 std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
   std::lock_guard guard{lock_};
   auto it = branches_.find(name);
   if (it == branches_.end()) {
     return std::unexpected(fmt::format("Version '{}' does not exist.", name));
-  }
-  // Refuse a checkout mid-merge: a session writing into a branch that's simultaneously being folded into its parent
-  // would race MergeBranch's own read -- see BeginMerge's symmetric checked_out_ check above.
-  if (merging_.contains(name)) {
-    return std::unexpected(fmt::format("Version '{}' is currently being merged.", name));
   }
   ++checked_out_[std::string{name}];
   ++total_checkouts_;

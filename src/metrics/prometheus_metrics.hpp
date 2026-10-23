@@ -109,8 +109,6 @@ struct GlobalMetricHandles {
   // Graph Versioning v1 (global)
   prometheus::Counter *versioning_branches_created;
   prometheus::Counter *versioning_branches_dropped;
-  prometheus::Counter *versioning_branches_merged;
-  prometheus::Counter *versioning_branch_commits_captured;
   prometheus::Gauge *versioning_active_branches;
   prometheus::Gauge *versioning_active_checkouts;
 
@@ -439,8 +437,6 @@ class PrometheusMetrics {
   // Global metric families — Graph Versioning v1
   prometheus::Family<prometheus::Counter> &versioning_branches_created_family_;
   prometheus::Family<prometheus::Counter> &versioning_branches_dropped_family_;
-  prometheus::Family<prometheus::Counter> &versioning_branches_merged_family_;
-  prometheus::Family<prometheus::Counter> &versioning_branch_commits_captured_family_;
   prometheus::Family<prometheus::Gauge> &versioning_active_branches_family_;
   prometheus::Family<prometheus::Gauge> &versioning_active_checkouts_family_;
 

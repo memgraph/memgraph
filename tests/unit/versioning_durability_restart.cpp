@@ -98,8 +98,6 @@ void ExpectNoBranchState(memgraph::dbms::Database &db) {
   EXPECT_FALSE(db.version_store()->Exists("b1"));
   EXPECT_FALSE(db.version_store()->Exists("b2"));
   EXPECT_FALSE(db.version_store()->TryAcquireCheckout("b1").has_value());
-  EXPECT_FALSE(db.config().durability.recover_oldest_fork_ts.has_value());
-  EXPECT_TRUE(db.config().durability.recover_fork_timestamps.empty());
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
   EXPECT_FALSE(storage->OldestForkPin().has_value());
   EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning" / "branches"));
@@ -193,8 +191,6 @@ TEST_F(VersioningDurabilityRestartTest, NoBranchRestartIsByteIdenticalFastPath) 
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  EXPECT_FALSE(db.config().durability.recover_oldest_fork_ts.has_value());
-  EXPECT_TRUE(db.config().durability.recover_fork_timestamps.empty());
 
   auto acc = db.Access(memgraph::storage::READ);
   EXPECT_TRUE(acc->FindVertex(vertex_gid, memgraph::storage::View::OLD).has_value());

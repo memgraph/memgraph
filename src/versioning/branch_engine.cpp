@@ -233,6 +233,10 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
     storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
+  // Everything below allocates on behalf of main's tenant: scope the build to main's arena pool (borrowed when the
+  // caller is already in it) so the diff engine's structures are attributed like main's own. A no-op with no pool.
+  const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
+
   // 1. Time-travel main to fork_ts first -- fail before paying for the diff engine construction. This accessor only
   //    lives for the duration of Build: it supplies main's fork-time index set, and its READ guard blocks a concurrent
   //    CREATE ENUM while the enum store is mirrored.
@@ -251,15 +255,13 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   storage::Config config = main.config_;
   // Distinct throwaway instance -- avoid aliasing main's UUID in any registry.
   config.salient.uuid = utils::UUID{};
-  config.gc.type = storage::Config::Gc::Type::NONE;
+  // config.gc stays main's: the diff engine needs its own GC, else committed branch deltas are never freed while any
+  // other transaction is active (fast-discard needs a quiet engine) and branch memory grows with write volume.
   // Transient in-RAM copy: all durability mechanisms off regardless of what main configured.
   config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
   config.durability.recover_on_startup = false;
   config.durability.snapshot_on_exit = false;
   config.durability.restore_replication_state_on_startup = false;
-  // Clear copied recovery fields so they don't carry main's unrelated recovery bookkeeping.
-  config.durability.recover_oldest_fork_ts.reset();
-  config.durability.recover_fork_timestamps.clear();
   // Repoint storage/disk/name paths away from main's own directories; durability is off, but a
   // stale path is one accidental future durability flip away from aliasing main's live data.
   {
@@ -281,13 +283,18 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   config.force_on_disk = false;
   // Avoid duplicating/aliasing main's Prometheus metrics as a spurious second database.
   config.register_metrics = false;
+  // Memory attribution: main's arena pool (its GC thread installs a DbArenaScope on that pool, and every allocating
+  // thread is already in main's scope), main's embedding tracker, and main's unreleased-delta gauge so branch deltas
+  // show up in the tenant's storage info. No other metric is shared.
+  metrics::DatabaseMetricHandles metric_handles{};
+  metric_handles.unreleased_delta_objects = main.metric_handles_.unreleased_delta_objects;
   auto diff_engine = std::make_unique<storage::InMemoryStorage>(config,
                                                                 std::nullopt,
                                                                 std::make_unique<storage::PlanInvalidatorDefault>(),
-                                                                metrics::DatabaseMetricHandles{},
+                                                                metric_handles,
                                                                 nullptr,
-                                                                nullptr,
-                                                                nullptr,
+                                                                main.DbArenaPool(),
+                                                                main.DbEmbeddingMemoryTracker(),
                                                                 main.GetSharedNameIdMapper());
 
   // 3. Reserve the branch-native gid range (see kBranchNativeGidWatermark).

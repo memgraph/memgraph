@@ -177,6 +177,10 @@ class InMemoryStorage final : public Storage {
                            utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
                            std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr);
 
+  /// The embedding tracker this storage was built with (nullptr if none); lets a derived engine (the versioning diff
+  /// engine) charge its vector indices to the same tenant.
+  utils::MemoryTracker *DbEmbeddingMemoryTracker() const noexcept { return db_embedding_memory_tracker_; }
+
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
   InMemoryStorage &operator=(const InMemoryStorage &) = delete;
@@ -1226,6 +1230,7 @@ class InMemoryStorage final : public Storage {
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
   memgraph::memory::ArenaPool *db_arena_{nullptr};
+  utils::MemoryTracker *db_embedding_memory_tracker_{nullptr};
 
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at

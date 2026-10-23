@@ -33,7 +33,6 @@ target_sources(mg-storage-v2
         durability/wal.cpp
         durability/wal_delta_apply.cpp
         durability/wal_schema_delta_apply.cpp
-        durability/wal_window_replay.cpp
         edge_accessor.cpp
         edge_metadata_index.cpp
         edge_ref.cpp

@@ -401,9 +401,4 @@ startup_config_dict = {
         "false",
         "Enable graph versioning (branches). Startup-only; enterprise feature; requires IN_MEMORY_TRANSACTIONAL + WAL. Off by default.",
     ),
-    "versioning_max_changelog_length": (
-        "1000000",
-        "1000000",
-        "Maximum number of recorded changes a single branch may accumulate before branch writes are rejected (bounds retention). Provisional default pending product decision D5.",
-    ),
 }

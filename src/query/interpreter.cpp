@@ -150,9 +150,7 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
-#include "versioning/branch_reconstruction.hpp"
 #include "versioning/gate.hpp"
-#include "versioning/merge.hpp"
 #include "versioning/name.hpp"
 #include "versioning/version_store.hpp"
 
@@ -9089,201 +9087,6 @@ std::vector<TypedValue> VersioningDetailRow(std::string_view name, const version
           TypedValue(info.parent)};
 }
 
-// Durable-capture slice (design slices A+B+C): a BRANCH's own root wal directory -- stable across
-// every checkout session for that branch, keyed by `branch_number` (VersionStore::BranchInfo::
-// number, the monotonic NEVER-REUSED branch id -- deliberately NOT the branch's name, which CAN be
-// reused after a drop+recreate, which would otherwise silently mix an old, dropped branch's
-// history in with a same-named new one's). A subdirectory of `<storage_dir>/versioning/` (the
-// directory `versioning::VersionStore` itself uses AS ITS OWN kvstore directory, dbms/database.cpp)
-// -- nested one level under `branches/` so BranchLog's own files (and every checkout session's own
-// UUID subdirectory beneath THIS, see BranchContext::BuildFromFork) never collide with
-// VersionStore's kvstore internals.
-//
-// CheckoutBranchEngine (below) passes this to BuildFromFork, which mints a fresh per-session
-// subdirectory beneath it; PrepareVersioningQuery's MERGE_BRANCH handler passes the SAME path to
-// CollectBranchChangelog to discover every one of those sessions' finalized files again.
-std::filesystem::path BranchWalRootDirectory(storage::InMemoryStorage *mem_storage, uint64_t branch_number) {
-  return mem_storage->config_.durability.storage_directory / "versioning" / "branches" / std::to_string(branch_number);
-}
-
-// Durable-capture slice C: assembles a branch's REAL, full changelog for MERGE BRANCH by
-// enumerating every checkout session's finalized `versioning::BranchLog` file under
-// `branch_wal_root` (one per-session UUID subdirectory each, see
-// `versioning::BranchContext::BuildFromFork`'s own doc-comment) and concatenating their forward
-// WAL-format records, in CHRONOLOGICAL order, into the single vector `versioning::MergeBranch`
-// replays.
-//
-// ORDERING: `storage::durability::MakeWalName()` embeds a fixed-width
-// (YYYYmmddHHMMSSffffff), hence lexicographically-sortable, WALL-CLOCK timestamp as the leading
-// component of a WAL filename, and `RemakeWalName` (what `BranchLog::Finalize()` renames a file
-// to) preserves that same prefix verbatim -- so the discovered files' PRIMARY sort key is that
-// 20-char prefix alone (never the full path, which would interleave with each session's own
-// UUID-named parent directory and scramble the order), recovering the real order the sessions'
-// commits actually happened in. This is the reason each session gets its own numbering-from-scratch
-// BranchLog (branch_engine.hpp) but the OVERALL branch history is still totally ordered: real
-// wall-clock time, not each session's own restarted-at-0 internal sequence numbers, is what stitches
-// them back together ACROSS sessions.
-//
-// MULTI-COMMIT fix (2026-07-12) SECONDARY key: one BranchLog file per CAPTURED COMMIT (not per
-// session, see `BranchContext::CreateCommitLog`'s own doc-comment, branch_engine.hpp, for why) means
-// a single session directory can now hold MANY files sharing that same session's narrow wall-clock
-// window -- two commits made back-to-back can legitimately land in the SAME microsecond, an
-// ordinary case now rather than the vanishingly-rare cross-session collision the old LOW-4 fix
-// guarded against. The wall-clock prefix alone can no longer disambiguate two commits from the SAME
-// session reliably, so each file's own embedded `seq_num` (`storage::durability::ReadWalInfo`'s
-// `seq_num` field -- `BranchContext::NextBranchCommitTs()`'s value at capture time, strictly
-// increasing WITHIN one session, see `CreateCommitLog()`'s own doc-comment) is read back and used as
-// a genuine, monotonic, collision-immune numeric tie-break: two files from DIFFERENT sessions can
-// share a seq_num (each session's counter restarts at 0), but the primary wall-clock-prefix key
-// already orders those correctly (different sessions are never active in the exact same
-// microsecond in practice, and even if they were, real cross-session commit order has no principled
-// definition anyway -- unchanged from the prior LOW-4 reasoning). Compared as an INTEGER, not as a
-// filename substring -- `seq_num` is not even embedded in the filename at all (only in the WalFile's
-// own metadata, see `MakeWalName`'s doc-comment, paths.hpp), so there is no lexicographic-multi-digit
-// pitfall to worry about here.
-//
-// Only files whose name contains "_from_" (RemakeWalName's own marker of a FINALIZED file) are
-// considered; an unfinalized "_current" file would mean a live (or, out of this slice's scope,
-// crashed-mid-session) BranchLog that `BranchLog::ReadAll` cannot safely decode -- defensive, not
-// load-bearing, since MERGE_BRANCH's own BeginMerge precondition (no session currently has this
-// branch checked out, version_store.cpp) already guarantees every session's BranchContext (hence
-// every per-commit BranchLog it ever created) has been destroyed -- and therefore Finalize()'d -- by
-// the time this runs.
-//
-// A branch that never captured a single commit (an all-reads-only checkout, or no checkout at all
-// yet) has an absent or empty directory tree here -- returns an empty vector cleanly, so
-// `versioning::MergeBranch`'s existing empty-changelog fast-forward path (exercised by
-// `MergeHappyPathFastForwardsEmptyChangelog`) is reached completely unchanged.
-//
-// MED-5 fix (adversarial review, 2026-07-12): a REAL filesystem error partway through either
-// `directory_iterator` (permission denied, I/O error, a concurrent `remove_all` racing this scan,
-// ...) used to just `break` the affected loop -- silently truncating `finalized_files` to whatever
-// had been discovered so far, so MERGE would proceed and commit a PARTIAL changelog as if it were
-// complete (a silent data-loss failure mode, not merely a missed file). Absent-directory is still
-// NOT an error (a branch that was never checked out, or whose whole tree is legitimately missing,
-// is the ordinary empty-changelog case handled by the `exists()` check above) -- but any error
-// encountered WHILE a directory is known to exist and is being walked now throws loudly instead, so
-// MERGE fails outright rather than silently applying an incomplete change-log.
-std::vector<storage::durability::WalDeltaData> CollectBranchChangelog(const std::filesystem::path &branch_wal_root) {
-  // MULTI-COMMIT fix: the sort key is now a triple -- (20-char wall-clock filename prefix, this
-  // file's own `seq_num` read back via `ReadWalInfo`, full path as a final deterministic
-  // tie-break) -- rather than the old (filename, path) pair. `seq_num` is read here, once per
-  // file, rather than re-derived inside the sort comparator, to avoid re-opening/re-decoding every
-  // candidate file's header O(n log n) times during the sort.
-  struct FinalizedFile {
-    std::string wall_clock_prefix;
-    uint64_t seq_num{0};
-    std::filesystem::path path;
-  };
-
-  std::vector<FinalizedFile> finalized_files;
-
-  std::error_code root_ec;
-  if (!std::filesystem::exists(branch_wal_root, root_ec) || root_ec) {
-    return {};  // never checked out, or checked out but never (yet) finalized a single session
-  }
-
-  std::error_code session_ec;
-  for (auto session_it = std::filesystem::directory_iterator(branch_wal_root, session_ec);
-       session_it != std::filesystem::directory_iterator();
-       session_it.increment(session_ec)) {
-    if (session_ec) {
-      throw QueryRuntimeException("Failed to read branch change-log for merge: {}", session_ec.message());
-    }
-    const auto &session_entry = *session_it;
-    if (!session_entry.is_directory()) continue;  // stray non-directory entry -- ignore, defensive
-
-    std::error_code file_ec;
-    for (auto file_it = std::filesystem::directory_iterator(session_entry.path(), file_ec);
-         file_it != std::filesystem::directory_iterator();
-         file_it.increment(file_ec)) {
-      if (file_ec) {
-        throw QueryRuntimeException("Failed to read branch change-log for merge: {}", file_ec.message());
-      }
-      const auto &file_entry = *file_it;
-      if (!file_entry.is_regular_file()) continue;
-      auto filename = file_entry.path().filename().string();
-      if (filename.find("_from_") == std::string::npos) continue;  // skip an unfinalized "_current" file
-      // MULTI-COMMIT fix: the wall-clock prefix -- `kTimestampFormat` (paths.hpp) renders as
-      // exactly YYYYmmddHHMMSSffffff (4+2+2+2+2+2+6 = 20 characters; NOT `kTimestampFormat.size()`
-      // itself, which is the length of the fmt FORMAT STRING "{:04d}{:02d}..." rather than its
-      // rendered output) -- is the primary sort key, verbatim-preserved by RemakeWalName ahead of
-      // its own "_from_" marker, see this function's own doc-comment. The file's `seq_num` (the
-      // secondary tie-break) is only recoverable from the file's own metadata, never the filename --
-      // read it back now, once per file, rather than inside the sort comparator.
-      static constexpr size_t kWalTimestampPrefixLen = 20;
-      auto wal_info = storage::durability::ReadWalInfo(file_entry.path());
-      finalized_files.push_back(
-          FinalizedFile{.wall_clock_prefix = filename.substr(0, std::min(kWalTimestampPrefixLen, filename.size())),
-                        .seq_num = wal_info.seq_num,
-                        .path = file_entry.path()});
-    }
-    // Belt-and-suspenders, mirrors the outer loop's own post-loop check below: if the INNER
-    // `directory_iterator`'s own construction fails (e.g. `session_entry.path()` was removed or
-    // became unreadable between being listed and being descended into), it is immediately equal to
-    // the end sentinel and the loop body above never runs even once -- so the `if (file_ec)` check
-    // inside the body would never fire despite `file_ec` being set. Catch that here instead.
-    if (file_ec) {
-      throw QueryRuntimeException("Failed to read branch change-log for merge: {}", file_ec.message());
-    }
-  }
-  // Same reasoning as the inner loop's own post-loop check above, for the OUTER iterator: a failed
-  // construction of `directory_iterator(branch_wal_root, session_ec)` lands immediately on the end
-  // sentinel, so the in-body `if (session_ec)` check is never reached for that case either.
-  if (session_ec) {
-    throw QueryRuntimeException("Failed to read branch change-log for merge: {}", session_ec.message());
-  }
-
-  // LOW-4 fix (adversarial review, 2026-07-12), SUPERSEDED by the MULTI-COMMIT fix's `seq_num`
-  // tie-break below: originally just (filename, full-path) with `stable_sort`, closing only the
-  // "two DIFFERENT sessions finalize in the same microsecond" case (rare, no principled ordering
-  // between such files anyway). The MULTI-COMMIT fix (one BranchLog per commit rather than per
-  // session, see this function's own doc-comment) makes the same-microsecond case routine WITHIN
-  // one session too (several commits made back-to-back), so `seq_num` now closes that gap for real,
-  // ahead of the LOW-4 full-path fallback which remains as the final deterministic tie-break.
-  // Compound key: (1) wall-clock prefix (cross-session order), (2) this file's own `seq_num`
-  // (within-session order), (3) full path (last-resort determinism).
-  std::ranges::stable_sort(finalized_files, [](const auto &lhs, const auto &rhs) {
-    if (lhs.wall_clock_prefix != rhs.wall_clock_prefix) return lhs.wall_clock_prefix < rhs.wall_clock_prefix;
-    if (lhs.seq_num != rhs.seq_num) return lhs.seq_num < rhs.seq_num;
-    return lhs.path < rhs.path;
-  });
-
-  std::vector<storage::durability::WalDeltaData> changelog;
-  for (const auto &file : finalized_files) {
-    auto records = versioning::BranchLog::ReadAll(file.path);
-    changelog.insert(changelog.end(), std::make_move_iterator(records.begin()), std::make_move_iterator(records.end()));
-  }
-  return changelog;
-}
-
-// MED-3 fix (adversarial review, 2026-07-12): a branch's WAL directory tree
-// (`<storage_dir>/versioning/branches/<number>/`, every session subdir + finalized BranchLog file
-// underneath) was never deleted anywhere -- a MERGE or DROP removed the branch's REGISTRY entry
-// (VersionStore) but left its on-disk WAL tree behind forever, an unbounded disk leak across the
-// lifetime of a server that creates/merges/drops many branches. Called from both the MERGE_BRANCH
-// (after a successful FinishMerge) and DROP_BRANCH (after a successful VersionStore::DropBranch)
-// handlers, once the branch number can no longer be reused (VersionStore's branch numbers are
-// monotonic and never reused, version_store.hpp) -- so removing this exact directory can never
-// race a legitimate NEW branch that reuses the same path.
-//
-// Best-effort BY DESIGN: this runs AFTER the registry mutation (FinishMerge/DropBranch) has already
-// committed the branch's removal -- that is the operation whose success/failure the user's MERGE/
-// DROP query result reflects. A failure to reclaim the now-orphaned WAL directory (permissions,
-// concurrent external deletion, a transient I/O error, ...) is real disk-usage technical debt but
-// NOT a correctness or data-loss problem (the branch is already gone from the registry either way,
-// and cannot be checked out/merged/dropped again), so it is logged and swallowed rather than
-// thrown -- surfacing it as a query failure would misleadingly suggest the MERGE/DROP itself failed
-// when it, in fact, already succeeded.
-void RemoveBranchWalTreeBestEffort(const std::filesystem::path &branch_wal_root) {
-  std::error_code ec;
-  std::filesystem::remove_all(branch_wal_root, ec);
-  if (ec) {
-    spdlog::warn(
-        "Failed to remove branch WAL directory '{}' after merge/drop: {}", branch_wal_root.string(), ec.message());
-  }
-}
-
 // Attaches this session to branch `name`: acquires a counted checkout via `version_store`, gets (building it on
 // the branch's first checkout) the branch's shared BranchCore, and installs a fresh per-session BranchContext over it
 // on `current_db`. Called from the CHECKOUT_BRANCH query_handler (both the plain-switch and create-and-switch forms)
@@ -9332,8 +9135,6 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
 // definition -- clang 20.1.2 treats an anon-namespace forward declaration and an anon-namespace
 // definition in a *different* `namespace { ... }` block as two distinct overload candidates and
 // rejects calls as ambiguous, even though both blocks reopen the same internal-linkage namespace.
-// Graph Versioning Batch 4 ("MERGE = normal commit", #4) reuses it verbatim for MERGE BRANCH's own
-// after-commit trigger dispatch -- see PrepareVersioningQuery's MERGE_BRANCH handler below.
 namespace {
 
 auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
@@ -9451,417 +9252,12 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }
 }  // namespace
 
-// Graph Versioning Batch 4 ("MERGE = normal commit") FGA fail-closed pre-pass (#5): walks the
-// branch's OWN change-log with the MERGING USER's FineGrainedAuthChecker, BEFORE MergeBranch ever
-// opens main.UniqueAccess() -- a denial rejects the whole merge (throws) with main untouched,
-// exactly like a D3 conflict (fail-closed, preserves the atomic-reject contract). Uses the id-only
-// overloads (`Has(labels span, ...)`, `Has(edge_type, ...)`, `HasPropertyPermission(...)`,
-// auth_checker.hpp:61-97) throughout -- including for every per-vertex label-scoped check (see the
-// H2 fix below); WalVertexDelete's DELETE check also uses projected_labels_of as a fallback for
-// branch-local vertices (N2 fix: see the WalVertexDelete arm), while still resolving a plain READ
-// accessor BY GID against `pre_merge_dba` for fork-existing vertices (see the MERGE_BRANCH handler
-// below: never overlap a READ accessor with UniqueAccess on the same thread, merge.cpp's own
-// top-of-file comment explains why that self-deadlocks).
-//
-// H2 fix (fail-open on branch-local objects): this pass used to resolve every CREATE_EDGE/
-// DELETE_EDGE endpoint's and every SetProperty target's labels via `pre_merge_dba.FindVertex(gid,
-// ...)` against PRE-merge main ONLY. For a branch-local (not yet on main) object that SILENTLY
-// SKIPPED the endpoint's CREATE_EDGE/DELETE_EDGE check entirely (FindVertex misses -> no accessor ->
-// no check -- SET_LABEL and CREATE_EDGE/DELETE_EDGE are INDEPENDENT permission bits, auth/
-// models.hpp:132-137, so passing the label check gives no guarantee about the edge check) and
-// silently routed a branch-local SetProperty target to the GLOBAL property rule instead of the
-// per-label one (Labels(View::OLD) is likewise empty for a FindVertex miss), bypassing a per-label
-// DENY. Fixed with `projected_labels`: a per-gid `std::unordered_set<LabelId>` that mirrors the
-// change-log's OWN, forward-accumulated label state -- seeded from `pre_merge_dba`'s real labels the
-// FIRST time a gid is referenced (fork-existing, not yet mutated by this branch), but reset to EMPTY
-// by that gid's own WalVertexCreate record (branch-local: it has no labels until this SAME
-// change-log adds some). The change-log is guaranteed create-before-mutate (relied on elsewhere in
-// this file), so one forward walk that seeds-then-mutates this map gives every LATER record
-// referencing that gid the correct label view. CREATE_EDGE/DELETE_EDGE endpoint checks and the
-// SetProperty per-label check now ALWAYS evaluate against this projected state -- never skipped,
-// never silently stale-main -- instead of requiring (and silently no-op'ing without) a
-// `pre_merge_dba` hit.
-//
-// Deliberately conservative rather than replicating MergeBranch's own branch-local/fork-existing
-// classification (that distinction isn't known until MergeBranch's pass 1 runs, which is AFTER this
-// pre-pass by design -- fail-closed means checking BEFORE any main-touching work starts): a
-// WalVertexCreate/WalEdgeCreate record always requires CREATE/CREATE_EDGE, even on the (rarer) COW-
-// echo path where the object turns out to already exist on main -- over-requiring a permission is
-// safe, under-requiring never is.
-//
-// M6 (documented v1 limitation): this pre-pass only ever sees the branch's OWN change-log; it
-// cannot see writes a before-commit trigger might add mid-merge. That is a non-issue for A1 (chosen
-// design) specifically: MERGE only ever fires AFTER-commit triggers here (see the MERGE_BRANCH
-// handler's own doc-comment for why before-commit triggers are out of v1's scope for merges) -- but
-// worth documenting because it mirrors an existing, general Memgraph gap (a before-commit trigger's
-// own writes are never FGA-checked either, on ANY ordinary commit, not just a merge).
-void CheckMergeFineGrainedAuth(const std::vector<storage::durability::WalDeltaData> &changelog,
-                               DbAccessor &pre_merge_dba, FineGrainedAuthChecker &checker) {
-  namespace sd = storage::durability;
-  using FGP = AuthQuery::FineGrainedPrivilege;
-
-  auto require = [](bool allowed, std::string_view what) {
-    if (!allowed) {
-      throw QueryRuntimeException(
-          "Merge rejected: the merging user lacks the '{}' fine-grained permission required by one or more of the "
-          "branch's changes. Main is untouched.",
-          what);
-    }
-  };
-
-  // H2 fix: per-gid change-log-projected label state (full rationale in the doc-comment above).
-  // `try_emplace` seeds a gid's entry from pre-merge main's REAL labels the first time it is
-  // referenced here (fork-existing, untouched-so-far vertex); a WalVertexCreate record below always
-  // resets its OWN gid's entry to empty afterward (branch-local -- never fork-existing, so any
-  // earlier seed from a stale main-side hit would itself be wrong).
-  std::unordered_map<storage::Gid, std::unordered_set<storage::LabelId>> projected_labels;
-
-  auto seeded_labels = [&](storage::Gid gid) -> std::unordered_set<storage::LabelId> & {
-    auto [it, inserted] = projected_labels.try_emplace(gid);
-    if (inserted) {
-      if (auto v = pre_merge_dba.FindVertex(gid, storage::View::OLD)) {
-        if (auto label_result = v->Labels(storage::View::OLD); label_result.has_value()) {
-          it->second.insert(label_result->begin(), label_result->end());
-        }
-      }
-    }
-    return it->second;
-  };
-  // Read-only convenience: current projected labels for `gid` as a vector, for the `Has`/
-  // `HasPropertyPermission` label-span overloads (auth_checker.hpp:61-62,91-93). Bound to a NAMED
-  // local (never passed as a bare temporary) at every call site below -- std::span's range
-  // constructor requires an lvalue/borrowed range, mirroring this file's own pre-existing
-  // `labels` local for the identical reason.
-  auto projected_labels_of = [&](storage::Gid gid) -> std::vector<storage::LabelId> {
-    const auto &labels = seeded_labels(gid);
-    return {labels.begin(), labels.end()};
-  };
-
-  for (const auto &delta : changelog) {
-    std::visit(utils::Overloaded{
-                   [&](sd::WalVertexCreate const &data) {
-                     require(checker.Has(std::span<storage::LabelId const>{}, FGP::CREATE), "CREATE");
-                     // Branch-local: no labels until this SAME change-log adds some (H2 doc-comment
-                     // above). Clears rather than erases: a `seeded_labels` lookup from an EARLIER
-                     // record touching this same gid (e.g. a COW-echo ordering quirk) may already have
-                     // seeded it from stale pre-merge-main state -- reset unconditionally.
-                     projected_labels[data.gid].clear();
-                   },
-                   [&](sd::WalVertexDelete const &data) {
-                     if (auto v = pre_merge_dba.FindVertex(data.gid, storage::View::OLD)) {
-                       // Fork-existing vertex: resolve real labels from main and check DELETE.
-                       require(checker.Has(*v, storage::View::OLD, FGP::DELETE), "DELETE");
-                     } else {
-                       // Branch-local vertex (created and deleted entirely within the branch):
-                       // FindVertex returns nullopt because it was never committed to main.  Fall
-                       // back to the change-log's own projected label state -- the same pattern
-                       // used by the sibling WalEdgeDelete arm and WalVertexSetProperty.  DELETE
-                       // must never be silently skipped for a branch-local vertex: a user who
-                       // holds CREATE but not DELETE must not be able to merge a branch-local
-                       // delete through this gap.
-                       auto labels = projected_labels_of(data.gid);
-                       require(checker.Has(labels, FGP::DELETE), "DELETE");
-                     }
-                   },
-                   [&](sd::WalVertexAddLabel const &data) {
-                     auto label = pre_merge_dba.NameToLabel(data.label);
-                     require(checker.Has(std::span{&label, 1}, FGP::SET_LABEL), "SET_LABEL");
-                     seeded_labels(data.gid).insert(label);
-                   },
-                   [&](sd::WalVertexRemoveLabel const &data) {
-                     auto label = pre_merge_dba.NameToLabel(data.label);
-                     require(checker.Has(std::span{&label, 1}, FGP::REMOVE_LABEL), "REMOVE_LABEL");
-                     seeded_labels(data.gid).erase(label);
-                   },
-                   [&](sd::WalVertexSetProperty const &data) {
-                     // H2b fix: the changelog's OWN projected labels (never skipped/empty-by-omission
-                     // for a branch-local vertex whose earlier AddLabel records this SAME walk already
-                     // saw) instead of a `pre_merge_dba`-only lookup that is always empty for it.
-                     auto labels = projected_labels_of(data.gid);
-                     auto property = pre_merge_dba.NameToProperty(data.property);
-                     require(checker.HasPropertyPermission(labels, property, AuthQuery::PropertyPermissionType::WRITE),
-                             "SET_PROPERTY");
-                   },
-                   [&](sd::WalEdgeCreate const &data) {
-                     auto edge_type = pre_merge_dba.NameToEdgeType(data.edge_type);
-                     require(checker.Has(edge_type, FGP::CREATE_EDGE), "CREATE_EDGE");
-                     // H2a fix: both endpoints are checked against the change-log's OWN projected
-                     // label state, UNCONDITIONALLY -- a branch-local endpoint (not yet on pre-merge
-                     // main) used to be silently SKIPPED here because `pre_merge_dba.FindVertex`
-                     // (View::NEW) returns nullopt for it. SET_LABEL and CREATE_EDGE are INDEPENDENT
-                     // permission bits (auth/models.hpp:132-137) -- passing the label check above gives
-                     // no guarantee about this per-vertex CREATE_EDGE rule, so it must never be skipped.
-                     auto from_labels = projected_labels_of(data.from_vertex);
-                     require(checker.Has(from_labels, FGP::CREATE_EDGE), "CREATE_EDGE");
-                     auto to_labels = projected_labels_of(data.to_vertex);
-                     require(checker.Has(to_labels, FGP::CREATE_EDGE), "CREATE_EDGE");
-                   },
-                   [&](sd::WalEdgeDelete const &data) {
-                     auto edge_type = pre_merge_dba.NameToEdgeType(data.edge_type);
-                     require(checker.Has(edge_type, FGP::DELETE_EDGE), "DELETE_EDGE");
-                     // Same H2 fix as WalEdgeCreate above, for DELETE_EDGE's endpoint checks.
-                     auto from_labels = projected_labels_of(data.from_vertex);
-                     require(checker.Has(from_labels, FGP::DELETE_EDGE), "DELETE_EDGE");
-                     auto to_labels = projected_labels_of(data.to_vertex);
-                     require(checker.Has(to_labels, FGP::DELETE_EDGE), "DELETE_EDGE");
-                   },
-                   [&](sd::WalEdgeSetProperty const &data) {
-                     // Legacy pre-kEdgeSetDeltaWithVertexInfo records carry no edge_type hint -- mirrors
-                     // merge.cpp's own identical, already-documented carve-out for the read-side of this
-                     // same gap (ensure_edge_snapshot_legacy_no_hint). Skipped (not fail-closed) here
-                     // because it is a narrow, format-vintage-only case, not a new gap.
-                     if (data.edge_type.has_value()) {
-                       auto edge_type = pre_merge_dba.NameToEdgeType(*data.edge_type);
-                       auto property = pre_merge_dba.NameToProperty(data.property);
-                       require(
-                           checker.HasPropertyPermission(edge_type, property, AuthQuery::PropertyPermissionType::WRITE),
-                           "SET_PROPERTY");
-                     }
-                   },
-                   [&](auto const &) {}},
-               delta.data_);
-  }
-}
-
-// Graph Versioning Batch 4 ("MERGE = normal commit") after-commit trigger assembly (#4), reworked
-// under R4: builds ONE TriggerContext from the merge's own change-set, CREATED/UPDATED objects
-// ONLY (created/updated vertices+edges, set/removed properties, vertex label add/remove) --
-// applying `result`'s gid remaps so every row names MAIN's real gid (R11/R19 remaps mean a
-// branch-local gid and its main gid can differ). "Old" property values come from M1's
-// fork-snapshots (D3 guarantees fork-state == pre-merge main, so they ARE main's value immediately
-// before this merge); "new" values come straight from the WAL delta.
-//
-// R4 (documented v1 limitation, supersedes the original M3 design): deleted-vertex/edge rows are
-// NOT reported. The original design read them from a `result.committed_accessor` kept alive past
-// MergeBranch's return -- but that accessor is UNIQUE (holds main's exclusive main_lock_ via
-// storage_guard_), so retaining it across the after-commit trigger dispatch would block ALL main
-// access for the dispatch's entire duration -- CONFIRMED to deadlock. A deleted gid also cannot be
-// re-bound post-commit by TriggerContext::AdaptForAccessor (the object no longer exists on main for
-// any fresh accessor to find), so there is no way to feed a deletedVertices/deletedEdges row
-// without paying that cost. Dropped entirely instead -- see the MERGE_BRANCH handler's own
-// doc-comment for the full write-up.
-//
-// `merge_dba` here is a caller-supplied, ORDINARY (non-unique) accessor opened AFTER the merge
-// already committed and released its own unique lock -- purely to look up created/updated objects
-// by gid at View::NEW (their current, post-commit state). It is NOT the merge's own accessor and
-// does not need to survive past this function's return: RunTriggersAfterCommit's own per-trigger
-// loop re-binds every row against ITS OWN fresh transaction anyway
-// (TriggerContext::AdaptForAccessor), exactly like an ordinary Commit()'s after-commit dispatch.
-//
-// M2 (single context): built ONCE here and reused for after-commit dispatch only -- A1 (unlike the
-// full-parity A2 alternative) never runs before-commit triggers on a merge (M6, documented v1
-// limitation -- see the MERGE_BRANCH handler's own doc-comment).
-//
-// M3 fix (2026-07-18, row-collapse): a merge changelog is a flat list of WAL deltas, one per
-// underlying write -- unlike an ordinary commit, whose TriggerContextCollector collapses every
-// repeated write to the same (gid, property)/(gid, label) into a single net row before handing rows
-// to triggers (trigger_context.hpp's PropertyChangesMap/LabelChangesMap, collapsed by
-// trigger_context.cpp's PropertyMapToList/LabelMapToList -- the reference contract this mirrors).
-// Emitting one row per delta let repeated SETs (or repeated label add/remove) of the same key
-// across the branch's whole lifetime surface as multiple phantom rows to AFTER-commit triggers.
-// Property/label changes are now accumulated into (gid, key) maps first and emitted as at most one
-// net row per key, using the exact same no-op/equality filters and label-net-clamp PropertyMapToList/
-// LabelMapToList use, so a merge's trigger rows are indistinguishable in shape from an ordinary
-// commit's. Created-row folding (branch-local vertices/edges) and R4's no-deleted-rows behavior are
-// untouched by this fix.
-TriggerContext AssembleMergeTriggerContext(const std::vector<storage::durability::WalDeltaData> &changelog,
-                                           const versioning::MergeResult &result, DbAccessor *merge_dba,
-                                           storage::NameIdMapper *mapper) {
-  namespace sd = storage::durability;
-
-  auto resolve_vertex = [&](storage::Gid gid) {
-    auto it = result.vertex_gid_remap.find(gid);
-    return it == result.vertex_gid_remap.end() ? gid : it->second;
-  };
-  auto resolve_edge = [&](storage::Gid gid) {
-    auto it = result.edge_gid_remap.find(gid);
-    return it == result.edge_gid_remap.end() ? gid : it->second;
-  };
-  // Fork-snapshot property lookup ("old" value) -- Null (absent) if this property didn't exist at
-  // fork_ts, matching TriggerContextCollector's own "no prior value" convention.
-  auto old_vertex_property = [&](storage::Gid gid, storage::PropertyId prop) -> TypedValue {
-    auto snap_it = result.vertex_fork_snapshots.find(gid);
-    if (snap_it == result.vertex_fork_snapshots.end()) return TypedValue();
-    auto prop_it = snap_it->second.properties.find(prop);
-    if (prop_it == snap_it->second.properties.end()) return TypedValue();
-    return TypedValue(prop_it->second, mapper);
-  };
-  auto old_edge_property = [&](storage::Gid gid, storage::PropertyId prop) -> TypedValue {
-    auto snap_it = result.edge_fork_snapshots.find(gid);
-    if (snap_it == result.edge_fork_snapshots.end()) return TypedValue();
-    auto prop_it = snap_it->second.properties.find(prop);
-    if (prop_it == snap_it->second.properties.end()) return TypedValue();
-    return TypedValue(prop_it->second, mapper);
-  };
-
-  std::vector<detail::CreatedObject<VertexAccessor>> created_vertices;
-  std::vector<detail::CreatedObject<EdgeAccessor>> created_edges;
-
-  // M3 fix: accumulate property/label changes keyed by the RAW (pre-merge, fork-space) gid -- the
-  // same gid `old_vertex_property`/`old_edge_property`'s fork-snapshot lookups already key on --
-  // and resolve to main's gid (via resolve_vertex/resolve_edge) only once, at emission time below,
-  // exactly mirroring how the un-collapsed loop used to resolve per-delta. A raw gid maps to
-  // exactly one resolved main gid for the lifetime of this merge, so keying the accumulator on the
-  // raw gid and resolving lazily is equivalent to (but cheaper than) resolving eagerly per delta.
-  struct PropertyChange {
-    TypedValue old_value;  // fork-snapshot value: fixed for a given key, so only ever set once
-    TypedValue new_value;  // overwritten by every subsequent delta touching this key -- "latest wins"
-  };
-
-  using PropertyKey = std::pair<storage::Gid, storage::PropertyId>;
-  std::map<PropertyKey, PropertyChange> vertex_property_changes;
-
-  struct EdgePropertyChange {
-    storage::Gid from_gid;  // raw (pre-merge) from-vertex gid, needed to FindEdge at emission time
-    TypedValue old_value;
-    TypedValue new_value;
-  };
-
-  std::map<PropertyKey, EdgePropertyChange> edge_property_changes;
-
-  using LabelKey = std::pair<storage::Gid, storage::LabelId>;
-  // Net label state per (raw gid, label), clamped to {-1, 0, +1} -- same semantics as
-  // TriggerContextCollector::UpdateLabelMap/LabelMapToList: +1 == net add, -1 == net remove, 0 ==
-  // added-then-removed (or vice versa) within this merge's changelog, i.e. no net change, no row.
-  std::map<LabelKey, int8_t> label_changes;
-  static constexpr int8_t kLabelAdd = 1;
-  static constexpr int8_t kLabelRemove = -1;
-  auto apply_label_change = [&](storage::Gid raw_gid, storage::LabelId label, int8_t delta) {
-    auto &net = label_changes[{raw_gid, label}];
-    net = static_cast<int8_t>(std::clamp<int>(static_cast<int>(net) + delta, kLabelRemove, kLabelAdd));
-  };
-
-  for (const auto &delta : changelog) {
-    std::visit(utils::Overloaded{
-                   [&](sd::WalVertexCreate const &data) {
-                     if (!result.branch_local_vertices.contains(data.gid)) return;  // Q6 COW echo, not a real create
-                     if (auto v = merge_dba->FindVertex(resolve_vertex(data.gid), storage::View::NEW)) {
-                       created_vertices.emplace_back(*v);
-                     }
-                   },
-                   // R4: deleted objects are not reported to after-commit triggers on a merge (documented
-                   // v1 limitation -- see this function's own doc-comment above).
-                   [&](sd::WalVertexDelete const &) {},
-                   [&](sd::WalVertexAddLabel const &data) {
-                     if (result.branch_local_vertices.contains(data.gid)) return;  // folded into its own "created" row
-                     apply_label_change(data.gid, merge_dba->NameToLabel(data.label), kLabelAdd);
-                   },
-                   [&](sd::WalVertexRemoveLabel const &data) {
-                     if (result.branch_local_vertices.contains(data.gid)) return;
-                     apply_label_change(data.gid, merge_dba->NameToLabel(data.label), kLabelRemove);
-                   },
-                   [&](sd::WalVertexSetProperty const &data) {
-                     if (result.branch_local_vertices.contains(data.gid)) return;
-                     auto property = merge_dba->NameToProperty(data.property);
-                     auto new_value = TypedValue(storage::ToPropertyValue(data.value, mapper), mapper);
-                     auto key = PropertyKey{data.gid, property};
-                     if (auto it = vertex_property_changes.find(key); it != vertex_property_changes.end()) {
-                       it->second.new_value = std::move(new_value);
-                     } else {
-                       auto old_value = old_vertex_property(data.gid, property);
-                       vertex_property_changes.emplace(key, PropertyChange{std::move(old_value), std::move(new_value)});
-                     }
-                   },
-                   [&](sd::WalEdgeCreate const &data) {
-                     if (!result.branch_local_edges.contains(data.gid)) return;  // Q6 COW echo, not a real create
-                     auto resolved_from = resolve_vertex(data.from_vertex);
-                     if (auto e = merge_dba->FindEdge(resolve_edge(data.gid), resolved_from, storage::View::NEW)) {
-                       created_edges.emplace_back(*e);
-                     }
-                   },
-                   // R4: see the WalVertexDelete case above.
-                   [&](sd::WalEdgeDelete const &) {},
-                   [&](sd::WalEdgeSetProperty const &data) {
-                     if (result.branch_local_edges.contains(data.gid)) return;
-                     if (!data.from_gid.has_value()) return;  // legacy no-hint format -- see merge.cpp's own carve-out
-                     auto property = merge_dba->NameToProperty(data.property);
-                     auto new_value = TypedValue(storage::ToPropertyValue(data.value, mapper), mapper);
-                     auto key = PropertyKey{data.gid, property};
-                     if (auto it = edge_property_changes.find(key); it != edge_property_changes.end()) {
-                       it->second.new_value = std::move(new_value);
-                     } else {
-                       auto old_value = old_edge_property(data.gid, property);
-                       edge_property_changes.emplace(
-                           key, EdgePropertyChange{*data.from_gid, std::move(old_value), std::move(new_value)});
-                     }
-                   },
-                   [&](auto const &) {}},
-               delta.data_);
-  }
-
-  // Emission helper -- shared by the vertex and edge property maps: applies the exact same
-  // no-op/equality filters as trigger_context.cpp's PropertyMapToList (the reference contract),
-  // then classifies the net change as a removed- or set-property row.
-  auto classify_property_change = [](TypedValue &old_value, TypedValue &new_value) -> std::optional<bool> {
-    if (old_value.IsNull() && new_value.IsNull()) {
-      return std::nullopt;  // no change happened across the whole merge
-    }
-    if (const auto is_equal = old_value == new_value; is_equal.IsBool() && is_equal.ValueBool()) {
-      return std::nullopt;  // round-tripped back to its fork-snapshot value: no net change
-    }
-    return new_value.IsNull();  // true => removed, false => set
-  };
-
-  std::vector<detail::SetObjectProperty<VertexAccessor>> set_vertex_properties;
-  std::vector<detail::RemovedObjectProperty<VertexAccessor>> removed_vertex_properties;
-  for (auto &[key, change] : vertex_property_changes) {
-    auto is_removed = classify_property_change(change.old_value, change.new_value);
-    if (!is_removed) continue;
-    auto v = merge_dba->FindVertex(resolve_vertex(key.first), storage::View::NEW);
-    if (!v) continue;
-    if (*is_removed) {
-      removed_vertex_properties.emplace_back(*v, key.second, std::move(change.old_value));
-    } else {
-      set_vertex_properties.emplace_back(*v, key.second, std::move(change.old_value), std::move(change.new_value));
-    }
-  }
-
-  std::vector<detail::SetObjectProperty<EdgeAccessor>> set_edge_properties;
-  std::vector<detail::RemovedObjectProperty<EdgeAccessor>> removed_edge_properties;
-  for (auto &[key, change] : edge_property_changes) {
-    auto is_removed = classify_property_change(change.old_value, change.new_value);
-    if (!is_removed) continue;
-    auto resolved_from = resolve_vertex(change.from_gid);
-    auto e = merge_dba->FindEdge(resolve_edge(key.first), resolved_from, storage::View::NEW);
-    if (!e) continue;
-    if (*is_removed) {
-      removed_edge_properties.emplace_back(*e, key.second, std::move(change.old_value));
-    } else {
-      set_edge_properties.emplace_back(*e, key.second, std::move(change.old_value), std::move(change.new_value));
-    }
-  }
-
-  std::vector<detail::SetVertexLabel> set_vertex_labels;
-  std::vector<detail::RemovedVertexLabel> removed_vertex_labels;
-  for (const auto &[key, net] : label_changes) {
-    if (net == 0) continue;  // added-then-removed (or vice versa): no net change, no row
-    auto v = merge_dba->FindVertex(resolve_vertex(key.first), storage::View::NEW);
-    if (!v) continue;
-    if (net == kLabelAdd) {
-      set_vertex_labels.emplace_back(*v, key.second);
-    } else {
-      removed_vertex_labels.emplace_back(*v, key.second);
-    }
-  }
-
-  return TriggerContext{std::move(created_vertices),
-                        {},  // R4: no deleted-vertex rows for a merge (see doc-comment above)
-                        std::move(set_vertex_properties),
-                        std::move(removed_vertex_properties),
-                        std::move(set_vertex_labels),
-                        std::move(removed_vertex_labels),
-                        std::move(created_edges),
-                        {},  // R4: no deleted-edge rows for a merge (see doc-comment above)
-                        std::move(set_edge_properties),
-                        std::move(removed_edge_properties)};
-}
-
 // Graph Versioning (branches) v1, CHUNK 7a: management-query dispatch for CREATE/CHECKOUT/MERGE/
 // DROP/SHOW BRANCH* -- mirrors PrepareMultiDatabaseQuery's shape (Downcast + switch(Action) +
 // PreparedQuery), but the registry here is a single database's VersionStore (chunk 2B) plus its
 // own main storage, not the DbmsHandler -- there is no system_transaction_ involved, and (like
 // CreateSnapshotQuery) no interpreter-level storage accessor is opened either: VersionStore has
-// its own internal locking and MergeBranch opens its own main.UniqueAccess() transaction.
+// its own internal locking.
 //
 // Control-plane ONLY (per the feature's own §4.2 split): this resolves/creates/drops registry
 // entries and flips the session's current_version_ pointer. Routing ordinary Cypher reads/writes
@@ -9872,9 +9268,8 @@ TriggerContext AssembleMergeTriggerContext(const std::vector<storage::durability
 // FLAGS_versioning_enabled and the gate check -- is reached only when the parsed query actually IS
 // a VersioningQuery (see the dispatch ladder in Interpreter::Prepare), so an ordinary session that
 // never issues a branch query never executes a single line of it.
-PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user_or_role,
-                                     InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                     std::vector<Notification> *notifications) {
+PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                     CurrentDB &current_db) {
   auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
   MG_ASSERT(query);
 
@@ -10086,257 +9481,15 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, std::shared_ptr<Q
       MG_ASSERT(name, "MERGE BRANCH: grammar guarantees a name");
 
       // Branches are discard-only (D1): their writes live in a shared in-memory diff engine with no durable
-      // change-log, so there is nothing to merge. The handler below is unreachable and kept only until the
-      // merge/durability code is removed.
+      // change-log, so there is nothing to merge.
       throw QueryRuntimeException("MERGE BRANCH is not supported: branches are discard-only.");
-
-      // Fast, non-authoritative existence check only -- for a quick common-case error before
-      // building a PreparedQuery at all. This value is NOT relied on below: it could be stale by
-      // Pull time, which is exactly why the authoritative check lives in BeginMerge instead (see
-      // its call in the query_handler, and version_store.hpp's own doc-comment: HIGH-2 fix).
-      if (!version_store->Exists(*name)) {
-        throw QueryRuntimeException("Version '{}' does not exist.", *name);
-      }
-
-      return PreparedQuery{
-          .header = {"merged", "into"},
-          .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [version_store,
-                            db_acc,
-                            name = *name,
-                            user_or_role,
-                            interpreter_context,
-                            notifications,
-                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-            if (!pull_plan) {
-              // Materialize-per-checkout (CHUNK 7b(2)): VersionStore::BeginMerge now refuses a
-              // branch ANY session currently has checked out -- INCLUDING this same session, if
-              // it happens to be the one issuing this MERGE. Unlike DROP_BRANCH (where dropping
-              // your own checked-out branch is a normal, spec-mandated operation, so the
-              // interpreter pre-releases it), auto-releasing here before a merge that might then
-              // itself FAIL (D3 conflict, apply failure, ...) would tear down this session's
-              // branch engine/checkout for a merge that never actually happened -- violating this
-              // file's own contract that a rejected merge leaves EVERYTHING (main, the branch,
-              // and now the session's checkout) untouched and retryable. So this is a deliberate,
-              // new restriction instead: CHECKOUT BRANCH 'main' first, then MERGE. No existing
-              // test exercises the opposite ("merge the branch you're checked out on" used to
-              // silently clear the session pointer post-merge in chunk 7a, back when there was no
-              // branch engine to protect); flagged as a product-visible behavior change worth
-              // confirming.
-              //
-              // HIGH-2 fix: BeginMerge atomically (re-)validates existence + no-children +
-              // not-already-merging AND marks `name` as "merging", all under VersionStore's own
-              // lock. This closes the TOCTOU window a bare "HasChildren-then-later-DropBranch"
-              // pair left open: a concurrent CreateBranch(parent=name) landing between the two
-              // could make the post-merge DropBranch fail, leaving `name` a legal-looking,
-              // still-mergeable branch whose change-log a SECOND `MERGE BRANCH name` would replay
-              // again -- duplicating every CREATE op (D3 only catches MODIFY conflicts). With
-              // BeginMerge marking `name`, CreateBranch refuses to fork off it and a second
-              // concurrent merge/drop is refused too, so the FinishMerge below is now guaranteed
-              // to succeed -- no post-merge "could the drop have failed" branch is needed anymore.
-              auto info = version_store->BeginMerge(name);
-              if (!info) {
-                throw QueryRuntimeException(info.error());
-              }
-              const std::string parent = info->parent;
-              const uint64_t fork_ts = info->fork_ts;
-
-              // version_store_ is only ever constructed for IN_MEMORY_TRANSACTIONAL databases
-              // (dbms/database.cpp) -- the gate above already required that mode, so this downcast
-              // is safe (mirrors Database::Database's own identical downcast).
-              auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-
-              storage::NameIdMapper *mapper = nullptr;
-              std::vector<storage::durability::WalDeltaData> changelog;
-              versioning::MergeResult merge_result;
-
-              // M2 fix: EVERYTHING from here through a successful MergeBranch call -- including
-              // MergeBranch's own `!result` rejection, now a plain throw below instead of doing its
-              // own AbortMerge -- is wrapped in ONE try/catch, so ANY exception clears BeginMerge's
-              // "merging" marker exactly once before propagating. Before this fix, only
-              // CheckMergeFineGrainedAuth's own denial was covered by an (inner, now-redundant, so
-              // removed) try/catch: a throw from CollectBranchChangelog (documented can-throw on a
-              // real filesystem error), `mem_storage->Access`, or GetFineGrainedAuthChecker -- all of
-              // which run BETWEEN BeginMerge and where that inner try used to start -- left `name`
-              // stuck in `merging_` forever (un-mergeable AND un-droppable until restart). Mirrors why
-              // CheckoutBranchEngine deliberately runs CollectBranchChangelog BEFORE its own
-              // state-mutating TryAcquireCheckout, above -- here BeginMerge's mutation unavoidably
-              // comes first (existence/no-children/not-already-merging can only be validated
-              // atomically together with marking "merging"), so the throwing prep is instead wrapped
-              // in an abort-on-throw scope rather than reordered ahead of it.
-              try {
-                // Durable-capture slice C: replace the old CHUNK 7a placeholder (a hardcoded empty
-                // vector -- every branch was necessarily empty before write-capture existed) with
-                // the branch's REAL accumulated changelog, gathered from every checkout session's
-                // finalized BranchLog under this branch's own root wal directory (see
-                // CollectBranchChangelog's own doc-comment for the enumeration/ordering contract).
-                // BeginMerge above already refused a currently-checked-out branch (including THIS
-                // session, if it happens to be the one merging -- see BeginMerge's own contract), so
-                // every one of this branch's BranchLogs is guaranteed already Finalize()'d by the
-                // time we read them here -- but ONLY because `CurrentDB::ClearBranchContext`
-                // (interpreter.cpp) finalizes each session's BranchContext BEFORE calling
-                // `ReleaseCheckout` (HIGH-1 fix, adversarial review 2026-07-12; see
-                // ClearBranchContext's own doc-comment). If that order were ever inverted again, a
-                // concurrent session releasing its checkout could make `name` look mergeable a moment
-                // before its own file finishes finalizing, and this call would silently read an
-                // incomplete changelog.
-                // A branch that recorded no writes still merges as a legitimate no-op fast-forward
-                // (CollectBranchChangelog returns an empty vector cleanly for an absent/empty
-                // directory tree).
-                changelog = CollectBranchChangelog(BranchWalRootDirectory(mem_storage, info->number));
-
-                {
-                  // Scoped tightly and closed BEFORE MergeBranch opens main.UniqueAccess() below --
-                  // holding a READ accessor open across that call would self-deadlock (merge.cpp's
-                  // top-of-file comment: HistoricalAccess/UniqueAccess can never overlap on one
-                  // thread). Batch 4 ("MERGE = normal commit") #5/M5: the FGA fail-closed pre-pass
-                  // reuses this SAME scoped READ accessor (accessor-by-gid against PRE-merge main,
-                  // exactly like CheckMergeFineGrainedAuth's own doc-comment requires) rather than
-                  // opening a second one -- it too must close before MergeBranch's UniqueAccess.
-                  auto mapper_acc = mem_storage->Access(storage::StorageAccessType::READ);
-                  mapper = mapper_acc->GetNameIdMapper();
-
-#ifdef MG_ENTERPRISE
-                  if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker &&
-                      user_or_role) {
-                    DbAccessor pre_merge_dba{mapper_acc.get()};
-                    auto fga_checker =
-                        interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &pre_merge_dba);
-                    if (fga_checker->NeedsFineGrainedAuthChecker()) {
-                      CheckMergeFineGrainedAuth(changelog, pre_merge_dba, *fga_checker);
-                    }
-                  }
-#endif
-                }
-
-                auto commit_args = storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone());
-                auto result = versioning::MergeBranch(*mem_storage, fork_ts, changelog, mapper, std::move(commit_args));
-                if (!result) {
-                  const auto &error = result.error();
-                  switch (error.kind) {
-                    case versioning::MergeErrorKind::kModifyConflict:
-                      throw QueryRuntimeException(
-                          "Merge of '{}' into '{}' conflicts: '{}' changed objects that '{}' also changed since the "
-                          "fork. Redo the work on a fresh branch off the current '{}'. ({})",
-                          name,
-                          parent,
-                          parent,
-                          name,
-                          parent,
-                          error.message);
-                    case versioning::MergeErrorKind::kForkPinLost:
-                    case versioning::MergeErrorKind::kCorruptChangelog:
-                    case versioning::MergeErrorKind::kApplyFailed:
-                    case versioning::MergeErrorKind::kCommitFailed:
-                      throw QueryRuntimeException("Merge of '{}' into '{}' failed: {}", name, parent, error.message);
-                  }
-                }
-                merge_result = std::move(*result);
-              } catch (...) {
-                // Exactly one AbortMerge per stuck marker: whatever threw above -- including the
-                // `!result` rejection just above, itself now a plain throw instead of its own
-                // AbortMerge+throw -- clears BeginMerge's "merging" marker here, once, before
-                // propagating. The branch, its fork pin, and main are all untouched (MergeBranch's
-                // own contract on a `!result` rejection; every other throw site above never touched
-                // main to begin with), so this makes `name` an ordinary, retryable branch again,
-                // exactly like it was before this call. (AbortMerge is itself idempotent --
-                // version_store.cpp -- so this is also safe as a pure belt-and-braces backstop, not
-                // just as the sole abort site.)
-                version_store->AbortMerge(name);
-                throw;
-              }
-
-              // Guaranteed to succeed -- see BeginMerge's own contract above. (No post-merge
-              // session-pointer clearing needed anymore, unlike chunk 7a before branch engines
-              // existed: BeginMerge's checked_out_ guard above already proved NO session --
-              // including this one -- holds a live checkout on `name`, so current_db.CurrentVersion()
-              // can never equal `name` at this point.)
-              version_store->FinishMerge(name);
-
-              // MED-3 fix: reclaim `name`'s now-orphaned WAL directory tree -- the branch is gone
-              // from the registry as of the line above and its number can never be reused, so
-              // deleting it now cannot race a legitimate new branch. Best-effort (see
-              // RemoveBranchWalTreeBestEffort's own doc-comment) -- never allowed to turn an
-              // already-successful merge into a query failure.
-              RemoveBranchWalTreeBestEffort(BranchWalRootDirectory(mem_storage, info->number));
-
-              // Batch 4 ("MERGE = normal commit") #4, reworked under R4: MERGE now fires the
-              // database's AFTER-commit triggers over the merge's own change-set -- exactly once,
-              // for the aggregate merge (matches how a multi-statement commit fires triggers once),
-              // reusing the SAME RunTriggersAfterCommit path an ordinary write transaction's
-              // Commit() dispatches to. RunTriggersAfterCommit opens its OWN fresh transaction per
-              // trigger and re-binds every row by gid (TriggerContext::AdaptForAccessor) -- exactly
-              // the normal "on-disk storage drops accessors between transactions" path already
-              // handles for a regular Commit(), so no accessor is held across the async dispatch.
-              //
-              // R4 (supersedes the original M3 design): `result` (MergeBranch's return value) does
-              // NOT carry a committed accessor to keep alive here -- `merge` (a UNIQUE accessor
-              // holding main's exclusive main_lock_) already fell out of scope and finalized inside
-              // MergeBranch itself, exactly as it would before Batch 4. Retaining it past
-              // MergeBranch's return (the original design) was CONFIRMED to deadlock: it blocks ALL
-              // main access -- reads included -- for the entire duration of after-commit trigger
-              // dispatch. See MergeResult's own doc-comment (merge.hpp) for the full write-up.
-              //
-              // M6 (documented v1 limitations):
-              //  (a) MERGE never runs BEFORE-commit triggers (A1, chosen over the full-parity A2
-              //      design -- see the "MERGE = normal commit" design doc's own decision log) -- a
-              //      before-commit trigger cannot veto or augment a merge in v1. This also means the
-              //      FGA pre-pass above can never see writes such a trigger would have added
-              //      mid-merge; a gap that mirrors an existing, general Memgraph limitation
-              //      (before-commit trigger writes are never FGA-checked on ANY ordinary commit
-              //      either), not a new one.
-              //  (b) MERGE's after-commit triggers report CREATED/UPDATED objects only -- deleted
-              //      vertices/edges are NOT reported (no deletedVertices/deletedEdges rows). A
-              //      deleted gid cannot be re-bound post-commit by AdaptForAccessor (it no longer
-              //      exists on main for a fresh accessor to find), and the only way to feed such a
-              //      row would be to keep the merge's own UNIQUE accessor alive across the dispatch
-              //      -- which is exactly the deadlock in (R4) above. A branch that deletes an object
-              //      still merges cleanly and still fires its created/updated rows; only the
-              //      deleted-object row is missing.
-              if (db_acc->trigger_store()->AfterCommitTriggers().size() > 0) {
-                // Fresh, ordinary READ accessor opened AFTER the merge already committed (main's
-                // exclusive lock is long gone by this point -- `merge` finalized inside
-                // MergeBranch), purely to look up the merge's created/updated objects by gid for
-                // the initial TriggerContext. Never the merge's own accessor, and not held past
-                // this scope: RunTriggersAfterCommit's own per-trigger loop re-binds every row
-                // against ITS OWN fresh transaction anyway.
-                auto post_merge_acc = mem_storage->Access(storage::StorageAccessType::READ);
-                DbAccessor post_merge_dba{post_merge_acc.get()};
-                auto trigger_context = AssembleMergeTriggerContext(changelog, merge_result, &post_merge_dba, mapper);
-                db_acc->AddTask([db_acc,
-                                 interpreter_context,
-                                 trigger_context = std::move(trigger_context),
-                                 triggering_user = user_or_role ? user_or_role->clone() : nullptr]() {
-                  RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
-                });
-              }
-
-              // MergeBranch commits on main via its own accessor, so the ordinary Commit() replication-warning
-              // path (interpreter.cpp ~13570) never runs for MERGE. Surface the same SYNC_REPLICATION_FAILURE
-              // WARNING through this query's runtime notifications (appended to the summary before Commit()).
-              if (merge_result.replication_warning) {
-                notifications->emplace_back(SeverityLevel::WARNING,
-                                            NotificationCode::SYNC_REPLICATION_FAILURE,
-                                            ReplicationFailureMessage(*merge_result.replication_warning));
-              }
-
-              std::vector<std::vector<TypedValue>> rows{{TypedValue(name), TypedValue(parent)}};
-              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
-            }
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
-            }
-            return std::nullopt;
-          },
-          .rw_type = RWType::W};
     }
     case VersioningQuery::Action::DROP_BRANCH: {
       MG_ASSERT(name, "DROP BRANCH: grammar guarantees a name");
       if (!version_store->Exists(*name)) {
         throw QueryRuntimeException("Version '{}' does not exist.", *name);
       }
-      // Fail fast for the same reason MERGE_BRANCH does above (no post-hoc DropBranch surprises).
+      // Fail fast: avoid a post-hoc DropBranch surprise.
       if (version_store->HasChildren(*name)) {
         throw QueryRuntimeException("Cannot drop '{}': it has child branches. Merge or drop its children first.",
                                     *name);
@@ -10346,7 +9499,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, std::shared_ptr<Q
           .header = {},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler =
-              [version_store, &current_db, db_acc, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+              [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                   AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
               // VersionStore::DropBranch refuses a branch that has ANY attached session. Dropping the branch
@@ -10361,11 +9514,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, std::shared_ptr<Q
               if (own_attachments != 0) {
                 current_db.SetCurrentVersion(std::nullopt);
               }
-              // MED-3 fix: fetch the (still-live) BranchInfo -- for its `number`, WAL-cleanup needs
-              // it below -- BEFORE DropBranch removes the registry entry; Get() is gone once
-              // DropBranch succeeds. A nullopt here (branch vanished between the outer pre-check
-              // and here) just means DropBranch is about to fail too -- no cleanup to do either way.
-              auto info = version_store->Get(name);
               if (!version_store->DropBranch(name)) {
                 // TOCTOU: another connection raced a CreateBranch(parent=name) or DropBranch(name)
                 // between the pre-checks above and this call (VersionStore's own lock_ only
@@ -10376,19 +9524,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, std::shared_ptr<Q
                     "Version '{}' could not be dropped (it no longer exists, gained a child branch "
                     "concurrently, or is checked out by another session). Retry DROP BRANCH.",
                     name);
-              }
-              // MED-3 fix: reclaim `name`'s now-orphaned WAL directory tree (see
-              // RemoveBranchWalTreeBestEffort's own doc-comment) -- its branch number can never be
-              // reused (VersionStore, version_store.hpp), so this can never race a legitimate new
-              // branch. `info` is normally populated here (DropBranch just returned true, so SOME
-              // record existed to drop) -- but NOT provably the exact same one our own `Get` read a
-              // moment earlier under adversarial concurrent CreateBranch/DropBranch racing on this
-              // same name (TOCTOU, see the comment above); guard rather than assume, since this is
-              // purely a best-effort disk reclaim, never worth risking a null-optional dereference
-              // over.
-              if (info) {
-                auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-                RemoveBranchWalTreeBestEffort(BranchWalRootDirectory(mem_storage, info->number));
               }
               pull_plan = std::make_shared<PullPlanVector>(std::vector<std::vector<TypedValue>>{});
             }
@@ -10514,16 +9649,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, std::shared_ptr<Q
         throw QueryRuntimeException("Version '{}' does not exist.", target);
       }
 
-      // CHUNK 7a gap (flagged, not silently skipped): SHOW BRANCH DIFF's row data (op, entity,
-      // gid, detail, txn_ts, ledger_time, query) is sourced from a branch's OWN finalized
-      // BranchLog (chunk 3a's ReadAll) -- but nothing yet creates or feeds a per-branch BranchLog
-      // across a real branch's lifetime (no log-path field on VersionStore::BranchInfo, no
-      // Database-level lifecycle hook); that capture wiring is chunks 7b/7c, the exact same gap
-      // MERGE_BRANCH above works around with an empty change-log. Additionally, WalDeltaData
-      // carries no `query`-text column at all (spec: "provenance/display only") -- sourcing it
-      // needs a separate per-transaction query-text log this chunk does not add. The validation
-      // above (name resolution, main-rejection, existence) is real and exercised now; only the
-      // actual row listing is deferred.
+      // Branches keep no change-log (discard-only), so there is no row data to list yet.
       throw utils::NotYetImplemented("SHOW BRANCH DIFF (requires branch write-capture wiring from chunks 7b/7c)");
     }
   }
@@ -12049,8 +11175,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Chunk 7a: VersioningQuery needs the current database (for VersionStore/storage mode/WAL
   // config) but leaves accessor_type_ unset -- like CreateSnapshotQuery below, it manages its own
-  // storage access internally (VersionStore's own lock; MergeBranch opens its own
-  // main.UniqueAccess() transaction), so no interpreter-level accessor is set up for it.
+  // storage access internally (VersionStore's own lock), so no interpreter-level accessor is set up for it.
   void Visit(VersioningQuery & /*unused*/) override {}
 
   void Visit(ReplicationQuery & /*unused*/) override {}
@@ -12871,8 +11996,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw VersioningQueryInMulticommandTxException();
       }
-      prepared_query = PrepareVersioningQuery(
-          std::move(parsed_query), user_or_role_, interpreter_context_, current_db_, &query_execution->notifications);
+      prepared_query = PrepareVersioningQuery(std::move(parsed_query), interpreter_context_, current_db_);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();
@@ -13455,10 +12579,8 @@ void Interpreter::Commit() {
         error);
   }
 
-  // Graph Versioning v1, durable-capture slice: the branch-write capture happens BEFORE
-  // PrepareForCommitPhase (see the CaptureBranchCommit call above the commit) -- NOT here. The diff
-  // engine fast-discards a committed transaction's deltas during PrepareForCommitPhase, so by this
-  // point curr_txn->deltas is already empty; capture must read them while they still exist.
+  // Graph Versioning: the diff engine fast-discards a committed transaction's deltas during
+  // PrepareForCommitPhase, so by this point curr_txn->deltas is already empty.
   bool const txn_committed = maybe_commit_error.has_value() || replication_error_committed;
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
