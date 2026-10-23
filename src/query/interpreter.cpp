@@ -114,6 +114,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_import_mode.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/fmt.hpp"
 #include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
@@ -12553,8 +12554,17 @@ void Interpreter::Commit() {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
 
-  auto maybe_commit_error =
-      current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
+  auto maybe_commit_error = [&]() -> std::expected<void, storage::StorageManipulationError> {
+    // A branch's diff engine mirrors no constraints; validate main's existence/type constraints on the reconstructed
+    // view first, aborting like a main commit does on violation. Unique constraints are not enforced on a branch.
+    if (current_db_.execution_db_accessor_) {
+      if (auto valid = current_db_.execution_db_accessor_->ValidateBranchConstraints(); !valid) {
+        current_db_.db_transactional_accessor_->Abort();
+        return std::unexpected{storage::StorageManipulationError{valid.error()}};
+      }
+    }
+    return current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
+  }();
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
@@ -12594,9 +12604,14 @@ void Interpreter::Commit() {
                                      property_names_stream.str());
               }
               case storage::ConstraintViolation::Type::TYPE: {
-                // This should never get triggered since type constraints get checked immediately and not at
-                // commit time
-                MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
+                // Main checks type constraints at write time; only a branch reaches this at commit.
+                MG_ASSERT(constraint_violation.properties.size() == 1U && constraint_violation.constraint_kind);
+                auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
+                throw storage::TypeConstraintViolationException("IS TYPED {} violation on {}({})",
+                                                                storage::TypeConstraintKindToString(
+                                                                    *constraint_violation.constraint_kind),
+                                                                label_name,
+                                                                property_name);
               }
               default:
                 LOG_FATAL("Unknown constraint violation type");

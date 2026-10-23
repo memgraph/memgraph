@@ -2368,6 +2368,83 @@ TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedVertexIsNoO
   EXPECT_EQ(vertices.GetResults().size(), 0U) << "the double-deleted vertex must be gone, exactly as a single delete";
 }
 
+// D12: the diff engine mirrors no constraints, so a branch commit validates main's existence and type constraints on the
+// reconstructed (fork + stub) view of every vertex the transaction touched or created. A violation fails the commit
+// with main's own error and leaves the branch unchanged; main is never affected. Unique constraints are not enforced.
+TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstraints) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE CONSTRAINT ON (n:P) ASSERT EXISTS (n.id)");
+  faker.Interpret("CREATE CONSTRAINT ON (n:P) ASSERT n.age IS TYPED INTEGER");
+  faker.Interpret("CREATE (:P {id: 1, age: 10}), (:P {id: 2, age: 20}), (:Q {tag: 'q'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto const expect_fail = [&](std::string const &query, std::string const &message) {
+    try {
+      faker.Interpret(query);
+      FAIL() << "expected a constraint violation for: " << query;
+    } catch (const memgraph::utils::BasicException &e) {
+      EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr(message)) << query;
+    }
+  };
+  auto const count = [&](std::string const &query) {
+    auto stream = faker.Interpret(query);
+    EXPECT_EQ(stream.GetResults().size(), 1U) << query;
+    return stream.GetResults().at(0).at(0).ValueInt();
+  };
+
+  // (a) REMOVE of a constrained property on a fork vertex.
+  expect_fail("MATCH (n:P {id: 1}) REMOVE n.id", "Unable to commit due to existence constraint violation on :P(id)");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n.id)"), 2) << "the failed commit must leave the fork vertex unchanged";
+
+  // (b) Adding a constrained label to a fork vertex that lacks the property.
+  expect_fail("MATCH (q:Q) SET q:P", "Unable to commit due to existence constraint violation on :P(id)");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
+
+  // (c) Creating a constrained vertex without the property.
+  expect_fail("CREATE (:P {age: 1})", "Unable to commit due to existence constraint violation on :P(id)");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
+
+  // (d) Type violation on a fork vertex.
+  expect_fail("MATCH (n:P {id: 1}) SET n.age = 'x'", "IS TYPED INTEGER violation on P(age)");
+  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
+
+  // (e) Valid changes commit.
+  faker.Interpret("MATCH (n:P {id: 1}) SET n.age = 11, n.extra = 'e'");
+  faker.Interpret("MATCH (q:Q) SET q:P, q.id = 5");
+  faker.Interpret("CREATE (:P {id: 9, age: 3})");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 4);
+  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 11);
+  faker.Interpret("MATCH (n:P {id: 1}) REMOVE n.age");  // type constraints do not enforce existence
+  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN count(n.age)"), 0);
+
+  // A vertex deleted in the same transaction is not validated.
+  faker.Interpret("MATCH (n:P {id: 2}) REMOVE n.id DELETE n");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 3);
+
+  // (f) Explicit transaction: the violation is detected at COMMIT.
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:P {id: 9}) REMOVE n.id");
+  expect_fail("COMMIT", "Unable to commit due to existence constraint violation on :P(id)");
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n.id)"), 3);
+
+  // PERIODIC COMMIT commits through a different path and is validated too.
+  EXPECT_THROW(faker.Interpret("USING PERIODIC COMMIT 2 UNWIND range(1, 5) AS x CREATE (:P {age: x})"),
+               memgraph::utils::BasicException);
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 3);
+  faker.Interpret("USING PERIODIC COMMIT 2 UNWIND range(1, 5) AS x CREATE (:P {id: 100 + x, age: x})");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 8);
+
+  // (g) Main is unaffected throughout.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
+  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
+  EXPECT_EQ(count("MATCH (n:Q) RETURN count(n)"), 1);
+  EXPECT_EQ(count("MATCH (n:P:Q) RETURN count(n)"), 0);
+}
+
 // Slice 2 (deletes live in diff-engine MVCC): DELETE of a fork vertex marks its stub instead of recording a gid in a
 // side set. The vertex is gone from scans, lookups and aggregates on the branch and untouched on main.
 TEST_F(VersioningInterpreterTest, BranchDeleteForkVertexIsGoneOnBranchAndPresentOnMain) {

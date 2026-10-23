@@ -1881,7 +1881,16 @@ class DbAccessor final {
     return accessor_->PrepareForCommitPhase(std::move(commit_args));
   }
 
+  // Branch only (no-op on main): checks main's existence and type constraints against the reconstructed view of every
+  // vertex this transaction touched. Must run before the diff engine's commit, outside its engine lock. The caller
+  // aborts the transaction on a violation.
+  std::expected<void, storage::ConstraintViolation> ValidateBranchConstraints();
+
   std::expected<void, storage::StorageManipulationError> PeriodicCommit(storage::CommitArgs commit_args) {
+    if (auto valid = ValidateBranchConstraints(); !valid) {
+      accessor_->Abort();
+      return std::unexpected{storage::StorageManipulationError{valid.error()}};
+    }
     return accessor_->PeriodicCommit(std::move(commit_args));
   }
 

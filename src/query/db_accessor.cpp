@@ -12,9 +12,16 @@
 #include "query/db_accessor.hpp"
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include <algorithm>
+#include <vector>
 #include "query/graph.hpp"
 #include "query/virtual_graph.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -356,5 +363,69 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                                 bottom_left.ToPropertyValue(accessor_->GetNameIdMapper()),
                                                 top_right.ToPropertyValue(accessor_->GetNameIdMapper()),
                                                 condition));
+}
+std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchConstraints() {
+  if (branch_ctx_ == nullptr) return {};
+  auto &ctx = *branch_ctx_;
+
+  // The diff engine mirrors no constraints (D12): main's current set is checked against each touched vertex's
+  // reconstructed view. Unique constraints are not enforced on a branch.
+  auto const constraints = ctx.core()->main().GetActiveConstraints();
+  constexpr uint64_t kAllCommitted = storage::kTransactionInitialId - 1;
+  auto const existence = constraints->existence_->ListConstraints(kAllCommitted);
+  auto const types = constraints->type_->ListConstraints(kAllCommitted);
+  if (existence.empty() && types.empty()) return {};
+
+  // The newest delta of every object this transaction wrote is that object's chain head (a concurrent writer would
+  // have hit a serialization error), so the head deltas enumerate the touched vertices exactly as main's commit does.
+  std::vector<uint64_t> touched;
+  for (auto const &delta : accessor_->GetTransaction()->deltas) {
+    auto const prev = delta.prev.Get();
+    if (prev.type == storage::PreviousPtr::Type::VERTEX) touched.push_back(prev.vertex->gid.AsUint());
+  }
+  std::ranges::sort(touched);
+  touched.erase(std::ranges::unique(touched).begin(), touched.end());
+
+  for (auto const raw_gid : touched) {
+    auto diff_vertex = ctx.FindStubOrDiffVertex(storage::Gid::FromUint(raw_gid), storage::View::NEW);
+    if (!diff_vertex) continue;
+    VertexAccessor const vertex{*diff_vertex, &ctx};
+
+    auto labels = vertex.Labels(storage::View::NEW);
+    if (!labels) {
+      if (labels.error() == storage::Error::DELETED_OBJECT) continue;
+      throw QueryRuntimeException("Unable to validate constraints on a branch: failed to read vertex labels.");
+    }
+    auto const constrained = [&](storage::LabelId label) { return std::ranges::contains(*labels, label); };
+    bool const relevant = std::ranges::any_of(existence, [&](auto const &c) { return constrained(c.first); }) ||
+                          std::ranges::any_of(types, [&](auto const &c) { return constrained(std::get<0>(c)); });
+    if (!relevant) continue;
+
+    auto props = vertex.Properties(storage::View::NEW);
+    if (!props) {
+      if (props.error() == storage::Error::DELETED_OBJECT) continue;
+      throw QueryRuntimeException("Unable to validate constraints on a branch: failed to read vertex properties.");
+    }
+
+    for (auto const &[label, property] : existence) {
+      if (!constrained(label)) continue;
+      auto const it = props->find(property);
+      if (it == props->end() || it->second.IsNull()) {
+        return std::unexpected{
+            storage::ConstraintViolation{storage::ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
+      }
+    }
+    for (auto const &[label, property, kind] : types) {
+      if (!constrained(label)) continue;
+      auto const it = props->find(property);
+      // Type constraints don't enforce existence.
+      if (it == props->end() || it->second.IsNull()) continue;
+      if (!storage::PropertyValueMatchesTypeConstraint(it->second, kind)) {
+        return std::unexpected{storage::ConstraintViolation{
+            storage::ConstraintViolation::Type::TYPE, label, kind, std::set<storage::PropertyId>{property}}};
+      }
+    }
+  }
+  return {};
 }
 }  // namespace memgraph::query
