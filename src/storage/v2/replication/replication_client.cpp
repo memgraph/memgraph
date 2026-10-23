@@ -38,8 +38,6 @@
 #include "utils/compile_time.hpp"
 
 namespace {
-constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
-
 using memgraph::storage::replication::ReplicaState;
 using namespace std::string_view_literals;
 
@@ -85,45 +83,15 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   }
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
-      std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.heartbeat_rpc_seconds};
-
-        // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
-        // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
-        // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
-        // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
-        // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-              std::optional{kHeartbeatRpcTimeout},
-              main_uuid_,
-              main_storage->uuid(),
-              main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              std::string{main_repl_state.epoch_.id()});
-
-          std::optional<replication::HeartbeatRes> res;
-          if (hb_stream) {
-            res.emplace(hb_stream->SendAndWait());
-          }
-          return res;
-        }
-
-        // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
-        auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-            main_uuid_,
-            main_storage->uuid(),
-            main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-            std::string{main_repl_state.epoch_.id()});
-        return hb_stream.SendAndWait();
-      });
-
-  if (!maybe_heartbeat_res) {
-    spdlog::warn("Couldn't get RPC lock while trying to UpdateReplicaState");
-    return;
-  }
-
-  auto const &heartbeat_res = *maybe_heartbeat_res;
+  auto const heartbeat_res = std::invoke([&] {
+    metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.heartbeat_rpc_seconds};
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+        main_uuid_,
+        main_storage->uuid(),
+        main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+        std::string{main_repl_state.epoch_.id()});
+    return hb_stream.SendAndWait();
+  });
 
   if (!heartbeat_res.success_) {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
@@ -836,8 +804,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                &rpcClient,
                &recovery_failed,
                main_uuid = main_uuid_,
-               &main_db_name,
-               repl_mode = client_.mode_](RecoverySnapshot const &snapshot) {
+               &main_db_name](RecoverySnapshot const &snapshot) {
                 spdlog::debug(
                     "Sending the latest snapshot file {} to {} for db {}", snapshot, client_.name_, main_db_name);
                 // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
@@ -846,7 +813,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     snapshot,
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
-                    repl_mode,
                     client_.name_,
                     main_mem_storage->config_.durability.release_sent_snapshot_page_cache
                         ? utils::PageCachePolicy::kDrop
@@ -892,8 +858,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                &recovery_failed,
                do_reset = reset_needed && step_index == 0,
                main_uuid = main_uuid_,
-               &main_db_name,
-               repl_mode = client_.mode_](RecoveryWals const &wals) {
+               &main_db_name](RecoveryWals const &wals) {
                 spdlog::debug("Sending the latest wal files to {} for db {}.", client_.name_, main_db_name);
 
                 if (wals.empty()) {
@@ -908,7 +873,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     wals,
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
-                    repl_mode,
                     client_.name_,
                     utils::PageCachePolicy::kKeep,
                     wals.size(),
@@ -951,8 +915,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                &recovery_failed,
                do_reset = reset_needed && step_index == 0,
                main_uuid = main_uuid_,
-               &main_db_name,
-               repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
+               &main_db_name](RecoveryCurrentWal const &current_wal) {
                 // Keeps the WAL stable while reading seq and copying the file.
                 auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
@@ -980,7 +943,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     *maybe_copy,
                     rpcClient,
                     main_mem_storage->config_.durability.root_data_directory,
-                    repl_mode,
                     client_.name_,
                     utils::PageCachePolicy::kKeep,
                     main_uuid,

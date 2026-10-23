@@ -27,8 +27,6 @@ struct RpcInfo {
   static void ObserveThroughput(std::string const &instance_name, double bytes_per_second);
 };
 
-constexpr auto kRecoveryRpcTimeout = std::chrono::milliseconds(5000);
-
 class InMemoryStorage;
 
 struct WalChainInfo {
@@ -119,30 +117,15 @@ bool WriteFiles(const T &file, std::filesystem::path const & /*root_data_dir*/, 
 template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
                                                             std::filesystem::path const &root_data_dir,
-                                                            replication_coordination_glue::ReplicationMode const mode,
                                                             std::string const &instance_name,
                                                             utils::PageCachePolicy const page_cache, Args &&...args) {
   metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram()};
-  std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
-
-  // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds
-  // rpc stream and which needs to be executed
-  if (mode == replication_coordination_glue::ReplicationMode::ASYNC) {
-    maybe_stream_result = client.TryStream<T>(kRecoveryRpcTimeout, std::forward<Args>(args)...);
-  } else {
-    // in SYNC and STRICT_SYNC mode, we block until we obtain RPC lock
-    maybe_stream_result.emplace(client.Stream<T>(std::forward<Args>(args)...));
-  }
-
-  // If dealing with ASYNC replica and couldn't obtain the lock
-  if (!maybe_stream_result) {
-    return std::nullopt;
-  }
+  auto stream_result = client.Stream<T>(std::forward<Args>(args)...);
 
   // intentionally don't take into account waiting for RPC lock
   auto const transfer_start = std::chrono::steady_clock::now();
 
-  slk::Builder *builder = maybe_stream_result->GetBuilder();
+  slk::Builder *builder = stream_result.GetBuilder();
   builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true);
 
   // If writing files failed, fail the task by returning empty optional
@@ -150,7 +133,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
     return std::nullopt;
   }
 
-  auto response = maybe_stream_result->SendAndWaitProgress();
+  auto response = stream_result.SendAndWaitProgress();
 
   // Record per-instance recovery throughput (bytes/s) so a slow replication link can be identified.
   auto const elapsed_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - transfer_start).count();
