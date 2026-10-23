@@ -93,14 +93,27 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
+  /// When `with_vector_reconstruction` is false, an embedding is returned as its compact VectorIndexId reference.
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  Result<PropertyValue> GetProperty(PropertyId property, View view, bool with_vector_reconstruction = true) const;
 
+  /// Materialize into `out` the numeric-list value the MVCC read at `view` yields (index-backed or plain);
+  /// false if that value is not a numeric list.
+  bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
+
+ private:
+  /// GetProperty body; `on_locked(const PropertyValue &)` runs on the raw value while the vertex lock is held.
+  template <typename OnLocked>
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
+                                        OnLocked &&on_locked) const;
+
+ public:
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
+  /// When `with_vector_reconstruction` is false, embeddings are returned as their compact VectorIndexId references.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view, bool with_vector_reconstruction = true) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,

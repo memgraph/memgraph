@@ -210,6 +210,7 @@ auto ShapesOfType(TypedValue::Type type, query::DbAccessor *dba) -> std::vector<
       return FromStored(PropertyValueType::Point2d, [](auto const &v) { return TypedValue(v.ValuePoint2d()); });
     case TypedValue::Type::Point3d:
       return FromStored(PropertyValueType::Point3d, [](auto const &v) { return TypedValue(v.ValuePoint3d()); });
+    case TypedValue::Type::VectorRef:
     case TypedValue::Type::Function:
     case TypedValue::Type::VirtualGraph:
     case TypedValue::Type::VirtualEdge:

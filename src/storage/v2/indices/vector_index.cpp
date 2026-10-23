@@ -395,6 +395,15 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
   return vector;
 }
 
+bool VectorIndex::GetVectorInto(Vertex *vertex, uint64_t index_id, std::vector<float> &out) const {
+  auto it = index_->find(index_id);
+  if (it == index_->end()) return false;
+  auto &item_ptr = it->second;
+  auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+  out.resize(item_ptr->mg_index.index.dimensions());
+  return item_ptr->mg_index.index.get(vertex, out.data());
+}
+
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(index_->size());

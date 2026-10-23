@@ -406,21 +406,33 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, bool with_vector_reconstruction) const {
+  return GetPropertyImpl(property, view, with_vector_reconstruction, nullptr);
+}
+
+template <typename OnResolved>
+Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
+                                                    OnResolved &&on_resolved) const {
+  constexpr bool kHoldLock = !std::is_null_pointer_v<std::remove_cvref_t<OnResolved>>;
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
   std::optional<PropertyValue> value;
   Delta *delta = nullptr;
+  auto guard = std::shared_lock{edge_.ptr->lock};
   {
-    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    value.emplace(edge_.ptr->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Edge>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    // Without reconstruction, an embedding stays a compact VectorIndexId reference (see VertexAccessor).
+    value.emplace(with_vector_reconstruction
+                      ? edge_.ptr->properties.GetProperty(
+                            property,
+                            IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
+                                                         .name_id_mapper = storage_->name_id_mapper_.get(),
+                                                         .entity = edge_.ptr})
+                      : edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta();
   }
+  if constexpr (!kHoldLock) guard.unlock();
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -449,6 +461,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   });
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if constexpr (kHoldLock) on_resolved(*value);
   return *std::move(value);
 }
 
@@ -473,7 +486,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, bool with_vector_reconstruction) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
@@ -482,8 +495,13 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    // Without reconstruction, embeddings come back as compact VectorIndexId references (empty float
+    // list) — the caller keeps them lazy instead of paying an O(dim) reconstruction per property.
+    properties = with_vector_reconstruction ? edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+                                                  .indices = &storage_->indices_,
+                                                  .name_id_mapper = storage_->name_id_mapper_.get(),
+                                                  .entity = edge_.ptr})
+                                            : edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -524,6 +542,36 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
+}
+
+bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
+  // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
+  // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
+  // the usearch index, which is written at SetProperty time and so is only correct for the live value.
+  // That index read runs under the edge lock so a concurrent SetProperty cannot interleave.
+  bool found = false;
+  const auto maybe_value =
+      GetPropertyImpl(property, view, /*with_vector_reconstruction=*/false, [&](const PropertyValue &value) {
+        if (!value.IsVectorIndexId()) return;
+        if (!value.ValueVectorIndexList().empty()) return;
+        const auto &ids = value.ValueVectorIndexIds();
+        if (ids.empty()) return;
+        found = storage_->indices_.vector_edge_index_.GetVectorInto(edge_.ptr, ids[0], out);
+      });
+  if (!maybe_value) return false;
+  if (maybe_value->IsVectorIndexId()) {
+    if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
+      out.assign(floats.begin(), floats.end());
+      return true;
+    }
+    return found;
+  }
+  // Left the index (e.g. index drop) and was rewritten to a plain numeric list.
+  if (!maybe_value->IsAnyList()) return false;
+  const auto floats = TryListToVector(*maybe_value);
+  if (!floats) return false;
+  out.assign(floats->begin(), floats->end());
+  return true;
 }
 
 std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {

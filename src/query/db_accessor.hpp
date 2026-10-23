@@ -703,6 +703,16 @@ class DbAccessor final {
 
   storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetPinnedStorageMode(); }
 
+  /// A deferred re-read of a property resolves to what it resolved to when the reference was made only
+  /// when nothing can change underneath it: snapshot reads over in-memory MVCC deltas.
+  bool IsSnapshotStable() const noexcept {
+    return GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
+           accessor_->GetTransaction()->isolation_level == storage::IsolationLevel::SNAPSHOT_ISOLATION;
+  }
+
+  /// An embedding is stored as a VectorIndexId only while a vector index covers it.
+  bool CanHoldLazyVectorRefs() const noexcept { return IsSnapshotStable() && accessor_->HasVectorIndices(); }
+
   bool LabelIndexReady(storage::LabelId label) const { return accessor_->LabelIndexReady(label); }
 
   bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {

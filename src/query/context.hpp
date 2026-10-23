@@ -76,6 +76,10 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters{};
   std::shared_ptr<ResolvedUserFunctions> resolved_user_functions{};
   Scope scope{};
+  /// Keep vector-index embeddings as lazy VectorRefs. Off reads them eagerly. Only valid for a read-only
+  /// plan over a stable snapshot with a vector index present, where a deferred re-read cannot resolve
+  /// differently.
+  bool lazy_vector_refs{false};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);

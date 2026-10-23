@@ -38,6 +38,41 @@ class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
 
+/// Lazy handle for a vector-index embedding stored as a VectorIndexId reference. Holds a copy of the
+/// storage accessor (vertex or edge; both trivially copyable) and the property id. No floats are
+/// reconstructed until MaterializeVectorRef() / MaterializeVectorRefInto() is called.
+/// A hand-rolled tagged union (not std::variant) so the tag packs after the accessor and the handle
+/// stays within TypedValue's widest union member.
+struct LazyVectorRef {
+  LazyVectorRef(storage::VertexAccessor entity, storage::PropertyId prop, storage::View view)
+      : vertex{entity}, prop{prop}, view{view}, is_edge_{false} {}
+
+  LazyVectorRef(storage::EdgeAccessor entity, storage::PropertyId prop, storage::View view)
+      : edge{entity}, prop{prop}, view{view}, is_edge_{true} {}
+
+  template <class F>
+  decltype(auto) Visit(F &&f) const {
+    if (is_edge_) return std::forward<F>(f)(edge);
+    return std::forward<F>(f)(vertex);
+  }
+
+  union {
+    storage::VertexAccessor vertex;
+    storage::EdgeAccessor edge;
+  };
+
+  storage::PropertyId prop;
+  // View the ref was read under. Materialization re-resolves the property through the same MVCC
+  // delta chain, so a lazy ref stays snapshot-consistent with the eager read it replaced.
+  storage::View view;
+
+ private:
+  bool is_edge_;
+};
+
+static_assert(std::is_trivially_copyable_v<LazyVectorRef>);
+static_assert(std::is_trivially_destructible_v<LazyVectorRef>);
+
 namespace {
 template <typename T>
 concept TypedValueValidPrimativeType =
@@ -113,6 +148,9 @@ class TypedValue {
     Enum,
     Point2d,
     Point3d,
+    // Owns nothing either, but is wider than the group above, so it is copied case by case to keep
+    // that group's inline copy as narrow as it is.
+    VectorRef,
     // Owns something: needs a destructor, and copying means allocating.
     String,
     List,
@@ -242,6 +280,10 @@ class TypedValue {
 
   explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {})
       : alloc_{alloc}, held_inline_{.point_3d_v = value}, type_(Type::Point3d) {}
+
+  explicit TypedValue(LazyVectorRef ref, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VectorRef) {
+    std::construct_at(&vector_ref_v, ref);
+  }
 
   // conversion function to storage::ExternalPropertyValue
   explicit operator storage::ExternalPropertyValue() const;
@@ -576,7 +618,35 @@ class TypedValue {
   VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, held_inline_.double_v)
   VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  // A VectorRef is a lazy list of the embedding's floats. IsList() reports it as a list and the
+  // ValueList() accessors force it (materialize-on-access, cached in place); the distinct type() lets
+  // the ordering/equality/hash fast-paths keep it compact (they read type(), never call ValueList()).
+  // So every list operation - subscript, slicing, UNWIND, IN, list functions - works without special
+  // casing a VectorRef.
+  TVector &ValueList() {
+    if (type_ == Type::VectorRef) [[unlikely]]
+      EnsureListMaterialized();
+    if (type_ != Type::List) [[unlikely]]
+      ThrowTypeMismatch(Type::List);
+    return list_v;
+  }
+
+  const TVector &ValueList() const {
+    if (type_ == Type::VectorRef) [[unlikely]]
+      EnsureListMaterialized();
+    if (type_ != Type::List) [[unlikely]]
+      ThrowTypeMismatch(Type::List);
+    return list_v;
+  }
+
+  bool IsList() const { return type_ == Type::List || type_ == Type::VectorRef; }
+
+  const TVector &UnsafeValueList() const {
+    if (type_ == Type::VectorRef) [[unlikely]]
+      EnsureListMaterialized();
+    return list_v;
+  }
+
   VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, held_inline_.vertex_v)
   VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, held_inline_.edge_v)
@@ -595,9 +665,21 @@ class TypedValue {
   VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
+  VALUE_AND_TYPE_GETTERS(LazyVectorRef, VectorRef, vector_ref_v)
 
 #undef VALUE_AND_TYPE_GETTERS
 #undef VALUE_AND_TYPE_GETTERS_PRIMITIVE
+
+  /// Reconstruct the referenced embedding into a TypedValue::List of Doubles.
+  /// Transient: the returned list is freed when the TypedValue goes out of scope.
+  /// Must only be called when type() == Type::VectorRef.
+  TypedValue MaterializeVectorRef(allocator_type alloc) const;
+
+  /// Reconstruct the referenced embedding into a caller-owned float buffer (std::allocator).
+  /// This is the allocation-free path for the hot compare / hash / equality routines: the buffer
+  /// frees at the caller's scope, so it never accumulates in the query's monotonic arena the way a
+  /// materialized pmr List would. Must only be called when type() == Type::VectorRef.
+  void MaterializeVectorRefInto(std::vector<float> &out) const;
 
   bool ContainsDeleted() const;
 
@@ -801,6 +883,11 @@ class TypedValue {
   void CopyComplexValue(TypedValue const &other);
   TypedValue &MoveAssignComplex(TypedValue &&other);
 
+  // If this is a VectorRef, reconstruct the embedding into an owned List (in this value's allocator)
+  // and become a List. Const because it is a lazy load of a value already logically present; callers
+  // observe no change other than the list materializing. No-op for any other type.
+  void EnsureListMaterialized() const;
+
   [[no_unique_address]] allocator_type alloc_{};
 
   /// The value of every type that owns no allocation, which is every type up to
@@ -810,7 +897,8 @@ class TypedValue {
   ///
   /// Which types belong here still has to agree with where the enumeration puts that boundary,
   /// and nothing checks the two against each other. A type that owns no allocation has to be
-  /// declared here rather than in the outer union, or it is copied at this union's width.
+  /// declared here rather than in the outer union, or it is copied at this union's width, unless
+  /// it is wider than this group (VectorRef) and is copied case by case.
   union ValueHeldInline {
     bool bool_v;
     int64_t int_v;
@@ -849,6 +937,8 @@ class TypedValue {
     std::function<void(TypedValue *)> function_v;
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
+    // Trivially copyable: storage accessor + property id, no heap allocation.
+    LazyVectorRef vector_ref_v;
   };
 
   /**
@@ -856,6 +946,9 @@ class TypedValue {
    */
   Type type_;
 };
+
+// A lazy embedding must never widen TypedValue's union.
+static_assert(sizeof(LazyVectorRef) <= sizeof(TypedValue::TMap));
 
 /**
  * An exception raised by the TypedValue system. Typically when
