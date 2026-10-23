@@ -63,6 +63,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/auth.py"]
 
+  - name: "HA licence loss"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/licence_loss.py"]
+
   - name: "HA large cluster"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/large_cluster.py"]
