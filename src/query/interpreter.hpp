@@ -959,9 +959,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       metrics::Metrics().global.failed_query->Increment();
       metrics::Metrics().global.failed_pull->Increment();
     }
-    // PeriodicCommitException means the storage layer already aborted the transaction internally.
+    // The storage layer may have already aborted the transaction internally (e.g. a failed periodic
+    // commit), and a later exception, such as a refused allocation, can replace the original error.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
-    if (dynamic_cast<const PeriodicCommitException *>(&e)) {
+    if (current_db_.db_transactional_accessor_ && !current_db_.db_transactional_accessor_->IsTransactionActive()) {
       current_db_.CleanupDBTransaction(false);
     }
     AbortCommand(&query_execution);

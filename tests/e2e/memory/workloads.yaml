@@ -252,3 +252,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/inlist_cache_memory_limit.py"]
     <<: *in_memory_1024_MiB_limit_cluster
+
+  - name: "Periodic commit abort under query memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/periodic_commit_abort_memory_limit.py"]
+    <<: *in_memory_1024_MiB_limit_cluster
