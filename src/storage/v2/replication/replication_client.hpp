@@ -295,6 +295,10 @@ class ReplicationStorageClient {
   // When the last recovery round of this replica ended. ASYNC replicas are not recovered again before
   // replication_async_recovery_interval_sec has passed since then.
   mutable std::atomic<std::chrono::steady_clock::time_point> last_recovery_end_{};
+  // Set while a state check queued by TryCheckReplicaStateAsync is pending or running. The frequent check
+  // re-queues every MAYBE_BEHIND replica on each tick, so without this the single maintenance thread
+  // accumulates duplicate checks faster than it can drain them across many databases.
+  mutable std::atomic<bool> check_queued_{false};
   const utils::UUID main_uuid_;
 };
 

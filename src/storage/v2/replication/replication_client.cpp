@@ -379,8 +379,13 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
     SetMaybeBehind();
     return;
   }
-  client_.maintenance_pool_.AddTask(
+  // At most one check is pending per replica; the pending one observes any state change made since it was queued.
+  if (check_queued_.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
+  auto const queued = client_.maintenance_pool_.AddTask(
       [main_storage, protector = protector.clone(), arena_pool = main_storage->DbArenaPool(), this]() {
+        utils::OnScopeExit const release_slot{[this] { check_queued_.store(false, std::memory_order_release); }};
         try {
           const memory::DbArenaScope db_arena_scope{arena_pool};
           this->TryCheckReplicaStateSync(main_storage, *protector);
@@ -391,6 +396,10 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
           this->SetMaybeBehind();
         }
       });
+  if (!queued) {
+    // The pool is shut down, so the task never runs. The storage client is destroyed right after the pool.
+    check_queued_.store(false, std::memory_order_release);
+  }
 }
 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const {
