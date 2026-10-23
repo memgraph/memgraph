@@ -1548,16 +1548,14 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             // in light_edge_map, so light_cleanup would miss it. Free it here rather than leak it.
             // The emplace runs without OOM refusal (a refused rehash leaves the map inconsistent
             // for light_cleanup); the memory limit is checked once the edge is tracked.
-            {
-              const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+            utils::AtomicMemoryBlock([&] {
               try {
                 light_edge_map.emplace(*gid, edge_ptr);
               } catch (...) {
                 InMemoryStorage::LightEdgePool::Destroy(edge_ptr);
                 throw;
               }
-            }
-            utils::total_memory_tracker.DoCheck();
+            });
           } else {
             auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
             if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
