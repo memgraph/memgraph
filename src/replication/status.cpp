@@ -11,6 +11,7 @@
 
 #include "replication/status.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -37,6 +38,9 @@ constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kVersion = "durability_version";
 constexpr auto *kMainUUID = "main_uuid";
 constexpr auto *kDeltasBatchProgressSize = "deltas_batch_progress_size";
+// Matches the range of --replication-replica-check-frequency-sec.
+constexpr auto kMinReplicaCheckFrequency = std::chrono::seconds{1};
+constexpr auto kMaxReplicaCheckFrequency = std::chrono::hours{24};
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
@@ -117,11 +121,24 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   using io::network::Endpoint;
 
-  auto const seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
+  auto name = j.at(kReplicaName).get<std::string>();
+  auto replica_check_frequency = std::chrono::seconds{j.at(kCheckFrequency).get<std::chrono::seconds::rep>()};
+  // Older versions accepted any value, including 0, which disables the periodic check that catches up ASYNC
+  // replicas.
+  if (auto const clamped = std::clamp<std::chrono::seconds>(
+          replica_check_frequency, kMinReplicaCheckFrequency, kMaxReplicaCheckFrequency);
+      clamped != replica_check_frequency) {
+    spdlog::warn("Recovered replica {} with {}={}s, which is outside the supported range; using {}s instead.",
+                 name,
+                 kCheckFrequency,
+                 replica_check_frequency.count(),
+                 clamped.count());
+    replica_check_frequency = clamped;
+  }
   auto config = ReplicationClientConfig{
-      .name = j.at(kReplicaName).get<std::string>(),
+      .name = std::move(name),
       .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
-      .replica_check_frequency = std::chrono::seconds{seconds},
+      .replica_check_frequency = replica_check_frequency,
   };
 
   auto repl_server_endpoint = [j]() -> Endpoint {

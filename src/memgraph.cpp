@@ -74,6 +74,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
@@ -94,6 +95,7 @@
 #include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
@@ -251,6 +253,10 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
   auto const mg_db_tmp = data_directory / "tmp";
   spdlog::trace("Deleting dir: {}", mg_db_tmp);
   memgraph::utils::DeleteDir(mg_db_tmp);
+  // Main copies the current WAL here before sending it to a replica; a crash mid-transfer leaves the copy behind.
+  auto const mg_db_repl_tmp = data_directory / memgraph::storage::durability::kReplicationTmpDirectory;
+  spdlog::trace("Deleting dir: {}", mg_db_repl_tmp);
+  memgraph::utils::DeleteDir(mg_db_repl_tmp);
   // Optionally clean .old directories if flag set to false
   if (!FLAGS_storage_backup_dir_enabled) {
     // Delete .old for snapshots of the default db
@@ -267,6 +273,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
   std::error_code ec;
   for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
     memgraph::utils::DeleteDir(db.path() / "tmp");
+    memgraph::utils::DeleteDir(db.path() / memgraph::storage::durability::kReplicationTmpDirectory);
     if (!FLAGS_storage_backup_dir_enabled) {
       auto const db_snp_old = db.path() / "snapshots" / ".old";
       auto const db_wal_old = db.path() / "wal" / ".old";
@@ -463,15 +470,24 @@ int main(int argc, char **argv) {
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
+  // Logged as an error as well as printed: once the process reaches the limit, the allocator can no longer return
+  // memory to the OS and resident memory only grows, and the log is what reaches log collectors.
   const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
   if (vm_max_map_count) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
-      std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
-                << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
+      auto const message =
+          fmt::format("Max virtual memory areas vm.max_map_count {} is too low, increase to at least {}",
+                      vm_max_map_count.value(),
+                      kMgVmMaxMapCount);
+      std::cout << message << std::endl;
+      spdlog::error("{}", message);
     }
   } else {
-    std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
-              << kMgVmMaxMapCount << std::endl;
+    auto const message =
+        fmt::format("Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least {}",
+                    kMgVmMaxMapCount);
+    std::cout << message << std::endl;
+    spdlog::warn("{}", message);
   }
 
   if (nofile_result) {

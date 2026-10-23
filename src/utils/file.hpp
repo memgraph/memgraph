@@ -275,7 +275,7 @@ class InputFile {
 /// READING of the file that is being written. To read the file, disable the
 /// flushing of the internal buffer using `DisableFlushing`. Don't forget to
 /// enable flushing again after you're done with reading using the
-/// 'EnableFlushing' method!
+/// 'EnableFlushing' method! The buffer is then flushed by the next write.
 class OutputFile {
  public:
   enum class Mode : uint8_t {
@@ -362,9 +362,10 @@ class OutputFile {
   /// Disable flushing of the internal buffer.
   void DisableFlushing();
 
-  /// Enable flushing of the internal buffer.
-  /// Before the flushing is enabled, the internal buffer
-  /// is flushed.
+  /// Enable flushing of the internal buffer. The buffer is not flushed here
+  /// but by the next write: another thread may be waiting to close the file
+  /// and may do so the moment flushing is enabled, so nothing touches the
+  /// file after the flush lock is released.
   void EnableFlushing();
 
   /// Try flushing the internal buffer.

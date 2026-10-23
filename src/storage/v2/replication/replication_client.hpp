@@ -24,6 +24,8 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <concepts>
 #include <expected>
 #include <future>
@@ -71,8 +73,6 @@ class ReplicaStream {
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
-  auto DbArenaPool() const -> memory::ArenaPool *;
-
   auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
   auto GetStreamHandler() -> rpc::Client::StreamHandler<replication::PrepareCommitRpc> && { return std::move(stream_); }
@@ -114,8 +114,8 @@ class ReplicationStorageClient {
   auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
 
   bool TwoPhaseCommit() const {
-    // SYNC and ASYNC replicas should commit immediately when receiving deltas
-    // STRICT_SYNC we are doing two phase commit
+    // SYNC replicas commit immediately when receiving deltas. ASYNC replicas don't receive transaction deltas and
+    // recover from durability files instead. STRICT_SYNC uses two-phase commit.
     return client_.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC;
   }
 
@@ -127,6 +127,14 @@ class ReplicationStorageClient {
 
   void SetMaybeBehind() const {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+  }
+
+  void MarkForRecovery() {
+    replica_state_.WithLock([](auto &state) {
+      if (state != replication::ReplicaState::RECOVERY && state != replication::ReplicaState::DIVERGED_FROM_MAIN) {
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      }
+    });
   }
 
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
@@ -201,8 +209,8 @@ class ReplicationStorageClient {
                                                 uint64_t durability_commit_timestamp) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp, uint64_t commit_num_committed_txns) const
+  auto FinalizeTransactionReplication(DatabaseProtector const &protector,
+                                      std::optional<ReplicaStream> &&replica_stream) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
@@ -227,15 +235,27 @@ class ReplicationStorageClient {
   auto GetNumCommittedTxns() const -> uint64_t;
 
  private:
+  // What a queued recovery round does once it starts.
+  enum class RecoveryKind : std::uint8_t {
+    // Catch the replica up from its reported commit; skipped if the replica left RECOVERY while queued.
+    INCREMENTAL,
+    // Wipe the replica and recover from zero; skipped like INCREMENTAL. The next heartbeat re-detects a
+    // branching point, so a skipped round is re-queued.
+    RESET_IF_PENDING,
+    // Wipe the replica and recover from zero even if the state was overwritten while queued. After RECOVER
+    // SNAPSHOT the heartbeat cannot tell that the replica's base changed, so the round must not be skipped.
+    RESET_ALWAYS,
+  };
+
   /**
    * @brief Get necessary recovery steps and execute them.
    *
    * @param replica_last_commit_ts the commit up to which we should recover to
    * @param main_storage pointer to the storage associated with the client
-   * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
+   * @param kind whether the replica resets its storage on the 1st recovery step and whether a stale round is skipped
    */
   void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
-                      bool reset_needed = false) const;
+                      RecoveryKind kind = RecoveryKind::INCREMENTAL) const;
 
   /**
    * @brief Check replica state
@@ -250,6 +270,10 @@ class ReplicationStorageClient {
    *
    */
   void LogRpcFailure() const;
+
+  // True when an ASYNC replica may start another recovery round: the configured interval has passed since the
+  // previous round ended, the interval is disabled, or no round has run yet.
+  bool AsyncRecoveryIntervalElapsed() const;
 
   // Retires the RPC connection for a tenant that is being dropped: resets the stream so ~StreamHandler
   // does not leave the socket mid-read, aborts the RPC client to close the socket (framing correctness),
@@ -268,6 +292,13 @@ class ReplicationStorageClient {
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
   mutable std::atomic<CommitTsInfo> commit_ts_info_;
+  // When the last recovery round of this replica ended. ASYNC replicas are not recovered again before
+  // replication_async_recovery_interval_sec has passed since then.
+  mutable std::atomic<std::chrono::steady_clock::time_point> last_recovery_end_{};
+  // Set while a state check queued by TryCheckReplicaStateAsync is pending or running. The frequent check
+  // re-queues every MAYBE_BEHIND replica on each tick, so without this the single maintenance thread
+  // accumulates duplicate checks faster than it can drain them across many databases.
+  mutable std::atomic<bool> check_queued_{false};
   const utils::UUID main_uuid_;
 };
 
