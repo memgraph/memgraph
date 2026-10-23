@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -31,7 +32,9 @@
 #include "replication/epoch.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
@@ -127,8 +130,52 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
   return true;
 }
 
+namespace {
+// A file whose writer never finalized it (crash right after creation, or still being written) is cut short within the
+// offsets section or has its leading offset slots still zero. offset_edges is legitimately 0 without edge properties,
+// so two slots are read. A WAL ending exactly at offset_deltas holds no deltas. Truncation is judged by size, never by
+// a failed decode: a rotted byte must stay an unreadable candidate.
+bool LooksNeverFinalized(std::filesystem::path const &path, bool is_wal) {
+  constexpr uint64_t kSlotBytes = sizeof(Marker) + sizeof(uint64_t);
+  auto const &magic = is_wal ? kWalMagic : kSnapshotMagic;
+
+  std::error_code ec;
+  auto const size = std::filesystem::file_size(path, ec);
+  if (ec) return false;
+  if (size < magic.size() + sizeof(uint64_t)) return true;
+
+  Decoder decoder;
+  if (!decoder.Initialize(path, magic)) return false;
+  if (decoder.GetPosition() >= size) return true;
+  auto const marker = decoder.ReadMarker();
+  if (!marker || *marker != Marker::SECTION_OFFSETS) return false;
+
+  std::array<uint64_t, 2> offsets{};  // snapshot: edges, vertices; WAL: metadata, deltas
+  for (auto &slot : offsets) {
+    if (decoder.GetPosition() + kSlotBytes > size) return true;
+    auto const offset = decoder.ReadUint();
+    if (!offset) return false;
+    slot = *offset;
+  }
+  auto const [first, second] = offsets;
+  if (first == 0 && second == 0) return true;
+  return is_wal && second == size;
+}
+
+bool SkipIfNeverFinalized(std::filesystem::path const &path, bool is_wal, std::string_view error) {
+  if (!LooksNeverFinalized(path, is_wal)) return false;
+  std::error_code ec;
+  spdlog::warn("Skipping {} ({} bytes): its header was never finalized (incomplete write). Error: {}",
+               path,
+               std::filesystem::file_size(path, ec),
+               error);
+  return true;
+}
+}  // namespace
+
 std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                                    const std::string_view uuid) {
+                                                                    const std::string_view uuid,
+                                                                    std::size_t *unreadable_candidates_out) {
   std::vector<SnapshotDurabilityInfo> snapshot_files;
   if (!utils::DirExists(snapshot_directory)) {
     spdlog::error("Snapshot directory {} doesn't exist", snapshot_directory);
@@ -137,7 +184,10 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
 
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
-    if (!ValidateDurabilityFile(item)) continue;
+    if (!ValidateDurabilityFile(item)) {
+      if (unreadable_candidates_out != nullptr && item.is_regular_file()) ++*unreadable_candidates_out;
+      continue;
+    }
 
     try {
       auto info = ReadSnapshotInfo(item.path());
@@ -147,7 +197,9 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
     } catch (const RecoveryFailure &e) {
+      if (SkipIfNeverFinalized(item.path(), false, e.what())) continue;
       spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
+      if (unreadable_candidates_out != nullptr) ++*unreadable_candidates_out;
     }
   }
   if (error_code) {
@@ -161,7 +213,8 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           const std::string_view uuid,
-                                                          const std::optional<size_t> current_seq_num) {
+                                                          const std::optional<size_t> current_seq_num,
+                                                          std::size_t *unreadable_candidates_out) {
   std::vector<WalDurabilityInfo> wal_files;
   if (!utils::DirExists(wal_directory)) {
     spdlog::error("WAL directory {} doesn't exist", wal_directory);
@@ -175,20 +228,30 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   std::error_code error_code;
 
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
-    if (!ValidateDurabilityFile(item)) continue;
+    if (!ValidateDurabilityFile(item)) {
+      if (unreadable_candidates_out != nullptr && item.is_regular_file()) ++*unreadable_candidates_out;
+      continue;
+    }
 
+    WalHeader header{};
     try {
-      auto header = ReadWalHeader(item.path());
-      if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
-        spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
-                      item.path(),
-                      uuid,
-                      header.uuid,
-                      current_seq_num,
-                      header.seq_num);
-        continue;
-      }
-
+      header = ReadWalHeader(item.path());
+    } catch (const RecoveryFailure &e) {
+      if (SkipIfNeverFinalized(item.path(), true, e.what())) continue;
+      if (unreadable_candidates_out != nullptr) ++*unreadable_candidates_out;
+      spdlog::warn("Failed to read WAL header for {}. Error: {}", item.path(), e.what());
+      continue;
+    }
+    if ((!uuid.empty() && header.uuid != uuid) || (current_seq_num && header.seq_num >= *current_seq_num)) {
+      spdlog::trace("Wal file {} won't be used. UUID: {}. Header UUID: {}. Current seq num: {}. Header seq num: {}.",
+                    item.path(),
+                    uuid,
+                    header.uuid,
+                    current_seq_num,
+                    header.seq_num);
+      continue;
+    }
+    try {
       // A file holding no complete transaction has no timestamps to offer, and ReadWalContents throwing for it is
       // how it gets dropped here.
       auto info = ReadWalContents(item.path(), std::move(header));
@@ -621,7 +684,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
   auto *const epoch_history = &repl_storage_state.history;
 
-  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
+  std::size_t unusable_candidates = 0;
+  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_, "", &unusable_candidates);
   if (!maybe_snapshot_files.has_value()) {
     throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
   }
@@ -688,16 +752,32 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
-    if (!utils::DirExists(wal_directory_)) return std::nullopt;
+    constexpr const char *kBrokenDurabilityMsg =
+        "Durability files are present but none could be read; refusing to start with an empty database "
+        "and discard existing data. The database is now in the broken state. Please inspect the "
+        "snapshot and WAL files and restart.";
+    // If the snapshot scan found unreadable candidates, a missing WAL directory must not silently
+    // start empty — the corrupt-snapshot signal would be discarded by the early return.
+    if (!utils::DirExists(wal_directory_)) {
+      if (unusable_candidates > 0) {
+        throw RecoveryFailure(kBrokenDurabilityMsg);
+      }
+      return std::nullopt;
+    }
 
     // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
-    auto maybe_wal_files = GetWalFiles(wal_directory_);
+    auto maybe_wal_files = GetWalFiles(wal_directory_, "", std::nullopt, &unusable_candidates);
     if (!maybe_wal_files.has_value()) {
       throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
     }
     wal_files = std::move(*maybe_wal_files);
 
     if (wal_files.empty()) {
+      // Non-zero unusable_candidates means durability files exist but are unreadable (not a fresh DB):
+      // starting empty would silently discard data, so fail loud instead.
+      if (unusable_candidates > 0) {
+        throw RecoveryFailure(kBrokenDurabilityMsg);
+      }
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
