@@ -41,7 +41,6 @@ auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFail
   return std::visit(utils::Overloaded{
                         [](FailedToConnectErr const &) { return ReplicaFailureReason::NOT_IN_SYNC; },
                         [](ReplicaNotInSyncErr const &) { return ReplicaFailureReason::NOT_IN_SYNC; },
-                        [](FailedToGetAsyncRpcLock const &) { return ReplicaFailureReason::FAILED_TO_GET_LOCK; },
                         [](GenericRpcError const &) { return ReplicaFailureReason::RPC_ERROR; },
                         [](ReplicaDivergedErr const &) { return ReplicaFailureReason::DIVERGED; },
                     },

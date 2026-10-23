@@ -20,8 +20,6 @@ auto ReplicaFailureReasonToString(ReplicaFailureReason reason) -> std::string {
   switch (reason) {
     case ReplicaFailureReason::NOT_IN_SYNC:
       return "replica is not reachable or not in sync with the main";
-    case ReplicaFailureReason::FAILED_TO_GET_LOCK:
-      return "failed to obtain RPC lock (another transaction is in progress)";
     case ReplicaFailureReason::RPC_ERROR:
       return "RPC communication error";
     case ReplicaFailureReason::DIVERGED:

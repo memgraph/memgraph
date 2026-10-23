@@ -3923,10 +3923,8 @@ void InMemoryStorage::FinalizeWalFile() {
     wal_file_.reset();
     wal_unsynced_transactions_ = 0;
   } else {
-    // Try writing the internal buffer if possible, if not
-    // the data should be written as soon as it's possible
-    // (triggered by the new transaction commit, or some
-    // reading thread EnabledFlushing)
+    // Try writing the internal buffer if possible; if a reader has flushing disabled, the next
+    // transaction commit writes it.
     wal_file_->TryFlushing();
   }
 }

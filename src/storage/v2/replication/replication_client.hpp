@@ -73,8 +73,6 @@ class ReplicaStream {
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
-  auto DbArenaPool() const -> memory::ArenaPool *;
-
   auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
   auto GetStreamHandler() -> rpc::Client::StreamHandler<replication::PrepareCommitRpc> && { return std::move(stream_); }

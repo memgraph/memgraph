@@ -730,8 +730,8 @@ auto CopyCurrentWal(durability::WalFile &wal_file, std::filesystem::path const &
     -> std::optional<FileToSend> {
   wal_file.DisableFlushing();
   // A finalizer waiting on the flush lock may free the WalFile the moment it is released, so nothing may
-  // touch it afterwards, not even a flush attempt.
-  utils::OnScopeExit const release_flushing{[&wal_file] { wal_file.ReleaseFlushing(); }};
+  // touch it afterwards.
+  utils::OnScopeExit const enable_flushing{[&wal_file] { wal_file.EnableFlushing(); }};
 
   auto const &wal_path = wal_file.Path();
   auto const tmp_dir = wal_path.parent_path().parent_path() / durability::kReplicationTmpDirectory;
@@ -1097,8 +1097,6 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
-
-auto ReplicaStream::DbArenaPool() const -> memory::ArenaPool * { return storage_->DbArenaPool(); }
 
 void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t const final_commit_timestamp,
                                 Storage *storage) {

@@ -2459,8 +2459,6 @@ void WalFile::DisableFlushing() { wal_.DisableFlushing(); }
 
 void WalFile::EnableFlushing() { wal_.EnableFlushing(); }
 
-void WalFile::ReleaseFlushing() { wal_.ReleaseFlushing(); }
-
 void WalFile::TryFlushing() { wal_.TryFlushing(); }
 
 std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return wal_.CurrentFileBuffer(); }

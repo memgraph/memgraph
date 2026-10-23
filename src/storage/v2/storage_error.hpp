@@ -26,8 +26,6 @@ namespace memgraph::storage {
 
 struct FailedToConnectErr {};
 
-struct FailedToGetAsyncRpcLock {};
-
 struct GenericRpcError {};
 
 struct ReplicaNotInSyncErr {};
@@ -35,16 +33,15 @@ struct ReplicaNotInSyncErr {};
 struct ReplicaDivergedErr {};
 
 using StartTxnReplicationError =
-    std::variant<FailedToConnectErr, FailedToGetAsyncRpcLock, GenericRpcError, ReplicaNotInSyncErr, ReplicaDivergedErr>;
+    std::variant<FailedToConnectErr, GenericRpcError, ReplicaNotInSyncErr, ReplicaDivergedErr>;
 
 // --- Unified replication error types ---
 
 enum class ReplicaFailureReason : uint8_t {
-  NOT_IN_SYNC,         // FailedToConnectErr, ReplicaNotInSyncErr, SOCKET_FAILED_TO_CONNECT
-  FAILED_TO_GET_LOCK,  // FailedToGetAsyncRpcLock
-  RPC_ERROR,           // GenericRpcError, GENERIC_ERROR
-  DIVERGED,            // ReplicaDivergedErr
-  TIMEOUT,             // TIMEOUT_ERROR
+  NOT_IN_SYNC,  // FailedToConnectErr, ReplicaNotInSyncErr, SOCKET_FAILED_TO_CONNECT
+  RPC_ERROR,    // GenericRpcError, GENERIC_ERROR
+  DIVERGED,     // ReplicaDivergedErr
+  TIMEOUT,      // TIMEOUT_ERROR
 };
 
 struct ReplicaFailure {
