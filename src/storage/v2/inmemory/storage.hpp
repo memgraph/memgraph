@@ -816,6 +816,14 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     VertexAccessor MaterializeStubVertex(storage::Gid gid);
 
+    /// Get-or-create an empty, delta-less edge `edge_gid` from `from_gid` to `to_gid` (versioning branch edge stub):
+    /// no properties, no delta, no index entries. Materializes both endpoint stubs first, then links the edge into
+    /// both adjacency lists under the endpoint locks; an already-present edge is returned as-is, so concurrent and
+    /// repeated calls are safe. Requires properties_on_edges. Bumps `edge_id_` past `edge_gid` and counts the edge once.
+    /// @throw std::bad_alloc
+    EdgeAccessor MaterializeStubEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::Gid to_gid,
+                                     EdgeTypeId edge_type);
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc

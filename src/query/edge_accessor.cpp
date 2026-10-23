@@ -11,9 +11,14 @@
 
 #include "query/edge_accessor.hpp"
 
+#include <algorithm>
+#include <optional>
+
 #include "query/exceptions.hpp"
 #include "query/vertex_accessor.hpp"
+#include "utils/logging.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/stub_properties.hpp"
 
 namespace memgraph::query {
 
@@ -45,63 +50,139 @@ VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
 
 bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
-// Graph Versioning v1 (lazy diff-context, slice E-2c) HIGH-2-equivalent FIX: see each declaration's
-// own doc-comment in edge_accessor.hpp for WHY these are self-correcting (re-resolve via
-// FindDiffEdge, diff-engine-only, before reading) and WHY they're out-of-line (BranchContext is
-// only forward-declared in the header). Not a mutation -- FindDiffEdge never COWs -- so this cannot
-// double-apply a COW; it's a plain diff-engine-only FindEdge, same cost class as the vertex-side
-// equivalent already on this hot path.
+namespace {
+
+using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
+
+// A fork edge whose properties changed on the branch is held in the diff engine as an EMPTY stub with the same gid
+// (BranchContext::CowEdge): changed values are plain properties on it, removed fork properties are listed in its
+// `__mg_removed` property. A read is the fork edge (main@fork_ts) overlaid with the stub, exactly like vertex stubs
+// (vertex_accessor.cpp). Branch-native edges (gid >= 2^62) are complete and never merged.
+struct ReadTarget {
+  enum class Kind { kDirect, kHidden, kOverlay };
+  Kind kind{Kind::kDirect};
+  std::optional<storage::EdgeAccessor> stub;
+  std::optional<storage::EdgeAccessor> fork;
+};
+
+// `impl` is either the fork edge (historical_) or a diff-engine edge (stub or native). A clear branched bit on the
+// fork edge proves no stub exists, skipping the lookup; a deleted fork edge reads as DELETED_OBJECT (kHidden).
+ReadTarget ResolveReadTarget(versioning::BranchContext &ctx, const storage::EdgeAccessor &impl, storage::View view) {
+  if (impl.storage_ == &ctx.diff_engine()) {
+    if (!ctx.IsForkGid(impl.Gid())) return {};
+    if (ctx.IsForkEdgeHidden(impl, view)) return {.kind = ReadTarget::Kind::kHidden};
+    auto fork = ctx.FindForkEdge(impl);
+    DMG_ASSERT(fork.has_value(), "Fork edge missing for stub {}", impl.Gid().AsUint());
+    if (!fork) return {};
+    return {.kind = ReadTarget::Kind::kOverlay, .stub = impl, .fork = std::move(fork)};
+  }
+  if (!impl.MaybeBranchedHint()) return {};
+  if (ctx.IsForkEdgeHidden(impl, view)) return {.kind = ReadTarget::Kind::kHidden};
+  if (auto stub = ctx.FindDiffEdge(impl.Gid(), impl.from_vertex_->gid, view)) {
+    return {.kind = ReadTarget::Kind::kOverlay, .stub = std::move(stub), .fork = impl};
+  }
+  return {};
+}
+
+storage::Result<PropertyMap> MergedProperties(versioning::BranchContext &ctx, const storage::EdgeAccessor &stub,
+                                              const storage::EdgeAccessor &fork, storage::View view) {
+  auto stub_props = stub.Properties(view);  // single call: no torn read between value and removal list
+  if (!stub_props) return stub_props;
+  auto removed = versioning::TakeRemoved(ctx, *stub_props);
+  auto merged = fork.Properties(storage::View::OLD);
+  if (!merged) return merged;
+  for (auto const pid : removed) merged->erase(pid);
+  for (auto &[key, value] : *stub_props) merged->insert_or_assign(key, std::move(value));
+  return merged;
+}
+
+storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchContext &ctx,
+                                                          const storage::EdgeAccessor &stub,
+                                                          const storage::EdgeAccessor &fork, storage::View view,
+                                                          storage::PropertyId key) {
+  if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return storage::PropertyValue{};
+  auto in_fork = fork.GetProperty(key, storage::View::OLD);
+  if (!in_fork) return in_fork;
+  if (in_fork->IsNull()) return stub.GetProperty(key, view);
+  auto stub_props = stub.Properties(view);  // single call: value and removal list must agree
+  if (!stub_props) return std::unexpected{stub_props.error()};
+  if (auto it = stub_props->find(key); it != stub_props->end()) return std::move(it->second);
+  auto removed = versioning::TakeRemoved(ctx, *stub_props);
+  if (std::ranges::contains(removed, key)) return storage::PropertyValue{};
+  return std::move(*in_fork);
+}
+
+storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::EdgeAccessor &stub,
+                                                const storage::EdgeAccessor &fork, storage::PropertyId key,
+                                                storage::View view) {
+  if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return uint64_t{0};
+  auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
+  if (!in_fork) return in_fork;
+  if (*in_fork == 0) return stub.GetPropertySize(key, view);
+  auto stub_props = stub.Properties(view);
+  if (!stub_props) return std::unexpected{stub_props.error()};
+  if (stub_props->contains(key)) return stub.GetPropertySize(key, view);
+  auto removed = versioning::TakeRemoved(ctx, *stub_props);
+  if (std::ranges::contains(removed, key)) return uint64_t{0};
+  return in_fork;
+}
+
+[[noreturn]] void ThrowReserved() {
+  throw QueryRuntimeException(
+      "Names starting with '__mg_' are reserved for versioning and cannot be used as a property on a branch.");
+}
+
+void RejectReservedProperties(versioning::BranchContext &ctx, const PropertyMap &properties) {
+  for (const auto &[pid, _] : properties) {
+    if (ctx.IsReservedProperty(pid)) ThrowReserved();
+  }
+}
+
+// Where a write lands: `stub` is the diff-engine edge written; `fork` is the fork edge it overlays, empty for a
+// branch-native edge (written like any edge). The diff engine is shared across sessions, so a conflicting open
+// transaction surfaces exactly as it would on main.
+struct WriteTarget {
+  storage::EdgeAccessor stub;
+  std::optional<storage::EdgeAccessor> fork;
+};
+
+WriteTarget ResolveWriteTarget(versioning::BranchContext &ctx, const storage::EdgeAccessor &impl) {
+  if (impl.storage_ == &ctx.diff_engine() && !ctx.IsForkGid(impl.Gid())) return {impl, std::nullopt};
+  auto stub = ctx.CowEdge(impl);
+  if (!stub) {
+    if (stub.error().storage_error == storage::Error::SERIALIZATION_ERROR) throw TransactionSerializationException();
+    throw QueryRuntimeException(stub.error().message);
+  }
+  auto fork = impl.storage_ != &ctx.diff_engine() ? std::optional<storage::EdgeAccessor>{impl} : ctx.FindForkEdge(*stub);
+  if (!fork) throw QueryRuntimeException("Cannot write edge {}: its fork edge is missing.", impl.Gid().AsUint());
+  return {*stub, std::move(fork)};
+}
+
+auto ForkHas(const storage::EdgeAccessor &fork) {
+  return [&fork](storage::PropertyId pid) {
+    auto in_fork = fork.GetProperty(pid, storage::View::OLD);
+    return in_fork && !in_fork->IsNull();
+  };
+}
+
+}  // namespace
+
+// Out-of-line because BranchContext is only forward-declared in the header. Reads never COW and never redirect impl_.
 auto EdgeAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (D1, mirrors VertexAccessor::Properties/Labels in
-    // vertex_accessor.cpp -- see that file's own doc-comment for the full rationale):
-    // (0) DIFF-RESIDENT short-circuit: a diff-engine-resident impl_ IS the branch's own COW/native
-    //     copy already (COW copies properties directly), so re-resolving it by gid via FindDiffEdge
-    //     below would be a redundant lookup; its own diff-engine MVCC already reflects same-txn
-    //     writes/deletes at the requested view.
-    // (1) BRANCHED-bit gate: impl_.MaybeBranchedHint() reads MAIN's own storage::Edge::branched()
-    //     bit (guards `properties_on_edges` internally -- see its own doc-comment,
-    //     storage/v2/edge_accessor.cpp -- REFERENCE edges have no Edge object to read the bit from
-    //     and get `false`, which naturally scopes this gate to heavy edges only). Monotonic,
-    //     any-branch, never-cleared -- no false negatives: a clear bit means no branch has EVER
-    //     touched this edge, so impl_ (main's fork copy) is definitely correct as-is, skipping
-    //     today's unconditional FindDiffEdge lookup below. A false positive (another branch's touch)
-    //     only costs one wasted FindDiffEdge, never a stale read.
-    if (impl_.storage_ == &branch_ctx_->diff_engine()) {
-      return impl_.Properties(view);
-    }
-    if (!impl_.MaybeBranchedHint()) {
-      return impl_.Properties(view);
-    }
-    if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
-      return diff_edge->Properties(view);
-    }
-    // A FindDiffEdge miss is ambiguous by itself. The fork edge is deleted on the branch when its gid is listed on
-    // its FROM stub or an endpoint is deleted, as visible at `view` (MVCC: a delete made by the current command is
-    // invisible to View::OLD, which then reads the fork edge unchanged, as main would).
-    if (branch_ctx_->IsForkEdgeHidden(impl_, view)) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
-    }
+    auto target = ResolveReadTarget(*branch_ctx_, impl_, view);
+    if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
+    if (target.kind == ReadTarget::Kind::kOverlay) return MergedProperties(*branch_ctx_, *target.stub, *target.fork, view);
   }
   return impl_.Properties(view);
 }
 
 storage::Result<storage::PropertyValue> EdgeAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (D1) -- see Properties() above for the full rationale (diff-resident
-    // short-circuit, then the branched-bit gate).
-    if (impl_.storage_ == &branch_ctx_->diff_engine()) {
-      return impl_.GetProperty(key, view);
-    }
-    if (!impl_.MaybeBranchedHint()) {
-      return impl_.GetProperty(key, view);
-    }
-    if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
-      return diff_edge->GetProperty(key, view);
-    }
-    // Deleted fork edge -- see Properties() above.
-    if (branch_ctx_->IsForkEdgeHidden(impl_, view)) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    auto target = ResolveReadTarget(*branch_ctx_, impl_, view);
+    if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
+    if (target.kind == ReadTarget::Kind::kOverlay) {
+      return MergedGetProperty(*branch_ctx_, *target.stub, *target.fork, view, key);
     }
   }
   return impl_.GetProperty(key, view);
@@ -109,66 +190,118 @@ storage::Result<storage::PropertyValue> EdgeAccessor::GetProperty(storage::View 
 
 storage::Result<uint64_t> EdgeAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (D1) -- see Properties() above for the full rationale (diff-resident
-    // short-circuit, then the branched-bit gate).
-    if (impl_.storage_ == &branch_ctx_->diff_engine()) {
-      return impl_.GetPropertySize(key, view);
-    }
-    if (!impl_.MaybeBranchedHint()) {
-      return impl_.GetPropertySize(key, view);
-    }
-    if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
-      return diff_edge->GetPropertySize(key, view);
-    }
-    // Deleted fork edge -- see Properties() above.
-    if (branch_ctx_->IsForkEdgeHidden(impl_, view)) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    auto target = ResolveReadTarget(*branch_ctx_, impl_, view);
+    if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
+    if (target.kind == ReadTarget::Kind::kOverlay) {
+      return MergedGetPropertySize(*branch_ctx_, *target.stub, *target.fork, key, view);
     }
   }
   return impl_.GetPropertySize(key, view);
 }
 
-// Graph Versioning v1 (lazy diff-context, slice E-2c) -- see the header's own doc-comment. Every
-// mutator call site (SetProperty/InitProperties/UpdateProperties/ClearProperties) already checks
-// branch_ctx_ != nullptr before calling this, so branch_ctx_ is guaranteed non-null here.
-void EdgeAccessor::CowEdgeIfNeeded() {
-  // CowEdge reads `impl_` (whichever side it currently resolves through, historical or diff) and
-  // the diff-engine accessor from branch_ctx_->current_diff_txn() itself (a single per-query slot,
-  // branch_engine.hpp) rather than taking one as a parameter here.
-  auto cowed = branch_ctx_->CowEdge(impl_);
-  if (!cowed) {
-    // The diff engine is shared across sessions: a conflicting open transaction surfaces exactly as it would on main.
-    if (cowed.error().storage_error == storage::Error::SERIALIZATION_ERROR) {
-      throw TransactionSerializationException();
-    }
-    throw QueryRuntimeException(cowed.error().message);
-  }
-  impl_ = *cowed;
-}
-
-// Graph Versioning v1 (lazy diff-context, slice E-2c): edge mutator COW -- see the header's own
-// doc-comment for why this now routes through CowEdgeIfNeeded instead of rejecting with
-// NotYetImplemented (E-2a's guard, superseded by this slice).
 storage::Result<storage::PropertyValue> EdgeAccessor::SetProperty(storage::PropertyId key,
                                                                   const storage::PropertyValue &value) {
-  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
-  return impl_.SetProperty(key, value);
+  if (branch_ctx_ == nullptr) return impl_.SetProperty(key, value);
+  return BranchSetProperty(key, value);
 }
 
 storage::Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
-  return impl_.InitProperties(properties);
+  if (branch_ctx_ == nullptr) return impl_.InitProperties(properties);
+  return BranchInitProperties(properties);
 }
 
 storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
 EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
-  return impl_.UpdateProperties(properties);
+  if (branch_ctx_ == nullptr) return impl_.UpdateProperties(properties);
+  return BranchUpdateProperties(properties);
 }
 
 storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAccessor::ClearProperties() {
-  if (branch_ctx_ != nullptr) CowEdgeIfNeeded();
-  return impl_.ClearProperties();
+  if (branch_ctx_ == nullptr) return impl_.ClearProperties();
+  return BranchClearProperties();
+}
+
+storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
+                                                                        const storage::PropertyValue &value) {
+  auto &ctx = *branch_ctx_;
+  if (ctx.IsReservedProperty(key)) ThrowReserved();
+  auto target = ResolveWriteTarget(ctx, impl_);
+  if (!target.fork) return target.stub.SetProperty(key, value);
+
+  auto old_value = MergedGetProperty(ctx, target.stub, *target.fork, storage::View::NEW, key);
+  if (!old_value) return old_value;
+  auto removed = versioning::ReadRemoved(ctx, target.stub);
+  if (!removed) return std::unexpected{removed.error()};
+  const PropertyMap changes{{key, value}};
+  auto applied =
+      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), changes, ForkHas(*target.fork));
+  if (!applied) return std::unexpected{applied.error()};
+  return old_value;
+}
+
+storage::Result<bool> EdgeAccessor::BranchInitProperties(PropertyMap &properties) {
+  auto &ctx = *branch_ctx_;
+  RejectReservedProperties(ctx, properties);
+  auto target = ResolveWriteTarget(ctx, impl_);
+  if (!target.fork) return target.stub.InitProperties(properties);
+
+  auto existing = MergedProperties(ctx, target.stub, *target.fork, storage::View::NEW);
+  if (!existing) return std::unexpected{existing.error()};
+  if (!existing->empty()) return false;
+  auto removed = versioning::ReadRemoved(ctx, target.stub);
+  if (!removed) return std::unexpected{removed.error()};
+  auto applied =
+      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), properties, ForkHas(*target.fork));
+  if (!applied) return std::unexpected{applied.error()};
+  return true;
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+EdgeAccessor::BranchUpdateProperties(PropertyMap &properties) {
+  auto &ctx = *branch_ctx_;
+  RejectReservedProperties(ctx, properties);
+  auto target = ResolveWriteTarget(ctx, impl_);
+  if (!target.fork) return target.stub.UpdateProperties(properties);
+
+  auto existing = MergedProperties(ctx, target.stub, *target.fork, storage::View::NEW);
+  if (!existing) return std::unexpected{existing.error()};
+  auto removed = versioning::ReadRemoved(ctx, target.stub);
+  if (!removed) return std::unexpected{removed.error()};
+
+  std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
+  changes.reserve(properties.size());
+  for (const auto &[pid, new_value] : properties) {
+    auto it = existing->find(pid);
+    changes.emplace_back(pid, it != existing->end() ? it->second : storage::PropertyValue{}, new_value);
+  }
+  auto applied =
+      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), properties, ForkHas(*target.fork));
+  if (!applied) return std::unexpected{applied.error()};
+  // Storage's UpdateProperties leaves the untouched old properties merged into the caller's map (callers count it
+  // for UPDATED_PROPERTIES); keep that contract.
+  for (auto &[pid, old_value] : *existing) properties.emplace(pid, std::move(old_value));
+  return changes;
+}
+
+storage::Result<PropertyMap> EdgeAccessor::BranchClearProperties() {
+  auto &ctx = *branch_ctx_;
+  auto target = ResolveWriteTarget(ctx, impl_);
+  if (!target.fork) return target.stub.ClearProperties();
+
+  auto existing = MergedProperties(ctx, target.stub, *target.fork, storage::View::NEW);
+  if (!existing) return existing;
+  auto fork_props = target.fork->Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  if (auto cleared = target.stub.ClearProperties(); !cleared) return std::unexpected{cleared.error()};  // incl. the list
+  std::vector<storage::PropertyId> removed;
+  removed.reserve(fork_props->size());
+  for (const auto &[pid, _] : *fork_props) removed.push_back(pid);
+  if (!removed.empty()) {
+    if (auto written = versioning::WriteRemoved(ctx, target.stub, removed); !written) {
+      return std::unexpected{written.error()};
+    }
+  }
+  return existing;
 }
 
 }  // namespace memgraph::query

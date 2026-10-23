@@ -12,9 +12,7 @@
 #include "dbms/database.hpp"
 
 #include <memory>
-#include <set>
 
-#include <nlohmann/json.hpp>
 
 #include "spdlog/spdlog.h"
 
@@ -142,76 +140,24 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const auto versioning_directory = config.durability.storage_directory / "versioning";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-  // Graph Versioning v1 branch durability (S3d, design doc opencode-work/versioning-v1/
-  // 2026-07-13--durability-S2S3-design-v4.html §2). Pre-read any persisted branches' fork_ts values
-  // BEFORE storage construction below, so InMemoryStorage's recovery ctor sequence knows how far
-  // back it must reconstruct main's history (see storage::Config::Durability::
-  // recover_oldest_fork_ts's doc-comment, config.hpp). This uses a SEPARATE, throwaway KVStore
-  // handle over the SAME versioning/ directory the real versioning::VersionStore (below) will open
-  // -- it must be fully closed (out of scope) before that happens, because kvstore's backing
-  // RocksDB instance takes an exclusive, process-wide directory lock; two concurrently-live
-  // KVStore handles over the same path is undefined behavior (see kvstore::KVStore's own ctor
-  // doc-comment). Scoped in the block below so the throwaway handle's destructor runs before
-  // `storage_` (and later `version_store_`) are ever touched.
-  //
-  // If the directory doesn't exist yet, no branch has ever been created against this database --
-  // leave both new Config fields at their default (nullopt / empty set), which keeps every
-  // downstream recovery code path byte-identical to today (see recover_oldest_fork_ts's
-  // doc-comment: "no branches" is the fast path, unconditionally).
+  // Branches are ephemeral (their state lives only in memory), so any registry persisted by a previous run
+  // describes branches that can no longer be reconstructed. Drop them all: wipe the whole versioning/ tree and seed
+  // no fork pins, so main's GC and WAL/snapshot retention are not held back by a dead branch. The branch-number
+  // counter restarts with the wiped registry; numbers only need to be unique within one process lifetime.
   if (utils::DirExists(versioning_directory)) {
-    // MULTISET, not set: this must preserve ONE entry PER LIVE BRANCH record, not per distinct
-    // fork_ts value -- two branches legitimately forked at the same commit timestamp each own a
-    // separate pin in InMemoryStorage::version_fork_pins_ (also a multiset, storage.cpp), and
-    // ReleaseForkPin erases only one matching entry per DROP/MERGE BRANCH call. Collapsing
-    // same-fork_ts duplicates here would under-seed the restart-time pin count: the first of such
-    // a pair to be dropped/merged post-restart would erase the sole surviving entry, and the
-    // second would hit ReleaseForkPin's MG_ASSERT and abort the whole process (see
-    // Config::Durability::recover_fork_timestamps's doc-comment, config.hpp).
-    std::multiset<uint64_t> fork_timestamps;
+    size_t dropped_branches = 0;
     {
-      kvstore::KVStore throwaway_kv{versioning_directory};
-      for (auto const &[name, data] : throwaway_kv) {
-        // Reserved, never-a-branch-name key for the monotonic branch-number counter (shared with
-        // versioning::VersionStore's own kNextNumberKey, version_store.hpp) -- must be skipped
-        // here exactly like VersionStore's own ctor skips it.
-        if (name == versioning::kNextNumberKey) continue;
-
-        auto json_data = nlohmann::json::parse(data, /*cb=*/nullptr, /*allow_exceptions=*/false);
-        // Mirror versioning::VersionStore's own load acceptance criteria EXACTLY (its ctor,
-        // version_store.cpp), field for field -- including `versioning::kVersion` below (shared
-        // with VersionStore's own ctor, version_store.hpp/.cpp -- a single definition, so the two
-        // can never drift). This is deliberate, not merely stylistic: a record that VersionStore
-        // itself would skip (corrupt shape, missing fields, unsupported version) is NEVER loaded
-        // into VersionStore::branches_, so no DropBranch/FinishMerge call for it can ever exist to
-        // release a pin -- seeding a pin here for such a record would leak it PERMANENTLY (a live
-        // GC-pin nothing can ever release). Accepting a record here that VersionStore will reject
-        // is therefore strictly worse than rejecting it here too: VersionStore's own load (later,
-        // over the real KVStore handle) independently re-checks and warns again, so nothing is
-        // under-reported by being stricter here.
-        if (json_data.is_discarded() || !json_data.is_object() || !json_data["version"].is_number_unsigned() ||
-            json_data["version"].get<uint64_t>() != versioning::kVersion || !json_data["number"].is_number_unsigned() ||
-            !json_data["parent"].is_string() || !json_data["fork_ts"].is_number_unsigned()) {
-          // Mirrors VersionStore's own tolerant "warn and skip" handling of a corrupt/legacy record
-          // (see its ctor, version_store.cpp) -- a single bad record must not abort the whole
-          // database's startup. This branch's history simply won't be reconstructed by the
-          // windowed-replay pass below; VersionStore's own load (later) will independently hit the
-          // same corrupt record and warn again.
-          spdlog::warn(
-              "Graph Versioning v1: failed to pre-read branch '{}' for durability recovery (corrupt, "
-              "unsupported version, or invalid record shape) -- this branch's history may not be "
-              "reconstructable after this restart.",
-              name);
-          continue;
-        }
-        fork_timestamps.insert(json_data["fork_ts"].get<uint64_t>());
+      // Closed before the directory is deleted: kvstore's RocksDB instance holds an exclusive directory lock.
+      kvstore::KVStore stale_registry{versioning_directory};
+      for (auto const &entry : stale_registry) {
+        if (entry.first != versioning::kNextNumberKey) ++dropped_branches;
       }
-      // `throwaway_kv` goes out of scope here, releasing the RocksDB directory lock before
-      // `storage_`/`version_store_` are constructed below.
     }
-    if (!fork_timestamps.empty()) {
-      config.durability.recover_oldest_fork_ts = *fork_timestamps.begin();  // std::multiset is ordered ascending
-      config.durability.recover_fork_timestamps = std::move(fork_timestamps);
+    if (!utils::DeleteDir(versioning_directory)) {
+      spdlog::warn("Graph Versioning: failed to remove stale branch directory '{}'.", versioning_directory.string());
     }
+    spdlog::info("Graph Versioning: dropped {} branch(es) at startup; branches do not survive a restart.",
+                 dropped_branches);
   }
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.

@@ -64,7 +64,11 @@ void ForEachRemovedPid(PV const &value, F &&visit) {
 //
 // ONE SHARED NameIdMapper (main's own): historical (not-yet-stubbed) vertices carry main's label/property ids, so the
 // diff engine must decode through the same mapper. Enum-TYPE ids are the one exception (enum_store_ is mirrored, not
-// shared, see BranchContext::CowEdge).
+// shared); stubs copy no fork values, so nothing carries a main enum-type id into the diff engine.
+//
+// Edge stubs mirror vertex stubs: a fork edge whose properties change gets an empty delta-less diff edge with the same
+// gid between the endpoint stubs; the stub holds only changed properties plus the `__mg_removed` pid list (shared with
+// vertices) for removed ones, and is never visible as such.
 //
 // GID COLLISION HAZARD: the diff engine's gid counters start at 0; `Build` reserves a disjoint range for branch-native
 // creates (kBranchNativeGidWatermark, branch_engine.cpp).
@@ -223,9 +227,7 @@ class BranchContext {
 
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
 
-  // CowEdge fails only when the edge contains an Enum property. An Enum PropertyValue
-  // embeds an enum-TYPE id from enum_store_, which is NOT shared between main and diff_engine_ —
-  // copying verbatim would silently mislabel it. Also covers gid not found in historical_.
+  // CowVertex/CowEdge fail when the object is already deleted on the branch or the diff engine rejects the write.
   // `storage_error` is set when the failure came from the diff engine itself (e.g. SERIALIZATION_ERROR because
   // another session's open transaction owns an endpoint stub), so the caller can raise main's own error for it.
   struct CowError {
@@ -282,14 +284,27 @@ class BranchContext {
   // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
   std::optional<storage::VertexAccessor> FindStubOrDiffVertex(storage::Gid gid, storage::View view);
 
-  // Copy-on-write for edges. Takes the fork edge's EdgeAccessor directly (not just a gid) because
-  // historical_->FindEdge(gid) is unreliable for edges (see ResolveEdge's doc-comment).
-  //   - Idempotent: if edge_gid is already in the diff engine (prior COW or branch-native create),
-  //     returns that copy — fork_edge fields unread except Gid().
-  //   - Else: COWs BOTH endpoints (CowVertex, idempotent), recreates the edge in diff_engine_ at
-  //     the SAME gid (so ResolveEdges' de-dupe still works), copies fork_edge's properties.
-  //     Rejects (CowError) an Enum property.
+  // Copy-on-write for edges. Takes the fork edge's EdgeAccessor (or its stub) directly because historical_->FindEdge(gid)
+  // is unreliable for edges (see ResolveEdge's doc-comment).
+  //   - Idempotent: if edge_gid already has a diff-engine edge (prior stub or branch-native create), returns it.
+  //   - CowError if the edge is deleted on the branch.
+  //   - Else: COWs BOTH endpoints (CowVertex, idempotent) and materializes an EMPTY delta-less edge stub with the
+  //     same gid linked between the endpoint stubs (InMemoryAccessor::MaterializeStubEdge). Fork properties stay in
+  //     historical_ and are not copied; writes then land on the stub as ordinary diff-engine MVCC writes, and reads
+  //     overlay the stub on the fork edge (query::EdgeAccessor). Because the stub is not transactional, a rolled-back
+  //     write leaves it behind harmlessly and the next COW simply finds it. It adds no edge to the branch (adjacency
+  //     reads emit the fork edge, see ResolveEdges), so it records no edge change.
   std::expected<storage::EdgeAccessor, CowError> CowEdge(const storage::EdgeAccessor &fork_edge);
+
+  // The fork edge (historical_, View::OLD) behind a diff-engine edge stub, found through its endpoints' adjacency.
+  std::optional<storage::EdgeAccessor> FindForkEdge(const storage::EdgeAccessor &stub);
+
+  // True for a diff-engine edge that stands for a fork edge (a stub), as opposed to a branch-native edge.
+  bool IsEdgeStub(const storage::EdgeAccessor &diff_edge) const;
+
+  // True when `stub` carries its own value for `property` or records its removal, i.e. the fork edge's value of that
+  // property is not the branch's. Used by index overlays to drop stale fork-side candidates.
+  bool StubEdgeTouches(const storage::EdgeAccessor &stub, storage::PropertyId property, storage::View view);
 
   // Diff-engine-first point lookup, falling back to historical_ on a miss.
   // A fork vertex whose stub is deleted at `view` never resolves.
@@ -299,6 +314,8 @@ class BranchContext {
   //   (1) CowEdge's idempotency check — "already COW'd or branch-natively created?"
   //   (2) EdgeAccessor self-correcting property reads (GetProperty/Properties/GetPropertySize).
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
+  // Same lookup when the FROM endpoint's gid is known: avoids the diff engine's all-vertex scan for the edge.
+  std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
   // Gid-ordered streaming UNION of historical_ (every fork-state vertex, resolved: a COW'd gid
   // yields the diff engine's copy) with current_diff_txn()->Vertices(view) (branch-native creates).
@@ -356,9 +373,10 @@ class BranchContext {
 
   UnionVerticesIterable Vertices(storage::View view);
 
-  // Per-vertex UNION of historical_'s fork-state incident edges with current_diff_txn()'s own,
-  // de-duped by EdgeAccessor::Gid() with the diff engine's copy winning ties. NOT a lazy streaming
-  // merge: vertex incident-edge sets are degree-bounded, so an eager owned vector is simpler here.
+  // Per-vertex UNION of historical_'s fork-state incident edges with current_diff_txn()'s branch-native ones. An edge
+  // stub in the diff adjacency is skipped: its fork edge is emitted from historical_ (once, in fork identity) and
+  // reads overlay the stub. NOT a lazy streaming merge: vertex incident-edge sets are degree-bounded, so an eager
+  // owned vector is simpler here.
   // historical_ is always read at View::OLD (frozen snapshot, no notion of caller-relative NEW).
   // Fork edges listed as deleted on `vertex_gid`'s stub, or whose other fork endpoint is deleted at `view`, are
   // dropped; diff-engine deletes are hidden by MVCC. A deleted vertex yields no edges and sets `*vertex_deleted`.

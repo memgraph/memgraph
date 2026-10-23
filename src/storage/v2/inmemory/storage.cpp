@@ -772,6 +772,62 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubVertex(storage:
   return {mem_storage->MaterializeStubVertex(gid), storage_, &transaction_};
 }
 
+EdgeAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubEdge(Gid edge_gid, Gid from_gid, Gid to_gid,
+                                                                    EdgeTypeId edge_type) {
+  MG_ASSERT(config_.properties_on_edges, "A stub edge needs an Edge object, i.e. properties_on_edges.");
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // Phase 1, no locks held: the endpoint stubs (the vertex skip list never reclaims them in a diff engine).
+  auto *from_vertex = mem_storage->MaterializeStubVertex(from_gid);
+  auto *to_vertex = from_gid == to_gid ? from_vertex : mem_storage->MaterializeStubVertex(to_gid);
+  atomic_fetch_max_explicit(&mem_storage->edge_id_, edge_gid.AsUint() + 1, std::memory_order_acq_rel);
+
+  // Declared before the guards: destroyed after they release (skip list GC must not run under the locks).
+  std::optional<utils::SkipListDb<Edge>::Accessor> edge_acc;
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    guard_from.lock();
+  }
+
+  // Phase 2, under both endpoint locks: whoever links first wins; later callers find the edge and return it.
+  Edge *edge_ptr = nullptr;
+  if (config_.storage_light_edge) {
+    for (auto const &[type, to, ref] : from_vertex->out_edges) {
+      if (ref.ptr->gid == edge_gid) return EdgeAccessor(ref, type, from_vertex, to, storage_, &transaction_);
+    }
+    edge_ptr = InMemoryStorage::LightEdgePool::Create(edge_gid, nullptr);
+  } else {
+    edge_acc = mem_storage->edges_.access();
+    auto [it, inserted] = edge_acc->insert(Edge(edge_gid, nullptr));
+    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+    edge_ptr = &*it;
+    // Linked under the same locks by the inserting caller, so a present edge is always fully linked or being
+    // unlinked by a live transaction's delete (whose deltas restore the adjacency on abort).
+    if (!inserted) return EdgeAccessor(EdgeRef(edge_ptr), edge_type, from_vertex, to_vertex, storage_, &transaction_);
+  }
+
+  const EdgeRef edge(edge_ptr);
+  if (auto &idx = mem_storage->edges_metadata_index_) idx->OnEdgeCreated(edge_gid, from_vertex);
+
+  utils::AtomicMemoryBlock([&]() {
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+    // Counted as MarkEdgeAsDeleted decrements: once per edge.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+  });
+
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto acc = mem_storage->vertices_.access();

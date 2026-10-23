@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <map>
+#include <tuple>
+#include <vector>
+
 #include "storage/v2/edge_accessor.hpp"
 
 namespace memgraph::versioning {
@@ -68,24 +72,18 @@ class EdgeAccessor final {
   // same omit-on-return filtering the storage arm already does (N8 parity fix).
   std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2c): edge mutator COW. A query::EdgeAccessor
-  // reachable through a checked-out branch can wrap a historical (read-only) storage::EdgeAccessor
-  // (any not-yet-touched fork-state edge reached via VertexAccessor::In/OutEdges) -- writing
-  // straight through it would trip transaction.hpp's `is_historical_` MG_ASSERT, the exact crash
-  // class HIGH-1 fixed for vertices (CowVertex's own history, branch_engine.cpp). CowEdgeIfNeeded()
-  // (mirrors VertexAccessor::CowIfNeeded exactly) COWs `impl_` into the diff engine first --
-  // idempotent, so calling it unconditionally on every mutator call is safe and cheap (a plain
-  // diff-engine FindEdge, BranchContext::CowEdge's own doc-comment). Out-of-line (edge_accessor.cpp):
-  // CowEdgeIfNeeded needs BranchContext's complete type, only forward-declared here.
+  // Edge mutators on a branch. A fork edge is never written in place (historical_ is read-only): the first write
+  // materializes an empty delta-less stub of it in the diff engine (BranchContext::CowEdge, idempotent) and the write
+  // lands there; fork properties are not copied, a removal of one is recorded in the stub's `__mg_removed` list, and
+  // reads (Properties/GetProperty/GetPropertySize above) overlay the stub on the fork edge. `impl_` is not redirected
+  // to the stub: a fork-edge accessor keeps its identity and finds the stub by gid. Branch-native edges are written
+  // directly. Out-of-line (edge_accessor.cpp): BranchContext is only forward-declared here.
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value);
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
-  // NON-const, unlike storage::EdgeAccessor::UpdateProperties (which is `const` -- it mutates via an
-  // internal delta/version-chain mechanism, not through a non-const `this`): CowEdgeIfNeeded()
-  // reassigns `impl_`, which a `const` member function cannot do. Mirrors
-  // query::VertexAccessor::UpdateProperties's own identical HIGH-1 "dropped const" precedent
-  // (vertex_accessor.hpp) -- every existing call site already passes a non-const pointer/lvalue.
+  // NON-const, unlike storage::EdgeAccessor::UpdateProperties (which is `const`), to mirror
+  // query::VertexAccessor::UpdateProperties; every existing call site already passes a non-const pointer/lvalue.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
@@ -129,14 +127,13 @@ class EdgeAccessor final {
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 
  private:
-  // Graph Versioning v1 (lazy diff-context, slice E-2c): out-of-line (edge_accessor.cpp), mirrors
-  // query::VertexAccessor::CowIfNeeded exactly -- if `impl_` is not yet resident in the branch's
-  // diff engine, COWs it in (`branch_ctx_->CowEdge`) and redirects `impl_` to point at the copy.
-  // Idempotent (CowEdge itself is), so a no-op the second time a given EdgeAccessor value is
-  // mutated. Throws QueryRuntimeException on an unsupported (Enum) property -- see
-  // BranchContext::CowError. Only ever called when branch_ctx_ != nullptr (every mutator call site
-  // already checks).
-  void CowEdgeIfNeeded();
+  // Branch-mode mutators (edge_accessor.cpp); only reached when branch_ctx_ != nullptr.
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
 };
 
 }  // namespace memgraph::query

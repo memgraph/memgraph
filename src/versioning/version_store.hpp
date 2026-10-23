@@ -76,20 +76,9 @@ struct BranchInfo {
 // grammar/AST layer (chunk 1); full end-to-end validation (gate checks, privileges, etc.) is
 // chunk 7. Callers MUST run those checks before invoking CreateBranch/DropBranch here.
 //
-// Restart note: this class's OWN ctor (below) never re-registers a loaded branch against the GC
-// fork pin -- VersionStore is deliberately storage-engine-agnostic (see the class comment above)
-// and never calls `acquire_pin_` on load, only on a fresh CreateBranch. The pin itself IS
-// re-seeded across a restart, just from a different call site: `dbms::Database`'s ctor
-// (database.cpp) pre-reads this same versioning/ directory BEFORE constructing storage, and
-// threads every persisted branch's fork_ts into `storage::Config::Durability::
-// recover_fork_timestamps` (a multiset -- one entry per branch, preserving fork_ts multiplicity
-// for branches that share a fork point); `InMemoryStorage`'s recovery ctor sequence then calls
-// `AddForkPinAt` once per entry (storage.cpp) -- gated only on `recover_oldest_fork_ts`, NOT on
-// `recover_on_startup`, so DROP/MERGE release always finds a pin regardless of whether WAL replay
-// ran -- BEFORE `gc_runner_` starts, so by the time THIS class's ctor runs (constructed after storage_, see
-// dbms::Database::Database), every branch it loads already has a live, correctly-multiplied pin
-// backing its fork_ts. See `recover_fork_timestamps`'s doc-comment (config.hpp) for why this must
-// be a multiset, not a set.
+// Restart note: this class's ctor never re-registers a loaded branch against the GC fork pin. Branches are
+// ephemeral, so `dbms::Database`'s ctor (database.cpp) deletes the whole versioning/ directory before storage and this
+// store are constructed, and no fork pin is ever seeded across a restart.
 //
 // Numbering note: the never-reused branch-number counter is persisted independently of any single
 // branch's record (reserved kvstore key ".next_number", see version_store.cpp) precisely because

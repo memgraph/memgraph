@@ -863,9 +863,12 @@ class DbAccessor final {
   //       branch_engine.cpp, always populates it once a branch exists), and
   //   (b) `hist_stream` -- main@fork's edge-type+property index as of the fork timestamp, via
   //       `historical()`; a main-stream candidate is skipped if the branch deleted it, OR if the
-  //       diff engine already holds that gid (`FindDiffEdge(g, View::NEW)` -- a COW): the diff
-  //       stream in (a) already represents that gid at its authoritative/new value (diff wins on
-  //       overlap).
+  //       branch's edge stub for that gid changed `property` (`StubEdgeTouches`): the stub's own value is
+  //       then the authoritative one and (a) carries it when it matches the scan. A stub that left
+  //       `property` alone does not shadow the fork candidate, whose fork value is still current.
+  // Diff-engine candidates in (a) are branch-native edges and edge stubs that SET `property`; a stub's
+  // own value is the reconstructed one, and a stub hidden by a delete (an endpoint, or its edge listed
+  // as deleted) is dropped.
   // `storage::EdgesIterable` is move-only (see edges_iterable.hpp) so both streams are taken BY VALUE
   // -- callers pass the storage scan's return value directly (a prvalue), which guaranteed copy
   // elision (C++17) direct-initializes these parameters with no copy/move call at all.
@@ -888,30 +891,32 @@ class DbAccessor final {
     auto hist_end = hist_stream.end();
 
     // Advances past diff-engine candidates until the next keyed one (or the stream is exhausted).
-    // Diff-engine candidates are never delete/COW-skipped -- MVCC already hides their deletes; the diff engine IS the
-    // branch's own authoritative state -- only a defensively-missing property excludes one, exactly as the original
-    // `for` loop's `continue` did.
+    // Only an edge stub can be hidden by a delete the diff engine's own MVCC does not show (a deleted
+    // endpoint, or the fork edge listed as deleted); a defensively-missing property also excludes one.
     auto advance_diff = [&]() -> std::optional<KeyedEdge> {
       while (diff_it != diff_end) {
         EdgeAccessor e(*diff_it, branch_ctx_);
         ++diff_it;
-        auto prop_res = e.GetProperty(view, property);
+        if (branch_ctx_->IsEdgeStub(e.impl_) && branch_ctx_->IsForkEdgeHidden(e.impl_, view)) continue;
+        auto prop_res = e.impl_.GetProperty(property, view);
         if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
         return std::make_optional<KeyedEdge>(std::move(*prop_res), e);
       }
       return std::nullopt;
     };
 
-    // Advances past main@fork candidates until the next one that survives the delete/COW skip
-    // (diff wins on any overlap) AND is keyed -- unchanged predicate/semantics from the original loop.
+    // Advances past main@fork candidates until the next one that survives the delete skip and whose
+    // property the branch's stub (if any) did not change, AND is keyed.
     auto advance_hist = [&]() -> std::optional<KeyedEdge> {
       while (hist_it != hist_end) {
         EdgeAccessor mc(*hist_it, branch_ctx_);
         ++hist_it;
-        auto const g = mc.Gid();
         if (branch_ctx_->IsForkEdgeHidden(mc.impl_, view)) continue;
-        if (branch_ctx_->FindDiffEdge(g, storage::View::NEW).has_value()) continue;
-        auto prop_res = mc.GetProperty(storage::View::OLD, property);
+        if (mc.impl_.MaybeBranchedHint()) {
+          auto stub = branch_ctx_->FindDiffEdge(mc.Gid(), mc.impl_.from_vertex_->gid, view);
+          if (stub && branch_ctx_->StubEdgeTouches(*stub, property, view)) continue;
+        }
+        auto prop_res = mc.impl_.GetProperty(property, storage::View::OLD);
         if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
         return std::make_optional<KeyedEdge>(std::move(*prop_res), mc);
       }
@@ -1116,7 +1121,9 @@ class DbAccessor final {
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
       if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) {
-        return EdgeAccessor(*diff_edge, branch_ctx_);
+        if (!branch_ctx_->IsEdgeStub(*diff_edge) || !branch_ctx_->IsForkEdgeHidden(*diff_edge, view)) {
+          return EdgeAccessor(*diff_edge, branch_ctx_);
+        }
       }
       for (auto raw_v : branch_ctx_->Vertices(view)) {
         VertexAccessor v(raw_v, branch_ctx_);
@@ -1472,8 +1479,8 @@ class DbAccessor final {
   //       unreachable in practice, since edge-type indexes are covered by the same global schema
   //       gate as everything else Part A mirrors, but defense-in-depth against a mid-flight drop).
   // A main-stream candidate is skipped if the branch deleted it (listed on its endpoint stubs, or an endpoint
-  // vertex is deleted), OR if the diff engine already holds that gid (`FindDiffEdge(g, View::NEW)` -- a COW): the diff
-  // stream in (a) already represents that gid, so counting it again from (b) would double-count it.
+  // vertex is deleted). An edge stub never changes type or endpoints and is not in the diff edge-type index, so the
+  // fork candidate is the one and only entry for it.
   // Requires properties_on_edges=true (which the --storage-light-edge feature also satisfies, so
   // light edges are fully supported): an edge-type index cannot exist when properties_on_edges=false
   // (reference-only edges), so this path is only ever reached when Part A actually mirrored one.
@@ -1489,18 +1496,15 @@ class DbAccessor final {
 
       auto result = std::make_shared<std::vector<EdgeAccessor>>();
 
-      // (a) Diff stream: the diff engine's own (branch-native + COW'd) edge-type index scan.
+      // (a) Diff stream: the diff engine's own (branch-native) edge-type index scan.
       for (auto raw : accessor_->Edges(edge_type, view)) {
         result->push_back(EdgeAccessor(raw, branch_ctx_));
       }
 
-      // (b) Main@fork stream, gated by the delete/COW skip -- diff wins on any overlap.
+      // (b) Main@fork stream, gated by the delete skip.
       for (auto raw : historical.Edges(edge_type, storage::View::OLD)) {
-        EdgeAccessor mc(raw, branch_ctx_);
-        auto const g = mc.Gid();
         if (branch_ctx_->IsForkEdgeHidden(raw, view)) continue;
-        if (branch_ctx_->FindDiffEdge(g, storage::View::NEW).has_value()) continue;
-        result->push_back(mc);
+        result->push_back(EdgeAccessor(raw, branch_ctx_));
       }
 
       // No sort: edge-type indexes carry no property order, so gid/unspecified order matches

@@ -38,6 +38,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -4968,4 +4969,184 @@ TEST_F(VersioningMultiSessionTest, IdleBranchSessionDoesNotBlockMainDdl) {
 
   // The branch still works, unaffected by main's new index.
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}}));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Edge stubs: a fork edge whose properties change gets an empty, delta-less diff-engine edge holding only what
+// changed (plus the `__mg_removed` list); reads overlay it on the fork edge.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+// Keys of `properties(r)` for the single edge `query` matches.
+std::set<std::string> EdgePropertyKeys(InterpreterFaker &session, const std::string &query) {
+  auto stream = session.Interpret(query);
+  std::set<std::string> keys;
+  if (stream.GetResults().size() != 1U) return {"<not one row>"};
+  for (const auto &[key, _] : stream.GetResults()[0][0].ValueMap()) keys.insert(key);
+  return keys;
+}
+}  // namespace
+
+// (a) SET on a fork edge is visible on the branch from both ends and in whole-property reads, leaves the edge's other
+// properties intact, never shows a marker, and does not touch main.
+TEST_F(VersioningInterpreterTest, BranchForkEdgeSetPropertyIsVisibleBothWaysAndIsolated) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:7}]->(:B {id:2})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:A)-[r:R]->(:B) SET r.w = 2");
+
+  EXPECT_EQ(IntRows(faker, "MATCH (:A)-[r:R]->(:B) RETURN r.w, r.x"), (Rows{{2, 7}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:B)<-[r:R]-(:A) RETURN r.w, r.x"), (Rows{{2, 7}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{2, 7}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}})) << "the stub is not a second edge";
+  EXPECT_EQ(IntRows(faker, "MATCH (:A)-[r]->() RETURN count(r)"), (Rows{{1}}));
+  EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R]->() RETURN properties(r)"), (std::set<std::string>{"w", "x"}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 7}})) << "main must be untouched";
+}
+
+// (b) REMOVE r.p, SET r.p = null, SET r = {...} and SET r += {...} on a fork edge: removed fork properties stay gone
+// (a marker on the stub), re-setting one brings it back, and the marker is never visible.
+TEST_F(VersioningInterpreterTest, BranchForkEdgeRemoveAndReplacePropertiesOverlayCorrectly) {
+  SatisfyGate();
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R1 {w:1, x:7}]->(:B {id:2}), (:A {id:3})-[:R2 {w:1, x:7}]->(:B {id:4}), "
+      "(:A {id:5})-[:R3 {w:1, x:7}]->(:B {id:6})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH ()-[r:R1]->() REMOVE r.w");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R1]->() RETURN r.w, r.x"), (Rows{{kNullInt, 7}}));
+  EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R1]->() RETURN properties(r)"), (std::set<std::string>{"x"}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R1]->() RETURN r.__mg_removed"), (Rows{{kNullInt}})) << "markers never show";
+
+  faker.Interpret("MATCH ()-[r:R2]->() SET r = {x: 1}");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R2]->() RETURN r.w, r.x"), (Rows{{kNullInt, 1}}));
+  EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R2]->() RETURN properties(r)"), (std::set<std::string>{"x"}));
+
+  faker.Interpret("MATCH ()-[r:R3]->() SET r.w = null");
+  faker.Interpret("MATCH ()-[r:R3]->() SET r += {y: 5}");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R3]->() RETURN r.w, r.x, r.y"), (Rows{{kNullInt, 7, 5}}));
+  faker.Interpret("MATCH ()-[r:R3]->() SET r.w = 9");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R3]->() RETURN r.w, r.x, r.y"), (Rows{{9, 7, 5}}));
+  EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R3]->() RETURN properties(r)"), (std::set<std::string>{"w", "x", "y"}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() RETURN r.w, r.x ORDER BY type(r)"), (Rows{{1, 7}, {1, 7}, {1, 7}}));
+}
+
+// (c) A rolled-back write to a fork edge must not wedge it: the retried write succeeds (the v1 full-copy edge left a
+// rolled-back deleted object behind that every later COW of the same gid tripped over).
+TEST_F(VersioningInterpreterTest, BranchForkEdgeWriteAfterRollbackSucceeds) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:A)-[:R {w:1}]->(:B)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH ()-[r:R]->() SET r.w = 2");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w"), (Rows{{2}}));
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w"), (Rows{{1}}));
+
+  EXPECT_NO_THROW(faker.Interpret("MATCH ()-[r:R]->() SET r.w = 3"));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w"), (Rows{{3}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}}));
+}
+
+// (d) Two sessions writing different properties of the same fork edge in overlapping transactions conflict exactly
+// as they do on main, whether the stub already exists or is first created by the race, and nothing crashes.
+TEST_F(VersioningMultiSessionTest, OverlappingWritesToTheSameForkEdgeConflictLikeMain) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:2}]->(:B {id:2})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker2.Interpret("CHECKOUT BRANCH 'b'");
+
+  const std::string a_write = "MATCH ()-[r:R]->() SET r.w = 10";
+  const std::string b_write = "MATCH ()-[r:R]->() SET r.x = 20";
+
+  const auto first_touch_outcome = OverlappingWriteOutcome(faker, faker2, a_write, b_write);
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 2}})) << "both were rolled back";
+
+  faker.Interpret("MATCH ()-[r:R]->() SET r.y = 0");  // stub now exists, committed
+  const auto stubbed_outcome = OverlappingWriteOutcome(faker, faker2, a_write, b_write);
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  const auto main_outcome = OverlappingWriteOutcome(faker, faker2, a_write, b_write);
+
+  EXPECT_NE(main_outcome.find("TransactionSerializationException"), std::string::npos)
+      << "sanity: main raises a serialization error for this interleaving, got '" << main_outcome << "'";
+  EXPECT_EQ(first_touch_outcome, main_outcome);
+  EXPECT_EQ(stubbed_outcome, main_outcome);
+
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 2}}));
+  EXPECT_NO_THROW(faker2.Interpret("CHECKOUT BRANCH 'b'"));
+  EXPECT_NO_THROW(faker2.Interpret("MATCH ()-[r:R]->() SET r.x = 21"));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 21}}));
+}
+
+// (e) Deleting a stub-backed fork edge removes it everywhere on the branch (both directions, scans, index scans) and
+// leaves main alone; DETACH DELETE of an endpoint hides a stubbed incident edge the same way.
+TEST_F(VersioningInterpreterTest, BranchDeleteStubBackedForkEdgeIsGoneEverywhere) {
+  SatisfyGate();
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:1}]->(:B {id:2}), (:A {id:3})-[:R {w:5}]->(:B {id:4}), "
+      "(:A {id:5})-[:R {w:6}]->(:B {id:6})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:A {id:1})-[r:R]->() SET r.w = 2");
+  faker.Interpret("MATCH (:A {id:1})-[r:R]->() DELETE r");
+  EXPECT_EQ(IntRows(faker, "MATCH (:A {id:1})-[r]->() RETURN count(r)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:B {id:2})<-[r]-() RETURN count(r)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{2}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{5}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{0}}));
+
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 8");
+  faker.Interpret("MATCH (a:A {id:3}) DETACH DELETE a");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 8 RETURN count(r)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:B {id:4})<-[r]-() RETURN count(r)"), (Rows{{0}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w ORDER BY r.w"), (Rows{{1}, {5}, {6}}));
+}
+
+// (f) Edge-type+property and global edge-property index scans on a branch see a stubbed fork edge at its branch value
+// only: the old value is gone, the new one is found, an unrelated property write keeps the fork value findable.
+TEST_F(VersioningInterpreterTest, BranchEdgePropertyIndexScansOverlayForkEdgeStubs) {
+  SatisfyGate();
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:1}]->(:B {id:2}), (:A {id:3})-[:R {w:5}]->(:B {id:4}), "
+      "(:A {id:5})-[:R {w:7}]->(:B {id:6}), (:A {id:7})-[:Q {w:3}]->(:B {id:8})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:A {id:1})-[r:R]->() SET r.w = 9");  // value changed
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.x = 1");  // other property only
+  faker.Interpret("MATCH (:A {id:5})-[r:R]->() REMOVE r.w");   // value removed
+  faker.Interpret("MATCH (:A {id:7})-[r:Q]->() SET r.w = 2");  // other type, global index only
+
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 1 RETURN count(r)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 9 RETURN count(r)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 5 RETURN count(r)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 7 RETURN count(r)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{5}, {9}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 5 AND r.w < 9 RETURN r.w"), (Rows{{5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{3}})) << "the type scan lists each edge once";
+
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w"), (Rows{{2}, {5}, {9}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{1}}));
 }

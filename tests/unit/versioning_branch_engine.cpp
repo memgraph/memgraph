@@ -686,4 +686,95 @@ TEST_F(VersioningBranchEngineTest, DeletedVertexSurvivesCommit) {
   EXPECT_EQ(scanned, std::vector<ms::Gid>{b_gid}) << "the union scan must skip the deleted fork vertex";
 }
 
+// CowEdge materializes an EMPTY, delta-less stub (no fork property is copied), linked between the endpoint stubs. It
+// is idempotent, adds no second edge to the branch's adjacency (the fork edge is what ResolveEdges emits), and a
+// rolled-back write to it leaves the stub in place so the next write just reuses it.
+TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollbackAndIsIdempotent) {
+  const auto prop_w = storage_->NameToProperty("w");
+  const auto prop_x = storage_->NameToProperty("x");
+  const auto edge_type = storage_->NameToEdgeType("E");
+  ms::Gid s_gid, a_gid, edge_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto s = acc->CreateVertex();
+    s_gid = s.Gid();
+    auto a = acc->CreateVertex();
+    a_gid = a.Gid();
+    auto edge = acc->CreateEdge(&s, &a, edge_type);
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(edge->SetProperty(prop_w, ms::PropertyValue(1)).has_value());
+    ASSERT_TRUE(edge->SetProperty(prop_x, ms::PropertyValue(2)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const auto fork_ts = ForkNow();
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  ASSERT_TRUE(result.has_value());
+  branch_context_ = std::move(*result);
+
+  auto fork_edge_of = [&]() {
+    auto hist_s = branch_context_->historical().FindVertex(s_gid, ms::View::OLD);
+    EXPECT_TRUE(hist_s.has_value());
+    auto out = hist_s->OutEdges(ms::View::OLD);
+    EXPECT_TRUE(out.has_value());
+    EXPECT_EQ(out->edges.size(), 1u);
+    return out->edges[0];
+  };
+
+  // A write that rolls back.
+  {
+    auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
+    Begin(diff_acc.get());
+    auto stub = branch_context_->CowEdge(fork_edge_of());
+    ASSERT_TRUE(stub.has_value());
+    EXPECT_EQ(stub->Gid(), edge_gid);
+    auto props = stub->Properties(ms::View::NEW);
+    ASSERT_TRUE(props.has_value());
+    EXPECT_TRUE(props->empty()) << "a stub copies no fork property";
+    ASSERT_TRUE(stub->SetProperty(prop_w, ms::PropertyValue(2)).has_value());
+
+    auto again = branch_context_->CowEdge(fork_edge_of());
+    ASSERT_TRUE(again.has_value()) << "CowEdge is idempotent";
+    EXPECT_EQ(again->edge_.ptr, stub->edge_.ptr);
+    diff_acc->Abort();
+  }
+
+  // The stub is still there, still empty, and writable again.
+  {
+    auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
+    Begin(diff_acc.get());
+    auto found = branch_context_->FindDiffEdge(edge_gid, ms::View::NEW);
+    ASSERT_TRUE(found.has_value()) << "a rolled-back write must not take the stub with it";
+    EXPECT_TRUE(found->Properties(ms::View::NEW)->empty());
+    auto stub = branch_context_->CowEdge(fork_edge_of());
+    ASSERT_TRUE(stub.has_value());
+    ASSERT_TRUE(stub->SetProperty(prop_w, ms::PropertyValue(3)).has_value());
+
+    // Fork identity wins in adjacency: exactly one edge, the historical one; the stub is not emitted.
+    auto resolved = branch_context_->ResolveEdges(s_gid, ms::EdgeDirection::OUT, ms::View::NEW, {});
+    ASSERT_EQ(resolved.size(), 1u);
+    EXPECT_NE(resolved[0].storage_, &branch_context_->diff_engine());
+    auto resolved_in = branch_context_->ResolveEdges(a_gid, ms::EdgeDirection::IN, ms::View::NEW, {});
+    ASSERT_EQ(resolved_in.size(), 1u);
+    EXPECT_NE(resolved_in[0].storage_, &branch_context_->diff_engine());
+
+    EXPECT_TRUE(branch_context_->StubEdgeTouches(*stub, prop_w, ms::View::NEW));
+    EXPECT_FALSE(branch_context_->StubEdgeTouches(*stub, prop_x, ms::View::NEW));
+    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Both fork identity and the stub resolve the same fork edge.
+  auto read_acc = branch_context_->diff_engine().Access(ms::READ);
+  Begin(read_acc.get());
+  auto stub = branch_context_->FindDiffEdge(edge_gid, ms::View::NEW);
+  ASSERT_TRUE(stub.has_value());
+  EXPECT_TRUE(branch_context_->IsEdgeStub(*stub));
+  auto fork = branch_context_->FindForkEdge(*stub);
+  ASSERT_TRUE(fork.has_value());
+  EXPECT_EQ(fork->Gid(), edge_gid);
+  EXPECT_EQ(*fork->GetProperty(prop_w, ms::View::OLD), ms::PropertyValue(1));
+  EXPECT_EQ(*stub->GetProperty(prop_w, ms::View::NEW), ms::PropertyValue(3));
+}
+
 }  // namespace

@@ -19,6 +19,7 @@
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/stub_properties.hpp"
 
 namespace memgraph::query {
 
@@ -34,17 +35,6 @@ using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 // (gid >= 2^62) are complete and never merged.
 bool IsStub(versioning::BranchContext &ctx, const storage::VertexAccessor &impl) {
   return impl.storage_ == &ctx.diff_engine() && ctx.IsForkGid(impl.Gid());
-}
-
-// Removed pids encoded in a stub's Properties() snapshot; the marker entries are erased so they never leak.
-std::vector<storage::PropertyId> TakeRemoved(versioning::BranchContext &ctx, PropertyMap &stub_props) {
-  stub_props.erase(ctx.DeletedEdgesKey());
-  std::vector<storage::PropertyId> removed;
-  auto it = stub_props.find(ctx.RemovedPropsKey());
-  if (it == stub_props.end()) return removed;
-  versioning::ForEachRemovedPid(it->second, [&](storage::PropertyId pid) { removed.push_back(pid); });
-  stub_props.erase(it);
-  return removed;
 }
 
 storage::Result<storage::VertexKey> MergedLabels(versioning::BranchContext &ctx, const storage::VertexAccessor &stub,
@@ -170,54 +160,6 @@ void RejectReservedProperties(versioning::BranchContext &ctx, const PropertyMap 
   for (const auto &[pid, _] : properties) {
     if (ctx.IsReservedProperty(pid)) ThrowReserved("property");
   }
-}
-
-storage::Result<std::vector<storage::PropertyId>> ReadRemoved(versioning::BranchContext &ctx,
-                                                              const storage::VertexAccessor &stub) {
-  auto value = stub.GetProperty(ctx.RemovedPropsKey(), storage::View::NEW);
-  if (!value) return std::unexpected{value.error()};
-  std::vector<storage::PropertyId> removed;
-  versioning::ForEachRemovedPid(*value, [&](storage::PropertyId pid) { removed.push_back(pid); });
-  return removed;
-}
-
-storage::Result<bool> WriteRemoved(versioning::BranchContext &ctx, storage::VertexAccessor &stub,
-                                   const std::vector<storage::PropertyId> &removed) {
-  storage::PropertyValue value;
-  if (!removed.empty()) {
-    storage::PropertyValue::list_t list;
-    list.reserve(removed.size());
-    for (auto const pid : removed) list.emplace_back(static_cast<int64_t>(pid.AsInt()));
-    value = storage::PropertyValue{std::move(list)};
-  }
-  auto set = stub.SetProperty(ctx.RemovedPropsKey(), value);
-  if (!set) return std::unexpected{set.error()};
-  return true;
-}
-
-// Applies `changes` (Null value = remove) to the stub: values land on the stub, and removing a
-// property the fork vertex has is recorded in the removed-ids list (re-setting a value drops it from
-// the list again). `removed` is the stub's current list; written back once, only if it changed.
-template <typename ForkHas>
-storage::Result<bool> ApplyPropertyChanges(versioning::BranchContext &ctx, storage::VertexAccessor &stub,
-                                           std::vector<storage::PropertyId> removed, const PropertyMap &changes,
-                                           ForkHas &&fork_has) {
-  bool dirty = false;
-  for (const auto &[pid, value] : changes) {
-    auto set = stub.SetProperty(pid, value);
-    if (!set) return std::unexpected{set.error()};
-    auto it = std::ranges::find(removed, pid);
-    if (value.IsNull()) {
-      if (it == removed.end() && fork_has(pid)) {
-        removed.push_back(pid);
-        dirty = true;
-      }
-    } else if (it != removed.end()) {
-      removed.erase(it);
-      dirty = true;
-    }
-  }
-  return dirty ? WriteRemoved(ctx, stub, removed) : storage::Result<bool>{true};
 }
 
 }  // namespace
