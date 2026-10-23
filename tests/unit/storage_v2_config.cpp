@@ -45,6 +45,40 @@ TEST(StorageV2Config, RoundTrip) {
   EXPECT_EQ(result, items) << "the JSON round-trip must preserve every Items field";
 }
 
+TEST(StorageV2Config, SalientConfigRoundTrip) {
+  // A full SalientConfig round-trip: the four top-level fields (name, uuid, storage_mode,
+  // property_store_compression_level) as well as every Items field. The pre-fix hand-written pair
+  // emitted its initializer list as a JSON array (the top-level keys never became object members) and
+  // omitted delta_on_identical_property_update, so this test fails on the pre-fix tree.
+  SalientConfig config;
+  config.name = "tenant";
+  config.uuid = memgraph::utils::UUID{};
+  config.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  config.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  config.items.properties_on_edges = false;
+  config.items.enable_edges_metadata = true;
+  config.items.enable_schema_metadata = true;
+  config.items.enable_schema_info = true;
+  config.items.enable_label_index_auto_creation = true;
+  config.items.enable_edge_type_index_auto_creation = true;
+  config.items.storage_light_edge = true;
+  config.items.delta_on_identical_property_update = false;
+  config.items.property_store_compression_enabled = true;
+
+  nlohmann::json j;
+  to_json(j, config);
+  ASSERT_TRUE(j.is_object()) << "the SalientConfig JSON pair must emit an object of the 13 fields";
+
+  for (auto const *key : {"name", "uuid", "storage_mode", "property_store_compression_level"}) {
+    EXPECT_TRUE(j.contains(key)) << "the SalientConfig JSON object must carry the top-level field " << key;
+  }
+
+  SalientConfig result{};
+  from_json(j, result);
+
+  EXPECT_EQ(result, config) << "the JSON round-trip must preserve every SalientConfig field";
+}
+
 TEST(StorageV2Config, BackCompatMissingKey) {
   SalientConfig::Items items{};
 

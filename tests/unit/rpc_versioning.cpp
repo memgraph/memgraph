@@ -12,6 +12,7 @@
 #include "gtest/gtest.h"
 
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -882,10 +883,136 @@ TEST(RpcVersioning, SlkSalientConfig_FullFieldRoundTrip) {
       << "the replicated CreateDatabaseReq must carry every SalientConfig field, not drop them to struct defaults";
 }
 
-// The SalientConfig payload grew from five fields to the complete set, so the carrier must say so:
-// a peer that still parses the old five-field layout would otherwise misread the larger payload.
-TEST(RpcVersioning, CreateDatabaseReq_IsVersionedForTheCompleteConfig) {
-  EXPECT_EQ(memgraph::storage::replication::CreateDatabaseReq::kVersion, 2U);
+namespace {
+// Write a SalientConfig in the pre-fix five-field SLK layout (the frozen slk::Save(SalientConfig) pair):
+// name, uuid, storage_mode, items.properties_on_edges, items.enable_schema_metadata. Built here from the
+// public slk primitives so an upgrade test can forge a genuine old-sender payload; the receive-side old
+// carrier struct itself is not needed.
+void SaveSalientConfigV1Wire(memgraph::storage::SalientConfig const &config, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(*config.name.str_view(), builder);
+  memgraph::slk::Save(config.uuid, builder);
+  memgraph::slk::Save(std::to_underlying(config.storage_mode), builder);
+  memgraph::slk::Save(config.items.properties_on_edges, builder);
+  memgraph::slk::Save(config.items.enable_schema_metadata, builder);
+}
+}  // namespace
+
+// A4: CreateDatabaseReq V1->V2 upgrade. A pre-fix MAIN sends a V1 request (five-field SalientConfig); the
+// V2 receiver's LoadWithUpgrade dispatches it through Upgrade(V1), keeping the five fields it did carry
+// and defaulting the eight it did not (pre-fix behavior) — property_store_compression_level among them.
+TEST(RpcVersioning, CreateDatabaseReq_V1UpgradeDefaults) {
+  memgraph::storage::SalientConfig v1_sender;
+  v1_sender.name = "tenant";
+  v1_sender.uuid = memgraph::utils::UUID{};
+  v1_sender.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  v1_sender.items.properties_on_edges = false;
+  v1_sender.items.enable_schema_metadata = true;
+
+  memgraph::utils::UUID const main_uuid{};
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  memgraph::slk::Save(main_uuid, &builder);
+  memgraph::slk::Save(uint64_t{7}, &builder);
+  memgraph::slk::Save(uint64_t{9}, &builder);
+  SaveSalientConfigV1Wire(v1_sender, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::storage::replication::CreateDatabaseReq loaded;
+  memgraph::rpc::LoadWithUpgrade(loaded, 1, &reader);
+
+  memgraph::storage::SalientConfig expected{};
+  expected.name = "tenant";
+  expected.uuid = v1_sender.uuid;
+  expected.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  expected.items.properties_on_edges = false;
+  expected.items.enable_schema_metadata = true;
+
+  EXPECT_EQ(loaded.main_uuid, main_uuid);
+  EXPECT_EQ(loaded.expected_group_timestamp, 7U);
+  EXPECT_EQ(loaded.new_group_timestamp, 9U);
+  EXPECT_EQ(loaded.config, expected) << "upgrading V1 must keep the five carried fields and default the rest";
+  EXPECT_EQ(loaded.config.property_store_compression_level, memgraph::utils::CompressionLevel::MID)
+      << "property_store_compression_level was never on the V1 wire, so it must keep its struct default";
+  EXPECT_FALSE(loaded.config.items.enable_schema_info)
+      << "enable_schema_info was never on the V1 wire, so it must keep its struct default";
+}
+
+// A4: SystemRecoveryReq V3->V4 upgrade. A V3 MAIN sends the pre-V4 layout (five-field SalientConfig inside
+// database_configs and cold_databases); the V4 receiver's LoadWithUpgrade dispatches it through Upgrade(V3),
+// carrying cold_databases through unchanged and defaulting the fields V3 never carried.
+TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
+  memgraph::storage::SalientConfig hot;
+  hot.name = "hot_tenant";
+  hot.uuid = memgraph::utils::UUID{};
+  hot.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  hot.items.properties_on_edges = false;
+  hot.items.enable_schema_metadata = true;
+
+  memgraph::storage::ColdTenantRecovery cold{};
+  cold.salient.name = "cold_tenant";
+  cold.salient.uuid = memgraph::utils::UUID{};
+  cold.salient.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  cold.salient.items.properties_on_edges = false;
+  cold.salient.items.enable_schema_metadata = true;
+  cold.stats.vertex_count = 11;
+  cold.stats.edge_count = 22;
+  cold.stats.average_degree = 2.0;
+  cold.stats.memory_res = 33;
+  cold.stats.storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  cold.stats.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
+  cold.stats.durability_wal_enabled = true;
+  cold.stats.schema_vertex_count = 44;
+
+  std::vector<memgraph::storage::SalientConfig> const configs{hot};
+  std::vector<memgraph::storage::ColdTenantRecovery> const cold_set{cold};
+  std::vector<memgraph::auth::User> const no_users{};
+  std::vector<memgraph::auth::Role> const no_roles{};
+  std::vector<memgraph::auth::UserProfiles::Profile> const no_profiles{};
+
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  memgraph::slk::Save(memgraph::utils::UUID{}, &builder);
+  memgraph::slk::Save(uint64_t{0}, &builder);
+  memgraph::slk::Save(configs, &builder);
+  memgraph::slk::Save(memgraph::auth::Auth::Config{}, &builder);
+  memgraph::slk::Save(no_users, &builder);
+  memgraph::slk::Save(no_roles, &builder);
+  memgraph::slk::Save(no_profiles, &builder);
+  memgraph::slk::Save(uint64_t{0}, &builder);  // empty parameters vector, encoded as its size
+  memgraph::slk::Save(cold_set, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::SystemRecoveryReq loaded;
+  memgraph::rpc::LoadWithUpgrade(loaded, 3, &reader);
+
+  ASSERT_EQ(loaded.database_configs.size(), 1U);
+  EXPECT_EQ(loaded.database_configs[0], hot)
+      << "upgrading V3 must keep the five carried fields and default the fields V3 never carried";
+  ASSERT_EQ(loaded.cold_databases.size(), 1U);
+  EXPECT_EQ(loaded.cold_databases[0].salient, cold.salient);
+  EXPECT_EQ(loaded.cold_databases[0].stats, cold.stats) << "the cold set must survive the V3->V4 upgrade";
+}
+
+// A4: new-sender/old-receiver refusal. The complete-config payloads grow the positional wire, so the two
+// carriers are version-bumped (CreateDatabaseReq 1->2, SystemRecoveryReq 3->4) and a receiver that only
+// knows the pre-fix version refuses a request at the sender's version — LoadWithUpgrade finds no upgrade
+// path and throws — rather than parsing the larger payload at the old layout.
+TEST(RpcVersioning, SalientConfigCarriers_NewSenderOldReceiverRefused) {
+  EXPECT_EQ(memgraph::storage::replication::CreateDatabaseReq::kVersion, 2U)
+      << "the complete-SalientConfig CreateDatabaseReq must be version 2";
+  EXPECT_EQ(memgraph::replication::SystemRecoveryReq::kVersion, 4U)
+      << "the complete-SalientConfig SystemRecoveryReq must be version 4";
+
+  // A pre-fix receiver knows only SystemRecoveryReq V1 (kVersion 1, no Upgrade). A V2 request has no
+  // upgrade path into it, so it must be refused instead of misread.
+  memgraph::replication::SystemRecoveryReqV1 old_receiver;
+  std::vector<uint8_t> const empty;
+  memgraph::slk::Reader reader(empty.data(), empty.size());
+  EXPECT_THROW(memgraph::rpc::LoadWithUpgrade(old_receiver, 2, &reader), std::runtime_error);
 }
 
 #endif  // MG_ENTERPRISE
