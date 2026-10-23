@@ -31,6 +31,24 @@ in_memory_1024_MiB_limit_cluster: &in_memory_1024_MiB_limit_cluster
       setup_queries: []
       validation_queries: []
 
+args_auto_index: &args_auto_index
+  - "--bolt-port"
+  - *bolt_port
+  - "--memory-limit=1024"
+  - "--storage-gc-cycle-sec=180"
+  - "--log-level=TRACE"
+  - "--also-log-to-stderr"
+  - "--storage-automatic-label-index-creation-enabled=true"
+  - "--storage-automatic-edge-type-index-creation-enabled=true"
+
+in_memory_auto_index_cluster: &in_memory_auto_index_cluster
+  cluster:
+    main:
+      args: *args_auto_index
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 disk_cluster: &disk_cluster
   cluster:
     main:
@@ -252,3 +270,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/inlist_cache_memory_limit.py"]
     <<: *in_memory_1024_MiB_limit_cluster
+
+  - name: "Periodic commit under query memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/periodic_commit_memory_limit.py"]
+    <<: *in_memory_auto_index_cluster

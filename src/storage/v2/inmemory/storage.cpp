@@ -1406,46 +1406,53 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 // NOLINTNEXTLINE(google-default-arguments)
 std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
     CommitArgs commit_args) {
-  auto result = PrepareForCommitPhase(std::move(commit_args));
+  // A periodic commit runs inside the query's cursors, where a memory limit can refuse allocations.
+  // A refused allocation after the batch is published (e.g. while its deltas are fast-discarded), or
+  // between finalizing the batch and re-activating the accessor, would leave a half-committed
+  // transaction that the caller then aborts. As with a regular commit, nothing in here is refused;
+  // the memory limit is checked only once the next batch's transaction is active.
+  return utils::AtomicMemoryBlock([&]() -> std::expected<void, StorageManipulationError> {
+    auto result = PrepareForCommitPhase(std::move(commit_args));
 
-  const auto fatal_error = !result && std::visit(
-                                          [](const auto &e) {
-                                            using E = std::remove_cvref_t<decltype(e)>;
-                                            if constexpr (std::is_same_v<E, storage::ReplicationError>) {
-                                              // Replication errors are fatal only if the transaction was aborted
-                                              return !e.transaction_committed;
-                                            }
-                                            return true;  // all other errors are fatal
-                                          },
-                                          result.error());
+    const auto fatal_error = !result && std::visit(
+                                            [](const auto &e) {
+                                              using E = std::remove_cvref_t<decltype(e)>;
+                                              if constexpr (std::is_same_v<E, storage::ReplicationError>) {
+                                                // Replication errors are fatal only if the transaction was aborted
+                                                return !e.transaction_committed;
+                                              }
+                                              return true;  // all other errors are fatal
+                                            },
+                                            result.error());
 
-  if (fatal_error) {
-    // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
-    // The caller's cleanup path will call Abort() which handles is_transaction_active_=false gracefully.
+    if (fatal_error) {
+      // PrepareForCommitPhase aborted the transaction internally (e.g. constraint/serialization error).
+      // The caller's cleanup path will call Abort() which handles is_transaction_active_=false gracefully.
+      return result;
+    }
+
+    FinalizeTransaction();
+
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+    auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
+    transaction_.start_timestamp = new_transaction.start_timestamp;
+    transaction_.transaction_id = new_transaction.transaction_id;
+    // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
+    // start_timestamp, so this is inert to the read path.
+    transaction_.snapshot_ts = new_transaction.snapshot_ts;
+    transaction_.commit_info.reset();
+    // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
+    // the next batch would have every later commit re-enter its vertices into constraints none of
+    // its own writes named, which nothing would then come back to collect.
+    if (transaction_.constraint_verification_info) transaction_.constraint_verification_info->Clear();
+    // Do NOT touch `original_start_timestamp` — it must remain stable per-query
+    // (procedures use it as a cache key across PERIODIC COMMIT).
+
+    is_transaction_active_ = true;
+
     return result;
-  }
-
-  FinalizeTransaction();
-
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-
-  auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
-  transaction_.start_timestamp = new_transaction.start_timestamp;
-  transaction_.transaction_id = new_transaction.transaction_id;
-  // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
-  // start_timestamp, so this is inert to the read path.
-  transaction_.snapshot_ts = new_transaction.snapshot_ts;
-  transaction_.commit_info.reset();
-  // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
-  // the next batch would have every later commit re-enter its vertices into constraints none of
-  // its own writes named, which nothing would then come back to collect.
-  if (transaction_.constraint_verification_info) transaction_.constraint_verification_info->Clear();
-  // Do NOT touch `original_start_timestamp` — it must remain stable per-query
-  // (procedures use it as a cache key across PERIODIC COMMIT).
-
-  is_transaction_active_ = true;
-
-  return result;
+  });
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
