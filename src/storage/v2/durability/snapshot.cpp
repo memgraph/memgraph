@@ -1440,7 +1440,7 @@ struct LightEdgeLoader {
     if (use_light_edges) {
       // absl maps are left inconsistent if an allocation is refused mid-growth, and FreeAll()
       // iterates them on failure. Grow without refusal; the limit is checked afterwards.
-      utils::AtomicMemoryBlock([&] { all_edges.reserve(total_edges); });
+      utils::AtomicMemoryBlock([this, total_edges] { all_edges.reserve(total_edges); });
       per_batch.resize(edge_batches.size());
       RecoverOnMultipleThreads(
           thread_count,
@@ -1460,7 +1460,7 @@ struct LightEdgeLoader {
           edge_batches);
       // Merge per-batch maps into all_edges (already reserved). After this loop
       // every per_batch[i] is empty, so FreeAll() won't double-free.
-      utils::AtomicMemoryBlock([&] {
+      utils::AtomicMemoryBlock([this] {
         for (auto &m : per_batch) {
           all_edges.merge(m);
           // If m is non-empty after merge, a GID appeared in two batches — corrupt snapshot.
@@ -1548,7 +1548,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             // in light_edge_map, so light_cleanup would miss it. Free it here rather than leak it.
             // The emplace runs without OOM refusal (a refused rehash leaves the map inconsistent
             // for light_cleanup); the memory limit is checked once the edge is tracked.
-            utils::AtomicMemoryBlock([&] {
+            utils::AtomicMemoryBlock([&light_edge_map, &gid, edge_ptr] {
               try {
                 light_edge_map.emplace(*gid, edge_ptr);
               } catch (...) {
