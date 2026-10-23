@@ -467,6 +467,20 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
                                          " y RETURN count(*) AS c");
     EXPECT_EQ(refs.GetResults().at(0)[0].ValueInt(), o == "=" ? 10 : 27);
   }
+
+  // Type names in errors match the eager list, not an internal "vector".
+  for (const auto &[query, expected] :
+       {std::pair<const char *, const char *>{"MATCH (n:Doc) RETURN CASE WHEN n.emb THEN 1 ELSE 0 END", "got list"},
+        {"MATCH (n:Doc) RETURN n.emb - 1", "list and int"}}) {
+    SCOPED_TRACE(query);
+    try {
+      env.faker.Interpret(query);
+      ADD_FAILURE() << "expected a type error";
+    } catch (const memgraph::query::QueryException &e) {
+      EXPECT_NE(std::string{e.what()}.find(expected), std::string::npos) << e.what();
+      EXPECT_EQ(std::string{e.what()}.find("vector"), std::string::npos) << e.what();
+    }
+  }
 }
 
 // TypedValue::IsPropertyValue on a VectorRef: an index equality seek with an embedding as lookup value must work.
