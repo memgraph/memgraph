@@ -1163,7 +1163,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
     case TypedValue::Type::Function:
       return os << "function";
     case TypedValue::Type::VectorRef:
-      return os << "vector";
+      return os << "list";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
