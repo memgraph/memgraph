@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <future>
 #include <latch>
+#include <map>
+#include <set>
 #include <thread>
 #include <variant>
 
@@ -147,10 +149,24 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedDenyPermissionThenItIsReturned
   ASSERT_EQ(result[0].ValueString(), "MATCH");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "DENIED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenWeakAndStrongDeniedThenStrengthIsDisplayed) {
+  perms.Deny(memgraph::auth::Permission::MATCH, memgraph::auth::DenyStrength::WEAK);
+  perms.Deny(memgraph::auth::Permission::CREATE);
+  auth.value()->SaveUser(memgraph::auth::User{user_name, std::nullopt, perms});
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  ASSERT_EQ(privileges.size(), 2);
+  std::map<std::string, std::string> effective;
+  for (auto const &row : privileges) effective[std::string{row[0].ValueString()}] = row[1].ValueString();
+  EXPECT_EQ(effective["MATCH"], "WEAK DENY");
+  EXPECT_EQ(effective["CREATE"], "STRONG DENY");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturned) {
@@ -208,7 +224,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeDeniedThenItIsReturned) {
   ASSERT_EQ(result[0].ValueString(), "MATCH");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "DENIED TO ROLE");
@@ -282,7 +298,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
   ASSERT_EQ(result[0].ValueString(), "MATCH");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "DENIED TO USER, DENIED TO ROLE");
@@ -316,7 +332,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
   ASSERT_EQ(result[0].ValueString(), "MATCH");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GRANTED TO USER, DENIED TO ROLE");
@@ -346,7 +362,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   ASSERT_EQ(result[0].ValueString(), "MATCH");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "DENIED TO USER, GRANTED TO ROLE");
@@ -613,10 +629,55 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenDeniedOnLabelThenDenyIsDisplayed) {
   ASSERT_EQ(result[0].ValueString(), "DELETE ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION DENIED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenWeakAndStrongDeniedOnLabelThenBothAreDisplayed) {
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.Deny({label_repr}, memgraph::auth::FineGrainedPermission::READ);
+  label_permission.Deny({label_repr},
+                        memgraph::auth::FineGrainedPermission::DELETE,
+                        memgraph::auth::MatchingMode::ANY,
+                        memgraph::auth::DenyStrength::WEAK);
+  label_permission.DenyGlobal(memgraph::auth::FineGrainedPermission::CREATE, memgraph::auth::DenyStrength::WEAK);
+  handler = memgraph::auth::FineGrainedAccessHandler{label_permission, memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveUser(memgraph::auth::User{user_name, std::nullopt, perms, handler});
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  ASSERT_EQ(privileges.size(), 3);
+  std::map<std::string, std::string> effective;
+  for (auto const &row : privileges) effective[std::string{row[0].ValueString()}] = row[1].ValueString();
+  EXPECT_EQ(effective["READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY"], "STRONG DENY");
+  EXPECT_EQ(effective["DELETE ON NODES CONTAINING LABELS :Label1 MATCHING ANY"], "WEAK DENY");
+  EXPECT_EQ(effective["CREATE ON ALL LABELS"], "WEAK DENY");
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesWeakAndStrongDenySameLabelThenBothAreDisplayed) {
+  memgraph::auth::Role weak_role{"weak_role", memgraph::auth::Permissions{}};
+  weak_role.fine_grained_access_handler().label_permissions().Deny({label_repr},
+                                                                   memgraph::auth::FineGrainedPermission::READ,
+                                                                   memgraph::auth::MatchingMode::ANY,
+                                                                   memgraph::auth::DenyStrength::WEAK);
+  auth.value()->SaveRole(weak_role);
+  memgraph::auth::Role strong_role{"strong_role", memgraph::auth::Permissions{}};
+  strong_role.fine_grained_access_handler().label_permissions().Deny({label_repr},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+  auth.value()->SaveRole(strong_role);
+
+  memgraph::auth::User user{user_name, std::nullopt, perms};
+  user.AddRole(weak_role);
+  user.AddRole(strong_role);
+  auth.value()->SaveUser(user);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  std::multiset<std::string> effective;
+  for (auto const &row : privileges) effective.emplace(row[1].ValueString());
+  EXPECT_EQ(effective, (std::multiset<std::string>{"STRONG DENY", "WEAK DENY"}));
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenBothAreDisplayed) {
@@ -644,7 +705,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenBothAreD
   ASSERT_EQ(grant_result[1].ValueString(), "GRANT");
 
   ASSERT_EQ(deny_result[0].ValueString(), "DELETE ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
-  ASSERT_EQ(deny_result[1].ValueString(), "DENY");
+  ASSERT_EQ(deny_result[1].ValueString(), "STRONG DENY");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenDeniedOnEdgeTypeThenDenyIsDisplayed) {
@@ -670,7 +731,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenDeniedOnEdgeTypeThenDenyIsDisplayed
   ASSERT_EQ(result[0].ValueString(), "UPDATE(SET PROPERTY) ON EDGES OF TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "DENY");
+  ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
@@ -1533,7 +1594,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenFilteringByDatabaseWithAllowAllThen
       ASSERT_TRUE(result[0].IsString());
       ASSERT_EQ(result[0].ValueString(), "DELETE");
       ASSERT_TRUE(result[1].IsString());
-      ASSERT_EQ(result[1].ValueString(), "DENY");
+      ASSERT_EQ(result[1].ValueString(), "STRONG DENY");
       ASSERT_TRUE(result[2].IsString());
       ASSERT_EQ(result[2].ValueString(), "DENIED TO ROLE");
     }
@@ -3248,6 +3309,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPrivilegeOnBuiltinRoleClearsBuiltinFlag) {
                              {},
                              {},
                              {},
+                             memgraph::auth::DenyStrength::STRONG,
                              memgraph::auth::UserOrRoleType::ROLE,
                              nullptr,
                              nullptr);
@@ -3337,6 +3399,7 @@ TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
                                       memgraph::auth::MatchingMode::ANY,
                                       memgraph::auth::UserOrRoleType::USER,
                                       memgraph::auth::PropertyPermissionType::READ,
+                                      memgraph::auth::DenyStrength::STRONG,
                                       nullptr,
                                       nullptr);
 
@@ -3345,6 +3408,80 @@ TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
   auto const &props = user->property_access_handler().label_properties();
   std::vector<std::string> emp = {"Employee"};
   EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ), memgraph::auth::PermissionLevel::DENY);
+}
+
+TEST_F(AuthQueryHandlerFixture, WeakDenyPrivilegeOnRole) {
+  auth.value()->SaveRole(memgraph::auth::Role{"weak_role"});
+
+  auth_handler.DenyPrivilege("weak_role",
+                             {memgraph::query::AuthQuery::Privilege::MATCH},
+                             {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {"Person"}}}},
+                             {memgraph::query::AuthQuery::LabelMatchingMode::ANY},
+                             {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {"*"}}}},
+                             memgraph::auth::DenyStrength::WEAK,
+                             memgraph::auth::UserOrRoleType::ROLE,
+                             nullptr,
+                             nullptr);
+
+  auto const role = auth->ReadLock()->GetRole("weak_role");
+  ASSERT_TRUE(role.has_value());
+  EXPECT_EQ(role->permissions().strong_denies(), 0);
+  EXPECT_NE(role->permissions().weak_denies(), 0);
+  auto const &label_rules = role->fine_grained_access_handler().label_permissions().GetRules();
+  ASSERT_EQ(label_rules.size(), 1);
+  EXPECT_EQ(label_rules[0].strong_denies, memgraph::auth::FineGrainedPermission::NONE);
+  EXPECT_NE(label_rules[0].weak_denies, memgraph::auth::FineGrainedPermission::NONE);
+  auto const &edge_permissions = role->fine_grained_access_handler().edge_type_permissions();
+  EXPECT_FALSE(edge_permissions.GetGlobalStrongDenies().has_value());
+  EXPECT_NE(edge_permissions.GetGlobalWeakDenies(), 0);
+}
+
+TEST_F(AuthQueryHandlerFixture, WeakDenyPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  for (auto const &entity : {"Employee", "*"}) {
+    auth_handler.DenyPropertyPermission(user_name,
+                                        {"salary"},
+                                        {entity},
+                                        memgraph::auth::PropertyEntityKind::NODE,
+                                        memgraph::auth::MatchingMode::ANY,
+                                        memgraph::auth::UserOrRoleType::USER,
+                                        memgraph::auth::PropertyPermissionType::READ,
+                                        memgraph::auth::DenyStrength::WEAK,
+                                        nullptr,
+                                        nullptr);
+  }
+
+  auto const user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  ASSERT_EQ(props.GetRules().size(), 1);
+  EXPECT_EQ(props.GetRules()[0].properties.at("salary").weak_denies, memgraph::auth::PropertyPermissionType::READ);
+  EXPECT_EQ(props.GetGlobalRules().at("salary").weak_denies, memgraph::auth::PropertyPermissionType::READ);
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenWeakAndStrongDeniedOnPropertiesThenBothAreDisplayed) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  for (auto const &[property, strength] : {std::pair{"salary", memgraph::auth::DenyStrength::WEAK},
+                                           std::pair{"ssn", memgraph::auth::DenyStrength::STRONG}}) {
+    auth_handler.DenyPropertyPermission(user_name,
+                                        {property},
+                                        {"Employee"},
+                                        memgraph::auth::PropertyEntityKind::NODE,
+                                        memgraph::auth::MatchingMode::ANY,
+                                        memgraph::auth::UserOrRoleType::USER,
+                                        memgraph::auth::PropertyPermissionType::READ,
+                                        strength,
+                                        nullptr,
+                                        nullptr);
+  }
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  std::map<std::string, std::string> effective;
+  for (auto const &row : privileges) effective[std::string{row[0].ValueString()}] = row[1].ValueString();
+  EXPECT_EQ(effective["READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY"], "WEAK DENY");
+  EXPECT_EQ(effective["READ {ssn} ON NODES CONTAINING LABELS :Employee MATCHING ANY"], "STRONG DENY");
 }
 
 TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
@@ -3432,6 +3569,7 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser
                                       memgraph::auth::MatchingMode::ANY,
                                       memgraph::auth::UserOrRoleType::USER,
                                       memgraph::auth::PropertyPermissionType::READ,
+                                      memgraph::auth::DenyStrength::STRONG,
                                       nullptr,
                                       nullptr);
 
@@ -3448,14 +3586,14 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser
 
   ASSERT_EQ(prop_rows.size(), 2);
 
-  // Sort by effective column for deterministic checking (DENY before GRANT)
+  // Sort by effective column for deterministic checking (STRONG DENY before GRANT)
   std::sort(prop_rows.begin(), prop_rows.end(), [](auto const &a, auto const &b) {
-    return a[1].ValueString() < b[1].ValueString();
+    return a[1].ValueString() > b[1].ValueString();
   });
 
   // denied row
   EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {dob} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
-  EXPECT_EQ(prop_rows[0][1].ValueString(), "DENY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "STRONG DENY");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER");
 
   // granted row (collapsed)

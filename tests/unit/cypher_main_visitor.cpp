@@ -5285,6 +5285,29 @@ TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
                SemanticException);
 }
 
+TEST_P(CypherMainVisitorTest, DenyStrength) {
+  auto &ast_generator = *GetParam();
+  auto const strength = [&](std::string const &query) {
+    return dynamic_cast<AuthQuery *>(ast_generator.ParseQuery(query))->deny_strength_;
+  };
+  auto constexpr kStrong = AuthQuery::DenyStrength::STRONG;
+  auto constexpr kWeak = AuthQuery::DenyStrength::WEAK;
+
+  EXPECT_EQ(strength("DENY MATCH TO user"), kStrong);
+  EXPECT_EQ(strength("STRONG DENY MATCH TO user"), kStrong);
+  EXPECT_EQ(strength("WEAK DENY MATCH TO user"), kWeak);
+  EXPECT_EQ(strength("WEAK DENY READ ON NODES CONTAINING LABELS :Person TO user"), kWeak);
+  EXPECT_EQ(strength("WEAK DENY READ ON EDGES OF TYPE :KNOWS TO user"), kWeak);
+  EXPECT_EQ(strength("WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO user"), kWeak);
+  EXPECT_EQ(strength("STRONG DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO user"), kStrong);
+  EXPECT_EQ(strength("DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO user"), kStrong);
+
+  EXPECT_THROW(ast_generator.ParseQuery("WEAK GRANT MATCH TO user"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("WEAK REVOKE MATCH FROM user"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("WEAK DENY DATABASE db FROM user"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("WEAK DENY IMPERSONATE_USER other TO user"), SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
   auto const kRead = AuthQuery::PropertyPermissionType::READ;
