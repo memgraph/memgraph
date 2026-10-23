@@ -246,7 +246,12 @@ class FrameChangeCollector {
       // through `Insert` rather than straight into the set is what keeps the two things recorded
       // about the contents true of the merged set: both are properties of what it holds, and the
       // merged set holds what both sides held.
-      cached_set.ForEach([&](TypedValue const &value) { it->second.Insert(value); });
+      // absl hash sets are not exception-safe: an allocation refused mid-insert leaves the set
+      // corrupted. Allocations here are tracked but not refused; limits apply once the block ends.
+      utils::AtomicMemoryBlock([&] {
+        it->second.cache_.reserve(it->second.cache_.size() + cached_set.cache_.size());
+        cached_set.ForEach([&](TypedValue const &value) { it->second.Insert(value); });
+      });
     }
 
     // Merge regex_cache_: if key doesn't exist in main, insert it
