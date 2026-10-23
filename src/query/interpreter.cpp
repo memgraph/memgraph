@@ -308,6 +308,27 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   transaction_gauge_ = {};
 }
 
+void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *version_store,
+                                                versioning::BranchContext const &outer) {
+  MG_ASSERT(!branch_context_, "AttachBranchOf: session is already attached to a branch.");
+  auto const &name = outer.name();
+  if (auto info = version_store->TryAcquireCheckout(name); !info) {
+    throw QueryRuntimeException(info.error());
+  }
+  try {
+    SetBranchContext(std::make_unique<versioning::BranchContext>(outer.core(), name), version_store, name);
+  } catch (...) {
+    // Fields may or may not be installed yet: ClearBranchContext releases iff they are.
+    if (branch_context_) {
+      ClearBranchContext();
+    } else {
+      version_store->ReleaseCheckout(name);
+    }
+    throw;
+  }
+  current_version_ = name;
+}
+
 void memgraph::query::CurrentDB::ClearBranchContext() {
   if (!branch_context_) {
     return;
@@ -4598,7 +4619,11 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
     }
   }
 #endif
-  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, auth_checker.get());
+  auto plan = std::make_shared<PullPlanDump>(
+      dba,
+      *current_db.db_acc_,
+      auth_checker.get(),
+      dba->branch_context() != nullptr ? &dba->branch_context()->historical() : nullptr);
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),
@@ -9126,7 +9151,7 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
     throw QueryRuntimeException(core.error());
   }
 
-  current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core)), version_store, name);
+  current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name);
 }
 }  // namespace
 
@@ -11650,6 +11675,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         }
       }
 
+      // schema.assert takes UNIQUE access and rewrites indexes/constraints; on a branch that would hit the diff engine.
+      if (parse_info.parsed_query.using_schema_assert && current_db_.branch_context() != nullptr) {
+        throw QueryRuntimeException(
+            "Schema-plane and storage-global operations (indexes, constraints, schema.assert, ...) are not allowed "
+            "while a versioning branch is checked out. Run CHECKOUT BRANCH 'main' first.");
+      }
+
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
@@ -11772,11 +11804,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
            // durable trigger/stream registries (TriggerStore/Streams live on the Database, not
            // the diff engine) -- same class of storage-global side effect as TTL/STORAGE MODE
            // above, so a branch session must not be able to touch them either.
-           utils::Downcast<TriggerQuery>(q) != nullptr || utils::Downcast<StreamQuery>(q) != nullptr);
+           utils::Downcast<TriggerQuery>(q) != nullptr || utils::Downcast<StreamQuery>(q) != nullptr ||
+           // Descriptions are keyed on main's schema entities and live in main's storage; on a branch a write
+           // would land in the diff engine (lost) and a read would see nothing.
+           utils::Downcast<DescriptionQuery>(q) != nullptr);
       if (is_schema_or_storage_global_ddl) {
         throw QueryRuntimeException(
             "Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP "
-            "GRAPH, STORAGE MODE, RECOVER SNAPSHOT, TRIGGER, STREAM) are not allowed while a versioning branch is "
+            "GRAPH, STORAGE MODE, RECOVER SNAPSHOT, TRIGGER, STREAM, DESCRIPTION) are not allowed while a versioning branch is "
             "checked out. Run CHECKOUT BRANCH 'main' first.");
       }
     }

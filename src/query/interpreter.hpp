@@ -444,6 +444,13 @@ struct CurrentDB {
     versioning_engaged_ = true;
   }
 
+  // Attaches this (fresh, nested) session to the branch `outer` is on: takes its own counted checkout and a
+  // BranchContext over the SAME shared core, so its transactions open on the shared diff engine. Used by
+  // mgp_execute_query. Throws QueryRuntimeException (nothing held) if the checkout is refused. Released by
+  // ClearBranchContext / ~CurrentDB like any checkout, so destruction on an exception path still detaches.
+  // `outer` is only read here, and the outer session's own attach keeps the branch (and core) alive meanwhile.
+  void AttachBranchOf(versioning::VersionStore *version_store, versioning::BranchContext const &outer);
+
   // The session's branch context, if CurrentVersion() names a checked-out branch; nullptr on `main`.
   // Consulted by SetupDatabaseTransaction (interpreter.cpp) to route ordinary Cypher.
   versioning::BranchContext *branch_context() { return branch_context_.get(); }

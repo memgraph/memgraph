@@ -184,7 +184,10 @@ class BranchContext {
                                                                                  uint64_t fork_ts,
                                                                                  storage::CommitArgs commit_args);
 
-  explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
+  // `name` is the branch this context was attached through (empty for unregistered, test-built contexts); a nested
+  // session (mgp_execute_query) re-attaches by it.
+  explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {})
+      : core_(std::move(core)), name_(std::move(name)) {}
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
@@ -195,6 +198,8 @@ class BranchContext {
   ~BranchContext() = default;
 
   const std::shared_ptr<BranchCore> &core() const { return core_; }
+
+  const std::string &name() const { return name_; }
 
   storage::InMemoryStorage &diff_engine() { return core_->diff_engine(); }
 
@@ -420,6 +425,7 @@ class BranchContext {
   void MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge);
 
   std::shared_ptr<BranchCore> core_;
+  std::string name_;
   // Per-transaction slots; see the class comment. current_diff_txn_ is not owned: it points into
   // CurrentDB::db_transactional_accessor_ for the duration of one transaction, nullptr otherwise.
   storage::Storage::Accessor *current_diff_txn_{nullptr};

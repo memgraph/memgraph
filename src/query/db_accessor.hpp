@@ -1069,6 +1069,9 @@ class DbAccessor final {
   explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
       : accessor_(accessor), branch_ctx_(branch_ctx) {}
 
+  // Non-null iff this accessor serves a checked-out branch's transaction (never on main or a USING VERSION 'main' query).
+  versioning::BranchContext *branch_context() const { return branch_ctx_; }
+
   void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
 
   bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {

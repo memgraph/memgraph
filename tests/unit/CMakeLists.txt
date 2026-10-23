@@ -118,6 +118,22 @@ add_unit_test(versioning_stress
         LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
 )
 
+add_unit_test(versioning_subgraph
+        SOURCES versioning_subgraph.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_dump
+        SOURCES versioning_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_mgp
+        SOURCES versioning_mgp.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils

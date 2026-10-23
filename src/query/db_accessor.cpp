@@ -182,7 +182,25 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
   return impl_.GetProperty(view, key);
 }
 
+namespace {
+// On a checked-out branch the storage-level adjacency is one-sided (fork-only for untouched
+// vertices, diff-only for COW'd ones) and exposes raw stubs, so the branch-aware
+// query::VertexAccessor::{In,Out}Edges (merges fork+diff, hides deleted edges, stamps branch_ctx_) is
+// used and only the subgraph membership filter is applied on top. Membership is by gid on a branch
+// (EdgeAccessor::operator==/hash), so a stamped edge matches the one stored in the projection.
+storage::Result<EdgeVertexAccessorResult> FilterBranchEdgesBySubgraph(storage::Result<EdgeVertexAccessorResult> res,
+                                                                      const Graph &graph) {
+  if (!res) return res;
+  const auto &graph_edges = graph.edges();
+  std::erase_if(res->edges, [&](const EdgeAccessor &edge) { return !graph_edges.contains(edge); });
+  return res;
+}
+}  // namespace
+
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
+  if (impl_.branch_ctx_ != nullptr) {
+    return FilterBranchEdgesBySubgraph(impl_.OutEdges(view), *graph_);
+  }
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (!maybe_edges) return std::unexpected{maybe_edges.error()};
   auto edges = std::move(maybe_edges->edges);
@@ -205,6 +223,9 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(stora
 }
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
+  if (impl_.branch_ctx_ != nullptr) {
+    return FilterBranchEdgesBySubgraph(impl_.InEdges(view), *graph_);
+  }
   auto maybe_edges = impl_.impl_.InEdges(view, {});
   if (!maybe_edges) return std::unexpected{maybe_edges.error()};
   auto edges = std::move(maybe_edges->edges);

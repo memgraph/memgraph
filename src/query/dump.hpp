@@ -22,11 +22,16 @@ namespace memgraph::query {
 class FineGrainedAuthChecker;
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
-                                 FineGrainedAuthChecker const *auth_checker = nullptr);
+                                 FineGrainedAuthChecker const *auth_checker = nullptr,
+                                 storage::Storage::Accessor *schema_acc = nullptr);
 
 struct PullPlanDump {
+  // `schema_acc`: where indexes/constraints/TTL/descriptions are read from. nullptr = the DbAccessor's own storage
+  // accessor. On a checked-out branch that accessor is the diff engine (synthetic overlay indexes, no constraints,
+  // no vector/text/point indexes), so the caller passes the branch's historical (main) accessor instead.
   explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc,
-                        FineGrainedAuthChecker const *auth_checker = nullptr);
+                        FineGrainedAuthChecker const *auth_checker = nullptr,
+                        storage::Storage::Accessor *schema_acc = nullptr);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
@@ -34,6 +39,7 @@ struct PullPlanDump {
 
  private:
   query::DbAccessor *dba_ = nullptr;
+  storage::Storage::Accessor *schema_acc_ = nullptr;
   FineGrainedAuthChecker const *auth_checker_ = nullptr;
   dbms::DatabaseAccess db_acc_;
 

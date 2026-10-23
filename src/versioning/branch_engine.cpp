@@ -253,7 +253,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   //    mapper would silently misdecode them. Config derived from main.config_ wholesale so any
   //    future salient flag (properties_on_edges, storage_light_edge, etc.) is inherited automatically.
   storage::Config config = main.config_;
-  // Distinct throwaway instance -- avoid aliasing main's UUID in any registry.
+  // Distinct throwaway instance -- avoid aliasing main's UUID in any registry. The NAME is deliberately kept as
+  // main's: query::DbAccessor::DatabaseName() (auth, FGA, SHOW, DUMP) reads it, and a branch must look like main.
   config.salient.uuid = utils::UUID{};
   // config.gc stays main's: the diff engine needs its own GC, else committed branch deltas are never freed while any
   // other transaction is active (fast-discard needs a quiet engine) and branch memory grows with write volume.
@@ -278,7 +279,6 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
     config.disk.id_name_mapper_directory = diff_engine_directory / config.disk.id_name_mapper_directory;
     config.disk.durability_directory = diff_engine_directory / config.disk.durability_directory;
     config.disk.wal_directory = diff_engine_directory / config.disk.wal_directory;
-    config.salient.name = utils::SafeString{fmt::format("{}__versioning_diff_engine", config.salient.name.str())};
   }
   config.force_on_disk = false;
   // Avoid duplicating/aliasing main's Prometheus metrics as a spurious second database.

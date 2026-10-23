@@ -34,6 +34,7 @@
 // only re-confirm the interpreter still dispatches through it correctly end-to-end.
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -50,7 +51,9 @@
 #include <gmock/gmock.h>
 #include "gtest/gtest.h"
 
+#include "auth/models.hpp"
 #include "flags/general.hpp"
+#include "glue/auth_checker.hpp"
 #include "interpreter_faker.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
@@ -4402,3 +4405,60 @@ TEST_F(VersioningInterpreterTest, BranchEdgePropertyIndexScansOverlayForkEdgeStu
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{1}}));
 }
+
+// D14: description queries are keyed on main's schema and stored in main; on a branch they are rejected.
+TEST_F(VersioningInterpreterTest, DescriptionQueriesRejectedOnBranch) {
+  SatisfyGate();
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  for (const char *q : {"SET DESCRIPTION ON LABEL :Person \"d\"",
+                        "DELETE DESCRIPTION ON LABEL :Person",
+                        "SHOW DESCRIPTIONS"}) {
+    try {
+      faker.Interpret(q);
+      FAIL() << q << " must be rejected on a branch";
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr("DESCRIPTION")) << q;
+    }
+  }
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_NO_THROW(faker.Interpret("SET DESCRIPTION ON LABEL :Person \"d\""));
+}
+
+#ifdef MG_ENTERPRISE
+// A branch accessor must report main's database name: fine-grained permissions are loaded per database name.
+TEST_F(VersioningInterpreterTest, BranchAccessorReportsMainDatabaseNameForFineGrainedAuth) {
+  SatisfyGate();
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  auto *ctx = faker.interpreter.current_db_.branch_context();
+  ASSERT_NE(ctx, nullptr);
+
+  auto main_name = db->storage()->name();
+  auto diff_acc = ctx->diff_engine().Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor branch_dba{diff_acc.get(), ctx};
+  ASSERT_EQ(branch_dba.DatabaseName(), main_name);
+  ASSERT_EQ(branch_dba.id(), main_name);
+
+  const auto a = branch_dba.NameToLabel("A");
+  const auto b = branch_dba.NameToLabel("B");
+  const auto read = memgraph::query::AuthQuery::FineGrainedPrivilege::READ;
+
+  // (a) Grant on :A, access scoped to the default database only.
+  memgraph::auth::User granted{"u"};
+  granted.db_access().Grant(main_name);
+  granted.fine_grained_access_handler().label_permissions().Grant({"A"}, memgraph::auth::kAllLabelPermissions);
+  memgraph::glue::FineGrainedAuthChecker granted_checker{granted, &branch_dba};
+  EXPECT_TRUE(granted_checker.Has(std::array{a}, read));
+  EXPECT_FALSE(granted_checker.Has(std::array{b}, read));
+
+  // (b) A DENY on :B still applies next to a global grant.
+  memgraph::auth::User denied{"d"};
+  denied.db_access().Grant(main_name);
+  denied.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  denied.fine_grained_access_handler().label_permissions().Deny({"B"}, memgraph::auth::kAllLabelPermissions);
+  memgraph::glue::FineGrainedAuthChecker denied_checker{denied, &branch_dba};
+  EXPECT_TRUE(denied_checker.Has(std::array{a}, read));
+  EXPECT_FALSE(denied_checker.Has(std::array{b}, read));
+}
+#endif
