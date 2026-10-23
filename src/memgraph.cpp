@@ -901,6 +901,10 @@ int main(int argc, char **argv) {
   // a coordinator, which never populates the replica-only slot.
   const memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
 
+  // Declared BEFORE dbms_handler so it outlives every storage: the main_lock_ notify hook holds a raw pool
+  // pointer and can fire during storage teardown. AwaitShutdown() releases queued sessions (DB accessors) first.
+  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
+
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
@@ -970,7 +974,6 @@ int main(int argc, char **argv) {
 
   // Global worker pool!
   // Used by sessions to schedule tasks.
-  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
   unsigned io_n_threads = FLAGS_bolt_num_workers;
 
   if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
@@ -1257,6 +1260,7 @@ int main(int argc, char **argv) {
         spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
         // Stop all triggers, streams and ttl
         acc->StopAllBackgroundTasks();
+        acc->storage()->ClearParkWakeHooks();
         acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock(
             [](auto &clients) { clients.clear(); });
       });

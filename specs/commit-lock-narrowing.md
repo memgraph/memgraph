@@ -116,8 +116,12 @@ flight, because commits still complete one at a time.
 - **Performance.** On the HA benchmark (1 main, 2 SYNC replicas, ~1 ms range reads mixed
   with 5000-node writes), reads rise from 32% to 66% of the read-only ceiling when all
   traffic goes to MAIN, and from 66% to 88% with routing; writes rise ~22-25%. Read-only
-  workloads are unchanged within noise. The remaining gap is Bolt workers held by writers
-  during the replication wait, which this feature does not address.
+  workloads are unchanged within noise. With the priority-queue scheduler, a Bolt BEGIN
+  (explicit or auto-commit), or a commit of a transaction that wrote data, that is blocked on
+  `main_lock_` or `commit_mutex_` while the worker pool is busy frees its worker and resumes when
+  the lock is released, so the remaining gap is the committing writer's own worker during the
+  replication wait. Procedures, streams, the init file, a Cypher `BEGIN` and a BEGIN that needs
+  unique or read-only access still block on their worker.
 
 ## Out of scope
 
