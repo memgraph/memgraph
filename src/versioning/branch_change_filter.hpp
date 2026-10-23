@@ -43,8 +43,8 @@ namespace memgraph::versioning {
 // population sites and the replay re-walk.
 
 // The per-kind change filters a branch maintains, plus the record/query surface BranchContext
-// forwards to. One instance lives on each BranchContext (branch_engine.hpp), rebuilt fresh on every
-// checkout and re-seeded from the branch's change-log (BuildFromFork's replay re-walk).
+// forwards to. One instance lives on each BranchCore (branch_engine.hpp), shared by every session that has the
+// branch checked out; branches are ephemeral, so it starts empty and only ever grows.
 //
 // FOUR filters: coarse `label_`, `edge_`, `property_` (per-gid: "did this kind change on gid G?"),
 // plus a FINE `property_field_` keyed by (gid, property_id): "did THIS property change on gid G?".
@@ -126,25 +126,22 @@ class BranchChangeFilters {
   //
   // THREAD SAFETY (design section 7): bits are only ever set, never cleared. Insert is a lock-free
   // atomic release fetch-or; MayContain is an acquire atomic load. No lock, no torn read: `fetch_or`
-  // is an indivisible RMW (no lost update even under a concurrent same-word insert, independent of any
-  // higher-level exclusivity), and a reader either sees a bit or does not -- either answer is safe (a
+  // is an indivisible RMW (no lost update even under a concurrent same-word insert from another session), and a
+  // reader either sees a bit or does not -- either answer is safe (a
   // set bit => resolve; a not-yet-visible set bit only risks a missed resolve, i.e. a stale read, so
   // visibility DOES matter and is guaranteed as follows).
   //
-  // A branch's own write (VertexAccessor::CowIfNeeded -> Insert, during a mutating query) must be
-  // visible to that branch's later read (MayContain, during a subsequent query). Two invariants make
-  // this hold WITHOUT relying on literal same-thread program order (Bolt sessions run on a shared
-  // asio io_context pool -- consecutive queries of one session may execute on DIFFERENT OS threads,
-  // serialised by the session's asio strand, not by running on one thread):
-  //   (1) SINGLE-WRITER-PER-BRANCH: VersionStore::TryAcquireCheckout (version_store.cpp) admits at most
-  //       one live BranchContext per branch, so branch writes are never concurrent with each other.
+  // A session's write (VertexAccessor::CowIfNeeded -> Insert, during a mutating query) must be
+  // visible to every later read of the filter, on any session. Two invariants make this hold WITHOUT relying on
+  // thread identity (Bolt sessions run on a shared asio io_context pool):
+  //   (1) MULTI-WRITER SAFE: Insert is an indivisible atomic fetch_or, so concurrent sessions of one branch never lose
+  //       an update; a filter write is recorded before the owning transaction commits, so any transaction that can
+  //       see the committed change also sees the bit.
   //   (2) RELEASE/ACQUIRE: Insert publishes with memory_order_release and MayContain consumes with
-  //       memory_order_acquire -- so once a later read observes a set bit, it also observes every write
-  //       the setting query made, establishing happens-before across the strand's cross-thread handoff
-  //       (belt-and-suspenders atop asio's own strand synchronisation, which is not documented as a
-  //       memory contract). The genuine cross-thread path (enterprise PARALLEL EXECUTION) cannot run a
-  //       write concurrently with a read fan-out anyway -- the planner refuses to parallelise a
-  //       non-read-only sub-plan (plan/rewrite/parallel_rewrite.hpp).
+  //       memory_order_acquire, so a reader that observes a set bit also observes every write the setting query made.
+  //       A rolled-back transaction leaves its bit set: a false positive (wasted resolve), never a stale read.
+  //       The planner refuses to parallelise a non-read-only sub-plan (plan/rewrite/parallel_rewrite.hpp), so no
+  //       write runs concurrently with a read fan-out within one query.
   class MonotonicGidFilter {
    public:
     // `num_words` MUST be a power of two (enforced by BranchChangeFilters via a static_assert on

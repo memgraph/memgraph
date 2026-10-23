@@ -13,22 +13,27 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
-#include "utils/variant_helpers.hpp"
-#include "versioning/edge_lookup.hpp"
 
 namespace memgraph::versioning {
 
 namespace {
 
-namespace sd = storage::durability;
+constexpr std::string_view kReservedPrefix = "__mg_";
+constexpr std::string_view kRemovalMarkerPrefix = "__mg_rm:";
+constexpr std::string_view kRemovedPropsName = "__mg_removed";
+constexpr std::string_view kDeletedLabelName = "__mg_deleted";
+constexpr std::string_view kDeletedEdgesName = "__mg_deleted_edges";
 
 // Enum anywhere in a value (top-level, List, or Map) blocks the whole COW; see CowError (branch_engine.hpp).
 bool ContainsEnum(const storage::PropertyValue &v) {
@@ -93,126 +98,6 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
   MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: gid-watermark reservation commit failed.");
 }
 
-// Replays all prior-session changelog records into a fresh diff engine: (a) read-your-writes across
-// checkout cycles; (b) each explicit-gid create advances vertex_id_/edge_id_ past that gid so a
-// later session's auto-gid creates can never reuse a gid a prior session captured.
-// tombstoned_vertices/tombstoned_edges are OUT params — BranchContext doesn't exist yet at this stage.
-void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
-                                   const std::vector<storage::durability::WalDeltaData> &changelog,
-                                   storage::CommitArgs commit_args,
-                                   std::unordered_set<storage::Gid> &tombstoned_vertices,
-                                   std::unordered_set<storage::Gid> &tombstoned_edges) {
-  if (changelog.empty()) return;
-
-  std::unique_ptr<storage::ReplicationAccessor> replay(
-      static_cast<storage::ReplicationAccessor *>(diff_engine.Access(storage::StorageAccessType::WRITE).release()));
-
-  auto apply = utils::Overloaded{
-      [&](sd::WalVertexCreate const &data) {
-        auto v = replay->CreateVertexEx(data.gid);
-        MG_ASSERT(v.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout found vertex gid {} already occupied in a "
-                  "freshly-built, otherwise-empty diff engine -- should be impossible.",
-                  data.gid.AsUint());
-      },
-      [&](sd::WalVertexAddLabel const &data) {
-        auto v = replay->FindVertex(data.gid, storage::View::NEW);
-        MG_ASSERT(v.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to add a label to -- "
-                  "the branch's own captured change-log should always create a vertex before mutating it.",
-                  data.gid.AsUint());
-        auto ret = v->AddLabel(replay->NameToLabel(data.label));
-        MG_ASSERT(ret.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout failed to add a label to vertex {}.",
-                  data.gid.AsUint());
-      },
-      [&](sd::WalVertexRemoveLabel const &data) {
-        auto v = replay->FindVertex(data.gid, storage::View::NEW);
-        MG_ASSERT(v.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to remove a label from "
-                  "-- the branch's own captured change-log should always create a vertex before mutating it.",
-                  data.gid.AsUint());
-        auto ret = v->RemoveLabel(replay->NameToLabel(data.label));
-        MG_ASSERT(ret.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout failed to remove a label from vertex {}.",
-                  data.gid.AsUint());
-      },
-      [&](sd::WalVertexSetProperty const &data) {
-        auto v = replay->FindVertex(data.gid, storage::View::NEW);
-        MG_ASSERT(v.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to set a property on.",
-                  data.gid.AsUint());
-        auto ret = v->SetProperty(replay->NameToProperty(data.property),
-                                  storage::ToPropertyValue(data.value, replay->GetNameIdMapper()));
-        MG_ASSERT(ret.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout failed to set a property on vertex {}.",
-                  data.gid.AsUint());
-      },
-      [&](sd::WalEdgeCreate const &data) {
-        // View::NEW: endpoint may have been created earlier in this same replay pass (AdvanceCommand not called).
-        auto from_v = replay->FindVertex(data.from_vertex, storage::View::NEW);
-        auto to_v = replay->FindVertex(data.to_vertex, storage::View::NEW);
-        MG_ASSERT(from_v.has_value() && to_v.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find edge {}'s endpoints -- the "
-                  "branch's own captured change-log should always create both endpoints before the edge (see "
-                  "this function's own ORDERING doc-comment).",
-                  data.gid.AsUint());
-        auto edge_type = replay->NameToEdgeType(data.edge_type);
-        auto e = replay->CreateEdgeEx(&*from_v, &*to_v, edge_type, data.gid);
-        MG_ASSERT(e.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout found edge gid {} already occupied -- should "
-                  "be impossible.",
-                  data.gid.AsUint());
-      },
-      [&](sd::WalEdgeSetProperty const &data) {
-        // Diff engine only — no historical_ fallback during replay, so bare-gid FindEdge is reliable.
-        auto e = replay->FindEdge(data.gid, storage::View::NEW);
-        MG_ASSERT(e.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find edge {} to set a property on.",
-                  data.gid.AsUint());
-        auto ret = e->SetProperty(replay->NameToProperty(data.property),
-                                  storage::ToPropertyValue(data.value, replay->GetNameIdMapper()));
-        MG_ASSERT(ret.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout failed to set a property on edge {}.",
-                  data.gid.AsUint());
-      },
-      // Plain DeleteVertex (not DetachDelete): vertex is guaranteed edge-free in replay order.
-      [&](sd::WalVertexDelete const &data) {
-        auto v = replay->FindVertex(data.gid, storage::View::NEW);
-        MG_ASSERT(v.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to delete -- the "
-                  "branch's own captured change-log should always create a vertex before deleting it.",
-                  data.gid.AsUint());
-        auto ret = replay->DeleteVertex(&*v);
-        MG_ASSERT(ret.has_value() && ret->has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout failed to delete vertex {}.",
-                  data.gid.AsUint());
-        tombstoned_vertices.insert(data.gid);
-      },
-      // Same as WalEdgeSetProperty: diff engine only, bare-gid FindEdge is reliable here.
-      [&](sd::WalEdgeDelete const &data) {
-        auto e = replay->FindEdge(data.gid, storage::View::NEW);
-        MG_ASSERT(e.has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout could not find edge {} to delete.",
-                  data.gid.AsUint());
-        auto ret = replay->DeleteEdge(&*e);
-        MG_ASSERT(ret.has_value() && ret->has_value(),
-                  "BranchContext::BuildFromFork: replay-on-checkout failed to delete edge {}.",
-                  data.gid.AsUint());
-        tombstoned_edges.insert(data.gid);
-      },
-      [&](sd::WalTransactionStart const &) {},
-      [&](sd::WalTransactionEnd const &) {},
-      [&](auto const &) {}};
-
-  for (const auto &delta : changelog) {
-    std::visit(apply, delta.data_);
-  }
-
-  auto commit_res = replay->PrepareForCommitPhase(std::move(commit_args));
-  MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: replay-on-checkout commit failed.");
-}
-
 // Mirrors main's index DEFINITIONS (not contents) onto the diff engine so the query planner can
 // select index scans on a checked-out branch; diff engine auto-populates them via ordinary index
 // maintenance. Uses fork_ts-pinned snapshot from `historical`. CreateIndex requires READ_ONLY
@@ -253,6 +138,38 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
               "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
               entry.label.AsUint());
     commit_one(*mirror);
+  }
+
+  // Overlay support for label+property scans (query::DbAccessor::Vertices(view, label, properties, ...)). A touched
+  // fork vertex is a sparse stub, so a stub that newly matches (:L gained, or a key property set) is absent from the
+  // diff composite index. It is enumerated instead through a diff label index on L and a diff property-only index on
+  // each key property's top-level pid ("stubs that SET p"). Created here only when not already mirrored above.
+  {
+    std::unordered_set<storage::LabelId> labels(main_indices.label.begin(), main_indices.label.end());
+    std::unordered_set<storage::PropertyId> pids(main_indices.vertex_property.begin(),
+                                                 main_indices.vertex_property.end());
+    for (const auto &entry : main_indices.label_properties) {
+      if (labels.insert(entry.label).second) {
+        auto mirror = diff_engine.ReadOnlyAccess();
+        auto created = mirror->CreateIndex(entry.label);
+        MG_ASSERT(created.has_value(),
+                  "BranchContext::BuildFromFork: creating the diff-side overlay label index (label {}) on a "
+                  "freshly-built diff engine failed -- should be impossible.",
+                  entry.label.AsUint());
+        commit_one(*mirror);
+      }
+      for (const auto &path : entry.properties) {
+        const auto pid = path.front();
+        if (!pids.insert(pid).second) continue;
+        auto mirror = diff_engine.ReadOnlyAccess();
+        auto created = mirror->CreateGlobalVertexIndex(pid);
+        MG_ASSERT(created.has_value(),
+                  "BranchContext::BuildFromFork: creating the diff-side overlay property index (property {}) on a "
+                  "freshly-built diff engine failed -- should be impossible.",
+                  pid.AsUint());
+        commit_one(*mirror);
+      }
+    }
   }
 
   // Edge-type and edge-property indexes require properties_on_edges: PopulateIndex reads EdgeRef.ptr,
@@ -332,11 +249,11 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 
 }  // namespace
 
-std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args,
-    storage::CommitArgs replay_commit_args, std::filesystem::path branch_wal_root_directory,
-    const std::vector<storage::durability::WalDeltaData> &changelog) {
-  // 1. Time-travel main to fork_ts first — fail before paying for the diff engine construction.
+std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
+    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
+  // 1. Time-travel main to fork_ts first -- fail before paying for the diff engine construction. This accessor only
+  //    lives for the duration of Build: it supplies main's fork-time index set, and its READ guard blocks a concurrent
+  //    CREATE ENUM while the enum store is mirrored.
   auto hist_exp = main.HistoricalAccess(fork_ts);
   if (!hist_exp.has_value()) {
     return std::unexpected(
@@ -345,12 +262,12 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   }
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
-  // 2. Construct the empty diff engine (O(1) — nothing copied from main's graph).
+  // 2. Construct the empty diff engine (O(1) -- nothing copied from main's graph).
   //    Shares main's NameIdMapper: historical vertices carry main's label/property ids; a separate
   //    mapper would silently misdecode them. Config derived from main.config_ wholesale so any
   //    future salient flag (properties_on_edges, storage_light_edge, etc.) is inherited automatically.
   storage::Config config = main.config_;
-  // Distinct throwaway instance — avoid aliasing main's UUID in any registry.
+  // Distinct throwaway instance -- avoid aliasing main's UUID in any registry.
   config.salient.uuid = utils::UUID{};
   config.gc.type = storage::Config::Gc::Type::NONE;
   // Transient in-RAM copy: all durability mechanisms off regardless of what main configured.
@@ -394,114 +311,96 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   // 3. Reserve the branch-native gid range (see kBranchNativeGidWatermark).
   ReserveBranchNativeGidRange(*diff_engine, std::move(commit_args));
 
-  // 3b. Replay prior-session changelog (see ReplayChangelogIntoDiffEngine). Placed after step 3
-  //     for readability; order is not load-bearing (atomic_fetch_max lands the same either way).
-  //     tombstoned_vertices/tombstoned_edges are OUT params fed to the BranchContext ctor below.
-  std::unordered_set<storage::Gid> tombstoned_vertices;
-  std::unordered_set<storage::Gid> tombstoned_edges;
-  ReplayChangelogIntoDiffEngine(
-      *diff_engine, changelog, std::move(replay_commit_args), tombstoned_vertices, tombstoned_edges);
-
-  // 3c. Mirror main's fork_ts-pinned index definitions (see MirrorMainIndexDefinitionsIntoDiffEngine).
-  //     Placed after 3b so PopulateIndex captures already-replayed vertices in the initial population.
+  // 4. Mirror main's fork_ts-pinned index definitions (see MirrorMainIndexDefinitionsIntoDiffEngine). Done once here,
+  //    before the core is visible to any session, so the diff engine never needs UNIQUE / READ_ONLY afterwards.
   MirrorMainIndexDefinitionsIntoDiffEngine(*diff_engine, historical->ListAllIndices());
 
-  // 3c-ii. Mirror main's current EnumStore (historical's SHARED guard on main_lock_ blocks concurrent
-  //        CREATE ENUM — see MirrorMainEnumsIntoDiffEngine).
+  // 5. Mirror main's current EnumStore (historical's SHARED guard on main_lock_ blocks concurrent
+  //    CREATE ENUM -- see MirrorMainEnumsIntoDiffEngine).
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
-  // 4. Mint a per-session UUID subdirectory; CreateCommitLog() builds a fresh BranchLog per commit
-  //    on demand (see its doc-comment, branch_engine.hpp) — avoids the ReadWalInfo multi-txn bug.
-  auto branch_log_session_directory = branch_wal_root_directory / utils::GenerateUUID();
+  // `new` not make_shared: private ctor.
+  return std::shared_ptr<BranchCore>(new BranchCore(&main, fork_ts, std::move(diff_engine)));
+}
 
-  // `new` not make_unique: private ctor. Seeded with changelog.size() so the retention cap
-  // (FLAGS_versioning_max_changelog_length) counts the branch's whole life, not just this session.
-  // Named local (not direct return): step 5 below calls MarkMainObjectBranched on this instance.
-  auto branch_ctx = std::unique_ptr<BranchContext>(new BranchContext(std::move(diff_engine),
-                                                                     std::move(historical),
-                                                                     std::move(tombstoned_vertices),
-                                                                     std::move(tombstoned_edges),
-                                                                     std::move(branch_log_session_directory),
-                                                                     config.salient.items,
-                                                                     main.GetSharedNameIdMapper().get(),
-                                                                     changelog.size()));
+std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
+    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
+  auto core = BranchCore::Build(main, fork_ts, std::move(commit_args));
+  if (!core) return std::unexpected(std::move(core.error()));
+  return std::make_unique<BranchContext>(std::move(*core));
+}
 
-  // 5. Re-seed branched() bits from changelog (lost on restart). Vertex gids only: historical_->
-  //    FindEdge by bare gid is unreliable (see ResolveEdge); edge endpoints are covered via
-  //    WalEdgeCreate's from_vertex/to_vertex vertex gids. No de-dup: MarkMainObjectBranched is
-  //    idempotent and changelog is bounded by FLAGS_versioning_max_changelog_length.
-  auto mark_if_main_vertex_gid = [&branch_ctx](storage::Gid gid) {
-    if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->MarkMainObjectBranched(gid);
-  };
-  // Re-seed branch change filters: live write hooks are bypassed during replay, so filters must be
-  // rebuilt from the changelog. COW records (WalVertexAddLabel/SetProperty) over-flag the kind —
-  // false positives (extra resolves) only, never false negatives; in-session changes are precise.
-  auto record_vertex_kind = [&branch_ctx](storage::Gid gid, BranchChangeKind kind) {
-    if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->RecordVertexChange(gid, kind);
-  };
-  auto record_edge_endpoint = [&branch_ctx](storage::Gid gid) {
-    if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->RecordEdgeChange(gid);
-  };
-  // Re-seed Edge::branched() bits (see MarkMainEdgeBranched). Required because edge_accessor.cpp
-  // reads the bit as a fast path; a missed re-seed means stale reads after a re-checkout.
-  auto mark_main_edge_branched = [&branch_ctx](storage::Gid from_vertex_gid, storage::Gid edge_gid) {
-    if (from_vertex_gid.AsUint() < kBranchNativeGidWatermark)
-      branch_ctx->MarkMainEdgeBranched(from_vertex_gid, edge_gid);
-  };
-  // Fine property field filter — REQUIRED for correctness (GetProperty gates on it alone; a missed
-  // re-seed causes a stale fork-state read after re-checkout). Same COW over-flagging as above.
-  auto record_property_field = [&branch_ctx](storage::Gid gid, const std::string &prop_name) {
-    if (gid.AsUint() < kBranchNativeGidWatermark)
-      branch_ctx->RecordPropertyFieldChange(gid, branch_ctx->diff_engine().NameToProperty(prop_name));
-  };
-  for (const auto &delta : changelog) {
-    std::visit(utils::Overloaded{[&](sd::WalVertexCreate const &data) { mark_if_main_vertex_gid(data.gid); },
-                                 [&](sd::WalVertexAddLabel const &data) {
-                                   mark_if_main_vertex_gid(data.gid);
-                                   record_vertex_kind(data.gid, BranchChangeKind::kLabel);
-                                 },
-                                 [&](sd::WalVertexRemoveLabel const &data) {
-                                   mark_if_main_vertex_gid(data.gid);
-                                   record_vertex_kind(data.gid, BranchChangeKind::kLabel);
-                                 },
-                                 [&](sd::WalVertexSetProperty const &data) {
-                                   mark_if_main_vertex_gid(data.gid);
-                                   record_vertex_kind(data.gid, BranchChangeKind::kProperty);
-                                   record_property_field(data.gid, data.property);
-                                 },
-                                 [&](sd::WalVertexDelete const &data) { mark_if_main_vertex_gid(data.gid); },
-                                 [&](sd::WalEdgeCreate const &data) {
-                                   // WalEdgeCreate carries both endpoint gids; covers all edge changes
-                                   // (WalEdgeSetProperty/WalEdgeDelete carry only the edge gid).
-                                   mark_if_main_vertex_gid(data.from_vertex);
-                                   mark_if_main_vertex_gid(data.to_vertex);
-                                   record_edge_endpoint(data.from_vertex);
-                                   record_edge_endpoint(data.to_vertex);
-                                   mark_main_edge_branched(data.from_vertex, data.gid);
-                                 },
-                                 [&](auto const &) {}},
-               delta.data_);
+std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical() {
+  EndTransaction();
+  auto hist_exp = core_->main().HistoricalAccess(core_->fork_ts());
+  if (!hist_exp.has_value()) {
+    return std::unexpected(BuildError{
+        .message = fmt::format("Version is no longer available: fork timestamp {} is not pinned (branch dropped).",
+                               core_->fork_ts())});
   }
+  historical_ = std::move(*hist_exp);
+  return {};
+}
 
-  return branch_ctx;
+BranchCore::LabelInfo BranchCore::ClassifyLabel(storage::LabelId label) {
+  auto guard = std::lock_guard{marker_mutex_};
+  if (auto it = label_info_.find(label); it != label_info_.end()) return it->second;
+  const auto &name = diff_engine_->LabelToName(label);
+  LabelInfo info{.reserved = name.starts_with(kReservedPrefix), .removed_label = std::nullopt};
+  if (name.starts_with(kRemovalMarkerPrefix)) {
+    info.removed_label = diff_engine_->NameToLabel(std::string_view{name}.substr(kRemovalMarkerPrefix.size()));
+  }
+  label_info_.emplace(label, info);
+  return info;
+}
+
+storage::LabelId BranchCore::RemovalMarker(storage::LabelId label) {
+  auto guard = std::lock_guard{marker_mutex_};
+  if (auto it = removal_marker_.find(label); it != removal_marker_.end()) return it->second;
+  const auto marker = diff_engine_->NameToLabel(std::string{kRemovalMarkerPrefix} + diff_engine_->LabelToName(label));
+  removal_marker_.emplace(label, marker);
+  label_info_.emplace(marker, LabelInfo{.reserved = true, .removed_label = label});
+  return marker;
+}
+
+bool BranchCore::IsReservedProperty(storage::PropertyId property) {
+  auto guard = std::lock_guard{marker_mutex_};
+  if (auto it = reserved_property_.find(property); it != reserved_property_.end()) return it->second;
+  const bool reserved = diff_engine_->PropertyToName(property).starts_with(kReservedPrefix);
+  reserved_property_.emplace(property, reserved);
+  return reserved;
+}
+
+storage::PropertyId BranchCore::RemovedPropsKey() {
+  auto guard = std::lock_guard{marker_mutex_};
+  if (!removed_props_key_) removed_props_key_ = diff_engine_->NameToProperty(kRemovedPropsName);
+  return *removed_props_key_;
+}
+
+storage::LabelId BranchCore::DeletedLabel() {
+  auto guard = std::lock_guard{marker_mutex_};
+  if (!deleted_label_) deleted_label_ = diff_engine_->NameToLabel(kDeletedLabelName);
+  return *deleted_label_;
+}
+
+storage::PropertyId BranchCore::DeletedEdgesKey() {
+  auto guard = std::lock_guard{marker_mutex_};
+  if (!deleted_edges_key_) deleted_edges_key_ = diff_engine_->NameToProperty(kDeletedEdgesName);
+  return *deleted_edges_key_;
 }
 
 void BranchContext::MarkMainObjectBranched(storage::Gid gid) {
-  auto hist_vertex = historical_base_->FindVertex(gid, storage::View::OLD);
+  auto hist_vertex = historical().FindVertex(gid, storage::View::OLD);
   if (!hist_vertex) return;  // best-effort hint -- see doc-comment.
   storage::Vertex *main_vertex = hist_vertex->vertex_;
   auto guard = std::unique_lock{main_vertex->lock};
   main_vertex->SetBranched(true);
 }
 
-// Does NOT use historical_->FindEdge (bare-gid scan of CURRENT adjacency vectors — wrong for
-// deleted light edges). Delegates the View::OLD endpoint-relative walk to FindHistoricalEdgeByEndpoint
-// (edge_lookup.hpp), shared with merge.cpp's pass-1 classifier.
-void BranchContext::MarkMainEdgeBranched(storage::Gid from_vertex_gid, storage::Gid edge_gid) {
-  if (!diff_engine_->config_.salient.items.properties_on_edges) return;  // reference edges: no Edge object to mark.
-  auto found = FindHistoricalEdgeByEndpoint(*historical_base_, from_vertex_gid, edge_gid);
-  if (!found) return;  // best-effort hint -- see doc-comment.
-  storage::Edge *main_edge = found->edge_.ptr;
+void BranchContext::MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge) {
+  if (!diff_engine().config_.salient.items.properties_on_edges) return;  // reference edges: no Edge object to mark.
+  // fork_edge.edge_.ptr is main's live Edge* directly (historical_ is a view over main's physical objects).
+  storage::Edge *main_edge = fork_edge.edge_.ptr;
   auto edge_guard = std::unique_lock{main_edge->lock};
   main_edge->SetBranched(true);
 }
@@ -511,24 +410,21 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
   // never ran), not a debug-only condition.
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::CowVertex: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
             "runs against a checked-out branch.");
   storage::Storage::Accessor *diff_txn = current_diff_txn_;
 
-  // Defense-in-depth: tombstoned gid must not be re-COW'd. Idempotency check below cannot
-  // distinguish "deleted" from "never touched" (both appear as a View::NEW miss in the diff engine).
-  // IsVertexTombstoned consults both committed and pending sets (same-txn deletes caught too).
-  if (IsVertexTombstoned(gid)) {
-    return std::unexpected(
-        CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
-  }
-
-  // Idempotent: a prior COW already in the diff engine wins outright.
+  // Idempotent: a prior COW already in the diff engine wins outright -- unless it is a stub marked deleted, which
+  // must not be mutated again.
   if (auto existing = diff_txn->FindVertex(gid, storage::View::NEW)) {
+    if (IsForkGid(gid) && IsStubDeleted(*existing, storage::View::NEW)) {
+      return std::unexpected(
+          CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
+    }
     return *existing;
   }
 
-  auto hist_vertex = historical_base_->FindVertex(gid, storage::View::OLD);
+  auto hist_vertex = historical().FindVertex(gid, storage::View::OLD);
   if (!hist_vertex) {
     // Defensive: callers resolve a vertex before mutating it; gid should exist in one of the two stores.
     return std::unexpected(
@@ -537,66 +433,24 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
                              gid.AsUint())});
   }
 
-  // Marked before the enum check: over-marking is safe (branched()==true is a hint, never a
-  // claim of actual divergence); no need to gate on the COW succeeding.
+  // Over-marking is safe (branched()==true is a hint, never a claim of actual divergence).
   MarkMainObjectBranched(gid);
 
-  auto labels_res = hist_vertex->Labels(storage::View::OLD);
-  MG_ASSERT(labels_res.has_value(),
-            "BranchContext::CowVertex: failed to read fork-state labels for vertex {}.",
-            gid.AsUint());
-  auto props_res = hist_vertex->Properties(storage::View::OLD);
-  MG_ASSERT(props_res.has_value(),
-            "BranchContext::CowVertex: failed to read fork-state properties for vertex {}.",
-            gid.AsUint());
-
-  // Enum check BEFORE touching the diff engine: a rejected COW must leave zero diff-engine side
-  // effects — a half-created vertex is indistinguishable from a successful COW by the idempotency check.
-  for (const auto &[pid, val] : *props_res) {
-    if (ContainsEnum(val)) {
-      return std::unexpected(CowError{
-          fmt::format("Cannot copy-on-write vertex {}: has an enum property, which versioned branches do not yet "
-                      "support.",
-                      gid.AsUint())});
-    }
-  }
-
-  // Shared NameIdMapper: historical_ ids are already valid in the diff engine — no by-name translation.
+  // Empty delta-less stub: fork labels/properties are read from historical_ and merged on read.
   // diff_txn is a ReplicationAccessor (adds no data members over InMemoryAccessor); cast is safe.
-  auto *replication_accessor = static_cast<storage::ReplicationAccessor *>(diff_txn);
-  auto nv = replication_accessor->CreateVertexEx(gid);
-  MG_ASSERT(nv.has_value(),
-            "BranchContext::CowVertex: gid {} collided while COW'ing into the diff engine -- should be impossible "
-            "(the idempotency check above already ruled out a prior occupant, and the gid-watermark reservation "
-            "keeps branch-native creates out of historical_'s gid range).",
-            gid.AsUint());
-
-  for (auto lbl : *labels_res) {
-    auto add_res = nv->AddLabel(lbl);
-    MG_ASSERT(
-        add_res.has_value(), "BranchContext::CowVertex: failed to add a label while COW'ing vertex {}.", gid.AsUint());
-  }
-  for (const auto &[pid, val] : *props_res) {
-    auto set_res = nv->SetProperty(pid, val);
-    MG_ASSERT(set_res.has_value(),
-              "BranchContext::CowVertex: failed to set a property while COW'ing vertex {}.",
-              gid.AsUint());
-  }
-
-  return *nv;
+  return static_cast<storage::ReplicationAccessor *>(diff_txn)->MaterializeStubVertex(gid);
 }
 
 std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::CowEdge(
     const storage::EdgeAccessor &fork_edge) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::CowEdge: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
             "runs against a checked-out branch.");
 
   const auto edge_gid = fork_edge.Gid();
 
-  // Mirrors CowVertex's tombstone guard: IsEdgeTombstoned consults both committed and pending sets.
-  if (IsEdgeTombstoned(edge_gid)) {
+  if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) {
     return std::unexpected(
         CowError{fmt::format("Cannot copy-on-write edge {}: already deleted on this branch.", edge_gid.AsUint())});
   }
@@ -632,30 +486,36 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
   auto to_diff = CowVertex(to_gid);
   if (!to_diff) return std::unexpected(to_diff.error());
 
-  // Supplementary Edge::branched() mark (gated on properties_on_edges: reference-only edges have no
-  // Edge object). fork_edge.edge_.ptr is main's live Edge* directly (historical_ is a view over
-  // main's physical objects); no by-gid lookup because historical_->FindEdge is unreliable (see ResolveEdge).
-  if (diff_engine_->config_.salient.items.properties_on_edges) {
-    storage::Edge *main_edge = fork_edge.edge_.ptr;
-    auto edge_guard = std::unique_lock{main_edge->lock};
-    main_edge->SetBranched(true);
-  }
+  MarkForkEdgeBranched(fork_edge);
 
   auto *replication_accessor = static_cast<storage::ReplicationAccessor *>(current_diff_txn_);
   // CreateEdgeEx preserves edge_gid so ResolveEdges' de-dupe (keyed on gid) treats this as the
-  // same logical edge as historical_'s copy, not a second unrelated one.
+  // same logical edge as historical_'s copy, not a second unrelated one. The engine is shared by every session of the
+  // branch, so this can legitimately fail like any write: another session's open transaction owning an endpoint stub
+  // (SERIALIZATION_ERROR, which also keeps two sessions from both creating this gid), or a concurrently deleted endpoint.
+  // FindDiffEdge above missed, so a physically present edge with this gid is invisible to this transaction: another
+  // session's in-flight or newer copy, or a rolled-back one the (GC-less) diff engine still retains. CreateEdgeEx has no
+  // graceful collision path (it asserts), so refuse here.
+  if (replication_accessor->EdgeGidExists(edge_gid)) {
+    return std::unexpected(CowError{
+        fmt::format("Cannot copy-on-write edge {}: another transaction's copy of it is in flight or still retained "
+                    "by the diff engine.",
+                    edge_gid.AsUint()),
+        storage::Error::SERIALIZATION_ERROR});
+  }
   auto nv = replication_accessor->CreateEdgeEx(&*from_diff, &*to_diff, edge_type, edge_gid);
-  MG_ASSERT(nv.has_value(),
-            "BranchContext::CowEdge: gid {} collided while COW'ing into the diff engine -- should be impossible "
-            "(the idempotency check above already ruled out a prior occupant, and the gid-watermark reservation "
-            "keeps branch-native creates out of historical_'s gid range).",
-            edge_gid.AsUint());
+  if (!nv) {
+    return std::unexpected(CowError{
+        fmt::format("Cannot copy-on-write edge {}: the diff engine rejected the write.", edge_gid.AsUint()),
+        nv.error()});
+  }
 
   for (const auto &[pid, val] : *props_res) {
     auto set_res = nv->SetProperty(pid, val);
-    MG_ASSERT(set_res.has_value(),
-              "BranchContext::CowEdge: failed to set a property while COW'ing edge {}.",
-              edge_gid.AsUint());
+    if (!set_res) {
+      return std::unexpected(CowError{
+          fmt::format("Cannot copy-on-write edge {}: failed to copy a property.", edge_gid.AsUint()), set_res.error()});
+    }
   }
 
   // Flag both endpoints so expansion from either side resolves instead of trusting main's adjacency.
@@ -667,25 +527,144 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
   return *nv;
 }
 
+bool BranchContext::IsForkGid(storage::Gid gid) const { return gid.AsUint() < kBranchNativeGidWatermark; }
+
+bool BranchContext::IsStubDeleted(const storage::VertexAccessor &stub, storage::View view) {
+  auto deleted = stub.HasLabel(DeletedLabel(), view);
+  return deleted.has_value() && *deleted;
+}
+
+bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsVertexDeleted: no current diff transaction set.");
+  if (!IsForkGid(gid)) return false;
+  auto stub = current_diff_txn_->FindVertex(gid, view);
+  return stub.has_value() && IsStubDeleted(*stub, view);
+}
+
+bool BranchContext::IsForkVertexDeleted(const storage::VertexAccessor &fork_vertex, storage::View view) {
+  if (!fork_vertex.vertex_->branched()) return false;
+  return IsVertexDeleted(fork_vertex.Gid(), view);
+}
+
+bool BranchContext::IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsForkEdgeHidden: no current diff transaction set.");
+  if (!IsForkGid(fork_edge.Gid())) return false;
+  // A diff-engine copy's endpoints are diff-engine vertices, whose branched() bit means nothing: always look.
+  const bool in_diff = fork_edge.storage_ == &diff_engine();
+  const auto from = fork_edge.FromVertex();
+  const auto to = fork_edge.ToVertex();
+  auto stub_of = [&](const storage::VertexAccessor &v) -> std::optional<storage::VertexAccessor> {
+    if (!in_diff && !v.vertex_->branched()) return std::nullopt;
+    return current_diff_txn_->FindVertex(v.Gid(), view);
+  };
+  if (auto from_stub = stub_of(from)) {
+    if (IsStubDeleted(*from_stub, view)) return true;
+    if (std::ranges::binary_search(DeletedEdgeGids(*from_stub, view), fork_edge.Gid().AsUint())) return true;
+  }
+  if (to.Gid() != from.Gid()) {
+    if (auto to_stub = stub_of(to); to_stub && IsStubDeleted(*to_stub, view)) return true;
+  }
+  return false;
+}
+
+std::vector<uint64_t> BranchContext::DeletedEdgeGids(const storage::VertexAccessor &stub, storage::View view) {
+  std::vector<uint64_t> gids;
+  auto value = stub.GetProperty(DeletedEdgesKey(), view);
+  if (!value) return gids;
+  ForEachListedInt(*value, [&](int64_t gid) { gids.push_back(static_cast<uint64_t>(gid)); });
+  std::ranges::sort(gids);
+  return gids;
+}
+
+storage::Result<bool> BranchContext::StoreDeletedEdgeGids(storage::VertexAccessor &stub,
+                                                          const std::vector<uint64_t> &gids) {
+  storage::PropertyValue value;
+  if (!gids.empty()) {
+    storage::PropertyValue::list_t list;
+    list.reserve(gids.size());
+    for (auto const gid : gids) list.emplace_back(static_cast<int64_t>(gid));
+    value = storage::PropertyValue{std::move(list)};
+  }
+  auto set = stub.SetProperty(DeletedEdgesKey(), value);
+  if (!set) return std::unexpected{set.error()};
+  return true;
+}
+
+storage::Result<std::optional<storage::VertexAccessor>> BranchContext::DeleteForkVertex(storage::Gid gid) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::DeleteForkVertex: no current diff transaction set.");
+  if (IsVertexDeleted(gid, storage::View::NEW)) return std::optional<storage::VertexAccessor>{};
+  auto stub = CowVertex(gid);
+  if (!stub) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  if (auto marked = stub->AddLabel(DeletedLabel()); !marked) return std::unexpected{marked.error()};
+  // The marker is a label write on a stub: open the label/property read gates and the adjacency fast path.
+  RecordVertexChange(gid, BranchChangeKind::kLabel);
+  RecordVertexChange(gid, BranchChangeKind::kProperty);
+  RecordEdgeChange(gid);
+  return std::make_optional(*stub);
+}
+
+storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor &fork_edge) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::DeleteForkEdge: no current diff transaction set.");
+  if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) return false;
+
+  const auto edge_gid = fork_edge.Gid();
+  const auto from_gid = fork_edge.FromVertex().Gid();
+  const auto to_gid = fork_edge.ToVertex().Gid();
+
+  if (fork_edge.storage_ != &diff_engine()) MarkForkEdgeBranched(fork_edge);
+
+  auto from = CowVertex(from_gid);
+  if (!from) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto to = from_gid == to_gid ? from : CowVertex(to_gid);
+  if (!to) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+
+  // An earlier property write COW'd the edge: its diff-engine copy is deleted normally (MVCC).
+  if (auto copy = FindDiffEdge(edge_gid, storage::View::NEW)) {
+    if (auto deleted = current_diff_txn_->DeleteEdge(&*copy); !deleted) return std::unexpected{deleted.error()};
+  }
+
+  auto list_on = [&](storage::VertexAccessor &stub) -> storage::Result<bool> {
+    auto gids = DeletedEdgeGids(stub, storage::View::NEW);
+    if (std::ranges::binary_search(gids, edge_gid.AsUint())) return true;
+    gids.insert(std::ranges::upper_bound(gids, edge_gid.AsUint()), edge_gid.AsUint());
+    return StoreDeletedEdgeGids(stub, gids);
+  };
+  if (auto listed = list_on(*from); !listed) return std::unexpected{listed.error()};
+  if (from_gid != to_gid) {
+    if (auto listed = list_on(*to); !listed) return std::unexpected{listed.error()};
+  }
+
+  RecordEdgeChange(from_gid);
+  RecordEdgeChange(to_gid);
+  return true;
+}
+
+std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gid gid) {
+  return historical().FindVertex(gid, storage::View::OLD);
+}
+
+std::optional<storage::VertexAccessor> BranchContext::FindStubOrDiffVertex(storage::Gid gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::FindStubOrDiffVertex: no current diff transaction set.");
+  return current_diff_txn_->FindVertex(gid, view);
+}
+
 std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid gid, storage::View view) {
   // MG_ASSERT not DMG_ASSERT: on the hot read path; a null deref in release would be frequently reachable.
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::ResolveVertex: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
             "runs against a checked-out branch.");
-  // Tombstone checked first: a diff-engine miss cannot distinguish "never touched" from "deleted"
-  // for a not-yet-COW'd fork vertex (both appear as nullopt). Consults committed and pending sets.
-  if (IsVertexTombstoned(gid)) return std::nullopt;
   if (auto diff_vertex = current_diff_txn_->FindVertex(gid, view)) {
+    if (IsForkGid(gid) && IsStubDeleted(*diff_vertex, view)) return std::nullopt;
     return diff_vertex;
   }
-  return historical_base_->FindVertex(gid, storage::View::OLD);
+  return historical().FindVertex(gid, storage::View::OLD);
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::FindDiffEdge: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
             "runs against a checked-out branch.");
   return current_diff_txn_->FindEdge(edge_gid, view);
 }
@@ -693,41 +672,49 @@ std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid ed
 // historical_ uses View::OLD throughout (frozen snapshot — no concept of NEW relative to any txn).
 std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
                                                                storage::EdgeDirection direction, storage::View view,
-                                                               const std::vector<storage::EdgeTypeId> &edge_types) {
+                                                               const std::vector<storage::EdgeTypeId> &edge_types,
+                                                               bool *vertex_deleted) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::ResolveEdges: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
             "runs against a checked-out branch.");
 
+  if (vertex_deleted != nullptr) *vertex_deleted = false;
+  const bool out = direction == storage::EdgeDirection::OUT;
   std::vector<storage::EdgeAccessor> result;
+  std::vector<uint64_t> listed_deleted;
 
   // Diff side first: a branch touches only a FEW of a vertex's edges, so the diff set is small.
   // Historical pass skips shadowed gids with a cheap linear scan over that small prefix, avoiding
   // the per-call heap allocation of the old unordered_map<Gid,size_t> seen set.
   if (auto diff_vertex = current_diff_txn_->FindVertex(vertex_gid, view)) {
-    auto maybe_result = (direction == storage::EdgeDirection::OUT) ? diff_vertex->OutEdges(view, edge_types, nullptr)
-                                                                   : diff_vertex->InEdges(view, edge_types, nullptr);
+    if (IsForkGid(vertex_gid)) {
+      if (IsStubDeleted(*diff_vertex, view)) {
+        if (vertex_deleted != nullptr) *vertex_deleted = true;
+        return result;
+      }
+      // One stub read covers every fork edge of this vertex.
+      listed_deleted = DeletedEdgeGids(*diff_vertex, view);
+    }
+    auto maybe_result =
+        out ? diff_vertex->OutEdges(view, edge_types, nullptr) : diff_vertex->InEdges(view, edge_types, nullptr);
     if (maybe_result.has_value()) {
       result.reserve(maybe_result->edges.size());
-      for (auto &edge : maybe_result->edges) {
-        // Tombstoned edges must not enter result from either side; pending set consulted too.
-        if (IsEdgeTombstoned(edge.Gid())) continue;
-        result.push_back(edge);
-      }
+      for (auto &edge : maybe_result->edges) result.push_back(edge);
     }
   }
   const size_t diff_count = result.size();
 
-  // Historical side: append non-shadowed, non-tombstoned edges. Linear scan over diff_count (small).
-  if (auto hist_vertex = historical_base_->FindVertex(vertex_gid, storage::View::OLD)) {
-    auto maybe_result = (direction == storage::EdgeDirection::OUT)
-                            ? hist_vertex->OutEdges(storage::View::OLD, edge_types, nullptr)
+  // Historical side: append non-shadowed fork edges the branch has not deleted. Linear scan over diff_count (small).
+  if (auto hist_vertex = historical().FindVertex(vertex_gid, storage::View::OLD)) {
+    auto maybe_result = out ? hist_vertex->OutEdges(storage::View::OLD, edge_types, nullptr)
                             : hist_vertex->InEdges(storage::View::OLD, edge_types, nullptr);
     if (maybe_result.has_value()) {
       result.reserve(diff_count + maybe_result->edges.size());
       for (auto &edge : maybe_result->edges) {
         const auto gid = edge.Gid();
-        if (IsEdgeTombstoned(gid)) continue;
+        if (std::ranges::binary_search(listed_deleted, gid.AsUint())) continue;
+        if (IsForkVertexDeleted(out ? edge.ToVertex() : edge.FromVertex(), view)) continue;
         bool shadowed = false;
         for (size_t i = 0; i < diff_count; ++i) {
           if (result[i].Gid() == gid) {
@@ -747,45 +734,40 @@ BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view)
   // MG_ASSERT not DMG_ASSERT (same rationale as CowVertex).
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::Vertices: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
             "runs against a checked-out branch.");
-  // Two raw tombstone pointers passed to Iterator (not IsVertexTombstoned) — see UnionVerticesIterable ctor
-  // (branch_engine.hpp).
-  return UnionVerticesIterable(historical_base_->Vertices(storage::View::OLD),
-                               current_diff_txn_->Vertices(view),
-                               &tombstoned_vertices_,
-                               &pending_tombstoned_vertices_);
+  return UnionVerticesIterable(
+      historical().Vertices(storage::View::OLD), current_diff_txn_->Vertices(view), DeletedLabel(), view);
 }
 
-BranchContext::UnionVerticesIterable::UnionVerticesIterable(
-    storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices,
-    const std::unordered_set<storage::Gid> *tombstoned_vertices,
-    const std::unordered_set<storage::Gid> *pending_tombstoned_vertices)
+BranchContext::UnionVerticesIterable::UnionVerticesIterable(storage::VerticesIterable hist_vertices,
+                                                            storage::VerticesIterable diff_vertices,
+                                                            storage::LabelId deleted_label, storage::View view)
     : hist_vertices_(std::move(hist_vertices)),
       diff_vertices_(std::move(diff_vertices)),
-      tombstoned_vertices_(tombstoned_vertices),
-      pending_tombstoned_vertices_(pending_tombstoned_vertices) {}
+      deleted_label_(deleted_label),
+      view_(view) {}
 
 BranchContext::UnionVerticesIterable::Iterator BranchContext::UnionVerticesIterable::begin() {
   return Iterator(hist_vertices_.begin(),
                   hist_vertices_.end(),
                   diff_vertices_.begin(),
                   diff_vertices_.end(),
-                  tombstoned_vertices_,
-                  pending_tombstoned_vertices_);
+                  deleted_label_,
+                  view_);
 }
 
-BranchContext::UnionVerticesIterable::Iterator::Iterator(
-    storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
-    storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
-    const std::unordered_set<storage::Gid> *tombstoned_vertices,
-    const std::unordered_set<storage::Gid> *pending_tombstoned_vertices)
+BranchContext::UnionVerticesIterable::Iterator::Iterator(storage::VerticesIterable::Iterator hist_it,
+                                                         storage::VerticesIterable::Iterator hist_end,
+                                                         storage::VerticesIterable::Iterator diff_it,
+                                                         storage::VerticesIterable::Iterator diff_end,
+                                                         storage::LabelId deleted_label, storage::View view)
     : hist_it_(std::move(hist_it)),
       hist_end_(std::move(hist_end)),
       diff_it_(std::move(diff_it)),
       diff_end_(std::move(diff_end)),
-      tombstoned_vertices_(tombstoned_vertices),
-      pending_tombstoned_vertices_(pending_tombstoned_vertices) {
+      deleted_label_(deleted_label),
+      view_(view) {
   SeekNext();
 }
 
@@ -794,10 +776,15 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
   return *this;
 }
 
-// Streaming gid-ordered merge (O(H+D); see class comment in branch_engine.hpp). Skip-loop needed
-// because a not-yet-COW'd fork vertex deleted on the branch won't appear in the diff engine's own
-// scan — only the historical_ side needs the tombstone check; diff-side MVCC visibility handles the rest.
+// Streaming gid-ordered merge (O(H+D); see class comment in branch_engine.hpp). A fork vertex deleted on the branch
+// has a stub in the diff stream carrying the delete marker, so it is dropped when the two streams meet on its gid;
+// a fork vertex without a stub is untouched and passes through.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
+  auto deleted_stub = [this](const storage::VertexAccessor &v) {
+    if (v.Gid().AsUint() >= kBranchNativeGidWatermark) return false;
+    auto deleted = v.HasLabel(deleted_label_, view_);
+    return deleted.has_value() && *deleted;
+  };
   while (true) {
     const bool hist_has = hist_it_.has_value() && !(*hist_it_ == *hist_end_);
     const bool diff_has = diff_it_.has_value() && !(*diff_it_ == *diff_end_);
@@ -813,50 +800,42 @@ void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
       const auto diff_gid = (**diff_it_).Gid();
 
       if (hist_gid < diff_gid) {
-        // historical_-only: skip if tombstoned. Two raw-pointer checks (not IsVertexTombstoned)
-        // because the Iterator has no BranchContext* to call through — see ctor doc (branch_engine.hpp).
-        const bool tombstoned =
-            (tombstoned_vertices_ != nullptr && tombstoned_vertices_->contains(hist_gid)) ||
-            (pending_tombstoned_vertices_ != nullptr && pending_tombstoned_vertices_->contains(hist_gid));
-        if (tombstoned) {
-          ++(*hist_it_);
-          continue;
-        }
         current_ = **hist_it_;
         ++(*hist_it_);
         done_ = false;
         return;
       }
       if (diff_gid < hist_gid) {
+        if (deleted_stub(**diff_it_)) {
+          ++(*diff_it_);
+          continue;
+        }
         current_ = **diff_it_;
         ++(*diff_it_);
         done_ = false;
         return;
       }
-      // Tie: diff engine's copy wins (COW'd or modified); historical_'s fork-state superseded wholesale.
-      // No tombstone check: diff-side MVCC visibility already excludes deleted diff-resident gids.
-      current_ = **diff_it_;
+      // Tie: the diff engine's stub wins (the reader overlays it on the fork vertex), unless it is a delete marker.
+      const bool deleted = deleted_stub(**diff_it_);
+      if (!deleted) current_ = **diff_it_;
       ++(*hist_it_);
       ++(*diff_it_);
+      if (deleted) continue;
       done_ = false;
       return;
     }
 
     if (hist_has) {
-      const auto hist_gid = (**hist_it_).Gid();
-      const bool tombstoned =
-          (tombstoned_vertices_ != nullptr && tombstoned_vertices_->contains(hist_gid)) ||
-          (pending_tombstoned_vertices_ != nullptr && pending_tombstoned_vertices_->contains(hist_gid));
-      if (tombstoned) {
-        ++(*hist_it_);
-        continue;
-      }
       current_ = **hist_it_;
       ++(*hist_it_);
       done_ = false;
       return;
     }
 
+    if (deleted_stub(**diff_it_)) {
+      ++(*diff_it_);
+      continue;
+    }
     current_ = **diff_it_;
     ++(*diff_it_);
     done_ = false;

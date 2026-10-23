@@ -112,19 +112,17 @@ struct BranchFixture {
   // 159-173) exactly -- same BuildFromFork args (empty changelog, MakeMainCommitArgs() x2), same
   // Access(WRITE) + set_current_diff_txn pairing.
   void Checkout() {
-    auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                   *fork_ts_,
-                                                   memgraph::tests::MakeMainCommitArgs(),
-                                                   memgraph::tests::MakeMainCommitArgs(),
-                                                   BenchWalRoot(),
-                                                   {});
+    auto result = mv::BranchContext::BuildFromFork(*mem_storage_, *fork_ts_, memgraph::tests::MakeMainCommitArgs());
     if (!result.has_value()) {
       std::cerr << "FATAL: BranchContext::BuildFromFork failed: " << result.error().message << "\n";
       std::abort();
     }
     branch_context_ = std::move(*result);
     diff_acc_ = branch_context_->diff_engine().Access(ms::WRITE);
-    branch_context_->set_current_diff_txn(diff_acc_.get());
+    if (!branch_context_->BeginTransaction(diff_acc_.get()).has_value()) {
+      std::cerr << "FATAL: BranchContext::BeginTransaction failed\n";
+      std::abort();
+    }
   }
 
   std::unique_ptr<ms::Storage> storage_;

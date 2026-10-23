@@ -268,9 +268,8 @@ struct CurrentDB {
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
-  // CHUNK 7b(2): a session that is destroyed (disconnect / Interpreter teardown) while checked out
-  // on a branch must still release its exclusive checkout, or the branch's `checked_out_` marker
-  // leaks and it becomes permanently un-checkout-able/un-mergeable until process restart. The
+  // A session that is destroyed (disconnect / Interpreter teardown) while checked out on a branch must
+  // still detach, or the branch's attach count leaks and it can never be dropped until process restart. The
   // implicit destructor would free `branch_context_` (unique_ptr) but never call ReleaseCheckout,
   // so we do it here. Safe re: db_acc_ lifetime -- the destructor BODY runs before any member is
   // destroyed, so db_acc_ (hence the Database's version_store_ that branch_context_version_store_
@@ -425,13 +424,10 @@ struct CurrentDB {
     current_version_ = std::move(version);
   }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1): installs the private BranchContext
-  // CHECKOUT BRANCH built for `name`, plus the (non-owned) VersionStore + name needed to release
-  // its exclusive checkout later. Caller contract: `version_store->TryAcquireCheckout(name)` must
-  // already have succeeded, and any PREVIOUSLY held context must already have been released (via
-  // SetCurrentVersion(std::nullopt)) -- this setter does not do that itself, to keep the
-  // release-old-then-acquire-new ordering explicit at the call site (see
-  // PrepareVersioningQuery's CHECKOUT_BRANCH handler in interpreter.cpp).
+  // Installs this session's BranchContext (over the branch's shared BranchCore) that CHECKOUT BRANCH built for
+  // `name`, plus the (non-owned) VersionStore + name needed to detach later. Caller contract:
+  // `version_store->TryAcquireCheckout(name)` must already have succeeded, and any PREVIOUSLY held context must
+  // already have been released (via SetCurrentVersion(std::nullopt)) -- this setter does not do that itself.
   void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
                         std::string name) {
     branch_context_ = std::move(context);
@@ -448,8 +444,8 @@ struct CurrentDB {
     versioning_engaged_ = true;
   }
 
-  // The session's private branch context, if CurrentVersion() names a checked-out branch; nullptr
-  // on `main`. Consulted by SetupDatabaseTransaction (interpreter.cpp) to route ordinary Cypher.
+  // The session's branch context, if CurrentVersion() names a checked-out branch; nullptr on `main`.
+  // Consulted by SetupDatabaseTransaction (interpreter.cpp) to route ordinary Cypher.
   versioning::BranchContext *branch_context() { return branch_context_.get(); }
 
   // Graph Versioning v1 (branch-local plan cache): the private plan cache for this checkout, if
@@ -500,12 +496,12 @@ struct CurrentDB {
 
   // Not owned: the Database (hence its VersionStore) outlives any session's CurrentDB. Only ever
   // non-null while branch_context_ is held, so ReleaseCheckout is always called against the SAME
-  // VersionStore that granted the checkout, even if db_acc_ has since been reassigned.
+  // VersionStore that granted the attach, even if db_acc_ has since been reassigned.
   versioning::VersionStore *branch_context_version_store_{nullptr};
   std::string branch_context_name_;
 
-  // Releases the exclusive checkout this session holds (if any) via
-  // versioning::VersionStore::ReleaseCheckout, and tears down the private context. Safe to call
+  // Detaches this session from its branch (versioning::VersionStore::ReleaseCheckout) and tears down its context
+  // (which releases any open per-transaction historical accessor). Safe to call
   // unconditionally -- a no-op when no context is held. Every place the session's branch pointer
   // can change or disappear (SetCurrentVersion(std::nullopt), a genuine SetCurrentDB switch,
   // ResetDB) routes through here so a session's exclusive checkout is never leaked past the point

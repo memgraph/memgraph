@@ -12,7 +12,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <span>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -86,12 +88,12 @@ class VertexAccessor final {
   auto Labels(storage::View view) const -> decltype(impl_.Labels(view));
 
   storage::Result<bool> AddLabel(storage::LabelId label) {
-    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kLabel);
+    if (branch_ctx_ != nullptr) return BranchAddLabel(label);
     return impl_.AddLabel(label);
   }
 
   storage::Result<bool> RemoveLabel(storage::LabelId label) {
-    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kLabel);
+    if (branch_ctx_ != nullptr) return BranchRemoveLabel(label);
     return impl_.RemoveLabel(label);
   }
 
@@ -116,18 +118,12 @@ class VertexAccessor final {
   }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    if (branch_ctx_ != nullptr) {
-      CowIfNeeded(versioning::BranchChangeKind::kProperty);
-      RecordPropertyFieldChange(key);
-    }
+    if (branch_ctx_ != nullptr) return BranchSetProperty(key, value);
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    if (branch_ctx_ != nullptr) {
-      CowIfNeeded(versioning::BranchChangeKind::kProperty);
-      RecordPropertyFieldChanges(properties);
-    }
+    if (branch_ctx_ != nullptr) return BranchInitProperties(properties);
     return impl_.InitProperties(properties);
   }
 
@@ -145,10 +141,7 @@ class VertexAccessor final {
   // by-value temporary -- calling a non-const method on either is fine).
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    if (branch_ctx_ != nullptr) {
-      CowIfNeeded(versioning::BranchChangeKind::kProperty);
-      RecordPropertyFieldChanges(properties);
-    }
+    if (branch_ctx_ != nullptr) return BranchUpdateProperties(properties);
     return impl_.UpdateProperties(properties);
   }
 
@@ -157,12 +150,8 @@ class VertexAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
-    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
-    auto result = impl_.ClearProperties();
-    // Fine-grained: ClearProperties removes ALL properties; the returned map enumerates exactly the
-    // pids that changed (to absent), so record each -- there is no single key to pass like SetProperty.
-    if (branch_ctx_ != nullptr && result.has_value()) RecordPropertyFieldChanges(*result);
-    return result;
+    if (branch_ctx_ != nullptr) return BranchClearProperties();
+    return impl_.ClearProperties();
   }
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
@@ -241,6 +230,20 @@ class VertexAccessor final {
   // fine filter. Only ever called when branch_ctx_ != nullptr.
   void RecordPropertyFieldChange(storage::PropertyId pid);
   void RecordPropertyFieldChanges(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+
+  // Out-of-line branch-mode mutators (vertex_accessor.cpp). A fork vertex is COW'd into a sparse stub,
+  // so each applies the change to the RECONSTRUCTED vertex (fork ⊕ stub): additions land on the stub,
+  // removals of fork state are recorded as markers on the stub (see BranchContext::RemovalMarker /
+  // RemovedPropsKey). Native vertices are complete objects and are mutated directly. Writes of
+  // reserved `__mg_*` names are rejected.
+  storage::Result<bool> BranchAddLabel(storage::LabelId label);
+  storage::Result<bool> BranchRemoveLabel(storage::LabelId label);
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,

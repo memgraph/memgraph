@@ -15,8 +15,10 @@
 #include <expected>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -31,145 +33,254 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/logging.hpp"
 #include "versioning/branch_change_filter.hpp"
 #include "versioning/branch_change_kind.hpp"
-#include "versioning/branch_log.hpp"
-#include "versioning/branch_reconstruction.hpp"
 
 namespace memgraph::versioning {
 
-// `BranchContext` implements the lazy diff-engine checkout model. At CHECKOUT time it builds in
-// O(1): an empty private `storage::InMemoryStorage` ("the diff engine") plus a
-// `HistoricalAccess(fork_ts)` reader ("the historical base", main time-traveled to the fork point).
-// Reads resolve diff-engine-first, falling back to historical_ on a miss (`ResolveVertex`/
-// `Vertices`). A write first copies-on-write the touched object into the diff engine
-// (`CowVertex`/`CowEdge`), then mutates the copy — after which every subsequent read for that gid
-// sees the diff engine's copy exclusively.
+// Visits the integers of a list-valued marker property (a list of ints; the property store may hold it as a
+// generic list or a packed int list). Works for PropertyValue and ExternalPropertyValue alike.
+template <typename PV, typename F>
+void ForEachListedInt(PV const &value, F &&visit) {
+  if (value.IsList()) {
+    for (auto const &elem : value.ValueList()) {
+      if (elem.IsInt()) visit(static_cast<int64_t>(elem.ValueInt()));
+    }
+  } else if (value.IsIntList()) {
+    for (auto const v : value.ValueIntList()) visit(static_cast<int64_t>(v));
+  }
+}
+
+// Visits the property ids encoded in a stub's `__mg_removed` value.
+template <typename PV, typename F>
+void ForEachRemovedPid(PV const &value, F &&visit) {
+  ForEachListedInt(value, [&](int64_t pid) { visit(storage::PropertyId::FromInt(static_cast<int32_t>(pid))); });
+}
+
+// Shared, per-branch state: one per live branch, handed out as shared_ptr by VersionStore's core registry and held
+// by every session that has the branch checked out. Everything a session mutates lives either inside the diff engine
+// (versioned by its MVCC) or behind an atomic / mutex here; per-session and per-transaction state is BranchContext's.
 //
-// ONE SHARED NameIdMapper (main's own): the query engine decodes label/property ids through a
-// SINGLE mapper per query. A historical (not-yet-COW'd) vertex still carries main's own ids; if
-// diff_engine_ had its own unrelated mapper those ids would be meaningless once decoded through it.
-// Sharing means CowVertex copies ids DIRECTLY — enum-TYPE ids are the one exception
-// (enum_store_ is NOT shared, see CowError).
+// ONE SHARED NameIdMapper (main's own): historical (not-yet-stubbed) vertices carry main's label/property ids, so the
+// diff engine must decode through the same mapper. Enum-TYPE ids are the one exception (enum_store_ is mirrored, not
+// shared, see BranchContext::CowEdge).
 //
-// GID COLLISION HAZARD: diff_engine_ starts its gid counter at 0. A branch-native CREATE before
-// any COW would collide with historical_'s own gids. `BuildFromFork` reserves a disjoint gid range
-// for branch-native creates — see `kBranchNativeGidWatermark` in branch_engine.cpp.
+// GID COLLISION HAZARD: the diff engine's gid counters start at 0; `Build` reserves a disjoint range for branch-native
+// creates (kBranchNativeGidWatermark, branch_engine.cpp).
 //
-// historical_ is a read-only, self-pinned accessor (HistoricalAccess, inmemory/storage.hpp) held
-// open for the whole checkout lifetime — that self-pin keeps the fork-state graph alive.
+// Deletes: a deleted fork object is recorded INSIDE the diff engine (MVCC-versioned like every other branch write): the
+// vertex stub carries the label `__mg_deleted`, a deleted fork edge's gid sits in the list property
+// `__mg_deleted_edges` on both endpoint stubs.
 //
-// Tombstones: a diff-engine miss cannot distinguish "explicitly deleted" from "never touched".
-// `tombstoned_vertices_`/`tombstoned_edges_` close this: a recorded gid is hidden unconditionally
-// from both sides. See `pending_tombstoned_vertices_` for the pending/committed split.
-class BranchContext {
+// Lifetime: must not outlive the Database's storage (the registry that owns it is destroyed before storage_).
+class BranchCore {
  public:
-  // BuildFromFork fails if fork_ts is no longer pinned (timestamp was GC'd).
-  // Enum properties on historical vertices are checked lazily in CowVertex, not here.
+  // Build fails if fork_ts is no longer pinned.
   struct BuildError {
     std::string message;
   };
 
-  // `commit_args`: for the internal gid-watermark-reservation transaction (see
-  //   kBranchNativeGidWatermark, branch_engine.cpp). Build via `storage::CommitArgs::make_main(...)`.
-  // `branch_wal_root_directory`: stable per-branch WAL root (keyed by branch number, not name —
-  //   names can be reused after drop+recreate). BuildFromFork mints a per-session-unique UUID
-  //   subdirectory beneath it for collision safety.
-  // `changelog`: already-captured WAL deltas from prior checkout sessions; empty for first checkout.
-  // `replay_commit_args`: separate CommitArgs for the changelog replay (CommitArgs is move-only;
-  //   watermark reservation and replay are two separate commits inside this one call).
-  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
-      storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args,
-      storage::CommitArgs replay_commit_args, std::filesystem::path branch_wal_root_directory,
-      const std::vector<storage::durability::WalDeltaData> &changelog);
+  // Reserved-name markers recording REMOVALS on a sparse fork stub. Everything lives in the stub itself
+  // (diff-engine MVCC versions it): label L removed => stub carries label `__mg_rm:L`; properties
+  // removed => stub property `__mg_removed` holds a list of the removed property ids (ints).
+  // Names with the `__mg_` prefix are reserved: query writes of them on a branch are rejected.
+  struct LabelInfo {
+    bool reserved{false};
+    // Set iff the label is a removal marker: the label it removes.
+    std::optional<storage::LabelId> removed_label;
+  };
+
+  // Builds the diff engine (empty, sharing main's NameIdMapper), reserves the branch-native gid range, and mirrors
+  // main's index and enum definitions as of now. `commit_args` is consumed by the gid-reservation commit.
+  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main, uint64_t fork_ts,
+                                                                      storage::CommitArgs commit_args);
+
+  BranchCore(const BranchCore &) = delete;
+  BranchCore &operator=(const BranchCore &) = delete;
+  BranchCore(BranchCore &&) = delete;
+  BranchCore &operator=(BranchCore &&) = delete;
+  ~BranchCore() = default;
+
+  storage::InMemoryStorage &diff_engine() { return *diff_engine_; }
+
+  storage::InMemoryStorage &main() { return *main_; }
+
+  uint64_t fork_ts() const { return fork_ts_; }
+
+  LabelInfo ClassifyLabel(storage::LabelId label);
+  storage::LabelId RemovalMarker(storage::LabelId label);
+  bool IsReservedProperty(storage::PropertyId property);
+  storage::PropertyId RemovedPropsKey();
+  // Delete markers: label `__mg_deleted` on a deleted fork vertex's stub; list property `__mg_deleted_edges` (edge
+  // gids) on both endpoint stubs of a deleted fork edge.
+  storage::LabelId DeletedLabel();
+  storage::PropertyId DeletedEdgesKey();
+
+  // Branch-side per-kind change filters (branch_change_filter.hpp). Lock-free (atomic fetch_or / acquire load), so
+  // concurrent sessions may record and query without further synchronisation.
+  void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept {
+    change_filters_.RecordVertexChange(gid, kind);
+  }
+
+  void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
+
+  void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
+    change_filters_.RecordPropertyField(gid, pid);
+  }
+
+  bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
+    return change_filters_.MayHavePropertyFieldChange(gid, pid);
+  }
+
+  bool MayHaveLabelChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveLabelChange(gid); }
+
+  bool MayHavePropertyChange(storage::Gid gid) const noexcept { return change_filters_.MayHavePropertyChange(gid); }
+
+  bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveEdgeChange(gid); }
+
+ private:
+  BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts, std::unique_ptr<storage::InMemoryStorage> diff_engine)
+      : main_(main), fork_ts_(fork_ts), diff_engine_(std::move(diff_engine)) {}
+
+  storage::InMemoryStorage *main_;  // Not owned; outlives the core (see class comment).
+  uint64_t fork_ts_;
+  std::unique_ptr<storage::InMemoryStorage> diff_engine_;
+
+  // Caches over the shared NameIdMapper for the reserved-name markers above. Guarded because reads
+  // classify labels lazily; entries are immutable once inserted.
+  std::mutex marker_mutex_;
+  std::unordered_map<storage::LabelId, LabelInfo> label_info_;
+  std::unordered_map<storage::LabelId, storage::LabelId> removal_marker_;
+  std::unordered_map<storage::PropertyId, bool> reserved_property_;
+  std::optional<storage::PropertyId> removed_props_key_;
+  std::optional<storage::LabelId> deleted_label_;
+  std::optional<storage::PropertyId> deleted_edges_key_;
+
+  BranchChangeFilters change_filters_;
+};
+
+// One session's view of a branch: a shared BranchCore plus the per-transaction state. Reads resolve diff-engine-first,
+// falling back to the historical base (main time-traveled to fork_ts; `ResolveVertex`/`Vertices`). A write first
+// materializes an empty stub of the touched object in the diff engine (`CowVertex`/`CowEdge`), then mutates it.
+//
+// The two per-transaction slots (`current_diff_txn_`, `historical_`) are opened by OpenHistorical + SetCurrentDiffTxn
+// and released by EndTransaction, called by CurrentDB::SetupDatabaseTransaction / CleanupDBTransaction. They are NOT duplicated onto
+// every query::VertexAccessor/DbAccessor (mgp_vertex size budget). A BranchContext belongs to exactly one session and
+// is used by one transaction at a time; concurrent sessions each hold their own BranchContext over the same core.
+//
+// historical_ holds main's READ storage guard (and a self fork pin) only while a branch transaction is open.
+class BranchContext {
+ public:
+  using BuildError = BranchCore::BuildError;
+  using LabelInfo = BranchCore::LabelInfo;
+
+  // Builds a private, unregistered core and wraps it (unit tests; production attaches to the registry's core).
+  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
+                                                                                 uint64_t fork_ts,
+                                                                                 storage::CommitArgs commit_args);
+
+  explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
   BranchContext(BranchContext &&) = delete;
   BranchContext &operator=(BranchContext &&) = delete;
 
-  // diff_engine_ tears itself down normally; historical_ releases its HistoricalAccess self-pin.
-  // `= default` is correct: each per-commit BranchLog is opened and finalized immediately after
-  // capture — by the time this destructor runs, no open log remains.
+  // historical_ is declared after core_, so it is released first.
   ~BranchContext() = default;
 
-  storage::InMemoryStorage &diff_engine() { return *diff_engine_; }
+  const std::shared_ptr<BranchCore> &core() const { return core_; }
 
-  storage::Storage::Accessor &historical() { return *historical_base_; }
+  storage::InMemoryStorage &diff_engine() { return core_->diff_engine(); }
 
-  // Single per-BranchContext slot for the query's write accessor on diff_engine(). Not duplicated
-  // onto every VertexAccessor/DbAccessor (would exceed mg_procedure_impl.hpp's 80-byte
-  // kMaxMgpVertexSize budget and widen the hot accessor for non-branch callers too). Safe because
-  // a checked-out branch is exclusive single-writer (VersionStore::TryAcquireCheckout,
-  // version_store.hpp) — at most one query runs against a given BranchContext at a time.
-  // Set by CurrentDB::SetupDatabaseTransaction; cleared to nullptr by CleanupDBTransaction before
-  // the accessor is destroyed. CowVertex/ResolveVertex/Vertices DMG_ASSERT it is non-null.
-  void set_current_diff_txn(storage::Storage::Accessor *txn) { current_diff_txn_ = txn; }
+  // Valid between OpenHistorical and EndTransaction.
+  storage::Storage::Accessor &historical() {
+    MG_ASSERT(historical_ != nullptr, "BranchContext::historical: no branch transaction is open.");
+    return *historical_;
+  }
+
+  // Opens a fresh historical accessor on main at fork_ts (holding main's READ guard). Fails if the fork timestamp is
+  // no longer pinned (branch dropped); nothing is left open on failure. CurrentDB opens it BEFORE the diff-engine
+  // accessor so the lock order is always main READ -> diff engine.
+  std::expected<void, BuildError> OpenHistorical();
+
+  // Publishes `diff_txn` (the session's diff-engine accessor) as the current transaction.
+  void SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) { current_diff_txn_ = diff_txn; }
+
+  // OpenHistorical + SetCurrentDiffTxn, for callers that already hold the diff-engine accessor (unit tests).
+  std::expected<void, BuildError> BeginTransaction(storage::Storage::Accessor *diff_txn) {
+    if (auto opened = OpenHistorical(); !opened) return opened;
+    SetCurrentDiffTxn(diff_txn);
+    return {};
+  }
+
+  // Clears both slots; releases the historical accessor (and with it main's READ guard). Idempotent.
+  void EndTransaction() noexcept {
+    current_diff_txn_ = nullptr;
+    historical_.reset();
+  }
 
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
 
-  // Result of CaptureCommitIfBranch, shared between Interpreter::Commit and PeriodicCommit.
-  struct CommitCaptureOutcome {
-    // false: nothing to capture (not this txn's diff engine, or a pure-read boundary).
-    bool attempted = false;
-    // true: capture would exceed max_changelog_length — caller MUST abort instead of committing.
-    bool cap_exceeded = false;
-  };
-
-  // Branch-commit capture hook, shared between Interpreter::Commit and DbAccessor::PeriodicCommit
-  // (periodic-commit boundaries previously flushed the diff-engine without writing the BranchLog).
-  // MUST be called BEFORE the caller's own commit call (PrepareForCommitPhase/PeriodicCommit) on
-  // `txn` — those fast-discard the transaction's deltas as part of committing.
-  // Gated on current_diff_txn_: `USING VERSION 'main'` queries have a non-null BranchContext but
-  // current_diff_txn_ is null — those must not trigger capture.
-  CommitCaptureOutcome CaptureCommitIfBranch(const storage::Transaction &txn, uint64_t max_changelog_length) {
-    if (current_diff_txn_ == nullptr || txn.deltas.empty()) {
-      return {.attempted = false, .cap_exceeded = false};
-    }
-
-    const auto ts = NextBranchCommitTs();
-    auto commit_log = CreateCommitLog(ts);
-    uint64_t records = 0;
-    CaptureBranchCommit(*commit_log, txn, &diff_engine(), ts, &records);
-
-    if (ChangelogLength() + records > max_changelog_length) {
-      // The BranchLog has already received deltas (count_ > 0), so WalFile::~WalFile() will NOT
-      // unlink it on destruction — Abandon() explicitly deletes the file before the unique_ptr drops.
-      commit_log->Abandon();
-      return {.attempted = true, .cap_exceeded = true};
-    }
-
-    commit_log->Finalize();
-    AddCapturedRecords(records);
-
-    // PROMOTE pending tombstones on successful capture — strictly after the durable BranchLog write
-    // and the cap-exceeded check (a cap-exceeded return skips this, leaving pending sets intact for
-    // the caller's abort path). merge()+clear() moves each gid exactly once in O(pending) and
-    // leaves the pending set unconditionally empty regardless of overlap.
-    tombstoned_vertices_.merge(pending_tombstoned_vertices_);
-    pending_tombstoned_vertices_.clear();
-    tombstoned_edges_.merge(pending_tombstoned_edges_);
-    pending_tombstoned_edges_.clear();
-
-    memgraph::metrics::Metrics().global.versioning_branch_commits_captured->Increment();
-
-    return {.attempted = true, .cap_exceeded = false};
-  }
-
-  // CowVertex/CowEdge fail only when the object contains an Enum property. An Enum PropertyValue
+  // CowEdge fails only when the edge contains an Enum property. An Enum PropertyValue
   // embeds an enum-TYPE id from enum_store_, which is NOT shared between main and diff_engine_ —
   // copying verbatim would silently mislabel it. Also covers gid not found in historical_.
+  // `storage_error` is set when the failure came from the diff engine itself (e.g. SERIALIZATION_ERROR because
+  // another session's open transaction owns an endpoint stub), so the caller can raise main's own error for it.
   struct CowError {
     std::string message;
+    std::optional<storage::Error> storage_error{};
   };
 
   // Copy-on-write: returns the diff engine's VertexAccessor for `gid` via current_diff_txn().
   //   - Idempotent: if the diff engine already has `gid` (prior COW or branch-native create),
   //     returns that copy immediately.
-  //   - Else: reads historical_'s copy of `gid` (props + labels), CreateVertexEx(gid)s a same-gid
-  //     copy into current_diff_txn(), copying each label/property id DIRECTLY (shared NameIdMapper).
-  //     Rejects (CowError) an Enum property — enum-TYPE ids are not shared (see CowError).
+  //   - CowError if the vertex is deleted on the branch.
+  //   - Else: materializes an EMPTY delta-less stub with the same gid in current_diff_txn();
+  //     fork labels/properties stay in historical_ and are not copied.
   std::expected<storage::VertexAccessor, CowError> CowVertex(storage::Gid gid);
+
+  // Reserved-name markers (see BranchCore); forwarded so query code keeps one entry point.
+  LabelInfo ClassifyLabel(storage::LabelId label) { return core_->ClassifyLabel(label); }
+
+  storage::LabelId RemovalMarker(storage::LabelId label) { return core_->RemovalMarker(label); }
+
+  bool IsReservedProperty(storage::PropertyId property) { return core_->IsReservedProperty(property); }
+
+  storage::PropertyId RemovedPropsKey() { return core_->RemovedPropsKey(); }
+
+  storage::LabelId DeletedLabel() { return core_->DeletedLabel(); }
+
+  storage::PropertyId DeletedEdgesKey() { return core_->DeletedEdgesKey(); }
+
+  // Deleted-ness is read from the stub as visible to the current diff transaction at `view` (never from side
+  // state), so it follows diff-engine MVCC: own writes, snapshots and rollback all behave like main's.
+  bool IsStubDeleted(const storage::VertexAccessor &stub, storage::View view);
+  // False for native gids (their deletes are ordinary diff-engine deletes) and for fork vertices without a stub.
+  bool IsVertexDeleted(storage::Gid gid, storage::View view);
+  // `fork_vertex` is a main@fork accessor; a clear branched() bit proves no stub exists, skipping the lookup.
+  bool IsForkVertexDeleted(const storage::VertexAccessor &fork_vertex, storage::View view);
+  // True when the fork edge is deleted on the branch (gid listed on its FROM stub) or either fork endpoint is.
+  // `fork_edge` may also be the edge's diff-engine copy.
+  bool IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view);
+  // Ascending gids of the fork edges listed as deleted on `stub`.
+  std::vector<uint64_t> DeletedEdgeGids(const storage::VertexAccessor &stub, storage::View view);
+  storage::Result<bool> StoreDeletedEdgeGids(storage::VertexAccessor &stub, const std::vector<uint64_t> &gids);
+
+  // DELETE of a fork vertex: stub (materialized if needed) plus the `__mg_deleted` label. The stub is never
+  // physically deleted. Returns the stub, or nullopt when already deleted. Edges are NOT touched: incident fork
+  // edges are hidden by the endpoint marker, incident diff-engine edges are the caller's to delete.
+  storage::Result<std::optional<storage::VertexAccessor>> DeleteForkVertex(storage::Gid gid);
+  // DELETE of a fork edge: its gid goes on both endpoint stubs, and a diff-engine copy (an earlier property write
+  // COW'd it) is deleted normally. Returns false when it was already deleted.
+  storage::Result<bool> DeleteForkEdge(const storage::EdgeAccessor &fork_edge);
+
+  bool IsForkGid(storage::Gid gid) const;
+  // Fork-state vertex (historical_, View::OLD).
+  std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
+  // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
+  std::optional<storage::VertexAccessor> FindStubOrDiffVertex(storage::Gid gid, storage::View view);
 
   // Copy-on-write for edges. Takes the fork edge's EdgeAccessor directly (not just a gid) because
   // historical_->FindEdge(gid) is unreliable for edges (see ResolveEdge's doc-comment).
@@ -181,7 +292,7 @@ class BranchContext {
   std::expected<storage::EdgeAccessor, CowError> CowEdge(const storage::EdgeAccessor &fork_edge);
 
   // Diff-engine-first point lookup, falling back to historical_ on a miss.
-  // Checks tombstoned_vertices_ first — a tombstoned gid never resolves from either side.
+  // A fork vertex whose stub is deleted at `view` never resolves.
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
   // Diff-engine-ONLY point lookup by edge gid (no historical_ fallback). Used for:
@@ -202,14 +313,10 @@ class BranchContext {
 
       // Default-constructed = end iterator (done_ == true).
       Iterator() = default;
-      // `tombstoned_vertices`/`pending_tombstoned_vertices`: non-owning pointers into the owning
-      // BranchContext's tombstone sets; SeekNext consults both to skip tombstoned gids.
-      // Two separate pointers (not a back-pointer to BranchContext) because this nested Iterator
-      // has no BranchContext reference — functionally equivalent to IsVertexTombstoned.
+      // `deleted_label`/`view`: a fork vertex whose diff-engine stub carries the delete marker at `view` is skipped.
       Iterator(storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
                storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
-               const std::unordered_set<storage::Gid> *tombstoned_vertices,
-               const std::unordered_set<storage::Gid> *pending_tombstoned_vertices);
+               storage::LabelId deleted_label, storage::View view);
 
       storage::VertexAccessor operator*() const { return *current_; }
 
@@ -226,9 +333,8 @@ class BranchContext {
       std::optional<storage::VerticesIterable::Iterator> diff_it_;
       std::optional<storage::VerticesIterable::Iterator> diff_end_;
       std::optional<storage::VertexAccessor> current_;
-      const std::unordered_set<storage::Gid> *tombstoned_vertices_{nullptr};
-      // Non-owning — pending-tombstone side; see ctor doc-comment.
-      const std::unordered_set<storage::Gid> *pending_tombstoned_vertices_{nullptr};
+      storage::LabelId deleted_label_{storage::kInvalidLabelId};
+      storage::View view_{storage::View::NEW};
       bool done_{true};
     };
 
@@ -240,15 +346,12 @@ class BranchContext {
     friend class BranchContext;
 
     UnionVerticesIterable(storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices,
-                          const std::unordered_set<storage::Gid> *tombstoned_vertices,
-                          const std::unordered_set<storage::Gid> *pending_tombstoned_vertices);
+                          storage::LabelId deleted_label, storage::View view);
 
     storage::VerticesIterable hist_vertices_;
     storage::VerticesIterable diff_vertices_;
-    // Non-owning — points into BranchContext's tombstoned_vertices_; outlives this range.
-    const std::unordered_set<storage::Gid> *tombstoned_vertices_;
-    // Non-owning, symmetric — points into BranchContext's pending_tombstoned_vertices_.
-    const std::unordered_set<storage::Gid> *pending_tombstoned_vertices_;
+    storage::LabelId deleted_label_;
+    storage::View view_;
   };
 
   UnionVerticesIterable Vertices(storage::View view);
@@ -257,175 +360,52 @@ class BranchContext {
   // de-duped by EdgeAccessor::Gid() with the diff engine's copy winning ties. NOT a lazy streaming
   // merge: vertex incident-edge sets are degree-bounded, so an eager owned vector is simpler here.
   // historical_ is always read at View::OLD (frozen snapshot, no notion of caller-relative NEW).
-  // Tombstone-gated: edges in tombstoned_edges_ are excluded even if historical_ still has them.
+  // Fork edges listed as deleted on `vertex_gid`'s stub, or whose other fork endpoint is deleted at `view`, are
+  // dropped; diff-engine deletes are hidden by MVCC. A deleted vertex yields no edges and sets `*vertex_deleted`.
   std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
                                                   storage::View view,
-                                                  const std::vector<storage::EdgeTypeId> &edge_types);
+                                                  const std::vector<storage::EdgeTypeId> &edge_types,
+                                                  bool *vertex_deleted = nullptr);
 
-  // Records `gid` as deleted on the current, not-yet-committed transaction — into
-  // pending_tombstoned_vertices_, NOT the permanent set. Called eagerly at Pull-time, before
-  // commit/abort is known; promoted by CaptureCommitIfBranch on commit, discarded by
-  // DiscardPendingTombstones on abort. Also marks the main object branched (idempotent: CowVertex
-  // already does this, but MarkMainObjectBranched is harmless if called twice).
-  void TombstoneVertex(storage::Gid gid) {
-    pending_tombstoned_vertices_.insert(gid);
-    MarkMainObjectBranched(gid);
-  }
-
-  // Symmetric for edges. Does NOT mark MAIN's Edge object: historical_->FindEdge is unreliable by
-  // bare gid; CowEdge (which always runs first) handles that marking instead.
-  // Inserts into pending_tombstoned_edges_; promoted/discarded like the vertex side.
-  void TombstoneEdge(storage::Gid gid) { pending_tombstoned_edges_.insert(gid); }
-
-  // Tombstone predicates consulting BOTH committed and pending sets — a gid this transaction just
-  // deleted must stay hidden to itself (re-delete must no-op) even before the commit promotes it.
-  // Single choke point all read/hide paths route through: CowVertex, CowEdge, ResolveVertex,
-  // ResolveEdge, ResolveEdges, and UnionVerticesIterable::SeekNext all use these.
-  bool IsVertexTombstoned(storage::Gid gid) const {
-    return tombstoned_vertices_.contains(gid) || pending_tombstoned_vertices_.contains(gid);
-  }
-
-  bool IsEdgeTombstoned(storage::Gid gid) const {
-    return tombstoned_edges_.contains(gid) || pending_tombstoned_edges_.contains(gid);
-  }
-
-  // Called on abort (CleanupDBTransaction, interpreter.cpp): discards pending tombstones so an
-  // aborted DELETE does not permanently hide live objects. Safe to call unconditionally — no-op on
-  // empty sets. Must be called AFTER CaptureCommitIfBranch on a committed transaction (pending
-  // already promoted; clear is then a no-op).
-  void DiscardPendingTombstones() noexcept {
-    pending_tombstoned_vertices_.clear();
-    pending_tombstoned_edges_.clear();
-  }
-
-  // Branch-side per-kind change filters (see branch_change_filter.hpp for the model).
+  // Per-kind change filters live in the shared core (see branch_change_filter.hpp for the model).
   // Write side: RecordVertexChange fires from VertexAccessor::CowIfNeeded; RecordEdgeChange fires
-  // from CowEdge and DbAccessor::InsertEdge; re-seeded from the changelog on re-checkout.
-  // Read side: MayHave* let readers skip the resolve when a kind is definitely unchanged.
-  void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept {
-    change_filters_.RecordVertexChange(gid, kind);
-  }
+  // from CowEdge and DbAccessor::InsertEdge. Read side: MayHave* let readers skip the resolve when a kind is
+  // definitely unchanged.
+  void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept { core_->RecordVertexChange(gid, kind); }
 
-  void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
+  void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { core_->RecordEdgeChange(endpoint_gid); }
 
   // Fine-grained per-property recording/query. Gates GetProperty/GetPropertySize fast paths;
   // Properties() (whole-map) uses the coarse MayHavePropertyChange instead.
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
-    change_filters_.RecordPropertyField(gid, pid);
+    core_->RecordPropertyFieldChange(gid, pid);
   }
 
   bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
-    return change_filters_.MayHavePropertyFieldChange(gid, pid);
+    return core_->MayHavePropertyFieldChange(gid, pid);
   }
 
-  bool MayHaveLabelChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveLabelChange(gid); }
+  bool MayHaveLabelChange(storage::Gid gid) const noexcept { return core_->MayHaveLabelChange(gid); }
 
-  bool MayHavePropertyChange(storage::Gid gid) const noexcept { return change_filters_.MayHavePropertyChange(gid); }
+  bool MayHavePropertyChange(storage::Gid gid) const noexcept { return core_->MayHavePropertyChange(gid); }
 
-  bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveEdgeChange(gid); }
+  bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
  private:
-  // Takes BranchLog construction ingredients (not a pre-built log); CreateCommitLog builds a fresh
-  // one per commit from them. `initial_changelog_length`: seeds changelog_length_ from prior
-  // sessions so the retention cap is enforced against the branch's whole life.
-  BranchContext(std::unique_ptr<storage::InMemoryStorage> diff_engine,
-                std::unique_ptr<storage::Storage::Accessor> historical_base,
-                std::unordered_set<storage::Gid> tombstoned_vertices, std::unordered_set<storage::Gid> tombstoned_edges,
-                std::filesystem::path branch_log_session_directory, storage::SalientConfig::Items branch_log_items,
-                storage::NameIdMapper *branch_log_mapper, uint64_t initial_changelog_length)
-      : diff_engine_(std::move(diff_engine)),
-        historical_base_(std::move(historical_base)),
-        tombstoned_vertices_(std::move(tombstoned_vertices)),
-        tombstoned_edges_(std::move(tombstoned_edges)),
-        branch_log_session_directory_(std::move(branch_log_session_directory)),
-        branch_log_items_(branch_log_items),
-        branch_log_mapper_(branch_log_mapper),
-        changelog_length_(initial_changelog_length) {}
-
-  // Sets the monotonic `branched()` bit on MAIN's own Vertex for `gid`, resolved through
-  // historical_->FindVertex(gid, View::OLD) with the vertex's lock held. Best-effort hint — not
-  // correctness-load-bearing (nothing reads the bit in the read path yet). In-memory only;
-  // re-seeded from changelog on re-checkout. Call sites: CowVertex, TombstoneVertex, BuildFromFork
-  // replay loop.
+  // Sets the monotonic `branched()` bit on MAIN's own Vertex for `gid`, resolved through the transaction's historical
+  // accessor with the vertex's lock held. Best-effort hint, safe to call from concurrent sessions (the bit is written
+  // under main's vertex lock, no diff-engine lock is held by any caller). Call site: CowVertex.
   void MarkMainObjectBranched(storage::Gid gid);
 
-  // Edge-side analogue of MarkMainObjectBranched. Resolves via from_vertex_gid's OutEdges(View::OLD)
-  // walk (not historical_->FindEdge — unreliable by bare gid; see ResolveEdge's doc-comment).
-  // Gated on properties_on_edges: light/reference edges have no Edge object to mark. Best-effort.
-  // Call site: BuildFromFork replay loop only.
-  void MarkMainEdgeBranched(storage::Gid from_vertex_gid, storage::Gid edge_gid);
+  // Sets the `branched()` bit on a main@fork edge reached directly (its Edge* is main's live object). Same
+  // properties_on_edges gate as above; takes only the edge's own lock.
+  void MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge);
 
-  // Monotonic per-session counter for branch-commit WAL timestamps. The branch's BranchLog is a
-  // private WAL stream whose timestamps only need to be strictly increasing (never compared against
-  // main's clock). Also threaded into CreateCommitLog as the commit's sequence number for ordering.
-  // Not thread-safe: single-writer exclusivity guarantees one commit at a time.
-  uint64_t NextBranchCommitTs() { return ++branch_commit_ts_; }
-
-  // Cumulative WAL delta records captured across this branch's whole life (prior sessions +
-  // current). Bounds `FLAGS_versioning_max_changelog_length` — an unbounded change-log means an
-  // unbounded GC-pin retention window.
-  uint64_t ChangelogLength() const { return changelog_length_; }
-
-  // Called after a commit's records are successfully appended; advances the running total.
-  void AddCapturedRecords(uint64_t n) { changelog_length_ += n; }
-
-  // Creates a fresh BranchLog for one commit (not one per session): WAL's ReadWalInfo stops
-  // counting records at the second transaction's differing timestamp, so a single session-spanning
-  // log silently truncated multi-commit captures on read. Caller opens, captures into, and
-  // Finalize()s the returned log immediately — there is no long-lived log.
-  // `seq_num`: embedded in WalFile metadata for ordering; wall-clock filenames can collide within
-  // the same microsecond — seq_num (pass NextBranchCommitTs()) is the collision-immune tie-break.
-  std::unique_ptr<BranchLog> CreateCommitLog(uint64_t seq_num) {
-    return std::make_unique<BranchLog>(branch_log_session_directory_, branch_log_items_, branch_log_mapper_, seq_num);
-  }
-
-  std::unique_ptr<storage::InMemoryStorage> diff_engine_;
-  std::unique_ptr<storage::Storage::Accessor> historical_base_;
-  // Not owned -- see set_current_diff_txn()/current_diff_txn()'s own doc-comment above. Points
-  // into CurrentDB::db_transactional_accessor_ for the duration of one query; nullptr otherwise.
+  std::shared_ptr<BranchCore> core_;
+  // Per-transaction slots; see the class comment. current_diff_txn_ is not owned: it points into
+  // CurrentDB::db_transactional_accessor_ for the duration of one transaction, nullptr otherwise.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
-
-  // gids this branch has explicitly DELETEd — must never resolve again from either side. A bare
-  // diff-engine miss cannot distinguish "deleted" from "never touched" for a not-yet-COW'd fork
-  // vertex; this set closes that resurrection hazard. Checked first in ResolveVertex and
-  // UnionVerticesIterable::SeekNext. Populated by TombstoneVertex and the WalVertexDelete replay.
-  std::unordered_set<storage::Gid> tombstoned_vertices_;
-
-  // PENDING tombstones for the current, not-yet-committed transaction. Separate from
-  // tombstoned_vertices_ because TombstoneVertex is called eagerly at Pull-time — a DELETE that
-  // then aborts must NOT leave a permanent tombstone behind. IsVertexTombstoned checks both sets so
-  // a just-deleted gid stays hidden to itself mid-transaction. Resolved once per transaction:
-  //   - CaptureCommitIfBranch promotes to tombstoned_vertices_ on commit.
-  //   - DiscardPendingTombstones clears without promotion on abort.
-  // Always empty between transactions (single-writer exclusivity).
-  std::unordered_set<storage::Gid> pending_tombstoned_vertices_;
-
-  // Symmetric for edges — populated by TombstoneEdge and the WalEdgeDelete replay handler.
-  std::unordered_set<storage::Gid> tombstoned_edges_;
-
-  // Symmetric for edges — promoted/discarded exactly like pending_tombstoned_vertices_.
-  std::unordered_set<storage::Gid> pending_tombstoned_edges_;
-
-  // Per-kind change filters (see branch_change_filter.hpp). In-memory; re-seeded from changelog on
-  // every checkout. Monotonic + single-writer — no extra ownership concerns beyond BranchContext's.
-  BranchChangeFilters change_filters_;
-
-  // Per-session-unique UUID subdirectory under the branch's WAL root (separate per session:
-  // two sessions restart their seq-num counting from scratch, so wall-clock-derived filenames
-  // could collide within the same microsecond if they shared a directory). Stored alongside the
-  // two other BranchLog construction ingredients CreateCommitLog() needs on every commit.
-  std::filesystem::path branch_log_session_directory_;
-  storage::SalientConfig::Items branch_log_items_;
-  storage::NameIdMapper *branch_log_mapper_;
-
-  // Per-session monotonic counter for captured branch-commit WAL timestamps -- see
-  // NextBranchCommitTs()'s own doc-comment. Starts at 0; first captured commit gets ts 1.
-  uint64_t branch_commit_ts_{0};
-
-  // Cumulative WAL delta records across this branch's whole life (prior sessions + current session).
-  // Bounds FLAGS_versioning_max_changelog_length — the cap must apply to the whole life, not just
-  // this session.
-  uint64_t changelog_length_{0};
+  std::unique_ptr<storage::Storage::Accessor> historical_;
 };
 
 }  // namespace memgraph::versioning

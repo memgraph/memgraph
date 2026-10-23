@@ -759,6 +759,19 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(
   return VertexAccessor{&*it, storage_, &transaction_};
 }
 
+Vertex *InMemoryStorage::MaterializeStubVertex(Gid gid) {
+  atomic_fetch_max_explicit(&vertex_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
+  auto acc = vertices_.access();
+  auto [it, inserted] = acc.insert(Vertex{gid, nullptr});
+  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  return &*it;
+}
+
+VertexAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubVertex(storage::Gid gid) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return {mem_storage->MaterializeStubVertex(gid), storage_, &transaction_};
+}
+
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto acc = mem_storage->vertices_.access();

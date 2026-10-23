@@ -36,10 +36,15 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <iostream>
+#include <limits>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <thread>
+#include <typeinfo>
 #include <unordered_set>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include "gtest/gtest.h"
@@ -479,7 +484,8 @@ TEST_F(VersioningInterpreterTest, CheckoutSwitchesBetweenBranchesThenBackToMainL
   }
 }
 
-TEST_F(VersioningInterpreterTest, MergeHappyPathFastForwardsEmptyChangelog) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergeHappyPathFastForwardsEmptyChangelog) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
@@ -500,7 +506,8 @@ TEST_F(VersioningInterpreterTest, MergeHappyPathFastForwardsEmptyChangelog) {
 // property, preserved from BranchMergeAppliesCapturedEdgeToMain. MERGE drops the branch (spec
 // §4.2) so each iteration starts clean for the next.
 // (Collapses BranchMergeAppliesCapturedVertexToMain + BranchMergeAppliesCapturedEdgeToMain.)
-TEST_F(VersioningInterpreterTest, BranchMergeAppliesCapturedObjectToMain) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchMergeAppliesCapturedObjectToMain) {
   SatisfyGate();
 
   struct Case {
@@ -582,7 +589,8 @@ TEST_F(VersioningInterpreterTest, BranchMergeAppliesCapturedObjectToMain) {
 // "re-checkout shows fork-state" limitation the original version of this test documented: Foo1 is
 // now visible immediately after the second CHECKOUT (proving replay actually ran), not just after
 // MERGE.
-TEST_F(VersioningInterpreterTest, BranchMergeConcatenatesMultipleCheckoutSessions) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchMergeConcatenatesMultipleCheckoutSessions) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -888,7 +896,7 @@ TEST_F(VersioningInterpreterTest, MergeAndDropRejectedWhenBranchHasChildren) {
   ASSERT_THROW(faker.Interpret("DROP BRANCH 'parent'"), memgraph::query::QueryRuntimeException);
 
   // Children first, then the parent -- both should now succeed.
-  faker.Interpret("MERGE BRANCH 'child'");
+  faker.Interpret("DROP BRANCH 'child'");
   faker.Interpret("DROP BRANCH 'parent'");
 }
 
@@ -913,8 +921,7 @@ TEST_F(VersioningInterpreterTest, CreateBranchFromNonMainParentIsRejected) {
 }
 
 // Observability: the six global versioning Prometheus metrics (metrics/prometheus_metrics.hpp)
-// must move as the branch lifecycle progresses -- create, checkout, a captured branch commit,
-// merge (which also drops the merged branch, per spec §4.2), and a plain drop.
+// must move as the branch lifecycle progresses -- create, checkout and drop (merge is unsupported).
 //   - The four counters are process-global monotonic singletons shared across every test in this
 //     binary, so assert DELTAS captured at the start of this test, never absolute values (mirrors
 //     tests/unit/hot_cold_resume.cpp's own SuspendResumeMoveObservabilityMetrics precedent).
@@ -925,9 +932,7 @@ TEST_F(VersioningInterpreterTest, VersioningMetricsIncrementOnLifecycle) {
   SatisfyGate();
   auto &g = memgraph::metrics::Metrics().global;
   const double created0 = g.versioning_branches_created->Value();
-  const double merged0 = g.versioning_branches_merged->Value();
   const double dropped0 = g.versioning_branches_dropped->Value();
-  const double captured0 = g.versioning_branch_commits_captured->Value();
 
   faker.Interpret("CREATE (:A {x:1})");
   faker.Interpret("CREATE BRANCH 'b1' FROM 'main'");
@@ -937,26 +942,21 @@ TEST_F(VersioningInterpreterTest, VersioningMetricsIncrementOnLifecycle) {
   // main + b1 + b2 now exist.
   EXPECT_GE(g.versioning_active_branches->Value(), 2.0);
 
-  // Checkout b1, write (-> a captured branch commit on release), then back to main.
+  // Checkout b1, write, then back to main.
   faker.Interpret("CHECKOUT BRANCH 'b1'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b1");
   EXPECT_GE(g.versioning_active_checkouts->Value(), 1.0);
   faker.Interpret("CREATE (:OnBranch {y:1})");
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_GE(g.versioning_branch_commits_captured->Value() - captured0, 1.0)
-      << "releasing the checkout must capture at least one branch commit";
 
-  // Merge b1 into main -- MERGE also drops the merged branch (spec §4.2), so this alone must NOT
-  // move the dropped counter.
-  faker.Interpret("MERGE BRANCH 'b1'");
-  EXPECT_DOUBLE_EQ(g.versioning_branches_merged->Value() - merged0, 1.0)
-      << "a successful MERGE BRANCH increments the merged counter by exactly 1";
+  // Drop b1 (checked out earlier, now detached).
+  faker.Interpret("DROP BRANCH 'b1'");
+  EXPECT_DOUBLE_EQ(g.versioning_branches_dropped->Value() - dropped0, 1.0);
 
-  // Drop b2 directly (never checked out, never merged).
+  // Drop b2 directly (never checked out).
   faker.Interpret("DROP BRANCH 'b2'");
-  EXPECT_DOUBLE_EQ(g.versioning_branches_dropped->Value() - dropped0, 1.0)
-      << "a plain DROP BRANCH increments the dropped counter by exactly 1 (independent of MERGE's "
-         "own internal drop of 'b1', which must not double-count here)";
+  EXPECT_DOUBLE_EQ(g.versioning_branches_dropped->Value() - dropped0, 2.0)
+      << "each DROP BRANCH increments the dropped counter by exactly 1";
 }
 
 namespace {
@@ -1138,7 +1138,8 @@ class ThrowingAuthChecker final : public memgraph::query::AuthChecker {
 // the merge's own change-set. The trigger is deliberately created AFTER the branch write (and after
 // checking back onto main) so it can only ever fire for the merge itself, never for the branch
 // checkout session's own (separately captured, not-yet-merged) commit.
-TEST_F(VersioningInterpreterTest, MergeFiresAfterCommitTriggerWithCreatedChangeSet) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergeFiresAfterCommitTriggerWithCreatedChangeSet) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -1167,7 +1168,8 @@ TEST_F(VersioningInterpreterTest, MergeFiresAfterCommitTriggerWithCreatedChangeS
 // never populates a deletedVertices row for a merge (see its own doc-comment in interpreter.cpp),
 // so a `() DELETE AFTER COMMIT` trigger's own event-type gate (TriggerContext::ShouldEventTrigger)
 // never even fires it -- documenting the v1 limitation rather than crashing on it.
-TEST_F(VersioningInterpreterTest, MergeWithDeleteFiresCreatedUpdatedTriggersButNotDeleted) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergeWithDeleteFiresCreatedUpdatedTriggersButNotDeleted) {
   SatisfyGate();
 
   // Seed main BEFORE branching, so the branch's delete targets a fork-existing (not branch-local)
@@ -1218,7 +1220,8 @@ TEST_F(VersioningInterpreterTest, MergeWithDeleteFiresCreatedUpdatedTriggersButN
 // delta -- so a branch that SET the same property twice produced TWO setVertexProperties rows on
 // merge instead of one. Proves the fix: only ONE row surfaces, carrying the fork-snapshot old value
 // and the LATEST (not intermediate) new value.
-TEST_F(VersioningInterpreterTest, MergeCollapsesRepeatedPropertySetIntoSingleRow) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergeCollapsesRepeatedPropertySetIntoSingleRow) {
   SatisfyGate();
 
   // Seed main BEFORE branching so `val` has a fork-snapshot value (1) distinct from either branch-side write.
@@ -1261,7 +1264,8 @@ TEST_F(VersioningInterpreterTest, MergeCollapsesRepeatedPropertySetIntoSingleRow
 // InterpreterFaker::Interpret/Prepare never call CheckAuthorized (only the Bolt session layer
 // does), so this test calls Interpreter::Prepare + CheckAuthorized directly, mirroring
 // glue/SessionHL.cpp's own InterpretPrepare usage.
-TEST_F(VersioningInterpreterTest, MergePrivilegeGateRequiresWritePrivileges) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergePrivilegeGateRequiresWritePrivileges) {
   SatisfyGate();
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
 
@@ -1316,7 +1320,8 @@ TEST_F(VersioningInterpreterTest, MergePrivilegeGateRequiresWritePrivileges) {
 // rights must succeed. (Full role/policy-backed FGA setup -- real Auth roles with GRANT/DENY -- is
 // an e2e-level concern; this test exercises the interpreter-level wiring with a hand-rolled
 // FineGrainedAuthChecker double, which is what's practical to construct at the unit level.)
-TEST_F(VersioningInterpreterTest, MergeFgaDeniedLabelRejectsMergeMainUntouched) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergeFgaDeniedLabelRejectsMergeMainUntouched) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -1365,7 +1370,8 @@ TEST_F(VersioningInterpreterTest, MergeFgaDeniedLabelRejectsMergeMainUntouched) 
 // `name` permanently stuck in BeginMerge's "merging" marker -- un-mergeable AND un-droppable until
 // restart. The M2 fix widens the try/catch (interpreter.cpp, MERGE_BRANCH handler) to cover this
 // whole span, so this now aborts cleanly and the branch stays retryable.
-TEST_F(VersioningInterpreterTest, MergeAbortsMarkerWhenFgaCheckerResolutionThrows) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_MergeAbortsMarkerWhenFgaCheckerResolutionThrows) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -2247,7 +2253,7 @@ TEST_F(VersioningInterpreterTest, BranchEdgeBitFastPathDeleteAfterModifyStillRai
 // this exercises the "works WITHOUT the Q6 merge fix" case (contrast
 // BranchModifyForkVertexPropagatesToMainOnMerge/BranchDeleteForkVertexRemovesFromMainOnMerge below,
 // which specifically need it).
-TEST_F(VersioningInterpreterTest, BranchDeleteBranchNativeVertexHiddenAndMergesAbsent) {
+TEST_F(VersioningInterpreterTest, BranchDeleteBranchNativeVertexHiddenAndMainNeverSawIt) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -2262,7 +2268,6 @@ TEST_F(VersioningInterpreterTest, BranchDeleteBranchNativeVertexHiddenAndMergesA
   }
 
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("MERGE BRANCH 'b'");
 
   auto stream = faker.Interpret("MATCH (n:X) RETURN n");
   EXPECT_EQ(stream.GetResults().size(), 0U) << "main must never have seen the created-then-deleted vertex";
@@ -2278,7 +2283,7 @@ TEST_F(VersioningInterpreterTest, BranchDeleteBranchNativeVertexHiddenAndMergesA
 // :M2, and :M1 would never get its `v:2` property update either. Three separate `faker.Interpret`
 // calls below are three separate autocommitted transactions (three separate per-commit BranchLog
 // files, per `BranchContext::CreateCommitLog`) -- proving all three round-trip and apply in order.
-TEST_F(VersioningInterpreterTest, BranchMultipleCommitsAllCapturedAndMergedInOrder) {
+TEST_F(VersioningInterpreterTest, BranchMultipleCommitsAllVisibleAfterReattach) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -2292,17 +2297,18 @@ TEST_F(VersioningInterpreterTest, BranchMultipleCommitsAllCapturedAndMergedInOrd
   // proving the diff engine (not just the eventual merged main) sees every earlier commit too.
   faker.Interpret("MATCH (n:M1) SET n.v = 2");
 
+  // Detach and re-attach: the branch's shared diff engine outlives any one checkout.
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("MERGE BRANCH 'b'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
 
   {
     auto stream = faker.Interpret("MATCH (n:M1) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 1 (create) must have been merged";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "commit 3 (the SET) must have been merged too";
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 1 (create) must be visible";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "commit 3 (the SET) must be visible too";
   }
   {
     auto stream = faker.Interpret("MATCH (n:M2) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 2 (create) must have been merged";
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 2 (create) must be visible";
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
   }
 }
@@ -2322,7 +2328,7 @@ TEST_F(VersioningInterpreterTest, BranchMultipleCommitsAllCapturedAndMergedInOrd
 // WITHOUT the fix, only whatever happened to still be in the live diff engine before this test's
 // re-checkout would survive (at best the batches present at the moment of re-checkout; in the
 // pre-fix code, NONE of them, since nothing was ever captured).
-TEST_F(VersioningInterpreterTest, BranchPeriodicCommitCapturedAndSurvivesRecheckoutAndMerge) {
+TEST_F(VersioningInterpreterTest, BranchPeriodicCommitSurvivesRecheckout) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -2350,13 +2356,12 @@ TEST_F(VersioningInterpreterTest, BranchPeriodicCommitCapturedAndSurvivesRecheck
            "the periodic-commit boundary)";
   }
 
-  // MERGE onto main must also bring in every periodically-committed row.
+  // Main never sees any of the branch's batches.
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("MERGE BRANCH 'b'");
   {
     auto s = faker.Interpret("MATCH (n:Batch) RETURN count(n)");
     ASSERT_EQ(s.GetResults().size(), 1U);
-    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 100) << "MERGE must bring in every periodic-commit batch";
+    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 0);
   }
 }
 
@@ -2390,7 +2395,8 @@ TEST_F(VersioningInterpreterTest, BranchCallInTransactionsCapturedAndSurvivesRec
 // apply recreates a DUPLICATE edge on main (since the original gid already exists there, R11 remaps
 // it to a fresh one) instead of no-oping, and the following WalEdgeDelete then deletes THAT
 // duplicate -- net leaving the ORIGINAL fork edge on main completely untouched (silently WRONG).
-TEST_F(VersioningInterpreterTest, BranchDeleteEdgeHiddenAndMerged) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchDeleteEdgeHiddenAndMerged) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:S)-[:E]->(:A)");
@@ -2424,7 +2430,8 @@ TEST_F(VersioningInterpreterTest, BranchDeleteEdgeHiddenAndMerged) {
 // treated as branch-local, so MERGE silently created a DUPLICATE :P on main and applied the SET to
 // the duplicate, never touching main's REAL :P -- this test's assertions (exactly one :P, showing
 // v=2) would FAIL against the pre-fix code (either 2 rows, or the original untouched at v=1).
-TEST_F(VersioningInterpreterTest, BranchModifyForkVertexPropagatesToMainOnMerge) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchModifyForkVertexPropagatesToMainOnMerge) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:P {v:1})");
@@ -2449,7 +2456,8 @@ TEST_F(VersioningInterpreterTest, BranchModifyForkVertexPropagatesToMainOnMerge)
 // WalVertexCreate echo is correctly no-op'd (fork-existing, not branch-local), so the following
 // WalVertexDelete actually deletes main's REAL vertex, not a bogus duplicate that would otherwise
 // have been left behind untouched.
-TEST_F(VersioningInterpreterTest, BranchDeleteForkVertexRemovesFromMainOnMerge) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchDeleteForkVertexRemovesFromMainOnMerge) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:Q {id:1})");
@@ -2478,7 +2486,8 @@ TEST_F(VersioningInterpreterTest, BranchDeleteForkVertexRemovesFromMainOnMerge) 
 // Crucially, the edge's OTHER endpoint (:S) is only the FROM side, not detach-deleted itself, and
 // must survive the merge -- before the pre-COW fix, the cascade had no way to reach a fork edge at
 // all, so this whole scenario would have thrown NotYetImplemented instead of cascading.
-TEST_F(VersioningInterpreterTest, BranchDetachDeleteForkVertexWithForkEdgesCascadesAndMergesRemoved) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchDetachDeleteForkVertexWithForkEdgesCascadesAndMergesRemoved) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:S)-[:R]->(:A)");
@@ -2529,7 +2538,8 @@ TEST_F(VersioningInterpreterTest, BranchDetachDeleteForkVertexWithForkEdgesCasca
 // having existed on main at all. Exercises the pure diff-engine-only cascade path (no fork/historical
 // data involved), and confirms MERGE correctly no-ops the create+delete pair rather than leaving a
 // dangling half-applied create or edge on main.
-TEST_F(VersioningInterpreterTest, BranchDetachDeleteBranchNativeVertexWithEdgesCascades) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchDetachDeleteBranchNativeVertexWithEdgesCascades) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:S)");
@@ -2570,7 +2580,8 @@ TEST_F(VersioningInterpreterTest, BranchDetachDeleteBranchNativeVertexWithEdgesC
 // removed exactly once -- if the pre-COW path naively re-processed the edge from each endpoint's own
 // incident-edge walk without idempotency, this would double-delete (an assertion failure / crash in
 // the diff engine) rather than cleanly no-op the second time.
-TEST_F(VersioningInterpreterTest, BranchDetachDeleteSharedEdgeBetweenTwoDeletedNodesDeletesEdgeOnce) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchDetachDeleteSharedEdgeBetweenTwoDeletedNodesDeletesEdgeOnce) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:A)-[:R]->(:B)");
@@ -2608,7 +2619,8 @@ TEST_F(VersioningInterpreterTest, BranchDetachDeleteSharedEdgeBetweenTwoDeletedN
 // idempotent double-COW path directly (unlike the two-distinct-vertices shared-edge test above, here
 // it's the SAME vertex's own adjacency listing the same edge twice) -- would double-COW / double-
 // delete-assert without idempotency.
-TEST_F(VersioningInterpreterTest, BranchDetachDeleteSelfLoopCascades) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchDetachDeleteSelfLoopCascades) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:A)");
@@ -2651,7 +2663,8 @@ TEST_F(VersioningInterpreterTest, BranchDetachDeleteSelfLoopCascades) {
 // single :S-[:R]->:A edge is present for each case's assertions.
 // (Collapses BranchModifyForkEdgePropertyPropagatesToMainOnMerge +
 // BranchRemoveForkEdgePropertyPropagatesToMainOnMerge.)
-TEST_F(VersioningInterpreterTest, BranchForkEdgePropertyMutationPropagatesToMainOnMerge) {
+// DISABLED: MERGE BRANCH is rejected at preparation (branches are discard-only, D1); merge code is dead.
+TEST_F(VersioningInterpreterTest, DISABLED_BranchForkEdgePropertyMutationPropagatesToMainOnMerge) {
   SatisfyGate();
 
   struct Case {
@@ -2739,58 +2752,6 @@ TEST_F(VersioningInterpreterTest, BranchExistenceRejectsStorageModeAndDropGraph)
   // not a permanent lockout).
   faker.Interpret("DROP BRANCH 'b'");
   faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");  // must NOT throw now that no branch exists
-}
-
-// Graph Versioning v1, chunk 10 (D5/R13): `FLAGS_versioning_max_changelog_length` bounds a branch's
-// cumulative captured change-log record count. `Interpreter::Commit` (interpreter.cpp, the
-// "RETENTION-CAP fix" comment block right above the `FLAGS_versioning_max_changelog_length` check)
-// computes the prospective total (`bctx->ChangelogLength() + records`) BEFORE ever calling
-// `commit_log->Finalize()` / `AddCapturedRecords`, and throws `QueryRuntimeException` if it would
-// exceed the cap -- strictly before `PrepareForCommitPhase`, so the diff-engine transaction is never
-// prepared/committed. That throw propagates out of `Interpreter::Pull`'s autocommit path (the
-// `!in_explicit_transaction_` branch calls `Commit()` inside the same try/catch that runs
-// `AbortCommand` on any `utils::BasicException` before rethrowing -- see interpreter.cpp's
-// `Pull<TStream>` body), so the rejected write must be invisible on the branch afterward and the
-// session must stay usable for further queries. Only live capture is gated here (this test never
-// exercises re-checkout replay).
-TEST_F(VersioningInterpreterTest, BranchChangelogRetentionCapRejectsOversizeCommit) {
-  SatisfyGate();
-
-  // Save/restore the gflag so this test cannot leak its tiny cap into sibling tests, even if an
-  // assertion below fails and returns early out of the test body.
-  const auto saved_max_changelog_length = FLAGS_versioning_max_changelog_length;
-  memgraph::utils::OnScopeExit const restore_flag(
-      [saved_max_changelog_length] { FLAGS_versioning_max_changelog_length = saved_max_changelog_length; });
-
-  faker.Interpret("CREATE (:Seed)");  // on main, pre-fork -- must be completely unaffected by the branch cap.
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  // Cap of 1: the branch's changelog starts at 0, so even a single-vertex CREATE's captured record
-  // count (a handful of records) already pushes the prospective total over the cap -- rejected on
-  // the very first branch write, regardless of the exact per-commit record count.
-  FLAGS_versioning_max_changelog_length = 1;
-  ASSERT_THROW(faker.Interpret("CREATE (:OnBranch {x:1})"), memgraph::query::QueryRuntimeException);
-
-  // Rolled back cleanly: the rejected vertex must NOT be visible on the branch, and the session
-  // (including main's untouched data) stays usable.
-  {
-    auto s = faker.Interpret("MATCH (n:OnBranch) RETURN n");
-    EXPECT_EQ(s.GetResults().size(), 0U) << "rejected commit must not leave a visible write on the branch";
-  }
-  {
-    auto s = faker.Interpret("MATCH (n:Seed) RETURN n");
-    EXPECT_EQ(s.GetResults().size(), 1U) << "main's pre-fork data must be unaffected by the branch's cap rejection";
-  }
-
-  // Positive control: raise the cap back up and show the identical write now succeeds.
-  FLAGS_versioning_max_changelog_length = saved_max_changelog_length;
-  faker.Interpret("CREATE (:OnBranch {x:1})");  // must NOT throw now.
-  {
-    auto s = faker.Interpret("MATCH (n:OnBranch) RETURN n.x");
-    ASSERT_EQ(s.GetResults().size(), 1U);
-    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 1);
-  }
 }
 
 // Graph Versioning v1 (USING VERSION per-query override, Step 1): `USING VERSION 'main'` is a
@@ -2946,19 +2907,10 @@ TEST_F(VersioningInterpreterTest, UsingVersionOtherBranchNotYetImplemented) {
   faker.Interpret("MATCH (n) RETURN n");
 }
 
-// Regression lock for the force-main spurious-branch-capture bug: `Interpreter::Commit`'s
-// branch-capture block used to guard only on `current_db_.branch_context() != nullptr`, which is
-// SESSION state -- still non-null while checked out on 'b' even for a `USING VERSION 'main'` query
-// that routes THIS transaction at main's own storage (force_main_override). That made the block
-// fire for a force-main write too, capturing MAIN's own deltas into branch 'b's BranchLog; replaying
-// that log on MERGE BRANCH would then duplicate the force-main write onto main a second time. The
-// fix keys the guard off `bctx->current_diff_txn() != nullptr` instead -- set only when this
-// transaction's own SetupDatabaseTransaction actually ran against the branch's diff engine, which a
-// force-main query never does. This test creates the fork vertex :M via `USING VERSION 'main'`
-// while checked out on 'b', makes a REAL branch write (:BranchNode) in the same session, then merges
-// 'b' into main and asserts :M is still exactly one vertex (not duplicated by a spurious replay) and
-// :BranchNode was correctly captured/merged exactly once.
-TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchIsNotCapturedIntoBranchLog) {
+// Regression lock for the force-main routing: a `USING VERSION 'main'` write issued while checked out on 'b'
+// goes to main's own storage only (the session's branch_context() is non-null, but this transaction never runs
+// against the diff engine), while a plain write goes to the branch only.
+TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchLandsOnMainOnly) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -2975,16 +2927,14 @@ TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchIsNotCapture
   }
   {
     auto stream = faker.Interpret("MATCH (n:BranchNode) RETURN n");
-    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch write must not be visible on main before MERGE";
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch write must not be visible on main";
   }
 
-  faker.Interpret("MERGE BRANCH 'b'");
-
+  // Back on the branch: :M was created on main after the fork, so the branch does not see it.
+  faker.Interpret("CHECKOUT BRANCH 'b'");
   {
-    auto stream = faker.Interpret("MATCH (n:M) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U)
-        << "force-main write must not be duplicated by a spurious branch-log capture+replay";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    auto stream = faker.Interpret("MATCH (n:M) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "a force-main write must not appear on the branch";
   }
   {
     auto stream = faker.Interpret("MATCH (n:BranchNode) RETURN n.v");
@@ -3160,6 +3110,194 @@ TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedVertexIsNoO
 
   auto vertices = faker.Interpret("MATCH (n:Iso) RETURN n");
   EXPECT_EQ(vertices.GetResults().size(), 0U) << "the double-deleted vertex must be gone, exactly as a single delete";
+}
+
+// Slice 2 (deletes live in diff-engine MVCC): DELETE of a fork vertex marks its stub instead of recording a gid in a
+// side set. The vertex is gone from scans, lookups and aggregates on the branch and untouched on main.
+TEST_F(VersioningInterpreterTest, BranchDeleteForkVertexIsGoneOnBranchAndPresentOnMain) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:K {i:1}), (:K {i:2}), (:K {i:3})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:K {i:2}) DELETE n");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:K) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n.i AS i ORDER BY i");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:K {i:2}) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the deleted vertex must not be found by a property scan";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:K) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3) << "main must be untouched";
+  }
+}
+
+// DETACH DELETE of a fork vertex writes only the vertex marker. Its fork neighbours -- never touched themselves -- must
+// stop seeing the incident edges in both directions, in expansions, degrees and edge scans.
+TEST_F(VersioningInterpreterTest, BranchDetachDeleteForkVertexHidesIncidentEdgesFromNeighbours) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:N {n:'a'})-[:R]->(:X)-[:S]->(:N {n:'b'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (x:X) DETACH DELETE x");
+
+  {
+    auto stream = faker.Interpret("MATCH (a:N {n:'a'})-[r]->() RETURN r");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "OUT expansion from the neighbour must not see the edge";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (b:N {n:'b'})<-[r]-() RETURN r");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "IN expansion from the neighbour must not see the edge";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:N) OPTIONAL MATCH (n)-[r]-() RETURN n.n AS n, count(r) AS d ORDER BY n");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 0);
+    EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 0);
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[r]->() RETURN count(r) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0) << "the edge scan must not see edges of a deleted vertex";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:N) OPTIONAL MATCH (n)-[r]-() RETURN n.n AS n, count(r) AS d ORDER BY n");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[r]->() RETURN count(r) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "main must be untouched";
+  }
+}
+
+// Plain DELETE of a fork vertex that still has a visible edge fails exactly like main; once the edge is deleted in the
+// same statement it succeeds.
+TEST_F(VersioningInterpreterTest, BranchPlainDeleteForkVertexWithEdgesFailsLikeMain) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A)-[:R]->(:B)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (a:A) DELETE a"), memgraph::query::RemoveAttachedVertexException);
+
+  faker.Interpret("MATCH (a:A)-[r:R]->(:B) DELETE r, a");
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN labels(n) AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[r:R]->() RETURN r");
+    EXPECT_EQ(stream.GetResults().size(), 0U);
+  }
+}
+
+// DELETE of a single fork edge lists its gid on both endpoint stubs: it disappears from expansions in both directions,
+// from edge scans and from counts, while a parallel edge survives and main is untouched.
+TEST_F(VersioningInterpreterTest, BranchDeleteSingleForkEdgeIsGoneInBothDirectionsAndScans) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (a:A), (b:B), (a)-[:R {w:1}]->(b), (a)-[:R {w:2}]->(b)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH ()-[r:R {w:1}]->() DELETE r");
+
+  for (const char *query : {"MATCH (:A)-[r:R]->(:B) RETURN r.w AS w",
+                            "MATCH (:B)<-[r:R]-(:A) RETURN r.w AS w",
+                            "MATCH ()-[r:R]->() RETURN r.w AS w"}) {
+    SCOPED_TRACE(query);
+    auto stream = faker.Interpret(query);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+  {
+    auto stream = faker.Interpret("MATCH (a:A) OPTIONAL MATCH (a)-[r]->() RETURN count(r) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  auto stream = faker.Interpret("MATCH ()-[r:R]->() RETURN count(r) AS c");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "main must be untouched";
+}
+
+// A fork edge whose property was already written on the branch (so a diff-engine copy exists) is hidden in both copies.
+TEST_F(VersioningInterpreterTest, BranchDeleteForkEdgeAfterPropertyWriteHidesBothCopies) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (a:A), (b:B), (a)-[:R {w:1}]->(b), (a)-[:R {w:2}]->(b)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH ()-[r:R {w:1}]->() SET r.w = 10");
+  faker.Interpret("MATCH ()-[r:R {w:10}]->() DELETE r");
+
+  auto stream = faker.Interpret("MATCH (:A)-[r:R]->(:B) RETURN r.w AS w");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  auto scan = faker.Interpret("MATCH ()-[r:R]->() RETURN count(r) AS c");
+  ASSERT_EQ(scan.GetResults().size(), 1U);
+  EXPECT_EQ(scan.GetResults()[0][0].ValueInt(), 1);
+}
+
+// Deletes are ordinary diff-engine writes: an explicit transaction that deletes a fork vertex and a fork edge and then
+// rolls back leaves everything visible again, with no side state to undo.
+TEST_F(VersioningInterpreterTest, BranchDeleteThenRollbackRestoresEverything) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:K {i:1})-[:R]->(:K {i:2})-[:R]->(:K {i:3})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:K {i:3}) DETACH DELETE n");
+  faker.Interpret("MATCH (:K {i:1})-[r:R]->(:K {i:2}) DELETE r");
+  {
+    auto stream = faker.Interpret("MATCH (n:K) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "the transaction must see its own delete";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[r:R]->() RETURN count(r) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  }
+  faker.Interpret("ROLLBACK");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:K) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3) << "a rolled-back delete must leave every vertex visible";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[r:R]->() RETURN count(r) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "a rolled-back delete must leave every edge visible";
+  }
 }
 
 // Bug fix S2 (stale read of an entity deleted earlier in the SAME query on a branch): the branch
@@ -3761,6 +3899,142 @@ TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutation
          "surface from main@fork's index untouched.";
 }
 
+namespace {
+std::vector<std::string> SortedNames(const memgraph::communication::bolt::Value &list) {
+  std::vector<std::string> out;
+  for (const auto &elem : list.ValueList()) out.emplace_back(elem.ValueString());
+  std::ranges::sort(out);
+  return out;
+}
+}  // namespace
+
+// A fork vertex touched on a branch is a sparse stub; removals of fork state are recorded as markers
+// on the stub. The tests below cover each removal kind and that no marker is ever observable.
+TEST_F(VersioningInterpreterTest, BranchRemovePropertyOnForkVertexIsVisibleAndSurvivesReplay) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:P {id: 1, p: 7, q: 8})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P) REMOVE n.p");
+  faker.Interpret("MATCH (n:P) SET n.q = null");
+
+  auto check_branch = [&] {
+    auto stream = faker.Interpret("MATCH (n:P) RETURN n.p IS NULL, n.q IS NULL, keys(n), n.id");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    const auto &row = stream.GetResults()[0];
+    EXPECT_TRUE(row[0].ValueBool());
+    EXPECT_TRUE(row[1].ValueBool());
+    EXPECT_EQ(SortedNames(row[2]), (std::vector<std::string>{"id"}));
+    EXPECT_EQ(row[3].ValueInt(), 1);
+  };
+  check_branch();
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  check_branch();
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  auto stream = faker.Interpret("MATCH (n:P) RETURN n.p, n.q");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 7);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 8);
+}
+
+TEST_F(VersioningInterpreterTest, BranchSetPropertyAfterRemoveRestoresIt) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:P {id: 1, p: 7})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P) REMOVE n.p");
+  faker.Interpret("MATCH (n:P) SET n.p = 5");
+
+  auto stream = faker.Interpret("MATCH (n:P) RETURN n.p, keys(n)");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+  EXPECT_EQ(SortedNames(stream.GetResults()[0][1]), (std::vector<std::string>{"id", "p"}));
+}
+
+TEST_F(VersioningInterpreterTest, BranchRemoveThenReAddLabelLeaksNoMarker) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:P:L {id: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P) REMOVE n:L");
+  {
+    auto stream = faker.Interpret("MATCH (n:P) RETURN labels(n), n:L");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(SortedNames(stream.GetResults()[0][0]), (std::vector<std::string>{"P"}));
+    EXPECT_FALSE(stream.GetResults()[0][1].ValueBool());
+  }
+  faker.Interpret("MATCH (n:P) SET n:L");
+  {
+    auto stream = faker.Interpret("MATCH (n:P) RETURN labels(n), n:L");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(SortedNames(stream.GetResults()[0][0]), (std::vector<std::string>{"L", "P"}));
+    EXPECT_TRUE(stream.GetResults()[0][1].ValueBool());
+  }
+}
+
+TEST_F(VersioningInterpreterTest, BranchReplacePropertiesOnForkVertexKeepsOnlyNewOnes) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:P {id: 1, p: 7, q: 8})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P) SET n = {x: 1}");
+
+  auto stream = faker.Interpret("MATCH (n:P) RETURN keys(n), n.x, n.p IS NULL, n.id IS NULL");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  const auto &row = stream.GetResults()[0];
+  EXPECT_EQ(SortedNames(row[0]), (std::vector<std::string>{"x"}));
+  EXPECT_EQ(row[1].ValueInt(), 1);
+  EXPECT_TRUE(row[2].ValueBool());
+  EXPECT_TRUE(row[3].ValueBool());
+}
+
+TEST_F(VersioningInterpreterTest, BranchLabelScanHonoursRemovedAndAddedLabelsOnForkVertices) {
+  SatisfyGate();
+  faker.Interpret("CREATE INDEX ON :L");
+  faker.Interpret("CREATE (:L {n:'a'})");
+  faker.Interpret("CREATE (:L {n:'b'})");
+  faker.Interpret("CREATE (:Other {n:'x'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:L {n:'a'}) REMOVE n:L");
+  faker.Interpret("MATCH (n:Other) SET n:L");
+
+  auto stream = faker.Interpret("MATCH (n:L) RETURN n.n ORDER BY n.n");
+  std::vector<std::string> names;
+  for (const auto &row : stream.GetResults()) names.emplace_back(row[0].ValueString());
+  EXPECT_EQ(names, (std::vector<std::string>{"b", "x"}));
+}
+
+TEST_F(VersioningInterpreterTest, BranchStubMarkersAreNeverVisibleAndReservedNamesAreRejected) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:P:L {id: 1, p: 7})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P) REMOVE n:L, n.p");
+
+  auto stream = faker.Interpret("MATCH (n:P) RETURN labels(n), keys(n), properties(n), n{.*}");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  const auto &row = stream.GetResults()[0];
+  EXPECT_EQ(SortedNames(row[0]), (std::vector<std::string>{"P"}));
+  EXPECT_EQ(SortedNames(row[1]), (std::vector<std::string>{"id"}));
+  for (const auto idx : {2U, 3U}) {
+    ASSERT_EQ(row[idx].ValueMap().size(), 1U);
+    EXPECT_TRUE(row[idx].ValueMap().contains("id"));
+  }
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:__mg_rm_x"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n.__mg_removed = 1"), memgraph::query::QueryRuntimeException);
+}
+
 TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexSelectedInPlanOnBranch) {
   SatisfyGate();
 
@@ -4216,6 +4490,151 @@ TEST_F(VersioningInterpreterTest, BranchEnumMirroredFromMainSupportsNativeCreate
          "not crash or garble it";
 }
 
+// Branch label+property index scans overlay a touched-set on the fork index (design R5): a stubbed fork vertex is
+// rechecked on its reconstructed (label, key), and stubs that newly match are found through the diff engine's label
+// and property indexes. Each case below is a distinct way a fork vertex can differ from its fork-time index entry.
+namespace {
+std::vector<std::string> BranchScanStrings(InterpreterFaker &faker, std::string const &query) {
+  auto stream = faker.Interpret(query);
+  std::vector<std::string> out;
+  for (auto const &row : stream.GetResults()) out.push_back(row[0].ValueString());
+  return out;
+}
+}  // namespace
+
+TEST_F(VersioningInterpreterTest, BranchLabelPropertyPointLookupOverlay) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  faker.Interpret("CREATE (:L {p: 1, tag: 'untouched'})");
+  faker.Interpret("CREATE (:L {p: 2, tag: 'changed'})");
+  faker.Interpret("CREATE (:L {p: 3, tag: 'unlabeled'})");
+  faker.Interpret("CREATE (:M {p: 4, tag: 'gained'})");
+  faker.Interpret("CREATE (:L {p: 5, tag: 'other'})");
+  faker.Interpret("CREATE (:L {p: 7, tag: 'deleted'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:L {tag: 'changed'}) SET n.p = 20");
+  faker.Interpret("MATCH (n:L {tag: 'unlabeled'}) REMOVE n:L");
+  faker.Interpret("MATCH (n:M {tag: 'gained'}) SET n:L");
+  faker.Interpret("MATCH (n:L {tag: 'other'}) SET n.tag = 'other2'");
+  faker.Interpret("MATCH (n:L {tag: 'deleted'}) DETACH DELETE n");
+  faker.Interpret("CREATE (:L {p: 6, tag: 'native'})");
+
+  auto lookup = [&](int64_t p) {
+    return BranchScanStrings(faker, "MATCH (n:L {p: " + std::to_string(p) + "}) RETURN n.tag");
+  };
+  using V = std::vector<std::string>;
+  EXPECT_EQ(lookup(1), V{"untouched"});
+  EXPECT_EQ(lookup(2), V{}) << "the branch changed p away from 2: the fork index entry must not match";
+  EXPECT_EQ(lookup(20), V{"changed"}) << "the branch-set value must be found although the stub is in no fork entry";
+  EXPECT_EQ(lookup(3), V{}) << "a removed label must drop the fork index hit";
+  EXPECT_EQ(lookup(4), V{"gained"}) << "a stub that gained :L keeps its fork p and must match";
+  EXPECT_EQ(lookup(5), V{"other2"}) << "an unrelated change on a stub must not drop the vertex";
+  EXPECT_EQ(lookup(6), V{"native"});
+  EXPECT_EQ(lookup(7), V{}) << "a tombstoned fork vertex must not match";
+  EXPECT_EQ(lookup(99), V{});
+
+  auto plan = faker.Interpret("EXPLAIN MATCH (n:L {p: 1}) RETURN n.tag");
+  std::string text;
+  for (auto const &row : plan.GetResults()) text += row[0].ValueString() + "\n";
+  EXPECT_THAT(text, ::testing::HasSubstr("ScanAllByLabelProperties")) << "plan must use the index operator:\n" << text;
+}
+
+TEST_F(VersioningInterpreterTest, BranchLabelPropertyRangeOverlayIsOrderedAcrossForkAndDiff) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :P(v)");
+  faker.Interpret("CREATE (:P {v: 10, name: 'A'})");
+  faker.Interpret("CREATE (:P {v: 20, name: 'B'})");
+  faker.Interpret("CREATE (:P {v: 30, name: 'C'})");
+  faker.Interpret("CREATE (:P {v: 40, name: 'D'})");
+  faker.Interpret("CREATE (:P {v: 50, name: 'E'})");
+  faker.Interpret("CREATE (:Q {v: 25, name: 'F'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P {name: 'B'}) SET n.v = 45");      // moves within the range
+  faker.Interpret("MATCH (n:P {name: 'D'}) SET n.note = 'x'");  // stubbed, key unchanged
+  faker.Interpret("MATCH (n:P {name: 'E'}) REMOVE n:P");        // leaves the scan
+  faker.Interpret("MATCH (n:Q {name: 'F'}) SET n:P");           // gains the label, v from the fork
+  faker.Interpret("CREATE (:P {v: 35, name: 'N1'}), (:P {v: 5, name: 'N2'})");
+
+  using V = std::vector<std::string>;
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 AND n.v <= 60 RETURN n.name ORDER BY n.v"),
+            (V{"A", "F", "C", "N1", "D", "B"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 AND n.v <= 60 RETURN n.name ORDER BY n.v DESC"),
+            (V{"B", "D", "N1", "C", "F", "A"}));
+}
+
+TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyPrefixOverlay) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :L(a, b)");
+  faker.Interpret("CREATE (:L {a: 1, b: 1, t: 'x1'})");
+  faker.Interpret("CREATE (:L {a: 1, b: 2, t: 'x2'})");
+  faker.Interpret("CREATE (:L {a: 2, b: 5, t: 'x3'})");
+  faker.Interpret("CREATE (:L {a: 1, b: 9, t: 'x4'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:L {t: 'x2'}) SET n.b = 0");  // still a = 1, moves earlier in (a, b) order
+  faker.Interpret("MATCH (n:L {t: 'x3'}) SET n.a = 1");  // newly matches a = 1
+  faker.Interpret("MATCH (n:L {t: 'x4'}) SET n.a = 7");  // no longer matches a = 1
+  faker.Interpret("CREATE (:L {a: 1, b: 3, t: 'n1'})");
+
+  using V = std::vector<std::string>;
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:L) WHERE n.a = 1 RETURN n.t ORDER BY n.a, n.b"),
+            (V{"x2", "x1", "n1", "x3"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:L) WHERE n.a = 1 AND n.b = 5 RETURN n.t"), (V{"x3"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:L) WHERE n.a = 7 RETURN n.t"), (V{"x4"}));
+}
+
+TEST_F(VersioningInterpreterTest, BranchGlobalPropertyOverlay) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE GLOBAL INDEX ON :(w)");
+  faker.Interpret("CREATE (:A {w: 1, t: 'a'}), (:B {w: 2, t: 'b'}), (:C {w: 3, t: 'c'}), (:D {w: 4, t: 'd'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n {t: 'b'}) SET n.w = 10");
+  faker.Interpret("MATCH (n {t: 'c'}) REMOVE n.w");
+  faker.Interpret("MATCH (n {t: 'd'}) DETACH DELETE n");
+  faker.Interpret("CREATE (:E {w: 2, t: 'e'})");
+
+  using V = std::vector<std::string>;
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w > 0 RETURN n.t ORDER BY n.w"), (V{"a", "e", "b"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w = 2 RETURN n.t"), (V{"e"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w = 10 RETURN n.t"), (V{"b"}));
+}
+
+// Timing is only logged: the point of the overlay is that a lookup is O(log V + touched), not O(V).
+TEST_F(VersioningInterpreterTest, BranchPointLookupDoesNotScanTheWholeGraph) {
+  SatisfyGate();
+
+  constexpr int64_t kVertices = 20000;
+  constexpr int64_t kLookups = 2000;
+  faker.Interpret("CREATE INDEX ON :U(id)");
+  faker.Interpret("UNWIND range(0, " + std::to_string(kVertices - 1) + ") AS i CREATE (:U {id: i})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("MATCH (n:U) WHERE n.id < 100 SET n.touched = true");
+
+  auto const start = std::chrono::steady_clock::now();
+  for (int64_t i = 0; i < kLookups; ++i) {
+    auto const id = (i * 7919) % kVertices;
+    auto stream = faker.Interpret("MATCH (n:U {id: " + std::to_string(id) + "}) RETURN n.id");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "id " << id;
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), id);
+  }
+  auto const elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+  std::cout << "[branch point lookup] " << kLookups << " lookups on " << kVertices << " vertices: " << elapsed_ms
+            << " ms\n";
+}
+
 // Graph Versioning v1, perf/versioning-branch-read D1 -- THE BLOCKER GUARD: `properties_on_edges =
 // false` REFERENCE edges have no `storage::Edge` object at all (`EdgeRef` aliases a bare `Gid`
 // instead of a pointer, edge_ref.hpp). `query::EdgeAccessor::MaybeBranchedHint`
@@ -4309,4 +4728,244 @@ TEST_F(VersioningInterpreterReferenceEdgeTest, BranchReferenceEdgePropertyReadDo
   ASSERT_EQ(native_stream.GetResults().size(), 1U);
   EXPECT_EQ(native_stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null)
       << "a branch-native reference edge must be readable the same way, without crashing";
+}
+
+// ---------------------------------------------------------------------------------------------
+// Multiple concurrent sessions on one branch: every session that checks a branch out attaches to the same shared
+// diff engine, so cross-session visibility, isolation and write conflicts are the diff engine's own MVCC. Two
+// interpreters ("A" = faker, "B" = faker2) on the same database, interleaved deterministically on one thread.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+constexpr int64_t kNullInt = std::numeric_limits<int64_t>::min();
+
+// Every row of `query` as integers (Null -> kNullInt).
+std::vector<std::vector<int64_t>> IntRows(InterpreterFaker &session, const std::string &query) {
+  auto stream = session.Interpret(query);
+  std::vector<std::vector<int64_t>> rows;
+  for (const auto &row : stream.GetResults()) {
+    auto &out = rows.emplace_back();
+    for (const auto &value : row) {
+      out.push_back(value.type() == memgraph::communication::bolt::Value::Type::Null ? kNullInt : value.ValueInt());
+    }
+  }
+  return rows;
+}
+
+using Rows = std::vector<std::vector<int64_t>>;
+
+// Runs two overlapping explicit transactions: `a` executes `a_write`, then `b` executes `b_write` on the same vertex
+// before `a` finishes. Returns the (mangled) type name of the exception `b`'s write raised, "" if it succeeded. Both
+// transactions are rolled back, so the data is left as it was.
+std::string OverlappingWriteOutcome(InterpreterFaker &a, InterpreterFaker &b, const std::string &a_write,
+                                    const std::string &b_write) {
+  a.Interpret("BEGIN");
+  b.Interpret("BEGIN");
+  a.Interpret(a_write);
+  std::string outcome;
+  try {
+    b.Interpret(b_write);
+  } catch (const std::exception &e) {
+    outcome = typeid(e).name();
+  }
+  b.Interpret("ROLLBACK");
+  a.Interpret("ROLLBACK");
+  return outcome;
+}
+}  // namespace
+
+class VersioningMultiSessionTest : public VersioningInterpreterTest {
+ protected:
+  InterpreterFaker faker2{&interpreter_context, db};
+
+  void TearDown() override {
+    // faker2 is destroyed before the base members; do not leave the context pointing at its auth checker.
+    interpreter_context.auth_checker = &faker.auth_checker;
+    VersioningInterpreterTest::TearDown();
+  }
+
+  // main: (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6}); branch 'b' forked from it; both sessions attached to 'b'.
+  void SetUpTwoSessionsOnBranch() {
+    SatisfyGate();
+    faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
+    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+    faker.Interpret("CHECKOUT BRANCH 'b'");
+    faker2.Interpret("CHECKOUT BRANCH 'b'");
+    ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+    ASSERT_EQ(faker2.interpreter.current_db_.CurrentVersion(), "b");
+  }
+
+  static constexpr const char *kReadAll = "MATCH (n:K) RETURN n.id, n.v ORDER BY n.id";
+};
+
+TEST_F(VersioningInterpreterTest, MergeBranchIsRejectedAsUnsupported) {
+  SatisfyGate();
+  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
+  try {
+    faker.Interpret("MERGE BRANCH 'feature'");
+    FAIL() << "MERGE BRANCH must be rejected";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("MERGE BRANCH is not supported"));
+  }
+  EXPECT_TRUE(db->version_store()->Exists("feature")) << "a rejected MERGE must leave the branch untouched";
+}
+
+// (a) A's committed branch writes (SET, DELETE, CREATE) are what B sees when it checks the branch out afterwards; main
+// is unchanged.
+TEST_F(VersioningMultiSessionTest, SecondSessionSeesFirstSessionsCommittedWrites) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:K {id:1, v:10}), (:K {id:2, v:20})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:K {id:1}) SET n.v = 11");
+  faker.Interpret("MATCH (n:K {id:2}) DELETE n");
+  faker.Interpret("CREATE (:K {id:3, v:30})");
+
+  faker2.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 11}, {3, 30}}));
+
+  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}})) << "main must not see any branch write";
+}
+
+// (b) Snapshot isolation: B's open transaction keeps seeing the old value after A commits a change to the same
+// vertex; a fresh transaction sees the new one.
+TEST_F(VersioningMultiSessionTest, OpenTransactionKeepsItsSnapshotWhileAnotherSessionCommits) {
+  SetUpTwoSessionsOnBranch();
+
+  faker2.Interpret("BEGIN");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}}));
+
+  faker.Interpret("MATCH (n:K {id:1}) SET n.v = 11");
+  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 11}, {2, 20}}));
+
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}})) << "B's snapshot predates A's commit";
+  faker2.Interpret("COMMIT");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 11}, {2, 20}})) << "a new transaction sees A's commit";
+}
+
+// (c) Two overlapping transactions writing the same, already-stubbed fork vertex: the second writer gets exactly the
+// error main raises for the same interleaving, and nothing crashes.
+TEST_F(VersioningMultiSessionTest, OverlappingWritesToTheSameStubbedVertexConflictLikeMain) {
+  SetUpTwoSessionsOnBranch();
+  // Materialize the stub in a committed transaction first.
+  faker.Interpret("MATCH (n:K {id:1}) SET n.z = 0");
+
+  const auto branch_outcome =
+      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:1}) SET n.v = 11", "MATCH (n:K {id:1}) SET n.v = 12");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  const auto main_outcome =
+      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:1}) SET n.v = 11", "MATCH (n:K {id:1}) SET n.v = 12");
+
+  EXPECT_NE(main_outcome.find("TransactionSerializationException"), std::string::npos)
+      << "sanity: main raises a serialization error for this interleaving, got '" << main_outcome << "'";
+  EXPECT_EQ(branch_outcome, main_outcome);
+
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}})) << "both transactions were rolled back";
+}
+
+// (d) First-touch race: both sessions touch the same never-touched fork vertex (different properties) in overlapping
+// transactions. The stub is get-or-created concurrently; the outcome must still be main's, with no crash.
+TEST_F(VersioningMultiSessionTest, FirstTouchOfTheSameForkVertexRacesLikeMain) {
+  SetUpTwoSessionsOnBranch();
+
+  const auto branch_outcome =
+      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  const auto main_outcome =
+      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61");
+
+  EXPECT_EQ(branch_outcome, main_outcome);
+
+  // The stub the rolled-back writers left behind is semantically invisible.
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.w"), (Rows{{6}}));
+}
+
+// (e) A's uncommitted DELETE is invisible to B until A commits; B's already-open transaction never sees it.
+TEST_F(VersioningMultiSessionTest, DeleteIsInvisibleToOtherSessionsUntilCommit) {
+  SetUpTwoSessionsOnBranch();
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:K {id:1}) DELETE n");
+  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{2, 20}})) << "A sees its own delete";
+
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}})) << "B must not see A's uncommitted delete";
+  faker2.Interpret("BEGIN");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}}));
+
+  faker.Interpret("COMMIT");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}})) << "B's open transaction predates the commit";
+  faker2.Interpret("COMMIT");
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{2, 20}})) << "after A's commit a new transaction sees the delete";
+}
+
+// (f) A writes on the branch while B writes the same vertices on main: main never conflicts with the branch, and A
+// keeps reading fork-time values for what it did not change.
+TEST_F(VersioningMultiSessionTest, MainWritesNeverConflictWithBranchWrites) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:K {id:1, v:10, w:5})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:K {id:1}) SET n.v = 11");
+
+  // B is on main: neither of these may raise a serialization error against A's open branch transaction.
+  faker2.Interpret("MATCH (n:K {id:1}) SET n.v = 99");
+  faker2.Interpret("MATCH (n:K {id:1}) SET n.w = 55");
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v, n.w"), (Rows{{11, 5}}))
+      << "A sees its own v and the FORK value of w, not main's later writes";
+  faker.Interpret("COMMIT");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v, n.w"), (Rows{{11, 5}}));
+  EXPECT_EQ(IntRows(faker2, "MATCH (n:K) RETURN n.v, n.w"), (Rows{{99, 55}})) << "main holds only its own writes";
+}
+
+// (g) DROP BRANCH is refused while another session is attached, and succeeds once every session has detached.
+TEST_F(VersioningMultiSessionTest, DropBranchIsRefusedWhileAnotherSessionIsAttached) {
+  SatisfyGate();
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker2.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+
+  // A is on main: refused.
+  ASSERT_THROW(faker.Interpret("DROP BRANCH 'b'"), memgraph::query::QueryRuntimeException);
+  EXPECT_TRUE(db->version_store()->Exists("b"));
+
+  // A attaches too, then drops: still refused (B is attached), and A stays on the branch.
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 2U);
+  ASSERT_THROW(faker.Interpret("DROP BRANCH 'b'"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 2U);
+
+  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+
+  // A is now the only attached session: dropping the branch it is on works and detaches it.
+  faker.Interpret("DROP BRANCH 'b'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_FALSE(db->version_store()->Exists("b"));
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+}
+
+// (h) An idle session that has the branch checked out but no open transaction holds none of main's locks: main DDL
+// is not blocked by it.
+TEST_F(VersioningMultiSessionTest, IdleBranchSessionDoesNotBlockMainDdl) {
+  SetUpTwoSessionsOnBranch();
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");  // B stays attached to 'b', idle.
+  faker.Interpret("CREATE INDEX ON :K(id)");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:1}) RETURN n.v"), (Rows{{10}}));
+
+  // The branch still works, unaffected by main's new index.
+  EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}}));
 }

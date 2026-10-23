@@ -812,6 +812,10 @@ class InMemoryStorage final : public Storage {
 
     void DowngradeToReadIfValid();
 
+    /// Get-or-create an empty, delta-less vertex with `gid` (versioning branch stub). Concurrent-safe.
+    /// @throw std::bad_alloc
+    VertexAccessor MaterializeStubVertex(storage::Gid gid);
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
@@ -1178,6 +1182,11 @@ class InMemoryStorage final : public Storage {
   EdgeInfo FindEdge(Gid edge_gid);
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
+
+  /// Get-or-create a vertex with `gid` and no delta, labels, properties or index entries (like recovery does).
+  /// Bumps `vertex_id_` past `gid`. An already-present vertex is returned as-is.
+  /// @throw std::bad_alloc
+  Vertex *MaterializeStubVertex(Gid gid);
 
   // Light-edge find helpers (gated by salient.items.storage_light_edge). The
   // heavy path remains FindHeavyEdge (== prior FindEdge(Gid) body).

@@ -11,8 +11,10 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <expected>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
@@ -328,4 +330,72 @@ TEST_F(VersionStoreTest, AbortMergeLeavesBranchIntactAndRetryable) {
   ASSERT_TRUE(store->BeginMerge("feature").has_value());
   store->FinishMerge("feature");
   EXPECT_FALSE(store->Exists("feature"));
+}
+
+// Any number of sessions may attach to one branch; the branch cannot be dropped or merged until every one detached.
+TEST_F(VersionStoreTest, CheckoutIsCountedAndBlocksDropUntilEverySessionDetached) {
+  auto store = MakeStore();
+  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  ASSERT_TRUE(created.has_value());
+
+  auto first = store->TryAcquireCheckout("feature");
+  ASSERT_TRUE(first.has_value());
+  EXPECT_EQ(first->number, created->number);
+  ASSERT_TRUE(store->TryAcquireCheckout("feature").has_value()) << "a second session may attach to the same branch";
+  EXPECT_EQ(store->CheckoutCount("feature"), 2U);
+
+  EXPECT_FALSE(store->DropBranch("feature"));
+  EXPECT_FALSE(store->BeginMerge("feature").has_value());
+
+  store->ReleaseCheckout("feature");
+  EXPECT_EQ(store->CheckoutCount("feature"), 1U);
+  EXPECT_FALSE(store->DropBranch("feature")) << "one session is still attached";
+
+  store->ReleaseCheckout("feature");
+  EXPECT_EQ(store->CheckoutCount("feature"), 0U);
+  EXPECT_TRUE(store->DropBranch("feature"));
+  EXPECT_TRUE(pins_.live_.empty()) << "the fork pin is released exactly once, by the drop";
+}
+
+TEST_F(VersionStoreTest, CheckoutOfUnknownOrMergingBranchIsRefused) {
+  auto store = MakeStore();
+  EXPECT_FALSE(store->TryAcquireCheckout("nope").has_value());
+  EXPECT_EQ(store->CheckoutCount("nope"), 0U);
+
+  ASSERT_TRUE(store->CreateBranch("feature", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->BeginMerge("feature").has_value());
+  EXPECT_FALSE(store->TryAcquireCheckout("feature").has_value());
+  store->AbortMerge("feature");
+  EXPECT_TRUE(store->TryAcquireCheckout("feature").has_value());
+  store->ReleaseCheckout("feature");
+}
+
+TEST_F(VersionStoreTest, ReleaseCheckoutWithoutAttachIsANoOp) {
+  auto store = MakeStore();
+  ASSERT_TRUE(store->CreateBranch("feature", "main", std::nullopt).has_value());
+  store->ReleaseCheckout("feature");
+  EXPECT_EQ(store->CheckoutCount("feature"), 0U);
+}
+
+// The shared core registry builds once per branch number, even across detach/re-attach.
+TEST_F(VersionStoreTest, CoreIsBuiltOncePerBranch) {
+  auto store = MakeStore();
+  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  ASSERT_TRUE(created.has_value());
+
+  int builds = 0;
+  auto build = [&builds]() -> std::expected<std::shared_ptr<memgraph::versioning::BranchCore>, std::string> {
+    ++builds;
+    return std::shared_ptr<memgraph::versioning::BranchCore>{};
+  };
+  ASSERT_TRUE(store->GetOrBuildCore(created->number, build).has_value());
+  ASSERT_TRUE(store->GetOrBuildCore(created->number, build).has_value());
+  EXPECT_EQ(builds, 1);
+
+  auto failing = []() -> std::expected<std::shared_ptr<memgraph::versioning::BranchCore>, std::string> {
+    return std::unexpected(std::string{"boom"});
+  };
+  auto failed = store->GetOrBuildCore(created->number + 1, failing);
+  ASSERT_FALSE(failed.has_value());
+  EXPECT_EQ(failed.error(), "boom");
 }

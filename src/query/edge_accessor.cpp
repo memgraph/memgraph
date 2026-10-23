@@ -20,12 +20,11 @@ namespace memgraph::query {
 // Graph Versioning v1 (branch endpoint resolution -- deferred): return the raw TO endpoint wrapped
 // with branch_ctx_, WITHOUT eagerly resolving it to its diff-engine copy. Every value read through
 // the returned accessor (Labels/HasLabel/Properties/GetProperty/GetPropertySize) is already
-// branch-aware and self-corrects by gid via ResolveVertex + the View::NEW tombstone guard
+// branch-aware and self-corrects by gid via ResolveVertex + the delete-marker check
 // (vertex_accessor.cpp), and identity (==/hash) is now gid-based (std::hash<VertexAccessor>,
 // vertex_accessor.hpp) -- so the eager per-edge ResolveVertex->FindVertex canonicalization this
 // used to do (the dominant cost of deep/high-churn branch traversals, perf 2026-07-15) is
-// redundant. A tombstoned endpoint returns identically to before: the old eager path returned
-// nullopt from ResolveVertex and fell through to this same raw accessor, whose reads hide it.
+// redundant. A deleted endpoint's reads fail with DELETED_OBJECT.
 VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex(), branch_ctx_); }
 
 // Graph Versioning v1 (branch endpoint resolution -- deferred): see To()'s own doc-comment above for
@@ -77,12 +76,10 @@ auto EdgeAccessor::Properties(storage::View view) const -> decltype(impl_.Proper
     if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
       return diff_edge->Properties(view);
     }
-    // S2 FIX (view-gated tombstone guard, edge-side analogue of VertexAccessor::Labels()'s own --
-    // see vertex_accessor.cpp for the full rationale): a FindDiffEdge miss on a tombstoned gid is
-    // ambiguous by itself; View::NEW is the query's current-command state where a tombstoned edge
-    // IS deleted (matches main's read-after-delete-in-command error), while View::OLD falls through
-    // to `impl_` unchanged (still the alive, pre-delete value).
-    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+    // A FindDiffEdge miss is ambiguous by itself. The fork edge is deleted on the branch when its gid is listed on
+    // its FROM stub or an endpoint is deleted, as visible at `view` (MVCC: a delete made by the current command is
+    // invisible to View::OLD, which then reads the fork edge unchanged, as main would).
+    if (branch_ctx_->IsForkEdgeHidden(impl_, view)) {
       return std::unexpected{storage::Error::DELETED_OBJECT};
     }
   }
@@ -102,8 +99,8 @@ storage::Result<storage::PropertyValue> EdgeAccessor::GetProperty(storage::View 
     if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
       return diff_edge->GetProperty(key, view);
     }
-    // S2 FIX (view-gated tombstone guard) -- see Properties() above for the full rationale.
-    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+    // Deleted fork edge -- see Properties() above.
+    if (branch_ctx_->IsForkEdgeHidden(impl_, view)) {
       return std::unexpected{storage::Error::DELETED_OBJECT};
     }
   }
@@ -123,8 +120,8 @@ storage::Result<uint64_t> EdgeAccessor::GetPropertySize(storage::PropertyId key,
     if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
       return diff_edge->GetPropertySize(key, view);
     }
-    // S2 FIX (view-gated tombstone guard) -- see Properties() above for the full rationale.
-    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+    // Deleted fork edge -- see Properties() above.
+    if (branch_ctx_->IsForkEdgeHidden(impl_, view)) {
       return std::unexpected{storage::Error::DELETED_OBJECT};
     }
   }
@@ -140,6 +137,10 @@ void EdgeAccessor::CowEdgeIfNeeded() {
   // branch_engine.hpp) rather than taking one as a parameter here.
   auto cowed = branch_ctx_->CowEdge(impl_);
   if (!cowed) {
+    // The diff engine is shared across sessions: a conflicting open transaction surfaces exactly as it would on main.
+    if (cowed.error().storage_error == storage::Error::SERIALIZATION_ERROR) {
+      throw TransactionSerializationException();
+    }
     throw QueryRuntimeException(cowed.error().message);
   }
   impl_ = *cowed;

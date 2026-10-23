@@ -19,6 +19,7 @@
 #include <nlohmann/json.hpp>
 
 #include "metrics/prometheus_metrics.hpp"
+#include "versioning/branch_engine.hpp"
 
 namespace memgraph::versioning {
 
@@ -156,35 +157,39 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
 }
 
 bool VersionStore::DropBranch(std::string_view name) {
-  std::lock_guard guard{lock_};
+  uint64_t number = 0;
+  {
+    std::lock_guard guard{lock_};
 
-  auto it = branches_.find(name);
-  if (it == branches_.end()) {
-    return false;
-  }
-  if (HasChildrenLocked(name)) {
-    return false;
-  }
-  // HIGH-2 fix: a branch mid-merge (BeginMerge'd) must not be droppable out from under the
-  // merge in progress -- FinishMerge (not a bare DropBranch) is the only way to remove it once a
-  // merge has begun.
-  if (merging_.contains(name)) {
-    return false;
-  }
-  // Graph Versioning v1 (lazy diff-context): a branch some session currently has checked out (and
-  // is writing into via its private BranchContext's diff engine) must not be droppable out from
-  // under that session -- CHECKOUT BRANCH 'main' (releasing the checkout) first.
-  if (checked_out_.contains(name)) {
-    return false;
-  }
+    auto it = branches_.find(name);
+    if (it == branches_.end()) {
+      return false;
+    }
+    if (HasChildrenLocked(name)) {
+      return false;
+    }
+    // HIGH-2 fix: a branch mid-merge (BeginMerge'd) must not be droppable out from under the
+    // merge in progress -- FinishMerge (not a bare DropBranch) is the only way to remove it once a
+    // merge has begun.
+    if (merging_.contains(name)) {
+      return false;
+    }
+    // A branch with an attached session must not be dropped out from under it; each session must
+    // CHECKOUT BRANCH 'main' (detach) first.
+    if (checked_out_.contains(name)) {
+      return false;
+    }
 
-  release_pin_(it->second.fork_ts);
-  storage_.Delete(name);
-  branches_.erase(it);
+    number = it->second.number;
+    release_pin_(it->second.fork_ts);
+    storage_.Delete(name);
+    branches_.erase(it);
 
-  // Graph Versioning v1 chunk 10 (observability): branch dropped + refresh the active-branches gauge.
-  memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
-  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+    // Graph Versioning v1 chunk 10 (observability): branch dropped + refresh the active-branches gauge.
+    memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
+    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+  }
+  RetireCore(number);
   return true;
 }
 
@@ -240,11 +245,8 @@ std::expected<BranchInfo, std::string> VersionStore::BeginMerge(std::string_view
   if (merging_.contains(name)) {
     return std::unexpected(fmt::format("Branch '{}' is already being merged.", name));
   }
-  // Graph Versioning v1 (lazy diff-context): a session currently checked out onto `name` is
-  // writing straight into its own private BranchContext's diff engine, not into a captured
-  // change-log this merge could see -- refuse rather than silently merge a stale (pre-checkout)
-  // view. The session must CHECKOUT BRANCH 'main' (releasing the checkout) before `name` can be
-  // merged.
+  // A session attached to `name` writes straight into the branch's shared diff engine, not into a captured
+  // change-log this merge could see -- refuse rather than silently merge a stale view.
   if (checked_out_.contains(name)) {
     return std::unexpected(
         fmt::format("Branch '{}' is currently checked out by a session; check out 'main' there "
@@ -257,21 +259,27 @@ std::expected<BranchInfo, std::string> VersionStore::BeginMerge(std::string_view
 }
 
 void VersionStore::FinishMerge(std::string_view name) {
-  std::lock_guard guard{lock_};
+  uint64_t number = 0;
+  {
+    std::lock_guard guard{lock_};
 
-  // BeginMerge already excluded new children and a second concurrent merge/drop for the ENTIRE
-  // window since it was called, so `it` existing (and childless) here is guaranteed -- this is
-  // not a re-check, just retrieving the fork pin to release.
-  auto it = branches_.find(name);
-  MG_ASSERT(it != branches_.end(), "FinishMerge: branch '{}' absent; BeginMerge/DropBranch guarantee presence", name);
-  release_pin_(it->second.fork_ts);
-  storage_.Delete(name);
-  branches_.erase(it);
+    // BeginMerge already excluded new children and a second concurrent merge/drop for the ENTIRE
+    // window since it was called, so `it` existing (and childless) here is guaranteed -- this is
+    // not a re-check, just retrieving the fork pin to release.
+    auto it = branches_.find(name);
+    MG_ASSERT(
+        it != branches_.end(), "FinishMerge: branch '{}' absent; BeginMerge/DropBranch guarantee presence", name);
+    number = it->second.number;
+    release_pin_(it->second.fork_ts);
+    storage_.Delete(name);
+    branches_.erase(it);
 
-  // Graph Versioning v1 chunk 10 (observability): branch merged + refresh the active-branches gauge.
-  memgraph::metrics::Metrics().global.versioning_branches_merged->Increment();
-  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
-  merging_.erase(std::string{name});
+    // Graph Versioning v1 chunk 10 (observability): branch merged + refresh the active-branches gauge.
+    memgraph::metrics::Metrics().global.versioning_branches_merged->Increment();
+    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+    merging_.erase(std::string{name});
+  }
+  RetireCore(number);
 }
 
 void VersionStore::AbortMerge(std::string_view name) {
@@ -279,27 +287,68 @@ void VersionStore::AbortMerge(std::string_view name) {
   merging_.erase(std::string{name});
 }
 
-bool VersionStore::TryAcquireCheckout(std::string_view name) {
+std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
   std::lock_guard guard{lock_};
-  // Refuse a checkout mid-merge too: a session writing into a branch that's simultaneously being
-  // folded into its parent would race MergeBranch's own pass-1/pass-2 read of the (in this design,
-  // not-yet-existing) change-log -- see BeginMerge's symmetric checked_out_ check above.
-  if (merging_.contains(name) || checked_out_.contains(name)) {
-    return false;
+  auto it = branches_.find(name);
+  if (it == branches_.end()) {
+    return std::unexpected(fmt::format("Version '{}' does not exist.", name));
   }
-  checked_out_.emplace(name);
+  // Refuse a checkout mid-merge: a session writing into a branch that's simultaneously being folded into its parent
+  // would race MergeBranch's own read -- see BeginMerge's symmetric checked_out_ check above.
+  if (merging_.contains(name)) {
+    return std::unexpected(fmt::format("Version '{}' is currently being merged.", name));
+  }
+  ++checked_out_[std::string{name}];
+  ++total_checkouts_;
 
   // Graph Versioning v1 chunk 10 (observability): refresh the active-checkouts gauge.
-  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(checked_out_.size()));
-  return true;
+  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(total_checkouts_));
+  return it->second;
 }
 
 void VersionStore::ReleaseCheckout(std::string_view name) {
   std::lock_guard guard{lock_};
-  checked_out_.erase(std::string{name});
+  if (auto it = checked_out_.find(name); it != checked_out_.end()) {
+    --total_checkouts_;
+    if (--it->second == 0) checked_out_.erase(it);
+  }
 
   // Graph Versioning v1 chunk 10 (observability): refresh the active-checkouts gauge.
-  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(checked_out_.size()));
+  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(total_checkouts_));
+}
+
+size_t VersionStore::CheckoutCount(std::string_view name) const {
+  std::lock_guard guard{lock_};
+  auto it = checked_out_.find(name);
+  return it == checked_out_.end() ? 0 : it->second;
+}
+
+std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuildCore(uint64_t number,
+                                                                                    const CoreBuilder &build) {
+  {
+    std::lock_guard guard{cores_mutex_};
+    if (auto it = cores_.find(number); it != cores_.end()) return it->second;
+  }
+  auto built = build();
+  if (!built) return std::unexpected(std::move(built.error()));
+  std::shared_ptr<BranchCore> winner;
+  {
+    std::lock_guard guard{cores_mutex_};
+    winner = cores_.try_emplace(number, *built).first->second;
+  }
+  // If another session won the race, `built` (the loser) is destroyed here, outside the mutex.
+  return winner;
+}
+
+void VersionStore::RetireCore(uint64_t number) {
+  std::shared_ptr<BranchCore> retired;
+  {
+    std::lock_guard guard{cores_mutex_};
+    if (auto it = cores_.find(number); it != cores_.end()) {
+      retired = std::move(it->second);
+      cores_.erase(it);
+    }
+  }
 }
 
 }  // namespace memgraph::versioning

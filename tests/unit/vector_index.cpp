@@ -259,14 +259,8 @@ TEST_F(VectorIndexTest, ToBoltVertexBranchArmOmitsVectorIndexedPropertyWhenFlagO
   const auto fork_ts = mem_storage->RegisterForkPin();
   memgraph::utils::OnScopeExit release_pin{[&] { mem_storage->ReleaseForkPin(fork_ts); }};
 
-  const auto branch_wal_root = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_index_branch_arm_wal";
-  std::filesystem::remove_all(branch_wal_root);
-  auto branch_result = memgraph::versioning::BranchContext::BuildFromFork(*mem_storage,
-                                                                          fork_ts,
-                                                                          memgraph::tests::MakeMainCommitArgs(),
-                                                                          memgraph::tests::MakeMainCommitArgs(),
-                                                                          branch_wal_root,
-                                                                          {});
+  auto branch_result = memgraph::versioning::BranchContext::BuildFromFork(
+      *mem_storage, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(branch_result.has_value());
   auto branch_ctx = std::move(*branch_result);
 

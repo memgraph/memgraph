@@ -29,11 +29,11 @@
 //
 // perf/versioning-branch-read D1 ADDENDUM: one edge-focused test was added at the bottom of this
 // file (EdgeBranchedBitDeleteViewNewRaisesViewOldFallsBackToForkValue) to pin the exact
-// FindDiffEdge/IsEdgeTombstoned View::OLD-vs-View::NEW split the D1 edge-bit value-read gate
+// FindDiffEdge/IsForkEdgeHidden View::OLD-vs-View::NEW split the D1 edge-bit value-read gate
 // (query::EdgeAccessor::Properties/GetProperty/GetPropertySize, edge_accessor.cpp) depends on for
 // its delete-safety guarantee, exercised directly against query::EdgeAccessor::GetProperty itself.
 // It is here rather than in versioning_interpreter.cpp because constructing an independent, never-
-// COW'd binding to an already-branch-deleted edge (to reach the tombstone-guard branch rather than
+// COW'd binding to an already-branch-deleted edge (to reach the delete-guard branch rather than
 // the diff-resident short-circuit) is not reachable through a single Cypher statement. The query-
 // layer NEW-view half of the same contract (raising through the interpreter) is covered directly in
 // versioning_interpreter.cpp's BranchEdgeBitFastPathDeleteAfterModifyStillRaisesOnNewView.
@@ -68,14 +68,12 @@ class VersioningBranchEngineTest : public testing::Test {
     config.gc = {.type = ms::Config::Gc::Type::NONE};
     storage_ = std::make_unique<ms::InMemoryStorage>(config);
     mem_storage_ = static_cast<ms::InMemoryStorage *>(storage_.get());
-    ClearBranchWalRoot();
   }
 
   void TearDown() override {
     branch_context_.reset();
     if (fork_ts_.has_value()) mem_storage_->ReleaseForkPin(*fork_ts_);
     storage_.reset();
-    ClearBranchWalRoot();
   }
 
   // Registers a fork pin at the CURRENT tip and remembers it for TearDown's release.
@@ -84,25 +82,15 @@ class VersioningBranchEngineTest : public testing::Test {
     return *fork_ts_;
   }
 
-  // Durable-capture slice (design slices A+B+C): BuildFromFork now also opens this checkout
-  // session's own BranchLog under a caller-supplied root directory (a fresh per-call UUID
-  // subdirectory beneath it -- see BranchContext::BuildFromFork's own doc-comment), which means it
-  // genuinely touches disk now, unlike the rest of this file's in-RAM-only diff engine. A real,
-  // throwaway temp directory, mirroring versioning_branch_log.cpp's own convention -- this file
-  // does not otherwise care about (or assert on) the branch log's contents.
-  std::filesystem::path BranchWalRoot() const {
-    return std::filesystem::temp_directory_path() / "MG_test_unit_versioning_branch_engine";
+  // Publishes `diff_acc` as the context's current transaction and opens the per-transaction historical accessor.
+  void Begin(ms::Storage::Accessor *diff_acc) {
+    ASSERT_TRUE(branch_context_->BeginTransaction(diff_acc).has_value());
   }
 
   std::unique_ptr<ms::Storage> storage_;
   ms::InMemoryStorage *mem_storage_{};
   std::optional<uint64_t> fork_ts_;
   std::unique_ptr<mv::BranchContext> branch_context_;
-
- private:
-  void ClearBranchWalRoot() const {
-    if (std::filesystem::exists(BranchWalRoot())) std::filesystem::remove_all(BranchWalRoot());
-  }
 };
 
 // BuildFromFork must be O(1): the diff engine starts genuinely empty (module the internal
@@ -120,12 +108,7 @@ TEST_F(VersioningBranchEngineTest, BuildFromForkOpensEmptyDiffEngineAndLiveHisto
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -138,7 +121,8 @@ TEST_F(VersioningBranchEngineTest, BuildFromForkOpensEmptyDiffEngineAndLiveHisto
   }
   EXPECT_EQ(diff_vertex_count, 0u);
 
-  // historical_ still sees main's fork-state graph directly (no copy needed to read it).
+  // The per-transaction historical accessor sees main's fork-state graph directly (no copy needed to read it).
+  Begin(diff_acc.get());
   auto hist_vertex = branch_context_->historical().FindVertex(a_gid, ms::View::OLD);
   ASSERT_TRUE(hist_vertex.has_value());
   EXPECT_TRUE(hist_vertex->HasLabel(storage_->NameToLabel("A"), ms::View::OLD).value_or(false));
@@ -168,12 +152,7 @@ TEST_F(VersioningBranchEngineTest, CowVertexCopiesOnlyTheTouchedVertex) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -181,18 +160,26 @@ TEST_F(VersioningBranchEngineTest, CowVertexCopiesOnlyTheTouchedVertex) {
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
 
   auto cowed = branch_context_->CowVertex(a_gid);
   ASSERT_TRUE(cowed.has_value());
   EXPECT_EQ(cowed->Gid(), a_gid);
 
-  // Labels/properties copied with their ids UNCHANGED -- label_a/prop_x (main's own ids) are
-  // valid directly against the diff engine's copy too, since diff_engine_ shares main's mapper.
-  EXPECT_TRUE(cowed->HasLabel(label_a, ms::View::NEW).value_or(false));
+  // The COW'd vertex is an EMPTY stub: nothing is copied, the fork state stays in historical_ and
+  // is overlaid on read by the query layer (query::VertexAccessor).
+  EXPECT_FALSE(cowed->HasLabel(label_a, ms::View::NEW).value_or(true));
   auto x_val = cowed->GetProperty(prop_x, ms::View::NEW);
   ASSERT_TRUE(x_val.has_value());
-  EXPECT_EQ(*x_val, ms::PropertyValue(1));
+  EXPECT_TRUE(x_val->IsNull());
+
+  // The fork vertex (main@fork_ts) still carries the original label/property under main's own ids.
+  auto fork_a = branch_context_->FindForkVertex(a_gid);
+  ASSERT_TRUE(fork_a.has_value());
+  EXPECT_TRUE(fork_a->HasLabel(label_a, ms::View::OLD).value_or(false));
+  auto fork_x = fork_a->GetProperty(prop_x, ms::View::OLD);
+  ASSERT_TRUE(fork_x.has_value());
+  EXPECT_EQ(*fork_x, ms::PropertyValue(1));
 
   // Only ONE vertex resident in the diff engine -- B was never touched.
   size_t diff_vertex_count = 0;
@@ -220,12 +207,7 @@ TEST_F(VersioningBranchEngineTest, CowVertexIsIdempotent) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -233,7 +215,7 @@ TEST_F(VersioningBranchEngineTest, CowVertexIsIdempotent) {
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
 
   auto first = branch_context_->CowVertex(a_gid);
   ASSERT_TRUE(first.has_value());
@@ -273,12 +255,7 @@ TEST_F(VersioningBranchEngineTest, ResolveVertexPrefersDiffEngineOverHistorical)
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -286,7 +263,7 @@ TEST_F(VersioningBranchEngineTest, ResolveVertexPrefersDiffEngineOverHistorical)
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
 
   // COW A and change it to 2 -- ResolveVertex(A) must now see the DIFF copy (2), not historical's
   // (1). `prop_x` is valid against BOTH sides -- diff_engine_ shares main's own NameIdMapper.
@@ -327,12 +304,7 @@ TEST_F(VersioningBranchEngineTest, VerticesUnionMergesDiffAndHistoricalByGid) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -340,7 +312,7 @@ TEST_F(VersioningBranchEngineTest, VerticesUnionMergesDiffAndHistoricalByGid) {
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
 
   // COW A, change it to 2. `prop_x` (main's own id) is valid directly against the diff engine's
   // copy too -- diff_engine_ shares main's own NameIdMapper (one id space, no by-name translation).
@@ -384,12 +356,7 @@ TEST_F(VersioningBranchEngineTest, BranchNativeCreateGidIsDisjointFromHistorical
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -397,7 +364,7 @@ TEST_F(VersioningBranchEngineTest, BranchNativeCreateGidIsDisjointFromHistorical
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
   auto native = diff_acc->CreateVertex();
   EXPECT_GE(native.Gid().AsUint(), 1ULL << 61) << "a branch-native create must not reuse a low (main-plausible) gid";
   ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -415,12 +382,8 @@ TEST_F(VersioningBranchEngineTest, PropagatesHistoricalAccessErrorForUnpinnedTs)
 
   // Never pinned via RegisterForkPin -- must be refused rather than approximated.
   constexpr uint64_t kNeverPinnedForkTs = 1;
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 kNeverPinnedForkTs,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result =
+      mv::BranchContext::BuildFromFork(*mem_storage_, kNeverPinnedForkTs, memgraph::tests::MakeMainCommitArgs());
   ASSERT_FALSE(result.has_value());
   EXPECT_FALSE(result.error().message.empty());
 }
@@ -428,7 +391,7 @@ TEST_F(VersioningBranchEngineTest, PropagatesHistoricalAccessErrorForUnpinnedTs)
 // HIGH: an Enum property at the TOP LEVEL of a historical vertex must be rejected loudly by
 // CowVertex (not BuildFromFork -- with lazy COW, BuildFromFork never even looks at this vertex
 // unless/until something touches it), and must leave the diff engine with NO partial state.
-TEST_F(VersioningBranchEngineTest, CowVertexRejectsTopLevelEnumProperty) {
+TEST_F(VersioningBranchEngineTest, CowVertexStubDoesNotCopyTopLevelEnumProperty) {
   const auto prop_e = storage_->NameToProperty("e");
   ms::Gid a_gid;
   {
@@ -447,12 +410,7 @@ TEST_F(VersioningBranchEngineTest, CowVertexRejectsTopLevelEnumProperty) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -460,26 +418,24 @@ TEST_F(VersioningBranchEngineTest, CowVertexRejectsTopLevelEnumProperty) {
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
+  // Fork properties are not copied into the stub, so an enum-typed fork property (whose enum-TYPE id
+  // is not shared with the diff engine) can no longer make the COW fail.
   auto cowed = branch_context_->CowVertex(a_gid);
-  ASSERT_FALSE(cowed.has_value());
-  EXPECT_FALSE(cowed.error().message.empty());
-
-  // No partial state left behind.
-  EXPECT_FALSE(diff_acc->FindVertex(a_gid, ms::View::NEW).has_value());
-  size_t diff_vertex_count = 0;
-  for (auto v : diff_acc->Vertices(ms::View::NEW)) {
-    (void)v;
-    ++diff_vertex_count;
-  }
-  EXPECT_EQ(diff_vertex_count, 0u);
+  ASSERT_TRUE(cowed.has_value());
+  auto stub_e = cowed->GetProperty(prop_e, ms::View::NEW);
+  ASSERT_TRUE(stub_e.has_value());
+  EXPECT_TRUE(stub_e->IsNull());
+  auto fork_e = branch_context_->FindForkVertex(a_gid)->GetProperty(prop_e, ms::View::OLD);
+  ASSERT_TRUE(fork_e.has_value());
+  EXPECT_TRUE(fork_e->IsEnum());
 
   ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 // HIGH: the case a top-level-only check would MISS -- an Enum nested inside a List property.
 // ContainsEnum must recurse into the list to catch it.
-TEST_F(VersioningBranchEngineTest, CowVertexRejectsEnumNestedInList) {
+TEST_F(VersioningBranchEngineTest, CowVertexStubDoesNotCopyEnumNestedInList) {
   const auto prop_l = storage_->NameToProperty("l");
   ms::Gid a_gid;
   {
@@ -500,12 +456,7 @@ TEST_F(VersioningBranchEngineTest, CowVertexRejectsEnumNestedInList) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -513,43 +464,37 @@ TEST_F(VersioningBranchEngineTest, CowVertexRejectsEnumNestedInList) {
   // Single-slot collapse (mgp_vertex size budget, R6): CowVertex/ResolveVertex/Vertices no longer
   // take an accessor parameter -- they read it from this one per-query slot instead (safe: a
   // checked-out branch is exclusive single-writer, so at most one query/accessor is ever live).
-  branch_context_->set_current_diff_txn(diff_acc.get());
+  Begin(diff_acc.get());
+  // See CowVertexStubDoesNotCopyTopLevelEnumProperty: the nested enum stays in the fork vertex.
   auto cowed = branch_context_->CowVertex(a_gid);
-  ASSERT_FALSE(cowed.has_value());
-  EXPECT_FALSE(diff_acc->FindVertex(a_gid, ms::View::NEW).has_value());
+  ASSERT_TRUE(cowed.has_value());
+  auto stub_l = cowed->GetProperty(prop_l, ms::View::NEW);
+  ASSERT_TRUE(stub_l.has_value());
+  EXPECT_TRUE(stub_l->IsNull());
+  auto fork_l = branch_context_->FindForkVertex(a_gid)->GetProperty(prop_l, ms::View::OLD);
+  ASSERT_TRUE(fork_l.has_value());
+  EXPECT_TRUE(fork_l->IsList());
 
   ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 // perf/versioning-branch-read D1 -- delete-safety, View::OLD vs View::NEW, exercised directly
-// against `query::EdgeAccessor::GetProperty` itself (see this file's own header addendum above for
+// against the gate `query::EdgeAccessor::GetProperty` applies (see this file's own header addendum above for
 // why this lives here instead of versioning_interpreter.cpp). This test does NOT link mg-query (this
 // file intentionally stays storage+versioning-only, see the header addendum above), so rather than
 // going through query::EdgeAccessor::GetProperty itself, it replicates that function's documented
-// gate VERBATIM (query/edge_accessor.cpp's own doc-comment) against `fork_edge` -- the UNTOUCHED FORK
+// gate VERBATIM (query/edge_accessor.cpp) against `fork_edge` -- the UNTOUCHED FORK
 // copy (never itself COW'd in this test) -- using only the storage-level primitives that gate is
 // built from: `storage::EdgeAccessor::MaybeBranchedHint()`, `BranchContext::FindDiffEdge`, and
-// `BranchContext::IsEdgeTombstoned`. This is the exact shape a second, independent binding to the
+// `BranchContext::IsForkEdgeHidden`. This is the exact shape a second, independent binding to the
 // same logical edge would have if it never itself went through CowEdgeIfNeeded (e.g. a fresh
-// traversal in a later statement). The query-layer NEW-view half of the same contract, through the
-// REAL query::EdgeAccessor code, is covered end-to-end via the interpreter in
-// versioning_interpreter.cpp's BranchEdgeBitFastPathDeleteAfterModifyStillRaisesOnNewView.
+// traversal in a later statement).
 //
-// After a DIFFERENT statement COWs, SETs (w=2) and deletes the edge on the branch:
-//   - View::NEW: `fork_edge.MaybeBranchedHint()` is true (CowEdge set main's bit) -> FindDiffEdge(NEW)
-//     MISSES (verified empirically: `Storage::Accessor::FindEdge` resolves purely from the FROM
-//     vertex's CURRENT physical adjacency list, which the delete already removed the edge from --
-//     unlike vertex-by-gid lookups, this is not reversible by view at all) -> falls through to the
-//     existing S2 tombstone guard -> DELETED_OBJECT. This is the load-bearing assertion: it proves
-//     D1's branched()-bit gate defers to (does not bypass) the tombstone guard.
-//   - View::OLD: FindDiffEdge(OLD) MISSES for the identical reason (the adjacency-based lookup does
-//     not depend on the requested view), and the View::OLD tombstone-guard condition
-//     (`view == View::NEW && ...`) is false, so the gate falls through ALL THE WAY to
-//     `fork_edge.GetProperty(key, view)` -- i.e. it reads the FORK edge's OWN, ORIGINAL value (1),
-//     not the diff engine's last-committed pre-delete value (2). This degrade-to-fork-value behavior
-//     is the PRE-EXISTING S2 contract (the FindDiffEdge-miss-at-OLD-view path is identical to what an
-//     unrelated, never-branched edge's OLD-view read already does) -- D1 does not change it, it only
-//     adds the `!MaybeBranchedHint()` gate ABOVE this pre-existing fallback chain.
+// After a DIFFERENT statement COWs, SETs (w=2) and deletes the edge on the branch (DeleteForkEdge: the diff
+// copy is deleted, the gid is listed on both endpoint stubs):
+//   - inside the deleting command, View::NEW is hidden -> DELETED_OBJECT, while View::OLD still reads the fork
+//     edge's own original value (1): the list write belongs to the current command, as on main.
+//   - in a later transaction both views see the committed delete -> DELETED_OBJECT.
 TEST_F(VersioningBranchEngineTest, EdgeBranchedBitDeleteViewNewRaisesViewOldFallsBackToForkValue) {
   const auto prop_w = storage_->NameToProperty("w");
   const auto edge_type = storage_->NameToEdgeType("E");
@@ -567,18 +512,16 @@ TEST_F(VersioningBranchEngineTest, EdgeBranchedBitDeleteViewNewRaisesViewOldFall
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
   // A SEPARATE, never-touched binding to the SAME fork edge -- stays main-resident throughout this
   // test, exactly like a fresh traversal that never itself called CowEdgeIfNeeded.
-  auto hist_s = branch_context_->historical().FindVertex(s_gid, ms::View::OLD);
+  // Held for the whole test: the per-transaction historical accessor inside the context is re-opened by every Begin().
+  auto independent_hist = mem_storage_->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(independent_hist.has_value());
+  auto hist_s = (*independent_hist)->FindVertex(s_gid, ms::View::OLD);
   ASSERT_TRUE(hist_s.has_value());
   auto out_res = hist_s->OutEdges(ms::View::OLD);
   ASSERT_TRUE(out_res.has_value());
@@ -588,7 +531,7 @@ TEST_F(VersioningBranchEngineTest, EdgeBranchedBitDeleteViewNewRaisesViewOldFall
   // A DIFFERENT statement: COW the fork edge, SET w=2, commit -- mirrors an earlier branch write.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
-    branch_context_->set_current_diff_txn(diff_acc.get());
+    Begin(diff_acc.get());
     auto cowed = branch_context_->CowEdge(fork_edge);
     ASSERT_TRUE(cowed.has_value());
     ASSERT_TRUE(cowed->SetProperty(prop_w, ms::PropertyValue(2)).has_value());
@@ -598,60 +541,53 @@ TEST_F(VersioningBranchEngineTest, EdgeBranchedBitDeleteViewNewRaisesViewOldFall
       << "sanity: CowEdge must have set main's own Edge::branched() bit -- `fork_edge` IS this same "
          "physical object (historical_ aliasing main directly)";
 
-  // A LATER statement deletes it and tombstones it.
-  {
-    auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
-    branch_context_->set_current_diff_txn(diff_acc.get());
-    auto diff_edge = branch_context_->FindDiffEdge(edge_gid, ms::View::NEW);
-    ASSERT_TRUE(diff_edge.has_value()) << "the edge committed by the previous statement must already be diff-resident";
-    ASSERT_TRUE(diff_acc->DeleteEdge(&*diff_edge).has_value());
-    branch_context_->TombstoneEdge(edge_gid);
-    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // THE ASSERTIONS: replicate query::EdgeAccessor::GetProperty's D1 gate VERBATIM (see this test's
-  // own header comment) against `fork_edge` -- still bound to the untouched fork copy -- at both
-  // views, via a FRESH diff-engine transaction (mirrors a fresh statement reading after the delete
-  // committed).
-  auto read_acc = branch_context_->diff_engine().Access(ms::READ);
-  branch_context_->set_current_diff_txn(read_acc.get());
-
   auto d1_gate_get_property = [&](ms::View view) -> ms::Result<ms::PropertyValue> {
     if (fork_edge.storage_ == &branch_context_->diff_engine()) return fork_edge.GetProperty(prop_w, view);
     if (!fork_edge.MaybeBranchedHint()) return fork_edge.GetProperty(prop_w, view);
     if (auto diff_edge = branch_context_->FindDiffEdge(edge_gid, view)) return diff_edge->GetProperty(prop_w, view);
-    if (view == ms::View::NEW && branch_context_->IsEdgeTombstoned(edge_gid)) {
-      return std::unexpected{ms::Error::DELETED_OBJECT};
-    }
+    if (branch_context_->IsForkEdgeHidden(fork_edge, view)) return std::unexpected{ms::Error::DELETED_OBJECT};
     return fork_edge.GetProperty(prop_w, view);
   };
 
-  auto new_view_result = d1_gate_get_property(ms::View::NEW);
-  ASSERT_FALSE(new_view_result.has_value());
-  EXPECT_EQ(new_view_result.error(), ms::Error::DELETED_OBJECT)
-      << "View::NEW must raise DELETED_OBJECT via the S2 tombstone guard -- D1's branched()-bit gate "
-         "must defer to it, not bypass it";
+  // A LATER statement deletes it.
+  {
+    auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
+    Begin(diff_acc.get());
+    auto diff_edge = branch_context_->FindDiffEdge(edge_gid, ms::View::NEW);
+    ASSERT_TRUE(diff_edge.has_value()) << "the edge committed by the previous statement must already be diff-resident";
+    auto deleted = branch_context_->DeleteForkEdge(fork_edge);
+    ASSERT_TRUE(deleted.has_value());
+    ASSERT_TRUE(*deleted);
 
-  auto old_view_result = d1_gate_get_property(ms::View::OLD);
-  ASSERT_TRUE(old_view_result.has_value())
-      << "View::OLD must NOT raise -- the tombstone guard is gated on view == View::NEW only";
-  EXPECT_EQ(*old_view_result, ms::PropertyValue(1))
-      << "View::OLD falls through past the FindDiffEdge miss straight to fork_edge.GetProperty(view), "
-         "i.e. the FORK edge's own original value -- this is the pre-existing S2 fallback chain, "
-         "unmodified by D1";
+    auto new_view_result = d1_gate_get_property(ms::View::NEW);
+    ASSERT_FALSE(new_view_result.has_value());
+    EXPECT_EQ(new_view_result.error(), ms::Error::DELETED_OBJECT)
+        << "View::NEW must raise DELETED_OBJECT -- D1's branched()-bit gate must defer to the delete guard";
+
+    auto old_view_result = d1_gate_get_property(ms::View::OLD);
+    ASSERT_TRUE(old_view_result.has_value())
+        << "View::OLD must NOT raise inside the deleting command: its own marker writes are invisible to it";
+    EXPECT_EQ(*old_view_result, ms::PropertyValue(1))
+        << "View::OLD falls through past the FindDiffEdge miss to the fork edge's own original value";
+
+    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // A fresh transaction sees the committed delete at both views.
+  auto read_acc = branch_context_->diff_engine().Access(ms::READ);
+  Begin(read_acc.get());
+  for (auto view : {ms::View::NEW, ms::View::OLD}) {
+    auto result = d1_gate_get_property(view);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), ms::Error::DELETED_OBJECT);
+  }
 }
 
-// Fix H1 (abort-safety, 2026-07-18): a DELETE that then ABORTS must not permanently hide the
-// deleted vertex for the rest of the checkout session. Before this fix, `TombstoneVertex` inserted
-// directly into the permanent `tombstoned_vertices_` set at Pull-time (before commit/abort was
-// known) -- an abort never undid that, so the vertex stayed hidden forever even though its delete
-// was rolled back. Replicates the exact production sequence (query::DbAccessor::RemoveVertex,
-// db_accessor.hpp: CowVertex -> accessor_->DeleteVertex -> TombstoneVertex) directly against the
-// storage-level primitives this file already exercises elsewhere (no mg-query link here, same
-// rationale as the D1 edge test above), then simulates the interpreter's abort path
-// (`CleanupDBTransaction`, interpreter.cpp) by calling `Abort()` on the transaction instead of
-// committing it, followed by `DiscardPendingTombstones()`.
-TEST_F(VersioningBranchEngineTest, TombstonedVertexIsHiddenWithinTxnButAbortRestoresVisibility) {
+// A fork-vertex DELETE that then ABORTS must leave the vertex fully visible: the delete marker is an ordinary
+// diff-engine write, so rolling the transaction back removes it (no side state to discard). Replicates the
+// production sequence (query::DbAccessor::BranchDetachDelete -> BranchContext::DeleteForkVertex) against the
+// storage-level primitives (no mg-query link here, same rationale as the D1 edge test above).
+TEST_F(VersioningBranchEngineTest, DeletedVertexIsHiddenWithinTxnButAbortRestoresVisibility) {
   const auto prop_x = storage_->NameToProperty("x");
   ms::Gid a_gid;
   {
@@ -663,124 +599,91 @@ TEST_F(VersioningBranchEngineTest, TombstonedVertexIsHiddenWithinTxnButAbortRest
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
-  // Statement 1 (aborted): DELETE the fork vertex on the branch, then roll the transaction back
-  // WITHOUT committing -- mirrors a query that deletes and then hits a runtime error/explicit
-  // ROLLBACK before the interpreter's own commit boundary.
+  // Statement 1 (aborted): DELETE the fork vertex on the branch, then roll the transaction back.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
-    branch_context_->set_current_diff_txn(diff_acc.get());
+    Begin(diff_acc.get());
 
-    ASSERT_FALSE(branch_context_->IsVertexTombstoned(a_gid));
+    ASSERT_FALSE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW));
 
-    auto cowed = branch_context_->CowVertex(a_gid);
-    ASSERT_TRUE(cowed.has_value());
-    auto delete_res = diff_acc->DeleteVertex(&*cowed);
-    ASSERT_TRUE(delete_res.has_value() && delete_res->has_value());
-    branch_context_->TombstoneVertex(a_gid);
+    auto deleted = branch_context_->DeleteForkVertex(a_gid);
+    ASSERT_TRUE(deleted.has_value() && deleted->has_value());
 
-    // Same-transaction visibility: the just-deleted vertex must stay hidden to THIS transaction
-    // too (the pending set, not just the committed one, gates ResolveVertex/IsVertexTombstoned).
-    EXPECT_TRUE(branch_context_->IsVertexTombstoned(a_gid));
+    // The transaction sees its own delete at View::NEW, not at View::OLD (same command).
+    EXPECT_TRUE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW));
+    EXPECT_FALSE(branch_context_->IsVertexDeleted(a_gid, ms::View::OLD));
     EXPECT_FALSE(branch_context_->ResolveVertex(a_gid, ms::View::NEW).has_value());
+    EXPECT_TRUE(branch_context_->ResolveVertex(a_gid, ms::View::OLD).has_value());
 
-    // Abort instead of commit -- CaptureCommitIfBranch (and therefore the pending->committed
-    // promotion) is NEVER reached on this path, mirroring Interpreter::Commit only running the
-    // capture hook on the success path.
+    // A repeated delete is a no-op.
+    auto again = branch_context_->DeleteForkVertex(a_gid);
+    ASSERT_TRUE(again.has_value());
+    EXPECT_FALSE(again->has_value());
+
     diff_acc->Abort();
-
-    // Mirrors the interpreter's abort path (CleanupDBTransaction, interpreter.cpp): discard this
-    // transaction's own pending tombstones so the rolled-back delete does not leak.
-    branch_context_->DiscardPendingTombstones();
   }
 
-  EXPECT_FALSE(branch_context_->IsVertexTombstoned(a_gid))
-      << "an aborted delete's tombstone must be fully discarded, not merely left un-promoted";
-
-  // Statement 2 (fresh transaction, as if nothing happened): the vertex must resolve again, still
-  // carrying its pre-delete value -- it was never actually removed from historical_, and the diff
-  // engine never durably recorded the delete either.
+  // Statement 2 (fresh transaction, as if nothing happened).
   {
     auto diff_acc2 = branch_context_->diff_engine().Access(ms::READ);
-    branch_context_->set_current_diff_txn(diff_acc2.get());
+    Begin(diff_acc2.get());
 
+    EXPECT_FALSE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW))
+        << "an aborted delete must leave no marker behind";
     auto resolved = branch_context_->ResolveVertex(a_gid, ms::View::NEW);
     ASSERT_TRUE(resolved.has_value()) << "the vertex must be visible again after the delete was aborted";
-    auto x_val = resolved->GetProperty(prop_x, ms::View::OLD);
+    auto x_val = branch_context_->FindForkVertex(a_gid)->GetProperty(prop_x, ms::View::OLD);
     ASSERT_TRUE(x_val.has_value());
     EXPECT_EQ(*x_val, ms::PropertyValue(1));
 
-    size_t union_count = 0;
     bool found_in_union = false;
     for (auto v : branch_context_->Vertices(ms::View::NEW)) {
-      ++union_count;
       if (v.Gid() == a_gid) found_in_union = true;
     }
     EXPECT_TRUE(found_in_union) << "the gid-ordered union scan must also see the vertex again post-abort";
   }
 }
 
-// Fix H1 companion: a delete that DOES commit must become a PERMANENT tombstone -- surviving a
-// subsequent (irrelevant) `DiscardPendingTombstones()` call, exactly as the interpreter's commit
-// path (CaptureCommitIfBranch promotes, THEN the caller's own commit runs) followed later by
-// CleanupDBTransaction's unconditional-on-every-transaction-end discard call would produce.
-TEST_F(VersioningBranchEngineTest, TombstonedVertexSurvivesAfterCommitPromotesIt) {
+// A fork-vertex DELETE that COMMITS stays hidden to later transactions, from point lookups and the union scan.
+TEST_F(VersioningBranchEngineTest, DeletedVertexSurvivesCommit) {
   ms::Gid a_gid;
+  ms::Gid b_gid;
   {
     auto acc = storage_->Access(ms::WRITE);
-    auto a = acc->CreateVertex();
-    a_gid = a.Gid();
+    a_gid = acc->CreateVertex().Gid();
+    b_gid = acc->CreateVertex().Gid();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
-                                                 fork_ts,
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 memgraph::tests::MakeMainCommitArgs(),
-                                                 BranchWalRoot(),
-                                                 {});
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
-    branch_context_->set_current_diff_txn(diff_acc.get());
+    Begin(diff_acc.get());
 
-    auto cowed = branch_context_->CowVertex(a_gid);
-    ASSERT_TRUE(cowed.has_value());
-    auto delete_res = diff_acc->DeleteVertex(&*cowed);
-    ASSERT_TRUE(delete_res.has_value() && delete_res->has_value());
-    branch_context_->TombstoneVertex(a_gid);
-
-    // Mirrors Interpreter::Commit's capture hook: CaptureCommitIfBranch runs (promoting the
-    // pending tombstone into the permanent set) strictly BEFORE the transaction's own commit call.
-    auto outcome = branch_context_->CaptureCommitIfBranch(*diff_acc->GetTransaction(), /*max_changelog_length=*/1000);
-    ASSERT_TRUE(outcome.attempted);
-    ASSERT_FALSE(outcome.cap_exceeded);
+    auto deleted = branch_context_->DeleteForkVertex(a_gid);
+    ASSERT_TRUE(deleted.has_value() && deleted->has_value());
 
     ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-
-    // CleanupDBTransaction discards pending tombstones unconditionally at the end of EVERY
-    // transaction, commit or abort alike -- must be a no-op here since promotion already emptied
-    // the pending set above.
-    branch_context_->DiscardPendingTombstones();
   }
 
-  EXPECT_TRUE(branch_context_->IsVertexTombstoned(a_gid)) << "a committed delete's tombstone must remain permanent";
-
   auto diff_acc2 = branch_context_->diff_engine().Access(ms::READ);
-  branch_context_->set_current_diff_txn(diff_acc2.get());
-  EXPECT_FALSE(branch_context_->ResolveVertex(a_gid, ms::View::NEW).has_value())
-      << "the committed delete must stay hidden in a later, unrelated transaction too";
+  Begin(diff_acc2.get());
+  EXPECT_TRUE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW))
+      << "a committed delete must stay visible to a later transaction";
+  EXPECT_FALSE(branch_context_->ResolveVertex(a_gid, ms::View::NEW).has_value());
+  EXPECT_TRUE(branch_context_->ResolveVertex(b_gid, ms::View::NEW).has_value());
+
+  std::vector<ms::Gid> scanned;
+  for (auto v : branch_context_->Vertices(ms::View::NEW)) scanned.push_back(v.Gid());
+  EXPECT_EQ(scanned, std::vector<ms::Gid>{b_gid}) << "the union scan must skip the deleted fork vertex";
 }
 
 }  // namespace

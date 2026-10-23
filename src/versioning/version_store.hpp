@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -27,6 +30,8 @@
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::versioning {
+
+class BranchCore;
 
 // Shared with dbms::Database's restart pre-read (database.cpp), which must accept/reject the
 // SAME persisted branch records this class's own ctor (version_store.cpp) would -- see the
@@ -178,27 +183,29 @@ class VersionStore {
   // contract that a failed merge leaves main AND the branch byte-unchanged, retryable.
   void AbortMerge(std::string_view name);
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1): exclusive single-writer checkout. A
-  // checked-out branch is served by a private per-session BranchContext (see
-  // versioning/branch_engine.hpp) -- its diff engine is where COW'd/branch-native writes land --
-  // if two sessions checked out the same branch concurrently, each would hold a DIFFERENT diff
-  // engine and their writes would silently diverge with no way to reconcile. TryAcquireCheckout
-  // enforces "at most one live checkout per branch" the exact same way `merging_` enforces "at
-  // most one live merge per branch" (see BeginMerge above): a bare membership set guarded by
-  // lock_, never persisted (purely live-session state; does not survive a restart, exactly like
-  // merging_).
-  //
-  // Returns false (no state changed) if `name` is already checked out by some session, or is
-  // currently BeginMerge'd (a session should not be able to start writing to a branch that is
-  // mid-merge onto its parent). The caller MUST pair a successful TryAcquireCheckout with exactly
-  // one later ReleaseCheckout -- CurrentDB::ClearBranchContext (query/interpreter.hpp) is the sole
-  // caller of ReleaseCheckout, invoked whenever the session's branch pointer is cleared or moves
-  // to a different branch/database.
-  bool TryAcquireCheckout(std::string_view name);
+  // Attaches a session to `name`: any number of sessions may be attached to one branch at once, all sharing the
+  // branch's BranchCore (below). Returns the branch's BranchInfo, captured atomically with the attach so the caller
+  // never races a drop + same-name re-create. Fails (no state changed) if `name` does not exist or is currently
+  // BeginMerge'd. While attached, the branch cannot be dropped or merged. The caller MUST pair a successful attach
+  // with exactly one ReleaseCheckout -- CurrentDB::ClearBranchContext (query/interpreter.hpp) is the sole caller of
+  // ReleaseCheckout. Never persisted: attachments are live-session state and do not survive a restart.
+  std::expected<BranchInfo, std::string> TryAcquireCheckout(std::string_view name);
 
-  // Releases a checkout previously acquired via TryAcquireCheckout. Idempotent no-op if `name`
-  // isn't currently checked out (defensive; should not happen given the caller contract above).
+  // Detaches one session previously attached via TryAcquireCheckout. Idempotent no-op if `name` has no attached
+  // session (defensive; should not happen given the caller contract above).
   void ReleaseCheckout(std::string_view name);
+
+  // Number of sessions currently attached to `name` (0 if none or unknown).
+  size_t CheckoutCount(std::string_view name) const;
+
+  // Shared per-branch core registry (one live BranchCore per branch number, never persisted). Lives here, not in
+  // dbms::Database, so it is destroyed with the VersionStore -- strictly before the storage the cores point into.
+  using CoreBuilder = std::function<std::expected<std::shared_ptr<BranchCore>, std::string>()>;
+
+  // Returns the live core of branch `number`, building it with `build` on first use. `build` runs WITHOUT the registry
+  // mutex held (two racing first checkouts may both build; the loser is discarded). The caller must hold an attach
+  // (TryAcquireCheckout), which is what keeps DropBranch from retiring the core mid-build.
+  std::expected<std::shared_ptr<BranchCore>, std::string> GetOrBuildCore(uint64_t number, const CoreBuilder &build);
 
  private:
   // Caller must already hold lock_.
@@ -211,14 +218,23 @@ class VersionStore {
   // marker cannot legitimately survive a restart (the in-flight merge transaction itself
   // wouldn't have), so an empty set on load is always correct.
   std::set<std::string, std::less<>> merging_;
-  // Names currently checked out by some live session's BranchContext (see TryAcquireCheckout's own
-  // doc-comment above). Never persisted, for the same reason `merging_` isn't: an exclusive
-  // checkout is a live-session concept that cannot survive a restart.
-  std::set<std::string, std::less<>> checked_out_;
+  // Number of sessions currently attached to each branch (see TryAcquireCheckout). Entries are erased at zero. Never
+  // persisted, for the same reason `merging_` isn't.
+  std::map<std::string, size_t, std::less<>> checked_out_;
+  size_t total_checkouts_{0};
   uint64_t next_number_{2};  // main is the implicit, un-persisted version 1
   kvstore::KVStore storage_;
   std::function<uint64_t()> acquire_pin_;
   std::function<void(uint64_t)> release_pin_;
+
+  // Removes the core of a dropped/merged branch. The core is moved out under cores_mutex_ and destroyed after the
+  // mutex is released (its destructor tears down a whole storage engine). Must be called WITHOUT lock_ held.
+  void RetireCore(uint64_t number);
+
+  // Guards cores_ only; never held while building, pinning, waiting on a session or destroying a core, and never
+  // nested with lock_.
+  mutable std::mutex cores_mutex_;
+  std::map<uint64_t, std::shared_ptr<BranchCore>> cores_;
 };
 
 }  // namespace memgraph::versioning
