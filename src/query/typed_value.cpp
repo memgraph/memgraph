@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <iosfwd>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string_view>
@@ -1802,6 +1803,15 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   return TypedValue(a.ValueInt() - b.ValueInt(), a.alloc_);
 }
 
+namespace {
+// [expr.mul]/4: a/b and a%b are undefined unless the quotient is representable,
+// i.e. b != 0 and (a,b) != (INT64_MIN,-1). Checked before the native op (cf. Duration::operator+).
+void EnsureIntDivModDefined(int64_t a, int64_t b, const char *zero_msg) {
+  if (b == 0) throw TypedValueException(zero_msg);
+  if (a == std::numeric_limits<int64_t>::min() && b == -1) throw TypedValueException("Integer overflow");
+}
+}  // namespace
+
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   EnsureArithmeticallyOk(a, b, false, "division");
@@ -1810,7 +1820,7 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) / ToDouble(b), a.alloc_);
   } else {
-    if (b.ValueInt() == 0LL) throw TypedValueException("Division by zero");
+    EnsureIntDivModDefined(a.ValueInt(), b.ValueInt(), "Division by zero");
     return TypedValue(a.ValueInt() / b.ValueInt(), a.alloc_);
   }
 }
@@ -1835,7 +1845,7 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(static_cast<double>(fmod(ToDouble(a), ToDouble(b))), a.alloc_);
   } else {
-    if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
+    EnsureIntDivModDefined(a.ValueInt(), b.ValueInt(), "Mod with zero");
     return TypedValue(a.ValueInt() % b.ValueInt(), a.alloc_);
   }
 }
