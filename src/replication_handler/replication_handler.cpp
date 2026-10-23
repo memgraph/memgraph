@@ -16,14 +16,17 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "utils/synchronized.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <utility>
 
 namespace memgraph::replication {
 
@@ -158,7 +161,8 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
   spdlog::info("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
       [&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
-          ReplicationClient &local_client) mutable {
+          ReplicationClient &local_client,
+          replication_coordination_glue::FrequentHeartbeatRes const &response) mutable {
         // Working connection
         if (local_client.try_set_uuid &&
             replication_coordination_glue::SendSwapMainUUIDRpc(local_client.rpc_client_, main_uuid)) {
@@ -175,9 +179,17 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
         SystemRestore<true>(local_client, system, dbms_handler, main_uuid, parameters);
 #endif
         // Check if any database has been left behind
-        dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
+        dbms_handler.ForEach([&name = local_client.name_, &response](dbms::DatabaseAccess db_acc) {
           // Specific database <-> replica client
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
+            // A replica that acknowledged commits reports the initial timestamp again only if its copy was emptied
+            if (client.State() == storage::replication::ReplicaState::READY &&
+                client.GetTimestampInfo(db_acc->storage()).current_timestamp_of_replica !=
+                    storage::kTimestampInitialId &&
+                std::ranges::contains(response.database_commit_timestamps,
+                                      std::pair{db_acc->storage()->uuid(), storage::kTimestampInitialId})) {
+              client.SetMaybeBehind();
+            }
             if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
               // Database <-> replica might be behind, check and recover
               client.TryCheckReplicaStateAsync(db_acc->storage(), dbms::DatabaseProtector{db_acc});
