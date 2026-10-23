@@ -1182,16 +1182,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // From this point on, only main executes this
         // Once the commit is published, ASYNC replicas are marked behind even if the bookkeeping below throws;
         // otherwise they would stay READY and stale until the next commit. Declared first so it runs after
-        // publish_on_unwind.
-        bool published = false;
+        // publish_on_unwind. committed says the WAL commit flag is durable; publish_done only says
+        // publish_on_unwind has nothing left to do, which a rolled-back transaction also claims.
+        bool committed = false;
+        bool publish_done = false;
         utils::OnScopeExit const mark_async_on_exit{[&] {
-          if (published) replicating_txn.MarkAsyncReplicasForRecovery();
+          if (committed) replicating_txn.MarkAsyncReplicasForRecovery();
         }};
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
           with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
-          published = true;
+          committed = true;
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1212,12 +1214,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (repl_prepare_phase_ok) {
           QueueSchemaUpdate(durability_commit_timestamp);
           FinalizeWalCommitStatus();
+          committed = true;
         }
         // The WAL commit flag is durable and replicas may have committed: an exception below must still publish,
         // otherwise ~InMemoryAccessor aborts a transaction the WAL considers committed.
         utils::OnScopeExit const publish_on_unwind{[&] {
-          if (!repl_prepare_phase_ok || published) return;
-          published = true;
+          if (!committed || publish_done) return;
+          publish_done = true;
           try {
             with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
           } catch (...) {
@@ -1238,7 +1241,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           // deliberately not collected here. Claim the publish regardless: the abort below drops the commit
           // timestamp, so a scope exit that published after it would dereference an empty optional and make
           // visible a transaction that was just rolled back.
-          published = true;
+          publish_done = true;
           if (engine_guard.owns_lock()) engine_guard.unlock();
           AbortAndResetCommitTs();
           return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
@@ -1247,7 +1250,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (repl_prepare_phase_ok) {
           // Publish only after replicas finalize: with engine_lock_ released a BEGIN could otherwise see a commit
           // a failover may roll back (safe pre-narrowing only because engine_lock_ was held throughout).
-          published = true;
+          publish_done = true;
           with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
           // After publish: main's commit_ts_info_ is bumped in PublishCommit; replica caches must not lead it.
           replicating_txn.UpdateCommitTsInfo();
