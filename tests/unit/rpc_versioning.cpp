@@ -28,6 +28,9 @@
 
 #include "auth/auth.hpp"
 #include "auth/rpc.hpp"
+#ifdef MG_ENTERPRISE
+#include "dbms/rpc.hpp"
+#endif
 #include "replication_handler/auth_replication_handlers.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
@@ -841,6 +844,48 @@ TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
   memgraph::slk::Reader reader(buf.data(), buf.size());
   memgraph::replication::UpdateAuthDataReq loaded;
   EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkReaderException);
+}
+
+// gh5190: the SalientConfig SLK pair carried by CreateDatabaseReq must round-trip every field the
+// sender runs with. Before the fix the pair wrote only five fields, so the other eight (including
+// items.enable_schema_info) silently reset to their struct defaults on the replica and SHOW SCHEMA
+// INFO stayed disabled on a replicated tenant whose MAIN ran --schema-info-enabled.
+TEST(RpcVersioning, SlkSalientConfig_FullFieldRoundTrip) {
+  memgraph::storage::SalientConfig config;
+  config.name = "tenant";
+  config.uuid = memgraph::utils::UUID{};
+  config.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  config.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  config.items.properties_on_edges = false;
+  config.items.enable_edges_metadata = true;
+  config.items.enable_schema_metadata = true;
+  config.items.enable_schema_info = true;
+  config.items.enable_label_index_auto_creation = true;
+  config.items.enable_edge_type_index_auto_creation = true;
+  config.items.storage_light_edge = true;
+  config.items.delta_on_identical_property_update = false;
+  config.items.property_store_compression_enabled = true;
+
+  memgraph::storage::replication::CreateDatabaseReq const req{memgraph::utils::UUID{}, 0, 0, config};
+
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  memgraph::storage::replication::CreateDatabaseReq::Save(req, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::storage::replication::CreateDatabaseReq loaded;
+  memgraph::storage::replication::CreateDatabaseReq::Load(&loaded, &reader);
+
+  EXPECT_EQ(loaded.config, config)
+      << "the replicated CreateDatabaseReq must carry every SalientConfig field, not drop them to struct defaults";
+}
+
+// The SalientConfig payload grew from five fields to the complete set, so the carrier must say so:
+// a peer that still parses the old five-field layout would otherwise misread the larger payload.
+TEST(RpcVersioning, CreateDatabaseReq_IsVersionedForTheCompleteConfig) {
+  EXPECT_EQ(memgraph::storage::replication::CreateDatabaseReq::kVersion, 2U);
 }
 
 #endif  // MG_ENTERPRISE

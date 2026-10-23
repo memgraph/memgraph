@@ -22,8 +22,19 @@ TEST(StorageV2Config, Default) {
 }
 
 TEST(StorageV2Config, RoundTrip) {
+  // Every Items field is set away from its struct default, so a field missing from either direction
+  // of the JSON pair is caught by the whole-struct comparison. gh5190: delta_on_identical_property_update
+  // was absent from both to_json and from_json, so it silently reset to its default on read-back.
   SalientConfig::Items items{};
+  items.properties_on_edges = false;
+  items.enable_edges_metadata = true;
+  items.enable_schema_metadata = true;
+  items.enable_schema_info = true;
+  items.enable_label_index_auto_creation = true;
+  items.enable_edge_type_index_auto_creation = true;
   items.storage_light_edge = true;
+  items.delta_on_identical_property_update = false;
+  items.property_store_compression_enabled = true;
 
   nlohmann::json j;
   to_json(j, items);
@@ -31,7 +42,7 @@ TEST(StorageV2Config, RoundTrip) {
   SalientConfig::Items result{};
   from_json(j, result);
 
-  EXPECT_TRUE(result.storage_light_edge);
+  EXPECT_EQ(result, items) << "the JSON round-trip must preserve every Items field";
 }
 
 TEST(StorageV2Config, BackCompatMissingKey) {
