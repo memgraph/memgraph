@@ -160,7 +160,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   };
 
   // Copy original tokens because we need to use original case in named
-  // expressions and keywords in tokens will be lowercased in the next loop.
+  // expressions.
   auto original_tokens = tokens;
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
@@ -177,12 +177,14 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       case Token::UNMATCHED:
         LOG_FATAL("Shouldn't happen");
       case Token::KEYWORD: {
-        // We don't strip NULL, since it can appear in special expressions
-        // like IS NULL and IS NOT NULL, but we strip true and false keywords.
+        // true/false are also valid names (symbolicName admits cypherKeyword, Cypher.g4), so
+        // the stripped text keeps the user's spelling; the value still lands in literals_ for
+        // visitLiteral. The STRING/INT/REAL arms below still normalize spelling -- names built
+        // from those literals keep the pre-existing placeholder loss.
         if (utils::IEquals(token.second, "true")) {
-          replace_stripped(token_index, true, kStrippedBooleanToken);
+          replace_stripped(token_index, true, token.second);
         } else if (utils::IEquals(token.second, "false")) {
-          replace_stripped(token_index, false, kStrippedBooleanToken);
+          replace_stripped(token_index, false, token.second);
         } else {
           token_strings.push_back(token.second);
         }
