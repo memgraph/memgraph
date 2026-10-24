@@ -1521,6 +1521,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
   // Mirrors visitLiteral() for a StringLiteral: ParameterLookup under a cached AST, else PrimitiveLiteral.
+  // Never use parameters_->AtTokenPosition here: stripped literals are not in parameters_ at parse time.
   Expression *MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal);
 
   ParsingContext context_;

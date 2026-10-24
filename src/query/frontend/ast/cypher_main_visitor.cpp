@@ -4545,12 +4545,6 @@ antlrcpp::Any CypherMainVisitor::visitResumeDatabase(MemgraphCypher::ResumeDatab
   return mdb_query;
 }
 
-// Resolves a raw StringLiteral token the same way visitLiteral() does: under a cached/stripped
-// AST (context_.is_query_cached) the literal was stripped out, so a ParameterLookup defers value
-// resolution to execution time; otherwise the text is unescaped straight into a PrimitiveLiteral.
-// Branch names/descriptions must go through this (never `parameters_->AtTokenPosition(...)` at
-// parse time) because under CachedAstGenerator-style parsing `parameters_` is an EMPTY Parameters
-// object -- the real stripped values live in a separate table consulted only at execution time.
 Expression *CypherMainVisitor::MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal) {
   const auto token_position = static_cast<int>(string_literal->getSymbol()->getTokenIndex());
   if (context_.is_query_cached) {
@@ -4562,9 +4556,7 @@ Expression *CypherMainVisitor::MakeStringLiteralExpression(antlr4::tree::Termina
 
 antlrcpp::Any CypherMainVisitor::visitBranchName(MemgraphCypher::BranchNameContext *ctx) {
   if (ctx->symbolicName()) {
-    // A bare identifier is never stripped/parameterized, so it is safe to bake in directly --
-    // wrapped as a PrimitiveLiteral so branchName is uniformly an Expression* like the
-    // StringLiteral alternative below.
+    // Bare identifiers are never stripped, so no ParameterLookup is needed.
     auto name = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
     const auto token_position = static_cast<int>(ctx->symbolicName()->getStart()->getTokenIndex());
     return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(std::move(name), token_position));
@@ -4579,9 +4571,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateBranch(MemgraphCypher::CreateBranchC
   if (ctx->DESCRIPTION()) {
     versioning_query->description_ = MakeStringLiteralExpression(ctx->StringLiteral());
   }
-  // The FROM parent references an existing branch (commonly 'main'); name validity (it may not be
-  // "main", may not start with '.', etc.) is only relevant for a name being minted, so it is
-  // checked at execution time against the resolved value, not here against the AST.
+  // The parent is an existing branch (possibly 'main'), so only the minted name is validated at execution.
   versioning_query->parent_ = std::any_cast<Expression *>(ctx->branchName(1)->accept(this));
   query_ = versioning_query;
   return versioning_query;
@@ -4592,14 +4582,12 @@ antlrcpp::Any CypherMainVisitor::visitCheckoutBranch(MemgraphCypher::CheckoutBra
   versioning_query->action_ = VersioningQuery::Action::CHECKOUT_BRANCH;
   versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName(0)->accept(this));
   if (ctx->FROM()) {
-    // Combined create-if-absent + switch: the target (name_ above) is a NEW branch being minted.
     versioning_query->checkout_ = true;
     if (ctx->DESCRIPTION()) {
       versioning_query->description_ = MakeStringLiteralExpression(ctx->StringLiteral());
     }
     versioning_query->parent_ = std::any_cast<Expression *>(ctx->branchName(1)->accept(this));
   }
-  // Else: plain switch to an already-existing branch -- 'main' is a valid target here.
   query_ = versioning_query;
   return versioning_query;
 }
@@ -4631,7 +4619,6 @@ antlrcpp::Any CypherMainVisitor::visitShowBranches(MemgraphCypher::ShowBranchesC
   auto *versioning_query = storage_->Create<VersioningQuery>();
   versioning_query->action_ = VersioningQuery::Action::SHOW_BRANCHES;
   if (ctx->DATABASE()) {
-    // databaseName is a plain identifier (symbolicName), never stripped -- safe as a std::string.
     versioning_query->for_database_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   }
   query_ = versioning_query;

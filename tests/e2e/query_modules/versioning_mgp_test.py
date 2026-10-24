@@ -9,8 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Covers mgp_execute_query (nested query from a C++ module, `versioning_mgp.run`) and schema.assert on a
-# versioning branch. The server runs with --versioning-enabled (enterprise license).
+# Needs a server with --versioning-enabled (enterprise license).
 
 import contextlib
 import sys
@@ -26,7 +25,7 @@ def _count(cursor, label: str) -> int:
 
 @pytest.fixture
 def branch() -> Iterator[str]:
-    """Forks branch `b` from main (which holds one :V vertex); the test checks it out itself. Dropped on teardown."""
+    """Forks `b` from main (one :V vertex); dropped on teardown."""
     name = "b"
     with contextlib.closing(connect()) as connection:
         cursor = connection.cursor()
@@ -39,7 +38,7 @@ def branch() -> Iterator[str]:
 
 @pytest.fixture
 def cursor(branch):
-    """Session under test; closed before the branch fixture drops the branch (a live checkout blocks DROP)."""
+    """Closed before the branch is dropped: another session's checkout blocks DROP BRANCH."""
     with contextlib.closing(connect()) as connection:
         yield connection.cursor()
 
@@ -48,7 +47,6 @@ def test_nested_query_runs_on_callers_branch(branch, cursor):
     execute_and_fetch_all(cursor, f"CHECKOUT BRANCH '{branch}'")
     execute_and_fetch_all(cursor, "CREATE (:OnlyOnBranch)")
 
-    # Reads see the branch (and the main data it forked from).
     rows = execute_and_fetch_all(
         cursor, "CALL versioning_mgp.run('MATCH (n:OnlyOnBranch) RETURN count(n) AS c') YIELD row RETURN row"
     )
@@ -58,7 +56,6 @@ def test_nested_query_runs_on_callers_branch(branch, cursor):
     )
     assert [r[0]["c"] for r in rows] == [1]
 
-    # Writes land on the branch, not on main.
     execute_and_fetch_all(cursor, "CALL versioning_mgp.run('CREATE (:FromModule)') YIELD row RETURN row")
     assert _count(cursor, "FromModule") == 1
     execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
@@ -79,7 +76,6 @@ def test_nested_query_under_using_version_main_runs_on_main(branch, cursor):
     execute_and_fetch_all(
         cursor, "USING VERSION 'main' CALL versioning_mgp.run('CREATE (:ToMain)') YIELD row RETURN row"
     )
-    # Still on the branch: the main write is invisible here, visible on main.
     assert _count(cursor, "ToMain") == 0
     execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
     assert _count(cursor, "ToMain") == 1
@@ -91,7 +87,6 @@ def test_schema_assert_rejected_on_branch(branch, cursor):
     with pytest.raises(Exception, match="versioning branch"):
         execute_and_fetch_all(cursor, "CALL schema.assert({V: ['id']}, {}) YIELD label RETURN label")
 
-    # The session is still usable and main is unaffected.
     assert _count(cursor, "V") == 1
     execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
     assert execute_and_fetch_all(cursor, "SHOW INDEX INFO") == []
@@ -106,7 +101,7 @@ def test_drop_branch_after_nested_query():
         assert _count(cursor, "Tmp") == 1
         execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
 
-        # The nested query's attach to the branch must have been released.
+        # The nested query released its attach, so DROP succeeds and the branch is gone.
         execute_and_fetch_all(cursor, "DROP BRANCH 'dropme'")
         with pytest.raises(Exception):
             execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'dropme'")

@@ -45,7 +45,6 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   ++next_number_;
   branches_.emplace(std::move(name), info);
 
-  // Metrics: branch created + refresh the active-branches gauge.
   memgraph::metrics::Metrics().global.versioning_branches_created->Increment();
   memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   return info;
@@ -60,17 +59,14 @@ bool VersionStore::DropBranch(std::string_view name) {
     if (it == branches_.end()) {
       return false;
     }
-    // A branch with an attached session must not be dropped out from under it; each session must
-    // CHECKOUT BRANCH 'main' (detach) first.
     if (checked_out_.contains(name)) {
       return false;
     }
 
     number = it->second.number;
     release_pin_(it->second.fork_ts);
-      branches_.erase(it);
+    branches_.erase(it);
 
-    // Metrics: branch dropped + refresh the active-branches gauge.
     memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
     memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   }
@@ -117,7 +113,6 @@ std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::str
   ++checked_out_[std::string{name}];
   ++total_checkouts_;
 
-  // Metrics: refresh the active-checkouts gauge.
   memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(total_checkouts_));
   return it->second;
 }
@@ -129,7 +124,6 @@ void VersionStore::ReleaseCheckout(std::string_view name) {
     if (--it->second == 0) checked_out_.erase(it);
   }
 
-  // Metrics: refresh the active-checkouts gauge.
   memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(total_checkouts_));
 }
 
@@ -140,7 +134,7 @@ size_t VersionStore::CheckoutCount(std::string_view name) const {
 }
 
 std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuildCore(uint64_t number,
-                                                                                    const CoreBuilder &build) {
+                                                                                     const CoreBuilder &build) {
   {
     std::lock_guard guard{cores_mutex_};
     if (auto it = cores_.find(number); it != cores_.end()) return it->second;
@@ -152,7 +146,6 @@ std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuild
     std::lock_guard guard{cores_mutex_};
     winner = cores_.try_emplace(number, *built).first->second;
   }
-  // If another session won the race, `built` (the loser) is destroyed here, outside the mutex.
   return winner;
 }
 

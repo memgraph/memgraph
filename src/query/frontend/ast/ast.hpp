@@ -2104,9 +2104,7 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
-  /// Graph versioning target (USING VERSION literal).
-  /// Kept as an Expression (not resolved eagerly) for the same reason as hops_limit_/num_threads_:
-  /// the AST is cached across executions.
+  /// USING VERSION target; an Expression (like hops_limit_) because the AST is cached across executions.
   memgraph::query::Expression *version_target_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
@@ -4108,7 +4106,6 @@ class MultiDatabaseQuery : public memgraph::query::Query {
   }
 };
 
-/// Graph Versioning (branches) query surface.
 class VersioningQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -4117,32 +4114,17 @@ class VersioningQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action : uint8_t {
-    CREATE_BRANCH,
-    CHECKOUT_BRANCH,
-    MERGE_BRANCH,
-    DROP_BRANCH,
-    SHOW_BRANCH,
-    SHOW_BRANCHES
-  };
+  enum class Action : uint8_t { CREATE_BRANCH, CHECKOUT_BRANCH, MERGE_BRANCH, DROP_BRANCH, SHOW_BRANCH, SHOW_BRANCHES };
 
-  // name_/description_/parent_ are StringLiteral-or-symbolicName-derived, so (like hops_limit_,
-  // setting_name_/setting_value_ on CoordinatorQuery) they are kept as Expression* -- a
-  // PrimitiveLiteral when the value is known at parse time, or a ParameterLookup when the query
-  // is being parsed off a cached/stripped AST (see visitBranchName). Never resolve these to a
-  // plain std::string in the visitor: the AST is cached across executions with different
-  // stripped-literal values.
-  /// Branch being created/checked-out/merged/dropped (unused for SHOW_BRANCH).
+  // name_/description_/parent_ stay Expression* (PrimitiveLiteral or ParameterLookup): the AST is
+  // cached across executions with different stripped-literal values, so never resolve them to std::string.
   memgraph::query::Expression *name_{nullptr};
-  /// WITH DESCRIPTION '...' on CREATE BRANCH / CHECKOUT BRANCH ... FROM ...
   memgraph::query::Expression *description_{nullptr};
-  /// FROM branchName on CREATE BRANCH / CHECKOUT BRANCH ... FROM ...
   memgraph::query::Expression *parent_{nullptr};
-  /// FOR DATABASE databaseName on SHOW BRANCHES -- a plain identifier (symbolicName), never
-  /// stripped into a parameter, so unlike name_/description_/parent_ it is safe to resolve eagerly.
+  /// A plain identifier, never stripped into a parameter, so safe to resolve eagerly.
   std::optional<std::string> for_database_;
   memgraph::query::VersioningQuery::Action action_;
-  /// Distinguishes CHECKOUT BRANCH x (switch only) from CHECKOUT BRANCH x FROM y (create-if-absent + switch).
+  /// CHECKOUT BRANCH x FROM y (create-if-absent + switch) vs CHECKOUT BRANCH x (switch only).
   bool checkout_{false};
 
   VersioningQuery *Clone(AstStorage *storage) const override {

@@ -19,7 +19,6 @@ constexpr std::string_view kProcedureRun = "run";
 constexpr std::string_view kParameterQuery = "query";
 constexpr std::string_view kReturnRow = "row";
 
-// Runs `query` through mgp_execute_query on the caller's graph and returns every row as a map.
 void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);

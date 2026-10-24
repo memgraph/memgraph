@@ -17,12 +17,8 @@
 
 namespace memgraph::versioning {
 
-// Pure predicate for branch-name validity, per specs/graph-versioning.md §4.1:
-//   "A version name ... must be non-empty, cannot be `main` (reserved), cannot start with `.`,
-//    and cannot contain `/` or `\`."
-// Returns an end-user-facing error message when `name` is invalid; std::nullopt when valid.
-// Deliberately takes a std::string_view (not AST/Query types) so callers (grammar visitor,
-// unit tests, and later the version-store registry) can invoke it without any parser machinery.
+// Returns a user-facing error if `name` is empty, exactly "main" (case-sensitive), starts with '.',
+// or contains '/' or '\\'; std::nullopt when valid. No length limit or charset whitelist.
 std::optional<std::string> ValidateBranchName(std::string_view name);
 
 }  // namespace memgraph::versioning
