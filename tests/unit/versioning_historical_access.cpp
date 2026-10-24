@@ -128,17 +128,31 @@ TEST_F(VersioningHistoricalAccessTest, RejectsUnpinnedForkTimestamp) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
+  // A live pin on an unrelated timestamp must not make other timestamps look pinned.
+  const uint64_t unrelated_pin = mem_storage->RegisterForkPin();
+
   constexpr uint64_t kNeverPinnedForkTs = 1;
+  ASSERT_NE(unrelated_pin, kNeverPinnedForkTs);
   auto result = mem_storage->HistoricalAccess(kNeverPinnedForkTs);
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(result.error(), ms::InMemoryStorage::HistoricalAccessError::ForkTimestampNotPinned);
 
-  // Registered and then released (DROP BRANCH) must be rejected too.
+  // Tick the clock so the next pin lands on a different timestamp than unrelated_pin.
+  {
+    auto acc = storage->Access(ms::WRITE);
+    (void)acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Registered and then released (DROP BRANCH) must be rejected too, even with another pin alive.
   const uint64_t fork_ts = mem_storage->RegisterForkPin();
+  ASSERT_NE(fork_ts, unrelated_pin);
   mem_storage->ReleaseForkPin(fork_ts);
   auto result_after_release = mem_storage->HistoricalAccess(fork_ts);
   ASSERT_FALSE(result_after_release.has_value());
   EXPECT_EQ(result_after_release.error(), ms::InMemoryStorage::HistoricalAccessError::ForkTimestampNotPinned);
+
+  mem_storage->ReleaseForkPin(unrelated_pin);
 }
 
 // Metrics-backed fixture: unreleased_delta_objects distinguishes "retained" from "wrongly reclaimed".
@@ -190,6 +204,8 @@ TEST_F(VersioningHistoricalAccessGcTest, TransientReadsDoNotReleaseSharedForkTim
   const uint64_t fork_ts = mem_storage->RegisterForkPin();
 
   auto real_reader = storage->Access(memgraph::storage::READ);
+  ASSERT_EQ(real_reader->GetStartTimestamp(), std::optional<uint64_t>{fork_ts})
+      << "test precondition: the plain reader must start exactly at fork_ts";
 
   for (int i = 0; i < 5; ++i) {
     auto historical = mem_storage->HistoricalAccess(fork_ts);
@@ -306,12 +322,124 @@ TEST_F(VersioningHistoricalAccessGcTest, DropDuringOpenReadDoesNotReclaim) {
   {
     auto reader = mem_storage->HistoricalAccess(fork_ts2);
     ASSERT_TRUE(reader.has_value());
-    (void)(*reader)->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_TRUE((*reader)->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     reader->reset();
   }
   EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{fork_ts2}) << "only the branch pin may remain";
   mem_storage->ReleaseForkPin(fork_ts2);
   EXPECT_EQ(mem_storage->OldestForkPin(), std::nullopt);
+}
+
+// A writer opened BEFORE the fork pin but committed AFTER it has commit_ts >= fork_ts, so the fork
+// snapshot must exclude its writes, and GC/fast-discard must keep the pre-image needed to hide them.
+TEST_F(VersioningHistoricalAccessGcTest, HistoricalReadExcludesWriterThatStraddlesTheFork) {
+  namespace st = memgraph::storage;
+  auto *mem_storage = static_cast<st::InMemoryStorage *>(storage.get());
+  const auto prop_id = storage->NameToProperty("p");
+
+  st::Gid v_gid;
+  {
+    auto acc = storage->Access(st::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(v.SetProperty(prop_id, st::PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto writer = storage->Access(st::WRITE);
+  {
+    auto v = writer->FindVertex(v_gid, st::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->SetProperty(prop_id, st::PropertyValue(2)).has_value());
+    (void)writer->CreateVertex();
+  }
+
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  writer.reset();
+
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+
+  auto historical = mem_storage->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  {
+    auto &hist_acc = **historical;
+    auto v = hist_acc.FindVertex(v_gid, st::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    auto prop = v->GetProperty(prop_id, st::View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    EXPECT_EQ(*prop, st::PropertyValue(1)) << "a writer committing at/after fork_ts must be invisible";
+    EXPECT_EQ(CountVertices(hist_acc, st::View::OLD), 1U) << "the straddling writer's vertex must be invisible";
+  }
+  historical->reset();
+  mem_storage->ReleaseForkPin(fork_ts);
+}
+
+// Two pins at different timestamps: the GC floor must be the OLDEST pin (a newest-pin floor would unlink A's history). After releasing the older
+// pin, the newer pin's history stays reconstructible and the older timestamp is rejected.
+TEST_F(VersioningHistoricalAccessGcTest, GcFloorIsOldestPinAndAdvancesWhenOlderPinReleased) {
+  namespace st = memgraph::storage;
+  auto *mem_storage = static_cast<st::InMemoryStorage *>(storage.get());
+  const auto prop_id = storage->NameToProperty("p");
+
+  auto set_prop = [&](st::Gid gid, int64_t value) {
+    auto acc = storage->Access(st::WRITE);
+    auto v = acc->FindVertex(gid, st::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->SetProperty(prop_id, st::PropertyValue(value)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  auto read_prop_at = [&](uint64_t fork_ts, st::Gid gid) -> std::optional<int64_t> {
+    auto historical = mem_storage->HistoricalAccess(fork_ts);
+    if (!historical.has_value()) return std::nullopt;
+    auto v = (*historical)->FindVertex(gid, st::View::OLD);
+    if (!v.has_value()) return std::nullopt;
+    auto prop = v->GetProperty(prop_id, st::View::OLD);
+    if (!prop.has_value()) return std::nullopt;
+    return prop->ValueInt();
+  };
+
+  st::Gid v_gid;
+  {
+    auto acc = storage->Access(st::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(v.SetProperty(prop_id, st::PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t pin_a = mem_storage->RegisterForkPin();
+  set_prop(v_gid, 2);
+  const uint64_t pin_b = mem_storage->RegisterForkPin();
+  ASSERT_LT(pin_a, pin_b);
+  set_prop(v_gid, 3);
+
+  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{pin_a});
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(read_prop_at(pin_a, v_gid), std::optional<int64_t>{1});
+  EXPECT_EQ(read_prop_at(pin_b, v_gid), std::optional<int64_t>{2});
+
+  mem_storage->ReleaseForkPin(pin_a);
+  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{pin_b});
+  EXPECT_EQ(mem_storage->HistoricalAccess(pin_a).error_or(ms::InMemoryStorage::HistoricalAccessError{}),
+            ms::InMemoryStorage::HistoricalAccessError::ForkTimestampNotPinned);
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+
+  EXPECT_EQ(read_prop_at(pin_b, v_gid), std::optional<int64_t>{2}) << "history needed for pin B must be retained";
+  EXPECT_GT(registration_.handles().unreleased_delta_objects.Value(), 0);
+
+  mem_storage->ReleaseForkPin(pin_b);
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
 }
 
 // Label-property index scan through a historical accessor returns fork-state vertices in index

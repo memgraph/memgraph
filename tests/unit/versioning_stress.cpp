@@ -35,11 +35,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <latch>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -83,6 +85,15 @@ constexpr int64_t kSeedEdges = 6000;
 // Id ranges (ids are never reused, so "committed" bookkeeping is exact):
 constexpr int64_t kBranchNativeBase = 1'000'000;  // branch writer t: kBranchNativeBase * (t + 1) + k
 constexpr int64_t kMainNativeBase = 50'000'000;   // main writer w:   kMainNativeBase + w * 1'000'000 + k
+// Random branch writers only touch ids below kRandomIds. The ids above are phase-0 sentinels, written once
+// and single-threaded before the workload, so their invariants can never be vacuous nor disturbed by a writer.
+constexpr int64_t kRandomIds = 1800;
+constexpr int64_t kSentinelDeleteFirst = 1990;  // [1990, 2000): DETACH DELETEd
+constexpr int64_t kSentinelLabelFirst = 1800;   // [1800, 1810): SET :L, stays
+constexpr int64_t kSentinelUnlabelFirst = 1810;  // [1810, 1820): SET :L then REMOVE :L
+constexpr int64_t kSentinelEdgeFirst = 1820;    // [1820, 1830): ring of new edges with w = kSentinelEdgeW
+constexpr int64_t kSentinelEdgeW = -7;
+constexpr int64_t kSentinelEdgeDelFirst = 1830;  // [1830, 1835): one fork out-edge each deleted
 // Values: branch writers set v in [1, kMainValueBase), main writers set v >= kMainValueBase. A main value visible on
 // the branch is therefore a fork-isolation violation.
 constexpr int64_t kMainValueBase = 1'000'000'000;
@@ -140,8 +151,9 @@ struct Counters {
   std::atomic<uint64_t> rollbacks{0};
 };
 
-// Runs one query on `s`; never throws. Retry-type exceptions (serialization/conflict) are Outcome::kConflict,
-// everything else is Outcome::kError and is logged.
+// Runs one query on `s`; never throws. Only TransactionSerializationException (the write-write conflict main raises)
+// is Outcome::kConflict; everything else, including other RetryBasicException subtypes such as HintedAbortError, is
+// Outcome::kError and is logged.
 Outcome Exec(InterpreterFaker &s, const std::string &query, FailureLog &log, Counters &c, std::string_view who,
              BoltRows *rows = nullptr) {
   c.ops.fetch_add(1, std::memory_order_relaxed);
@@ -149,7 +161,7 @@ Outcome Exec(InterpreterFaker &s, const std::string &query, FailureLog &log, Cou
     auto stream = s.Interpret(query);
     if (rows != nullptr) *rows = stream.GetResults();
     return Outcome::kOk;
-  } catch (const memgraph::query::RetryBasicException &) {
+  } catch (const memgraph::query::TransactionSerializationException &) {
     c.conflicts.fetch_add(1, std::memory_order_relaxed);
     return Outcome::kConflict;
   } catch (const std::exception &e) {
@@ -179,7 +191,19 @@ void CheckNames(const std::vector<BoltValue> &list, std::string_view what, const
   }
 }
 
-bool IsNullValue(const BoltValue &v) { return v.type() == BoltValue::Type::Null; }
+// True when the EXPLAIN plan of `query` contains the operator named exactly `op` (not as a prefix of a longer name).
+bool PlanUsesOperator(InterpreterFaker &s, const std::string &query, std::string_view op) {
+  auto stream = s.Interpret("EXPLAIN " + query);
+  auto const is_ident = [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'; };
+  for (const auto &row : stream.GetResults()) {
+    const std::string_view line = row[0].ValueString();
+    for (auto pos = line.find(op); pos != std::string_view::npos; pos = line.find(op, pos + 1)) {
+      const auto end = pos + op.size();
+      if ((pos == 0 || !is_ident(line[pos - 1])) && (end == line.size() || !is_ident(line[end]))) return true;
+    }
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -283,7 +307,7 @@ struct CommittedBranchState {
 };
 
 BranchOp MakeBranchOp(std::mt19937_64 &rng, int tid, int64_t &next_native) {
-  auto id = [&] { return static_cast<int64_t>(rng() % kSeedVertices); };
+  auto id = [&] { return static_cast<int64_t>(rng() % kRandomIds); };
   const int64_t x = id();
   const int64_t y = id();
   const int64_t val = 1 + static_cast<int64_t>(rng() % 900'000'000);
@@ -423,8 +447,16 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, Clock::time_point dea
       }
       case 4: {  // full scans / global invariants (rarely, they are the expensive ones)
         if (rng() % 8 != 0) {
-          q = "MATCH ()-[r:R]->() WHERE r.w = " + std::to_string(rng() % 100'000) + " RETURN count(r)";
-          Exec(s, q, log, c, who);
+          // One statement = one snapshot: the (edge-property indexed) filtered count must equal a full-scan count.
+          const auto w = std::to_string(rng() % 100'000);
+          q = "MATCH ()-[r:R]->() WHERE r.w = " + w +
+              " WITH count(r) AS indexed MATCH ()-[r2:R]->() RETURN indexed, sum(CASE WHEN r2.w = " + w +
+              " THEN 1 ELSE 0 END)";
+          if (Exec(s, q, log, c, who, &rows) != Outcome::kOk) break;
+          if (rows.size() != 1 || !rows[0][0].IsInt() || !rows[0][1].IsInt() ||
+              rows[0][0].ValueInt() != rows[0][1].ValueInt()) {
+            log.Add(who + ": indexed edge-property count disagrees with a full scan: " + q);
+          }
           break;
         }
         q = "MATCH (n:P) RETURN count(*)";
@@ -515,6 +547,14 @@ void Lifecycle(InterpreterFaker &s, int iters, Clock::time_point deadline, Failu
         (rows.size() != 1 || rows[0][0].ValueInt() != 1)) {
       log.Add(who + ": tmp branch native vertex count != 1 (another tmp's writes leaked in?)");
     }
+    // tmp forks main, so branch b's natives must not be visible (main natives, >= kMainNativeBase, legitimately are).
+    if (Exec(s,
+             "MATCH (n:P) WHERE n.id >= " + std::to_string(kBranchNativeBase) + " AND n.id < " +
+                 std::to_string(kMainNativeBase) + " RETURN count(*)",
+             log, c, who, &rows) == Outcome::kOk &&
+        (rows.size() != 1 || rows[0][0].ValueInt() != 0)) {
+      log.Add(who + ": branch b's native vertices leaked into tmp");
+    }
     if (!step("CHECKOUT BRANCH 'main'")) return;
     if (!step("DROP BRANCH '" + name + "'")) return;
   }
@@ -535,13 +575,7 @@ void SeedMain(InterpreterFaker &s) {
 TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   auto &setup = NewSession();
   SeedMain(setup);
-  bool has_edge_index = true;
-  try {
-    setup.Interpret("CREATE EDGE INDEX ON :R(w)");
-  } catch (const std::exception &e) {
-    has_edge_index = false;
-    std::cerr << "[ SKIPPED ] edge-property index not supported here: " << e.what() << std::endl;
-  }
+  ASSERT_NO_THROW(setup.Interpret("CREATE EDGE INDEX ON :R(w)")) << "edge-property index must be supported";
   ASSERT_EQ(Scalar(setup, "MATCH (n:P) RETURN count(*)"), kSeedVertices);
   ASSERT_EQ(Scalar(setup, "MATCH ()-[r:R]->() RETURN count(r)"), kSeedEdges);
   setup.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -560,6 +594,8 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   }
   for (int i = 0; i < kMainWriters; ++i) mw.push_back(&NewSession());
   auto &life = NewSession();
+  auto &prep = NewSession();
+  prep.Interpret("CHECKOUT BRANCH 'b'");
 
   FailureLog log;
   CommittedBranchState committed;
@@ -571,18 +607,69 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   const int main_ops = Scaled(300);
   const int life_iters = Scaled(8);
 
+  // ---- phase 0 (single-threaded, on branch b): deterministic sentinel writes so the delete/label/edge invariants below
+  // always have something to check. Random writers never mutate these vertices nor the edges sourced at them.
+  const auto id_range = [](int64_t first, int64_t count) {
+    return "n.id >= " + std::to_string(first) + " AND n.id < " + std::to_string(first + count);
+  };
+  const std::string del_edges_q =
+      "MATCH (n:P)-[r:R]->() WHERE " + id_range(kSentinelEdgeDelFirst, 5) + " RETURN count(r)";
+  const std::string sentinel_label_q = "MATCH (n:L) WHERE " + id_range(kSentinelLabelFirst, 10) + " RETURN count(*)";
+  const std::string unlabel_q = "MATCH (n:L) WHERE " + id_range(kSentinelUnlabelFirst, 10) + " RETURN count(*)";
+  const std::string sentinel_edge_q = "MATCH ()-[r:R {w:" + std::to_string(kSentinelEdgeW) + "}]->() RETURN count(r)";
+  const int64_t del_edges_before = Scalar(prep, del_edges_q);
+  ASSERT_EQ(del_edges_before, 15);
+  {
+    BranchPending phase0;
+    for (int64_t i = 0; i < 10; ++i) {
+      const int64_t d = kSentinelDeleteFirst + i;
+      prep.Interpret("MATCH (n:P {id:" + std::to_string(d) + "}) DETACH DELETE n");
+      phase0.deleted.push_back(d);
+      prep.Interpret("MATCH (n:P {id:" + std::to_string(kSentinelLabelFirst + i) + "}) SET n:L");
+      prep.Interpret("MATCH (n:P {id:" + std::to_string(kSentinelUnlabelFirst + i) + "}) SET n:L");
+      prep.Interpret("MATCH (n:P {id:" + std::to_string(kSentinelUnlabelFirst + i) + "}) REMOVE n:L");
+      prep.Interpret("MATCH (a:P {id:" + std::to_string(kSentinelEdgeFirst + i) + "}), (b:P {id:" +
+                     std::to_string(kSentinelEdgeFirst + (i + 1) % 10) + "}) CREATE (a)-[:R {w:" +
+                     std::to_string(kSentinelEdgeW) + "}]->(b)");
+    }
+    for (int64_t i = 0; i < 5; ++i) {
+      prep.Interpret("MATCH (:P {id:" + std::to_string(kSentinelEdgeDelFirst + i) +
+                     "})-[r:R]->() WITH r LIMIT 1 DELETE r");
+    }
+    committed.Publish(phase0);
+  }
+  ASSERT_EQ(Scalar(prep, del_edges_q), del_edges_before - 5);
+  ASSERT_EQ(Scalar(prep, sentinel_label_q), 10);
+  ASSERT_EQ(Scalar(prep, unlabel_q), 0);
+  ASSERT_EQ(Scalar(prep, sentinel_edge_q), 10);
+  const int64_t phase0_deleted = static_cast<int64_t>(committed.deleted.size());
+  const bool full_scale = Scale() >= 0.5;  // scale-dependent minimums are waived below this
+
+  // Start barrier: every worker begins its first op together.
+  std::latch start{kBranchWriters + kBranchReaders + kMainWriters + 1};
   std::vector<std::thread> threads;
   for (int i = 0; i < kBranchWriters; ++i) {
-    threads.emplace_back(
-        [&, i] { BranchWriter(*bw[i], i, writer_ops, deadline, committed, log, bw_c); });
+    threads.emplace_back([&, i] {
+      start.arrive_and_wait();
+      BranchWriter(*bw[i], i, writer_ops, deadline, committed, log, bw_c);
+    });
   }
   for (int i = 0; i < kBranchReaders; ++i) {
-    threads.emplace_back([&, i] { BranchReader(*br[i], i, reader_ops, deadline, log, br_c); });
+    threads.emplace_back([&, i] {
+      start.arrive_and_wait();
+      BranchReader(*br[i], i, reader_ops, deadline, log, br_c);
+    });
   }
   for (int i = 0; i < kMainWriters; ++i) {
-    threads.emplace_back([&, i] { MainWriter(*mw[i], i, main_ops, deadline, main_books[i], log, mw_c); });
+    threads.emplace_back([&, i] {
+      start.arrive_and_wait();
+      MainWriter(*mw[i], i, main_ops, deadline, main_books[i], log, mw_c);
+    });
   }
-  threads.emplace_back([&] { Lifecycle(life, life_iters, deadline, log, life_c); });
+  threads.emplace_back([&] {
+    start.arrive_and_wait();
+    Lifecycle(life, life_iters, deadline, log, life_c);
+  });
   for (auto &t : threads) t.join();
 
   std::cerr << "[ STRESS ] scale=" << Scale() << " branch-writers: ops=" << bw_c.ops << " conflicts=" << bw_c.conflicts
@@ -595,6 +682,22 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   ASSERT_EQ(mw_c.conflicts.load(), 0U) << "main writers (disjoint data) must never conflict because of a branch";
   ASSERT_EQ(mw_c.errors.load(), 0U);
   ASSERT_EQ(life_c.errors.load() + life_c.conflicts.load(), 0U) << "branch lifecycle churn must always succeed";
+  // Readers never write: CoW/stub materialization happens only on mutation paths (VertexAccessor::CowIfNeeded,
+  // ResolveWriteTarget), so a reader can neither conflict nor error.
+  ASSERT_EQ(br_c.conflicts.load(), 0U) << "branch readers must never conflict";
+  ASSERT_EQ(br_c.errors.load(), 0U);
+  ASSERT_GE(committed.deleted.size(), static_cast<size_t>(phase0_deleted));
+  ASSERT_GE(committed.deleted.size(), 10U);
+  if (full_scale) {
+    ASSERT_GT(committed.created.load(), 0) << "no branch-native vertex was ever committed";
+    ASSERT_GT(bw_c.ops.load(), 0U);
+    ASSERT_GT(br_c.ops.load(), 0U);
+    ASSERT_GT(life_c.ops.load(), 0U);
+    for (size_t w = 0; w < main_books.size(); ++w) {
+      ASSERT_FALSE(main_books[w].last_v.empty()) << "main writer " << w << " committed no SET";
+      ASSERT_GT(main_books[w].created, 0) << "main writer " << w << " committed no CREATE";
+    }
+  }
 
   // ---- final consistency: branch 'b' from a fresh session -------------------------------------------------------
   auto &chk = NewSession();
@@ -621,21 +724,41 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   EXPECT_EQ(Scalar(chk, "MATCH (n:L) RETURN count(*)"),
             Scalar(chk, "MATCH (n) WITH n WHERE 'L' IN labels(n) RETURN count(*)"))
       << "label-index scan disagrees with a full scan on the branch";
+  EXPECT_GT(Scalar(chk, "MATCH (n:L) RETURN count(*)"), 0) << "no :L vertex on the branch";
+  EXPECT_EQ(Scalar(chk, sentinel_label_q), 10) << "sentinel SET :L lost";
+  EXPECT_EQ(Scalar(chk, unlabel_q), 0) << "sentinel REMOVE :L lost";
+  EXPECT_EQ(Scalar(chk, sentinel_edge_q), 10) << "sentinel branch-native edges lost/extra";
+  {
+    // Each sentinel source has 3 fork out-edges to one target; phase 0 deleted one, so 2 remain unless a random writer
+    // later deleted the target vertex (which removes its edges).
+    int64_t want = 0;
+    for (int64_t i = 0; i < 5; ++i) {
+      const int64_t target = ((kSentinelEdgeDelFirst + i) * 7 + 13) % kSeedVertices;
+      if (!committed.deleted.contains(target)) want += 2;
+    }
+    EXPECT_EQ(Scalar(chk, del_edges_q), want) << "sentinel fork-edge deletes lost/extra";
+  }
 
-  if (!committed.deleted.empty()) {
+  {
     std::string ids;
     for (auto id : committed.deleted) ids += (ids.empty() ? "" : ",") + std::to_string(id);
     EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.id IN [" + ids + "] RETURN count(*)"), 0)
         << "vertices DETACH DELETEd by a committed branch txn are still visible";
-    EXPECT_EQ(Scalar(chk, "MATCH (n:P)-[r]-() WHERE n.id IN [" + ids + "] RETURN count(r)"), 0)
-        << "a deleted branch vertex still has visible edges";
+    // Start from SURVIVING endpoints (WITH pins the order): no edge may reach a deleted vertex.
+    EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE NOT n.id IN [" + ids + "] WITH n MATCH (n)-[r:R]-(m) WHERE m.id IN [" +
+                              ids + "] RETURN count(r)"),
+              0)
+        << "a surviving vertex still has an edge to a deleted branch vertex";
   }
 
   const auto edges_all = Scalar(chk, "MATCH ()-[r:R]->() RETURN count(r)");
   EXPECT_EQ(edges_all, Scalar(chk, "MATCH (n) OPTIONAL MATCH (n)-[r:R]->() RETURN count(r)"))
       << "edge count differs between an edge scan and per-vertex expansion";
-  if (has_edge_index) {
-    EXPECT_EQ(edges_all, Scalar(chk, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN count(r)"))
+  {
+    const std::string indexed_q = "MATCH ()-[r:R]->() WHERE r.w >= " + std::to_string(kSentinelEdgeW) + " RETURN count(r)";
+    ASSERT_TRUE(PlanUsesOperator(chk, indexed_q, "ScanAllByEdgeTypeProperty"))
+        << "the planner does not use the :R(w) edge-property index on the branch";
+    EXPECT_EQ(edges_all, Scalar(chk, indexed_q))
         << "edge-property index scan disagrees with a full edge scan on the branch";
   }
   // Every visible edge must connect two visible vertices that carry `id`.
@@ -773,13 +896,21 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
     }
   };
 
+  std::latch start{kSessions};
   std::vector<std::thread> threads;
-  for (int i = 0; i < kSessions; ++i) threads.emplace_back(worker, i);
+  for (int i = 0; i < kSessions; ++i) {
+    threads.emplace_back([&, i] {
+      start.arrive_and_wait();
+      worker(i);
+    });
+  }
   for (auto &t : threads) t.join();
 
   std::cerr << "[ STRESS ] scale=" << Scale() << " hammer: ops=" << c.ops << " conflicts=" << c.conflicts
             << " rollbacks=" << c.rollbacks << " commits=" << commit_seq << std::endl;
   ASSERT_EQ(log.Count(), 0U) << log.Dump();
+  ASSERT_GT(commit_seq.load(), 0U) << "no hammer transaction ever committed";
+  if (Scale() >= 1.0) ASSERT_GT(c.conflicts.load(), 0U) << "8 sessions on 50 vertices never conflicted: workload is vacuous";
 
   // Exact last-writer checking is not race-free (commit order is not observable from outside the engine), so assert
   // that each final value is one that some session actually committed (never a rolled-back/aborted write), and that the
@@ -788,12 +919,28 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
   chk.Interpret("CHECKOUT BRANCH 'hot'");
   auto stream = chk.Interpret("MATCH (n:K) RETURN n.id, n.v, n.w ORDER BY n.id");
   ASSERT_EQ(stream.GetResults().size(), static_cast<size_t>(kHot)) << "fork vertices lost/duplicated on the branch";
+  int64_t expected_id = 0;
   for (const auto &row : stream.GetResults()) {
     const auto id = row[0].ValueInt();
+    ASSERT_EQ(id, expected_id++) << "fork vertex ids are not exactly 0..49";
     ASSERT_TRUE(row[1].IsInt() && row[2].IsInt()) << "vertex " << id << " lost v or w";
     EXPECT_EQ(row[1].ValueInt(), row[2].ValueInt()) << "torn write on vertex " << id << " (v != w)";
     EXPECT_TRUE(committed[static_cast<size_t>(id)].contains(row[1].ValueInt()))
         << "vertex " << id << " final v=" << row[1].ValueInt() << " was never committed by any session";
+  }
+
+  // Quiescent engine: one sequential write per vertex must be readable back exactly (no lost writes).
+  constexpr int64_t kFinalBase = 7'000'000'000;
+  for (int64_t id = 0; id < kHot; ++id) {
+    const auto v = std::to_string(kFinalBase + id);
+    chk.Interpret("MATCH (n:K {id:" + std::to_string(id) + "}) SET n.v = " + v + ", n.w = " + v);
+  }
+  auto after = chk.Interpret("MATCH (n:K) RETURN n.id, n.v, n.w ORDER BY n.id");
+  ASSERT_EQ(after.GetResults().size(), static_cast<size_t>(kHot));
+  for (const auto &row : after.GetResults()) {
+    const auto id = row[0].ValueInt();
+    EXPECT_EQ(row[1].ValueInt(), kFinalBase + id) << "sequential write lost on vertex " << id;
+    EXPECT_EQ(row[2].ValueInt(), kFinalBase + id) << "sequential write lost on vertex " << id;
   }
 
   // Main must be untouched by all of this.
