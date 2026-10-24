@@ -1009,7 +1009,7 @@ TEST_F(VersioningGatedTest, BranchPeriodicCommitWritesToBranch) {
     EXPECT_EQ(IntRows(faker, count), (Rows{{0}})) << "main never sees the branch's batches";
 
     faker.Interpret("CHECKOUT BRANCH 'b'");
-    EXPECT_EQ(IntRows(faker, count), (Rows{{c.rows}})) << "the batches must survive a re-checkout replay";
+    EXPECT_EQ(IntRows(faker, count), (Rows{{c.rows}})) << "the batches must survive CHECKOUT away and back";
   }
 }
 
@@ -2709,3 +2709,44 @@ TEST_F(VersioningGatedTest, BranchAccessorReportsMainDatabaseNameForFineGrainedA
   EXPECT_FALSE(denied_checker.Has(std::array{b}, read));
 }
 #endif
+
+// An index dropped on main after the fork must not change what the branch returns, in order, for index-planned scans.
+TEST_F(VersioningGatedTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingIndex) {
+  struct Case {
+    const char *ddl;
+    const char *drop;
+    const char *match;
+    const char *op;
+  };
+
+  static constexpr Case cases[] = {
+      {"CREATE EDGE INDEX ON :T(p)", "DROP EDGE INDEX ON :T(p)", "()-[r:T]->()", "ScanAllByEdgeTypeProperty"},
+      {"CREATE GLOBAL EDGE INDEX ON :(p)", "DROP GLOBAL EDGE INDEX ON :(p)", "()-[r]->()", "ScanAllByEdgeProperty"},
+  };
+
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.ddl);
+    faker.Interpret("MATCH (n) DETACH DELETE n");
+    faker.Interpret(c.ddl);
+    // Creation order (3, 1, 2) differs from property order.
+    faker.Interpret("CREATE (:V)-[:T {p: 3}]->(:V)");
+    faker.Interpret("CREATE (:V)-[:T {p: 1}]->(:V)");
+    faker.Interpret("CREATE (:V)-[:T {p: 2}]->(:V)");
+    faker.Interpret("CREATE BRANCH 'd' FROM 'main'");
+    faker.Interpret("CHECKOUT BRANCH 'd'");
+    ASSERT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{6}}));
+
+    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret(c.drop);
+    faker.Interpret("CHECKOUT BRANCH 'd'");
+
+    const std::string presence = std::string{"MATCH "} + c.match + " WHERE r.p IS NOT NULL RETURN r.p ORDER BY r.p";
+    const std::string range = std::string{"MATCH "} + c.match + " WHERE r.p > 0 RETURN r.p ORDER BY r.p";
+    EXPECT_EQ(IntRows(faker, presence), (Rows{{1}, {2}, {3}})) << "presence scan on branch";
+    EXPECT_EQ(IntRows(faker, range), (Rows{{1}, {2}, {3}})) << "range scan on branch";
+    EXPECT_TRUE(PlanHasOperator(ExplainText(faker, range), c.op)) << ExplainText(faker, range);
+
+    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret("DROP BRANCH 'd'");
+  }
+}

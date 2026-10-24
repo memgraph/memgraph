@@ -768,6 +768,30 @@ class DbAccessor final {
     return result;
   }
 
+  // Full-scan fallback for an edge-property scan the planner may treat as ordered: ascending by `property`, gid ties.
+  template <typename Pred>
+  auto MaterializeSortedBranchEdgePropertyScan(storage::View view, storage::PropertyId property, Pred &&predicate)
+      -> std::shared_ptr<std::vector<EdgeAccessor>> {
+    using KeyedEdge = std::pair<storage::PropertyValue, EdgeAccessor>;
+    std::vector<KeyedEdge> keyed;
+    ForEachBranchEdge(view, [&](auto &raw_e) {
+      EdgeAccessor candidate(raw_e, branch_ctx_);
+      if (!predicate(candidate)) return false;
+      auto prop = candidate.GetProperty(view, property);
+      if (prop.has_value()) keyed.emplace_back(std::move(*prop), candidate);
+      return false;
+    });
+    std::stable_sort(keyed.begin(), keyed.end(), [](KeyedEdge const &a, KeyedEdge const &b) {
+      if (a.first < b.first) return true;
+      if (b.first < a.first) return false;
+      return a.second.Gid().AsUint() < b.second.Gid().AsUint();
+    });
+    auto result = std::make_shared<std::vector<EdgeAccessor>>();
+    result->reserve(keyed.size());
+    for (auto &entry : keyed) result->push_back(entry.second);
+    return result;
+  }
+
   // Merges the diff engine's edge-property scan with main@fork's, both ascending by `property` (the planner elides
   // OrderBy on this scan, so output must be ascending). A fork candidate is dropped if hidden by a delete or if its
   // stub changed `property`.
@@ -1243,17 +1267,18 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
-  // Presence scan. The full-scan fallback (main dropped the index after the fork) is gid-ordered, not ascending by
-  // `property`; assumed safe because the planner elides OrderBy only for a ready index.
+  // Presence scan; the full-scan fallback (main dropped the index after the fork) sorts ascending by `property`
+  // because the planner elides OrderBy on a branch regardless of main's index.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
-        return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [edge_type, property, view](EdgeAccessor &e) {
-          if (e.EdgeType() != edge_type) return false;
-          auto prop = e.GetProperty(view, property);
-          return prop.has_value() && !prop->IsNull();
-        }));
+        return EdgesIterable(
+            MaterializeSortedBranchEdgePropertyScan(view, property, [edge_type, property, view](EdgeAccessor &e) {
+              if (e.EdgeType() != edge_type) return false;
+              auto prop = e.GetProperty(view, property);
+              return prop.has_value() && !prop->IsNull();
+            }));
       }
       return EdgesIterable(MergeBranchEdgePropertyScan(view,
                                                        property,
@@ -1291,8 +1316,8 @@ class DbAccessor final {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
         auto range = storage::PropertyValueRange::Bounded(lower, upper);
-        return EdgesIterable(
-            MaterializeFilteredBranchEdgeScan(view, [edge_type, property, range, view](EdgeAccessor &e) {
+        return EdgesIterable(MaterializeSortedBranchEdgePropertyScan(
+            view, property, [edge_type, property, range, view](EdgeAccessor &e) {
               if (e.EdgeType() != edge_type) return false;
               auto prop = e.GetProperty(view, property);
               return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
@@ -1311,7 +1336,7 @@ class DbAccessor final {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
-        return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, view](EdgeAccessor &e) {
+        return EdgesIterable(MaterializeSortedBranchEdgePropertyScan(view, property, [property, view](EdgeAccessor &e) {
           auto prop = e.GetProperty(view, property);
           return prop.has_value() && !prop->IsNull();
         }));
@@ -1346,10 +1371,11 @@ class DbAccessor final {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
         auto range = storage::PropertyValueRange::Bounded(lower, upper);
-        return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, range, view](EdgeAccessor &e) {
-          auto prop = e.GetProperty(view, property);
-          return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
-        }));
+        return EdgesIterable(
+            MaterializeSortedBranchEdgePropertyScan(view, property, [property, range, view](EdgeAccessor &e) {
+              auto prop = e.GetProperty(view, property);
+              return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
+            }));
       }
       return EdgesIterable(MergeBranchEdgePropertyScan(view,
                                                        property,
