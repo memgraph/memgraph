@@ -63,6 +63,31 @@ struct SalientConfig {
   friend void from_json(const nlohmann::json &data, SalientConfig &config);
 };
 
+// One list drives the Items JSON pair (config.cpp); templated on Self so it serves save (const) and load.
+template <typename Self, typename Visit>
+void SalientConfigItemsForEachField(Self &s, Visit &&visit) {
+  visit("properties_on_edges", s.properties_on_edges);
+  visit("enable_edges_metadata", s.enable_edges_metadata);
+  visit("enable_schema_metadata", s.enable_schema_metadata);
+  visit("enable_schema_info", s.enable_schema_info);
+  visit("enable_label_index_auto_creation", s.enable_label_index_auto_creation);
+  visit("enable_edge_type_index_auto_creation", s.enable_edge_type_index_auto_creation);
+  visit("storage_light_edge", s.storage_light_edge);
+  visit("delta_on_identical_property_update", s.delta_on_identical_property_update);
+  visit("property_store_compression_enabled", s.property_store_compression_enabled);
+}
+
+// Shared by the JSON pair (config.cpp) and the visitor-complete SLK pair (replication/rpc.cpp); the
+// frozen five-field slk::Save/Load(SalientConfig) pair stays separate as the old V1-carrier layout.
+template <typename Self, typename Visit>
+void SalientConfigForEachField(Self &s, Visit &&visit) {
+  visit("name", s.name);
+  visit("uuid", s.uuid);
+  visit("storage_mode", s.storage_mode);
+  visit("property_store_compression_level", s.property_store_compression_level);
+  SalientConfigItemsForEachField(s.items, visit);
+}
+
 /// Pass this class to the \ref Storage constructor to change the behavior of
 /// the storage. This class also defines the default behavior.
 struct Config {
@@ -204,3 +229,12 @@ static inline void UpdatePaths(Config &config, const std::filesystem::path &stor
 }
 
 }  // namespace memgraph::storage
+
+namespace memgraph::slk {
+class Reader;
+class Builder;
+
+// Visitor-complete SalientConfig wire pair (v2/v4 carriers); defined in replication/rpc.cpp.
+void SaveSalientConfigComplete(const storage::SalientConfig &self, Builder *builder);
+void LoadSalientConfigComplete(storage::SalientConfig *self, Reader *reader);
+}  // namespace memgraph::slk

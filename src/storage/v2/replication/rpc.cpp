@@ -269,5 +269,21 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
 }
 
+// Driven by SalientConfigForEachField (storage/v2/config.hpp), so a field added there travels the wire at once.
+// Only the version-bumped carriers use this (CreateDatabaseReq v2, SystemRecoveryReq v4); the five-field pair
+// above is the frozen V1 layout and must not grow.
+void SaveSalientConfigComplete(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
+  memgraph::storage::SalientConfigForEachField(
+      self, [builder](const char * /*key*/, const auto &value) { memgraph::slk::Save(value, builder); });
+}
+
+void LoadSalientConfigComplete(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
+  memgraph::storage::SalientConfigForEachField(
+      *self, [reader](const char * /*key*/, auto &value) { memgraph::slk::Load(&value, reader); });
+  if (std::to_underlying(self->property_store_compression_level) > std::to_underlying(utils::CompressionLevel::HIGH)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
+}
+
 }  // namespace slk
 }  // namespace memgraph

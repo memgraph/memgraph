@@ -24,9 +24,27 @@
 
 namespace memgraph::storage::replication {
 
+// V1 is the pre-fix carrier (five-field SalientConfig wire); kept only so LoadWithUpgrade can parse a
+// pre-fix MAIN.
+struct CreateDatabaseReqV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReqV1"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(CreateDatabaseReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseReqV1 &self, memgraph::slk::Builder *builder);
+  CreateDatabaseReqV1() = default;
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  storage::SalientConfig config;
+};
+
+// v2: SalientConfig serialized field-complete (SalientConfigForEachField); v1 senders are parsed on
+// the frozen five-field wire and upgraded, keeping struct defaults for fields they never carried.
 struct CreateDatabaseReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReq"};
-  static constexpr uint64_t kVersion{1};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
@@ -39,15 +57,36 @@ struct CreateDatabaseReq {
         new_group_timestamp(new_group_timestamp),
         config(std::move(config)) {}
 
+  static CreateDatabaseReq Upgrade(CreateDatabaseReqV1 const &prev) {
+    return CreateDatabaseReq{prev.main_uuid, prev.expected_group_timestamp, prev.new_group_timestamp, prev.config};
+  }
+
   utils::UUID main_uuid;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   storage::SalientConfig config;
 };
 
+struct CreateDatabaseResV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseResV1"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(CreateDatabaseResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseResV1 &self, memgraph::slk::Builder *builder);
+  CreateDatabaseResV1() = default;
+
+  explicit CreateDatabaseResV1(Result res) : result(res) {}
+
+  Result result;
+};
+
+// Downgrade is lossless (both versions carry only Result); the framework answers a pre-fix v1
+// request on this v1 wire (SaveWithDowngrade).
 struct CreateDatabaseRes {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseRes"};
-  static constexpr uint64_t kVersion{1};
+  static constexpr uint64_t kVersion{2};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
@@ -56,6 +95,10 @@ struct CreateDatabaseRes {
   CreateDatabaseRes() = default;
 
   explicit CreateDatabaseRes(Result res) : result(res) {}
+
+  CreateDatabaseResV1 Downgrade() const {
+    return CreateDatabaseResV1{static_cast<CreateDatabaseResV1::Result>(result)};
+  }
 
   Result result;
 };
@@ -274,9 +317,17 @@ void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgrap
 
 void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader);
 
+void Save(const memgraph::storage::replication::CreateDatabaseReqV1 &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseReqV1 *self, memgraph::slk::Reader *reader);
+
 void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::CreateDatabaseResV1 &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseResV1 *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder);
 

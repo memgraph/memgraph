@@ -22,8 +22,18 @@ TEST(StorageV2Config, Default) {
 }
 
 TEST(StorageV2Config, RoundTrip) {
+  // Every Items field is set away from its struct default, so a field missing from either direction of
+  // the JSON pair is caught by the whole-struct comparison.
   SalientConfig::Items items{};
+  items.properties_on_edges = false;
+  items.enable_edges_metadata = true;
+  items.enable_schema_metadata = true;
+  items.enable_schema_info = true;
+  items.enable_label_index_auto_creation = true;
+  items.enable_edge_type_index_auto_creation = true;
   items.storage_light_edge = true;
+  items.delta_on_identical_property_update = false;
+  items.property_store_compression_enabled = true;
 
   nlohmann::json j;
   to_json(j, items);
@@ -31,7 +41,39 @@ TEST(StorageV2Config, RoundTrip) {
   SalientConfig::Items result{};
   from_json(j, result);
 
-  EXPECT_TRUE(result.storage_light_edge);
+  EXPECT_EQ(result, items) << "the JSON round-trip must preserve every Items field";
+}
+
+TEST(StorageV2Config, SalientConfigRoundTrip) {
+  // Regression: the hand-written pair serialized SalientConfig as a JSON array (initializer list with
+  // a bare trailing key/value) and dropped delta_on_identical_property_update from both directions.
+  SalientConfig config;
+  config.name = "tenant";
+  config.uuid = memgraph::utils::UUID{};
+  config.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  config.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  config.items.properties_on_edges = false;
+  config.items.enable_edges_metadata = true;
+  config.items.enable_schema_metadata = true;
+  config.items.enable_schema_info = true;
+  config.items.enable_label_index_auto_creation = true;
+  config.items.enable_edge_type_index_auto_creation = true;
+  config.items.storage_light_edge = true;
+  config.items.delta_on_identical_property_update = false;
+  config.items.property_store_compression_enabled = true;
+
+  nlohmann::json j;
+  to_json(j, config);
+  ASSERT_TRUE(j.is_object()) << "the SalientConfig JSON pair must emit an object of the 13 fields";
+
+  for (auto const *key : {"name", "uuid", "storage_mode", "property_store_compression_level"}) {
+    EXPECT_TRUE(j.contains(key)) << "the SalientConfig JSON object must carry the top-level field " << key;
+  }
+
+  SalientConfig result{};
+  from_json(j, result);
+
+  EXPECT_EQ(result, config) << "the JSON round-trip must preserve every SalientConfig field";
 }
 
 TEST(StorageV2Config, BackCompatMissingKey) {
