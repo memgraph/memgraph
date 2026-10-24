@@ -68,6 +68,7 @@
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
+#include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 
 namespace {
@@ -222,20 +223,25 @@ TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {
   struct Case {
     bool enable_flag;
     bool enable_license;
+    memgraph::versioning::GateError expected;
     const char *label;
   };
 
   static constexpr Case cases[] = {
       // Original: GateRejectsWhenFlagOff
-      {false, true, "flag=OFF license=ON"},
+      {false, true, memgraph::versioning::GateError::kDisabled, "flag=OFF license=ON"},
       // Original: GateRejectsWhenNoLicense
-      {true, false, "flag=ON  license=OFF"},
+      {true, false, memgraph::versioning::GateError::kNoLicense, "flag=ON  license=OFF"},
   };
   for (const auto &c : cases) {
     FLAGS_versioning_enabled = c.enable_flag;
     if (c.enable_license) memgraph::license::global_license_checker.EnableTesting();
-    ASSERT_THROW(faker.Interpret("CREATE BRANCH 'feature' FROM 'main'"), memgraph::query::QueryRuntimeException)
-        << c.label;
+    try {
+      faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
+      ADD_FAILURE() << "expected QueryRuntimeException: " << c.label;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(std::string{e.what()}, std::string{memgraph::versioning::GateErrorMessage(c.expected)}) << c.label;
+    }
     // Reset to SetUp's postcondition before the next case.
     FLAGS_versioning_enabled = false;
     memgraph::license::global_license_checker.DisableTesting();
@@ -524,7 +530,8 @@ TEST_F(VersioningGatedTest, BranchCrossBranchIsolationReadsOwnFork) {
   // b2 forks AFTER b1's changes (main itself is untouched), then main changes id=2: b2 must stay pinned.
   faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
   faker.Interpret("MATCH (n {id: 2}) SET n.age = 222");
-  EXPECT_EQ(IntRows(faker, "MATCH (n {id: 2}) RETURN n.age"), (Rows{{222}})) << "main must read its own post-fork write";
+  EXPECT_EQ(IntRows(faker, "MATCH (n {id: 2}) RETURN n.age"), (Rows{{222}}))
+      << "main must read its own post-fork write";
   faker.Interpret("CHECKOUT BRANCH 'b2'");
 
   {
@@ -890,7 +897,8 @@ TEST_F(VersioningGatedTest, BranchFindEdgeByIdResolvesForkAndBranchNativeEdges) 
 
   Fork();
 
-  ExpectPlanUses(faker, "MATCH ()-[e]->() WHERE id(e) = " + std::to_string(fork_edge_gid) + " RETURN type(e)", "ScanAllByEdgeId");
+  ExpectPlanUses(
+      faker, "MATCH ()-[e]->() WHERE id(e) = " + std::to_string(fork_edge_gid) + " RETURN type(e)", "ScanAllByEdgeId");
 
   // Resolves the FORK edge by id on the branch -- exercises the bare-gid full-scan fallback.
   {
@@ -1111,7 +1119,8 @@ TEST_F(VersioningGatedTest, BranchDeleteBranchNativeVertexHiddenAndMainNeverSawI
   Fork();
 
   faker.Interpret("CREATE (:X {id:1})");
-  EXPECT_EQ(IntRows(faker, "MATCH (n:X) RETURN count(n)"), (Rows{{1}})) << "the native vertex must be visible before its DELETE";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:X) RETURN count(n)"), (Rows{{1}}))
+      << "the native vertex must be visible before its DELETE";
   faker.Interpret("MATCH (n:X) DELETE n");
 
   {
@@ -1254,14 +1263,13 @@ TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 
   // R17: rejected because branch 'b' EXISTS, even though this session is on main.
-  for (const auto &[query, message] : {std::pair<const char *, const char *>{"STORAGE MODE IN_MEMORY_ANALYTICAL",
-                                                                              "Cannot switch storage mode while "
-                                                                              "versioning branches exist"},
-                                        {"DROP GRAPH", "Cannot drop the graph while versioning branches exist"},
-                                        {"CREATE ENUM Status VALUES { Good, Bad }",
-                                         "Cannot create an enum while versioning branches exist"},
-                                        {"RECOVER SNAPSHOT \"/nonexistent/snapshot\"",
-                                         "Cannot recover a snapshot while versioning branches exist"}}) {
+  for (const auto &[query, message] :
+       {std::pair<const char *, const char *>{"STORAGE MODE IN_MEMORY_ANALYTICAL",
+                                              "Cannot switch storage mode while "
+                                              "versioning branches exist"},
+        {"DROP GRAPH", "Cannot drop the graph while versioning branches exist"},
+        {"CREATE ENUM Status VALUES { Good, Bad }", "Cannot create an enum while versioning branches exist"},
+        {"RECOVER SNAPSHOT \"/nonexistent/snapshot\"", "Cannot recover a snapshot while versioning branches exist"}}) {
     try {
       faker.Interpret(query);
       FAIL() << "must be rejected while a branch exists: " << query;
@@ -1282,7 +1290,8 @@ TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
   faker.Interpret("DROP BRANCH 'b'");
   faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");  // must NOT throw now that no branch exists
   faker.Interpret("DROP GRAPH");
-  EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}})) << "DROP GRAPH must actually run once no branch exists";
+  EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}))
+      << "DROP GRAPH must actually run once no branch exists";
 }
 
 // Graph Versioning v1 (USING VERSION per-query override, Step 1): `USING VERSION 'main'` is a
@@ -1767,7 +1776,8 @@ TEST_F(VersioningGatedTest, BranchPlainDeleteForkVertexWithEdgesFailsLikeMain) {
   Fork();
 
   ASSERT_THROW(faker.Interpret("MATCH (a:A) DELETE a"), memgraph::query::RemoveAttachedVertexException);
-  EXPECT_EQ(IntRows(faker, "MATCH (a:A)-[:R]->(:B) RETURN count(a)"), (Rows{{1}})) << "the failed DELETE must change nothing";
+  EXPECT_EQ(IntRows(faker, "MATCH (a:A)-[:R]->(:B) RETURN count(a)"), (Rows{{1}}))
+      << "the failed DELETE must change nothing";
 
   faker.Interpret("MATCH (a:A)-[r:R]->(:B) DELETE r, a");
   {
@@ -2151,7 +2161,8 @@ TEST_F(VersioningGatedTest, BranchEdgeTypePropertyIndexScanOrderedReflectsBranch
   faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'c'}) DELETE r");
   faker.Interpret("MATCH (a:N {n:'e'}),(b:N {n:'a'}) CREATE (a)-[:KNOWS {w: 25}]->(b)");
 
-  ExpectPlanUses(faker, "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w AS w ORDER BY r.w", "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(
+      faker, "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w AS w ORDER BY r.w", "ScanAllByEdgeTypeProperty");
   auto stream = faker.Interpret("MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w AS w ORDER BY r.w");
   const auto &rows = stream.GetResults();
   std::vector<int64_t> ws;
@@ -2445,7 +2456,8 @@ TEST_F(VersioningGatedTest, BranchShortestPathAcrossStubbedVertexHasConsistentId
 
   EXPECT_EQ(ids, (std::vector<int64_t>{1, 2, 4}))
       << "shortest path must take the 2-hop arm through the COW'd vertex id=2 (fork edge in, branch-native "
-         "edge out) -- not the 3-hop arm -- a broken hash/equality contract on VertexAccessor (impl_-pointer hash vs Gid-based "
+         "edge out) -- not the 3-hop arm -- a broken hash/equality contract on VertexAccessor (impl_-pointer hash vs "
+         "Gid-based "
          "operator==) would mis-key STShortestPathCursor's VertexEdgeMapT, corrupting or truncating the "
          "reconstructed path.";
 }
@@ -2631,7 +2643,8 @@ TEST_F(VersioningGatedTest, BranchLabelPropertyRangeOverlayIsOrderedAcrossForkAn
   faker.Interpret("MATCH (n:P {name: 'G'}) DETACH DELETE n");   // in-range fork vertex deleted
   faker.Interpret("CREATE (:P {v: 35, name: 'N1'}), (:P {v: 5, name: 'N2'})");
 
-  ExpectPlanUses(faker, "MATCH (n:P) WHERE n.v >= 10 AND n.v <= 60 RETURN n.name ORDER BY n.v", "ScanAllByLabelProperties");
+  ExpectPlanUses(
+      faker, "MATCH (n:P) WHERE n.v >= 10 AND n.v <= 60 RETURN n.name ORDER BY n.v", "ScanAllByLabelProperties");
   using V = std::vector<std::string>;
   EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 AND n.v <= 60 RETURN n.name ORDER BY n.v"),
             (V{"A", "F", "C", "N1", "D", "B"}));

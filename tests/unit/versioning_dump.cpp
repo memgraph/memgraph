@@ -14,7 +14,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <initializer_list>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -100,6 +102,12 @@ class VersioningDumpTest : public ::testing::Test {
     return all;
   }
 
+  static bool HasLineWithAll(const std::vector<std::string> &lines, std::initializer_list<std::string_view> parts) {
+    return std::ranges::any_of(lines, [&](const auto &l) {
+      return std::ranges::all_of(parts, [&](auto p) { return l.find(p) != std::string::npos; });
+    });
+  }
+
   static bool HasLine(const std::vector<std::string> &lines, const std::string &line) {
     return std::ranges::find(lines, line) != lines.end();
   }
@@ -109,7 +117,8 @@ TEST_F(VersioningDumpTest, DumpOnBranchReflectsBranchDataAndMainSchema) {
   faker.Interpret("CREATE INDEX ON :Person(name)");
   faker.Interpret("CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name)");
   faker.Interpret("CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE");
-  faker.Interpret("CREATE (:Person {name: 'a', id: 1, age: 10}), (:Person {name: 'b', id: 2}), (:Person {name: 'c', id: 3})");
+  faker.Interpret(
+      "CREATE (:Person {name: 'a', id: 1, age: 10}), (:Person {name: 'b', id: 2}), (:Person {name: 'c', id: 3})");
   faker.Interpret("MATCH (a {name: 'a'}), (b {name: 'b'}) CREATE (a)-[:KNOWS {w: 1}]->(b)");
 
   faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
@@ -128,6 +137,7 @@ TEST_F(VersioningDumpTest, DumpOnBranchReflectsBranchDataAndMainSchema) {
   EXPECT_THAT(all, ::testing::HasSubstr("`age`: 99"));
   EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`age`: 10")));
   EXPECT_THAT(all, ::testing::HasSubstr(":`Extra`"));
+  EXPECT_TRUE(HasLineWithAll(lines, {"CREATE (:__mg_vertex__", ":`Person`", ":`Extra`", "`age`: 99"}));
   EXPECT_THAT(all, ::testing::HasSubstr(":`Other`"));
   EXPECT_THAT(all, ::testing::HasSubstr(":`BranchOnly`"));
   EXPECT_THAT(all, ::testing::HasSubstr(":`NEW`"));
@@ -164,7 +174,9 @@ TEST_F(VersioningDumpTest, DumpOnBranchWithVectorIndexedVertex) {
   std::vector<std::string> lines;
   ASSERT_NO_THROW(lines = Dump());
   const auto all = Join(lines);
-  EXPECT_THAT(all, ::testing::HasSubstr("[1, 2]"));
+  EXPECT_TRUE(
+      HasLineWithAll(lines, {"CREATE (:__mg_vertex__", ":`Emb`", "`name`: \"fork\"", "`vec`: [1, 2]", "`tag`: 1"}));
+  EXPECT_TRUE(HasLineWithAll(lines, {"CREATE (:__mg_vertex__", ":`Emb`", "`name`: \"native\"", "`vec`: [3, 4]"}));
   EXPECT_THAT(all, ::testing::HasSubstr("`tag`: 1"));
   EXPECT_THAT(all, ::testing::HasSubstr("CREATE VECTOR INDEX `vi` ON :`Emb`(`vec`)"));
 }

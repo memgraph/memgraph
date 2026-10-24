@@ -36,11 +36,14 @@
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/graph.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
+#include "query/vertex_accessor.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -48,12 +51,9 @@
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
-#include "query/db_accessor.hpp"
-#include "query/graph.hpp"
-#include "query/vertex_accessor.hpp"
-#include "utils/memory.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/version_store.hpp"
 
@@ -61,11 +61,9 @@ namespace {
 constexpr auto kNoHandler = nullptr;
 }  // namespace
 
-
 class VersioningSubgraphTest : public ::testing::Test {
  protected:
-  std::filesystem::path data_directory =
-      std::filesystem::temp_directory_path() / "MG_tests_unit_versioning_subgraph";
+  std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_versioning_subgraph";
 
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
@@ -153,9 +151,7 @@ bool HasMarker(const std::vector<std::string> &names) {
   return std::ranges::any_of(names, [](auto const &n) { return n.starts_with(kMarkerPrefix); });
 }
 
-std::string EdgeKey(DbAccessor &dba, const EdgeAccessor &e) {
-  return dba.EdgeTypeToName(e.EdgeType());
-}
+std::string EdgeKey(DbAccessor &dba, const EdgeAccessor &e) { return dba.EdgeTypeToName(e.EdgeType()); }
 
 std::vector<std::string> EdgeKeys(DbAccessor &dba, const std::vector<EdgeAccessor> &edges) {
   std::vector<std::string> keys;
@@ -172,6 +168,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
   SatisfyGate();
 
   faker.Interpret("CREATE (a:A {name:'a'})-[:R1]->(b:B {name:'b'}), (a)-[:R2]->(c:C {name:'c'})");
+  faker.Interpret("CREATE (d:D {name:'d'})-[:R4]->(e:E {name:'e'})");
   faker.Interpret("CREATE BRANCH 'br' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'br'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "br");
@@ -191,7 +188,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
   {
     DbAccessor dba{diff_acc.get(), ctx};
 
-    std::optional<VertexAccessor> a, b, c;
+    std::optional<VertexAccessor> a, b, c, d, e;
     for (auto v : dba.Vertices(View::NEW)) {
       auto names = PropertyNames(dba, v);
       EXPECT_FALSE(HasMarker(names)) << "marker property leaked through the scan";
@@ -200,8 +197,10 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
       if (name->IsString() && name->ValueString() == "a2") a = v;
       if (name->IsString() && name->ValueString() == "b") b = v;
       if (name->IsString() && name->ValueString() == "c") c = v;
+      if (name->IsString() && name->ValueString() == "d") d = v;
+      if (name->IsString() && name->ValueString() == "e") e = v;
     }
-    ASSERT_TRUE(a && b && c);
+    ASSERT_TRUE(a && b && c && d && e);
 
     // Projection of the whole branch view, built from the branch-aware adjacency.
     Graph full{memgraph::utils::NewDeleteResource()};
@@ -258,6 +257,26 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
     EXPECT_TRUE(pa.OutEdges(View::NEW)->edges.empty());
     EXPECT_TRUE(pb.InEdges(View::NEW)->edges.empty());
     EXPECT_EQ(EdgeKeys(dba, pb.OutEdges(View::NEW)->edges), (std::vector<std::string>{"R3"}));
+
+    // d -R4-> e is never touched on the branch (untouched fork vertices); the filter must still apply to them.
+    Graph with_r4{memgraph::utils::NewDeleteResource()};
+    Graph without_r4{memgraph::utils::NewDeleteResource()};
+    for (auto const &v : {*d, *e}) {
+      with_r4.InsertVertex(v);
+      without_r4.InsertVertex(v);
+    }
+    auto d_out_raw = d->OutEdges(View::NEW);
+    ASSERT_TRUE(d_out_raw.has_value());
+    ASSERT_EQ(d_out_raw->edges.size(), 1U);
+    with_r4.InsertEdge(d_out_raw->edges.front());
+
+    SubgraphVertexAccessor wd{*d, &with_r4}, we{*e, &with_r4}, nd{*d, &without_r4}, ne{*e, &without_r4};
+    EXPECT_EQ(EdgeKeys(dba, wd.OutEdges(View::NEW)->edges), (std::vector<std::string>{"R4"}));
+    EXPECT_TRUE(wd.InEdges(View::NEW)->edges.empty());
+    EXPECT_EQ(EdgeKeys(dba, we.InEdges(View::NEW)->edges), (std::vector<std::string>{"R4"}));
+    EXPECT_TRUE(we.OutEdges(View::NEW)->edges.empty());
+    EXPECT_TRUE(nd.OutEdges(View::NEW)->edges.empty());
+    EXPECT_TRUE(ne.InEdges(View::NEW)->edges.empty());
   }
   diff_acc.reset();
   ctx->EndTransaction();
@@ -279,10 +298,13 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnMainUnchanged) {
     if (!out->edges.empty()) g.InsertEdge(out->edges.front());
   }
   ASSERT_EQ(g.edges().size(), 1U);
-  size_t total = 0;
+  size_t out_total = 0;
+  size_t in_total = 0;
   for (auto const &v : vs) {
     SubgraphVertexAccessor sv{v, &g};
-    total += sv.OutEdges(View::NEW)->edges.size();
+    out_total += sv.OutEdges(View::NEW)->edges.size();
+    in_total += sv.InEdges(View::NEW)->edges.size();
   }
-  EXPECT_EQ(total, 1U);
+  EXPECT_EQ(out_total, 1U);
+  EXPECT_EQ(in_total, 1U);
 }
