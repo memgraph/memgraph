@@ -113,6 +113,11 @@ add_unit_test(versioning_interpreter
         LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
 )
 
+add_unit_test(versioning_info
+        SOURCES versioning_info.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
 add_unit_test(versioning_stress
         SOURCES versioning_stress.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
         LINK_TARGETS mg-communication mg-query mg-glue mg::versioning

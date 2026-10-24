@@ -2368,9 +2368,10 @@ TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedVertexIsNoO
   EXPECT_EQ(vertices.GetResults().size(), 0U) << "the double-deleted vertex must be gone, exactly as a single delete";
 }
 
-// D12: the diff engine mirrors no constraints, so a branch commit validates main's existence and type constraints on the
-// reconstructed (fork + stub) view of every vertex the transaction touched or created. A violation fails the commit
-// with main's own error and leaves the branch unchanged; main is never affected. Unique constraints are not enforced.
+// D12: the diff engine mirrors no constraints, so a branch commit validates main's existence constraints on the
+// reconstructed (fork + stub) view of every vertex the transaction touched or created (type constraints are checked at
+// the statement, see BranchTypeConstraintViolationsRaiseAtTheStatement). A violation fails the commit with main's own
+// error and leaves the branch unchanged; main is never affected. Unique constraints are not enforced.
 TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstraints) {
   SatisfyGate();
 
@@ -2406,7 +2407,7 @@ TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstrain
   expect_fail("CREATE (:P {age: 1})", "Unable to commit due to existence constraint violation on :P(id)");
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
 
-  // (d) Type violation on a fork vertex.
+  // (d) Type violation on a fork vertex (raised at the statement, as on main).
   expect_fail("MATCH (n:P {id: 1}) SET n.age = 'x'", "IS TYPED INTEGER violation on P(age)");
   EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
 
@@ -2443,6 +2444,85 @@ TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstrain
   EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
   EXPECT_EQ(count("MATCH (n:Q) RETURN count(n)"), 1);
   EXPECT_EQ(count("MATCH (n:P:Q) RETURN count(n)"), 0);
+}
+
+// D14: a branch behaves exactly like main, so a type-constraint violation is raised at the statement (not at COMMIT)
+// with main's own message, on fork vertices, native vertices and CREATE/MERGE alike.
+TEST_F(VersioningInterpreterTest, BranchTypeConstraintViolationsRaiseAtTheStatement) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE CONSTRAINT ON (n:P) ASSERT n.age IS TYPED INTEGER");
+  faker.Interpret("CREATE (:P {id: 1, age: 10}), (:Q {id: 2, age: 'x'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+
+  auto const outcome = [&](std::string const &query) -> std::string {
+    try {
+      faker.Interpret(query);
+      return "ok";
+    } catch (const memgraph::utils::BasicException &e) {
+      return e.what();
+    }
+  };
+  auto const count = [&](std::string const &query) {
+    auto stream = faker.Interpret(query);
+    EXPECT_EQ(stream.GetResults().size(), 1U) << query;
+    return stream.GetResults().at(0).at(0).ValueInt();
+  };
+  constexpr auto kMessage = "IS TYPED INTEGER violation on P(age)";
+  std::vector<std::string> const statements{
+      "MATCH (n:P) SET n.age = 'x'",
+      "MATCH (n:P) SET n += {age: 'x'}",
+      "MATCH (n:P) SET n = {age: 'x'}",
+      "MATCH (q:Q) SET q:P",
+      "CREATE (:P {age: 'x'})",
+      "CREATE (:P:Z {age: 'x'})",
+      "MERGE (:P {age: 'x'})",
+  };
+
+  // Reference messages from main.
+  std::vector<std::string> main_messages;
+  for (auto const &statement : statements) {
+    main_messages.push_back(outcome(statement));
+    EXPECT_THAT(main_messages.back(), ::testing::HasSubstr(kMessage)) << statement;
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  for (size_t i = 0; i < statements.size(); ++i) {
+    EXPECT_EQ(outcome(statements[i]), main_messages[i]) << statements[i];
+  }
+  EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 1) << "failed statements must leave no partial write";
+  EXPECT_EQ(count("MATCH (n:P) RETURN n.age"), 10);
+  EXPECT_EQ(count("MATCH (q:Q) RETURN count(q)"), 1);
+  EXPECT_EQ(count("MATCH (q:P) RETURN count(q)"), 1) << "SET q:P must not have added the label";
+
+  // Valid writes still pass, on a native vertex too (created on the branch), and a native vertex is checked.
+  faker.Interpret("CREATE (:P {id: 3, age: 3}), (:R {age: 'x'})");
+  faker.Interpret("MATCH (n:P {id: 3}) SET n.age = 4");
+  EXPECT_EQ(count("MATCH (n:P {id: 3}) RETURN n.age"), 4);
+  EXPECT_EQ(outcome("MATCH (n:P {id: 3}) SET n.age = 'x'"), main_messages[0]);
+  EXPECT_EQ(outcome("MATCH (r:R) SET r:P"), main_messages[3]);
+  EXPECT_EQ(count("MATCH (n:P {id: 3}) RETURN n.age"), 4);
+  faker.Interpret("MATCH (n:P {id: 3}) REMOVE n.age");  // null never violates
+  EXPECT_EQ(outcome("MATCH (n:P {id: 3}) SET n.age = 7"), "ok");
+
+  // Explicit transaction: the statement itself fails, and everything after it behaves exactly as on main.
+  auto const explicit_txn_trace = [&]() {
+    std::vector<std::string> trace;
+    trace.push_back(outcome("BEGIN"));
+    trace.push_back(outcome("MATCH (n:P {id: 1}) SET n.age = 'x'"));
+    trace.push_back(outcome("MATCH (n:P {id: 1}) RETURN n.age"));
+    trace.push_back(outcome("COMMIT"));
+    outcome("ROLLBACK");
+    return trace;
+  };
+  auto const branch_trace = explicit_txn_trace();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  auto const main_trace = explicit_txn_trace();
+  EXPECT_EQ(branch_trace, main_trace);
+  EXPECT_THAT(branch_trace.at(1), ::testing::HasSubstr(kMessage)) << "the SET must fail inside the txn, not at COMMIT";
+  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
 }
 
 // Slice 2 (deletes live in diff-engine MVCC): DELETE of a fork vertex marks its stub instead of recording a gid in a
@@ -3652,114 +3732,52 @@ TEST_F(VersioningInterpreterTest, BranchSingleSourceShortestPathAcrossCowdVertex
          "SingleSourceShortestPathCursor::processed_, corrupting or truncating the reconstructed path.";
 }
 
-// Graph Versioning v1: branch-local DROP INDEX. Unlike CREATE INDEX (schema-plane DDL, rejected on
-// a branch -- see BranchSchemaDdlRejected above), DROP INDEX on a checked-out branch is allowed and
-// applies ONLY to the branch's own diff engine: the branch stops using the index (planner falls back
-// to ScanAll+Filter, and results must still be correct through that fallback) while MAIN keeps the
-// index untouched.
-TEST_F(VersioningInterpreterTest, BranchLocalDropIndexIsQueryEffectiveAndMainUnaffected) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :Person(age)");
-  faker.Interpret("CREATE (:Person {age:10})");
-  faker.Interpret("CREATE (:Person {age:20})");
-  faker.Interpret("CREATE (:Person {age:30})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  // Branch-local drop must NOT throw -- this is the newly-allowed path.
-  faker.Interpret("DROP INDEX ON :Person(age)");
-
-  {
-    auto s = faker.Interpret("EXPLAIN MATCH (n:Person) WHERE n.age > 0 RETURN n");
-    std::string plan;
-    for (const auto &row : s.GetResults()) {
-      plan += row[0].ValueString();
-      plan += '\n';
-    }
-    EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("ScanAllByLabelProperties")))
-        << "branch plan still selected the branch-dropped label-property index instead of falling "
-           "back to ScanAll+Filter; full plan:\n"
-        << plan;
-  }
-
-  {
-    auto s = faker.Interpret("MATCH (n:Person) WHERE n.age > 0 RETURN n.age AS a ORDER BY n.age");
-    const auto &rows = s.GetResults();
-    std::vector<int64_t> ages;
-    ages.reserve(rows.size());
-    for (const auto &row : rows) {
-      ages.emplace_back(row[0].ValueInt());
-    }
-    EXPECT_EQ(ages, (std::vector<int64_t>{10, 20, 30}))
-        << "branch-local DROP INDEX must still produce correct results via the ScanAll+Filter "
-           "fallback, not lose or corrupt rows.";
-  }
-
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto s = faker.Interpret("EXPLAIN MATCH (n:Person) WHERE n.age > 0 RETURN n");
-    std::string plan;
-    for (const auto &row : s.GetResults()) {
-      plan += row[0].ValueString();
-      plan += '\n';
-    }
-    EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"))
-        << "main's :Person(age) index must be intact -- a branch-local DROP INDEX must not touch "
-           "main's own index set; full plan:\n"
-        << plan;
-  }
-}
-
-// Mirrors the test above at the SHOW INDEX INFO level: a branch-local DROP INDEX must remove the
-// dropped index from the branch's own index listing (read via the diff engine's GetActiveIndices,
-// see PrepareDatabaseInfoQuery's INDEX case) while leaving an untouched sibling index -- and main's
-// full index set -- alone.
-TEST_F(VersioningInterpreterTest, BranchLocalDropIndexReflectedInShowIndexInfo) {
+// Graph Versioning v2: indexes belong to main, so every DROP INDEX variant is rejected on a branch
+// (same as CREATE INDEX), and SHOW INDEX INFO on the branch still equals main's.
+TEST_F(VersioningInterpreterTest, BranchDropIndexRejectedAndShowIndexInfoEqualsMain) {
   SatisfyGate();
 
   faker.Interpret("CREATE INDEX ON :Person(age)");
   faker.Interpret("CREATE INDEX ON :Person");
-  faker.Interpret("CREATE (:Person {age:1})");
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
+  faker.Interpret("CREATE (:Person {age:10})");
+
+  auto index_rows = [&]() {
+    auto s = faker.Interpret("SHOW INDEX INFO");
+    std::vector<std::string> rows;
+    for (const auto &row : s.GetResults()) {
+      std::string r;
+      for (size_t i = 0; i + 1 < row.size(); ++i) {  // skip the trailing count column
+        r += row[i].IsString() ? std::string(row[i].ValueString()) : std::string("-");
+        r += '|';
+      }
+      rows.push_back(std::move(r));
+    }
+    std::sort(rows.begin(), rows.end());
+    return rows;
+  };
+  const auto main_rows = index_rows();
+  ASSERT_GE(main_rows.size(), 3U);
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  faker.Interpret("DROP INDEX ON :Person(age)");
+  EXPECT_THROW(faker.Interpret("DROP INDEX ON :Person(age)"), memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(faker.Interpret("DROP INDEX ON :Person"), memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(faker.Interpret("DROP EDGE INDEX ON :KNOWS"), memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(faker.Interpret("DROP ALL INDEXES"), memgraph::query::QueryRuntimeException);
+
+  EXPECT_EQ(index_rows(), main_rows);
 
   {
-    // header = {"index type", "label", "property", "count"} -- row[0] is the type string.
-    auto s = faker.Interpret("SHOW INDEX INFO");
-    const auto &rows = s.GetResults();
-    std::vector<std::string> types;
-    types.reserve(rows.size());
-    for (const auto &row : rows) {
-      types.emplace_back(row[0].ValueString());
-    }
-
-    EXPECT_THAT(types, ::testing::Contains(std::string("label")))
-        << "the :Person label-only index must still be listed on the branch after dropping the "
-           "unrelated :Person(age) index.";
-    EXPECT_THAT(types, ::testing::Not(::testing::Contains(std::string("label+property"))))
-        << "the branch-dropped :Person(age) index must no longer be listed by SHOW INDEX INFO on "
-           "the branch.";
+    auto s = faker.Interpret("EXPLAIN MATCH (n:Person) WHERE n.age > 0 RETURN n");
+    std::string plan;
+    for (const auto &row : s.GetResults()) plan += row[0].ValueString();
+    EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"));
   }
 
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto s = faker.Interpret("SHOW INDEX INFO");
-    const auto &rows = s.GetResults();
-    std::vector<std::string> types;
-    types.reserve(rows.size());
-    for (const auto &row : rows) {
-      types.emplace_back(row[0].ValueString());
-    }
-
-    EXPECT_THAT(types, ::testing::Contains(std::string("label+property")))
-        << "main's :Person(age) index must reappear intact -- the branch-local drop must not have "
-           "touched main's index set.";
-  }
+  EXPECT_EQ(index_rows(), main_rows);
 }
 
 // Graph Versioning v1, bug #6 fix regression (enum crash): an enum defined on MAIN before a fork

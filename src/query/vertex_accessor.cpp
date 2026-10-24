@@ -13,11 +13,16 @@
 
 #include <algorithm>
 #include <map>
+#include <optional>
 #include <tuple>
 #include <vector>
 
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/exceptions.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/stub_properties.hpp"
 
@@ -162,6 +167,78 @@ void RejectReservedProperties(versioning::BranchContext &ctx, const PropertyMap 
   }
 }
 
+using TypeConstraintList = std::vector<std::tuple<storage::LabelId, storage::PropertyId, storage::TypeConstraintKind>>;
+
+// The diff engine mirrors no constraints (D12): a branch statement is checked against main's current type
+// constraints so a violation surfaces at the statement, as on main. Empty (no allocation beyond the shared_ptr
+// copy) when main has none.
+TypeConstraintList MainTypeConstraints(versioning::BranchContext &ctx) {
+  constexpr uint64_t kAllCommitted = storage::kTransactionInitialId - 1;
+  auto const constraints = ctx.core()->main().GetActiveConstraints();
+  if (constraints->type_->empty()) return {};
+  return constraints->type_->ListConstraints(kAllCommitted);
+}
+
+[[noreturn]] void ThrowTypeViolation(versioning::BranchContext &ctx, storage::LabelId label,
+                                     storage::TypeConstraintKind kind, storage::PropertyId property) {
+  auto const &main = ctx.core()->main();
+  // Same text as storage's HandleTypeConstraintViolation (storage/v2/vertex_accessor.cpp).
+  throw storage::TypeConstraintViolationException("IS TYPED {} violation on {}({})",
+                                                  storage::TypeConstraintKindToString(kind),
+                                                  main.LabelToName(label),
+                                                  main.PropertyToName(property));
+}
+
+// Checks the property values about to be written (`find` returns the written value or nullptr) against main's type
+// constraints on the vertex's reconstructed labels, BEFORE the stub is mutated. With `require_no_properties` the
+// check is skipped when the vertex already has properties (InitProperties is then a no-op, as on main).
+template <typename FindWritten>
+std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContext &ctx, const VertexAccessor &vertex,
+                                                        FindWritten &&find, bool require_no_properties = false) {
+  auto const types = MainTypeConstraints(ctx);
+  if (types.empty()) return std::nullopt;
+  auto const written = [&](storage::PropertyId pid) -> const storage::PropertyValue * {
+    auto const *value = find(pid);
+    return (value == nullptr || value->IsNull()) ? nullptr : value;  // type constraints don't enforce existence
+  };
+  if (!std::ranges::any_of(types, [&](auto const &c) { return written(std::get<1>(c)) != nullptr; })) {
+    return std::nullopt;
+  }
+  if (require_no_properties) {
+    auto const props = vertex.Properties(storage::View::NEW);
+    if (!props) return props.error();
+    if (!props->empty()) return std::nullopt;
+  }
+  auto const labels = vertex.Labels(storage::View::NEW);
+  if (!labels) return labels.error();
+  for (auto const &[label, property, kind] : types) {
+    auto const *value = written(property);
+    if (value == nullptr || !std::ranges::contains(*labels, label)) continue;
+    if (!storage::PropertyValueMatchesTypeConstraint(*value, kind)) ThrowTypeViolation(ctx, label, kind, property);
+  }
+  return std::nullopt;
+}
+
+// Adding `label` validates the vertex's existing properties against that label's constraints (a no-op when the
+// vertex already has the label), BEFORE the stub is mutated.
+std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ctx, const VertexAccessor &vertex,
+                                                   storage::LabelId label) {
+  auto const types = MainTypeConstraints(ctx);
+  if (!std::ranges::any_of(types, [&](auto const &c) { return std::get<0>(c) == label; })) return std::nullopt;
+  auto const labels = vertex.Labels(storage::View::NEW);
+  if (!labels) return labels.error();
+  if (std::ranges::contains(*labels, label)) return std::nullopt;
+  auto const props = vertex.Properties(storage::View::NEW);
+  if (!props) return props.error();
+  for (auto const &[constrained_label, property, kind] : types) {
+    if (constrained_label != label) continue;
+    auto const it = props->find(property);
+    if (it == props->end() || it->second.IsNull()) continue;
+    if (!storage::PropertyValueMatchesTypeConstraint(it->second, kind)) ThrowTypeViolation(ctx, label, kind, property);
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 // Out-of-line because BranchContext is only forward-declared in the header. Reads never COW.
@@ -267,6 +344,7 @@ void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
 storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
   auto &ctx = *branch_ctx_;
   if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
+  if (auto err = CheckTypesOnAddLabel(ctx, *this, label)) return std::unexpected{*err};
   CowIfNeeded(versioning::BranchChangeKind::kLabel);
   if (!IsStub(ctx, impl_)) return impl_.AddLabel(label);
 
@@ -321,6 +399,10 @@ storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storag
                                                                           const storage::PropertyValue &value) {
   auto &ctx = *branch_ctx_;
   if (ctx.IsReservedProperty(key)) ThrowReserved("property");
+  if (auto err = CheckTypesOnPropertyWrite(
+          ctx, *this, [&](storage::PropertyId pid) { return pid == key ? &value : nullptr; })) {
+    return std::unexpected{*err};
+  }
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChange(key);
   if (!IsStub(ctx, impl_)) return impl_.SetProperty(key, value);
@@ -344,6 +426,12 @@ storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storag
 storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
   RejectReservedProperties(ctx, properties);
+  if (auto err = CheckTypesOnPropertyWrite(ctx, *this, [&](storage::PropertyId pid) {
+    auto const it = properties.find(pid);
+    return it == properties.end() ? nullptr : &it->second;
+  }, /*require_no_properties=*/true)) {
+    return std::unexpected{*err};
+  }
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChanges(properties);
   if (!IsStub(ctx, impl_)) return impl_.InitProperties(properties);
@@ -367,6 +455,10 @@ storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyVal
 VertexAccessor::BranchUpdateProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
   RejectReservedProperties(ctx, properties);
+  if (auto err = CheckTypesOnPropertyWrite(ctx, *this, [&](storage::PropertyId pid) {
+    auto const it = properties.find(pid);
+    return it == properties.end() ? nullptr : &it->second;
+  })) return std::unexpected{*err};
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChanges(properties);
   if (!IsStub(ctx, impl_)) return impl_.UpdateProperties(properties);

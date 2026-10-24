@@ -7842,18 +7842,18 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
   auto *database = current_db.db_acc_->get();
+  // Non-null iff the session is checked out on a branch. These info queries open no transaction and cannot carry
+  // USING VERSION (Cypher-only), so the session's checkout is the only signal.
+  auto const branch_core = current_db.branch_context() != nullptr ? current_db.branch_context()->core()
+                                                                  : std::shared_ptr<versioning::BranchCore>{};
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
-      // Branch-aware SHOW INDEX INFO: on a checked-out branch, report the BRANCH's index set by
-      // reading the diff engine's GetActiveIndices (which is main's mirrored set MINUS any
-      // branch-local DROP INDEX), so a branch-local drop is visible here and re-appears on main.
-      // NOTE: the `count` column then reflects diff-engine-resident entries only (COW'd + branch-
-      // native), not the full historical∪diff union -- an approximate stat (SHOW INDEX INFO counts
-      // are approximate anyway); the index SET is the point of branch-awareness here.
-      storage::Storage *index_info_storage =
-          current_db.branch_context() != nullptr ? &current_db.branch_context()->diff_engine() : database->storage();
-      handler = [storage = index_info_storage] {
+      // On a checked-out branch this reports MAIN's index definitions: indexes cannot be created or dropped on a
+      // branch, and fork-side reads use main's current set. The diff engine's own indexes are an implementation
+      // detail (synthetic overlay indexes) and are never listed. `count` is main's current approximate count, not
+      // adjusted for branch changes.
+      handler = [storage = database->storage()] {
         constexpr std::string_view label_index_mark{"label"};
         constexpr std::string_view label_property_index_mark{"label+property"};
         constexpr std::string_view edge_type_index_mark{"edge-type"};
@@ -8015,7 +8015,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::CONSTRAINT: {
       header = {"constraint type", "label", "properties", "data_type"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
+      // On a branch, existence and type constraints are main's current set and are enforced at branch commit.
+      // Unique constraints are not enforced on a branch, so they are listed with an explicit marker.
+      handler = [storage = current_db.db_acc_->get()->storage(), on_branch = current_db.branch_context() != nullptr] {
         auto ac = storage->GetActiveConstraints();
         auto const ts = storage::kLargestCommittedTimestamp;
         storage::ConstraintsInfo const info{
@@ -8038,7 +8040,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           for (const auto &property : item.second) {
             properties.emplace_back(storage->PropertyToName(property));
           }
-          results.push_back({TypedValue("unique"),
+          results.push_back({TypedValue(on_branch ? "unique (not enforced on branch)" : "unique"),
                              TypedValue(storage->LabelToName(item.first)),
                              TypedValue(std::move(properties)),
                              TypedValue("")});
@@ -8055,13 +8057,21 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
       header = {"edge types"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
+      // On a branch: main's edge types plus those created on the branch (the diff engine only holds edges created
+      // on the branch). Both are metadata sets, so no graph scan.
+      handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
         auto edge_types = storage->ListAllPossiblyPresentEdgeTypes();
+        if (branch) {
+          auto const seen = std::unordered_set<storage::EdgeTypeId>(edge_types.begin(), edge_types.end());
+          for (auto const edge_type : branch->diff_engine().ListAllPossiblyPresentEdgeTypes()) {
+            if (!seen.contains(edge_type)) edge_types.push_back(edge_type);
+          }
+        }
         std::vector<std::vector<TypedValue>> results;
         results.reserve(edge_types.size());
         for (auto &edge_type : edge_types) {
@@ -8075,13 +8085,21 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
-      handler = [storage = current_db.db_acc_->get()->storage()] {
+      // On a branch: main's labels plus those used on the branch (the diff engine's metadata), minus the reserved
+      // `__mg_*` removal/delete markers. Both are metadata sets, so no graph scan.
+      handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
         auto node_labels = storage->ListAllPossiblyPresentVertexLabels();
+        if (branch) {
+          auto const seen = std::unordered_set<storage::LabelId>(node_labels.begin(), node_labels.end());
+          for (auto const label : branch->diff_engine().ListAllPossiblyPresentVertexLabels()) {
+            if (!seen.contains(label) && !branch->ClassifyLabel(label).reserved) node_labels.push_back(label);
+          }
+        }
         std::vector<std::vector<TypedValue>> results;
         results.reserve(node_labels.size());
         for (auto &node_label : node_labels) {
@@ -8293,8 +8311,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       auto database = resolve_database();
 
       if (database) {
-        handler = [db_acc = std::move(
-                       *database)] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+        // The session's branch applies when the target database is the one the session is checked out on.
+        std::optional<std::string> branch_name;
+        if (current_db.branch_context() != nullptr && current_db.db_acc_ &&
+            database->get() == current_db.db_acc_->get()) {
+          branch_name = current_db.branch_context()->name();
+        }
+        handler = [db_acc = std::move(*database), branch_name = std::move(branch_name)] mutable
+            -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           auto *db = db_acc.get();
           if (!db) throw QueryRuntimeException("Database was dropped during query execution.");
           if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
@@ -8307,14 +8331,18 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
           const auto tenant_limit = db->TenantMemoryLimit();
 
-          const std::vector<std::vector<TypedValue>> results{
+          // Exact branch counts would need a graph scan, so on a branch the data-shape counts are NULL rather than
+          // main's (wrong) numbers. Memory and disk figures stay main's.
+          const bool on_branch = branch_name.has_value();
+          std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
               {TypedValue("state"), TypedValue(std::string("HOT"))},
               {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
-              {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
-              {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
-              {TypedValue("average_degree"), TypedValue(info.average_degree)},
+              {TypedValue("vertex_count"),
+               on_branch ? TypedValue() : TypedValue(static_cast<int64_t>(info.vertex_count))},
+              {TypedValue("edge_count"), on_branch ? TypedValue() : TypedValue(static_cast<int64_t>(info.edge_count))},
+              {TypedValue("average_degree"), on_branch ? TypedValue() : TypedValue(info.average_degree)},
               {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
               {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
               {TypedValue("graph_memory_tracked"), TypedValue(utils::GetReadableSize(db_storage_memory))},
@@ -8328,6 +8356,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
               {TypedValue("health"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
+          if (on_branch) {
+            results.push_back({TypedValue("branch"), TypedValue(*branch_name)});
+            results.push_back(
+                {TypedValue("branch_note"),
+                 TypedValue("vertex_count, edge_count and average_degree are not available on a versioning branch; "
+                            "CHECKOUT BRANCH 'main' for main's counts. Memory, disk and isolation figures are "
+                            "main's.")});
+          }
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {
@@ -10187,6 +10223,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSchemaInfoOnDiskException();
   }
+  if (current_db.branch_context() != nullptr) {
+    throw QueryRuntimeException(
+        "SHOW SCHEMA INFO is not supported on a versioning branch: the schema is tracked per storage engine, and "
+        "merging the branch's changes with the fork would need a full graph scan. Run CHECKOUT BRANCH 'main' "
+        "first.");
+  }
 
   Callback callback;
   callback.header = {"schema"};
@@ -11777,19 +11819,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     if (current_db_.branch_context() != nullptr) {
       auto *q = parsed_query.query;
-      // Branch-local DROP INDEX is ALLOWED: a label/label-property or edge-type/edge-type-property
-      // index DROP on a checked-out branch is applied to the branch's own diff engine only (the
-      // handler routes through execution_db_accessor_ == the diff-engine accessor, so DropIndex hits
-      // the diff engine, never main), making the index disappear for THIS branch while main keeps it.
-      // Unlike CREATE (which would need to populate a new index from the historical∪diff union), DROP
-      // just removes the already-mirrored diff-engine copy. CREATE stays forbidden; every other
-      // schema/storage-global op stays forbidden too.
+      // Indexes belong to main; every schema DDL (CREATE and DROP alike) is rejected on a branch.
       auto *iq = utils::Downcast<IndexQuery>(q);
       auto *eiq = utils::Downcast<EdgeIndexQuery>(q);
-      const bool is_branch_local_index_drop = (iq != nullptr && iq->action_ == IndexQuery::Action::DROP) ||
-                                              (eiq != nullptr && eiq->action_ == EdgeIndexQuery::Action::DROP);
       const bool is_schema_or_storage_global_ddl =
-          !is_branch_local_index_drop &&
           (iq != nullptr || eiq != nullptr || utils::Downcast<PointIndexQuery>(q) != nullptr ||
            utils::Downcast<VectorIndexQuery>(q) != nullptr ||
            utils::Downcast<CreateVectorEdgeIndexQuery>(q) != nullptr || utils::Downcast<TextIndexQuery>(q) != nullptr ||
