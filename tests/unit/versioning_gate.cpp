@@ -17,39 +17,29 @@ using memgraph::versioning::CheckVersioningGate;
 using memgraph::versioning::GateError;
 using memgraph::versioning::GateErrorMessage;
 
-TEST(VersioningGate, AllowedWhenEverythingSatisfied) {
-  ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
-                                /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/true),
-            std::nullopt);
-}
+TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
+  // Precedence: flag, then license, then storage mode (first failure wins).
+  struct Case {
+    bool flag;
+    bool license;
+    bool storage;
+    std::optional<GateError> expected;
+  };
 
-TEST(VersioningGate, DisabledWhenFlagOff) {
-  ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/false,
-                                /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/true),
-            GateError::kDisabled);
-}
-
-TEST(VersioningGate, FlagOffWinsOverAllOtherSimultaneousFailures) {
-  ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/false,
-                                /*enterprise_valid=*/false,
-                                /*is_in_memory_transactional=*/false),
-            GateError::kDisabled);
-}
-
-TEST(VersioningGate, NoLicenseWhenEnterpriseInvalid) {
-  ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
-                                /*enterprise_valid=*/false,
-                                /*is_in_memory_transactional=*/true),
-            GateError::kNoLicense);
-}
-
-TEST(VersioningGate, UnsupportedStorageModeWhenNotInMemoryTransactional) {
-  ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
-                                /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/false),
-            GateError::kUnsupportedStorageMode);
+  constexpr Case kCases[] = {
+      {true, true, true, std::nullopt},
+      {true, true, false, GateError::kUnsupportedStorageMode},
+      {true, false, true, GateError::kNoLicense},
+      {true, false, false, GateError::kNoLicense},
+      {false, true, true, GateError::kDisabled},
+      {false, true, false, GateError::kDisabled},
+      {false, false, true, GateError::kDisabled},
+      {false, false, false, GateError::kDisabled},
+  };
+  for (const auto &c : kCases) {
+    EXPECT_EQ(CheckVersioningGate(c.flag, c.license, c.storage), c.expected)
+        << "flag=" << c.flag << " license=" << c.license << " storage=" << c.storage;
+  }
 }
 
 TEST(VersioningGate, ErrorMessagesMatchSpecVerbatim) {

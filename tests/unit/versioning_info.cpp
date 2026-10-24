@@ -36,7 +36,6 @@
 
 namespace {
 constexpr auto kNoHandler = nullptr;
-constexpr std::string_view kMarkerPrefix = "__mg_";
 }  // namespace
 
 class VersioningInfoTest : public ::testing::Test {
@@ -206,20 +205,20 @@ TEST_F(VersioningInfoTest, NodeLabelsAndEdgeTypesAreMainPlusBranchWithoutMarkers
   BuildMain();
   ChangeBranch();
 
-  auto const labels = Column("SHOW NODE_LABELS INFO");
-  EXPECT_THAT(labels, ::testing::IsSupersetOf({"A", "B", "U", "BranchOnly", "BranchOnly2", "Added"}));
-  for (auto const &label : labels) EXPECT_FALSE(label.starts_with(kMarkerPrefix)) << label;
-
-  auto const types = Column("SHOW EDGE_TYPES INFO");
-  EXPECT_THAT(types, ::testing::IsSupersetOf({"R", "BR"}));
-  for (auto const &type : types) EXPECT_FALSE(type.starts_with(kMarkerPrefix)) << type;
+  // Exact multisets: each name once (main/branch overlap deduped), no `__mg_*` removal/delete markers.
+  EXPECT_THAT(Column("SHOW NODE_LABELS INFO"),
+              ::testing::UnorderedElementsAre("A", "B", "U", "BranchOnly", "BranchOnly2", "Added"));
+  EXPECT_EQ(Show("SHOW NODE_LABELS INFO").size(), 6U);
+  EXPECT_THAT(Column("SHOW EDGE_TYPES INFO"), ::testing::UnorderedElementsAre("R", "BR"));
+  EXPECT_EQ(Show("SHOW EDGE_TYPES INFO").size(), 2U);
 
   // Branch-only names do not leak onto main.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   auto const main_labels = Column("SHOW NODE_LABELS INFO");
   EXPECT_FALSE(main_labels.contains("BranchOnly"));
   EXPECT_FALSE(main_labels.contains("Added"));
-  EXPECT_FALSE(Column("SHOW EDGE_TYPES INFO").contains("BR"));
+  EXPECT_THAT(main_labels, ::testing::UnorderedElementsAre("A", "B", "U"));
+  EXPECT_THAT(Column("SHOW EDGE_TYPES INFO"), ::testing::UnorderedElementsAre("R"));
 }
 
 TEST_F(VersioningInfoTest, StorageInfoHidesCountsOnBranch) {
@@ -233,7 +232,9 @@ TEST_F(VersioningInfoTest, StorageInfoHidesCountsOnBranch) {
   EXPECT_EQ(StorageInfoValue("edge_count"), "<null>");
   EXPECT_EQ(StorageInfoValue("average_degree"), "<null>");
   EXPECT_EQ(StorageInfoValue("branch"), "b");
-  EXPECT_NE(StorageInfoValue("branch_note"), "<missing>");
+  EXPECT_THAT(
+      StorageInfoValue("branch_note"),
+      ::testing::HasSubstr("are not available on a versioning branch; CHECKOUT BRANCH 'main' for main's counts"));
   // Memory/disk figures are still reported.
   EXPECT_NE(StorageInfoValue("graph_memory_tracked"), "<missing>");
 
@@ -243,7 +244,13 @@ TEST_F(VersioningInfoTest, StorageInfoHidesCountsOnBranch) {
 
   // Instance-level SHOW STORAGE INFO carries no per-database counts and is unaffected.
   faker.Interpret("CHECKOUT BRANCH 'b'");
-  EXPECT_NO_THROW(Show("SHOW STORAGE INFO"));
+  auto const instance_rows = Show("SHOW STORAGE INFO");
+  EXPECT_FALSE(instance_rows.empty());
+  for (auto const &row : instance_rows) {
+    EXPECT_NE(row[0], "vertex_count");
+    EXPECT_NE(row[0], "branch");
+    EXPECT_NE(row[0], "branch_note");
+  }
 }
 
 TEST_F(VersioningInfoTest, SchemaInfoRejectedOnBranch) {
@@ -255,7 +262,8 @@ TEST_F(VersioningInfoTest, SchemaInfoRejectedOnBranch) {
     Show("SHOW SCHEMA INFO");
     FAIL() << "SHOW SCHEMA INFO must be rejected on a branch";
   } catch (memgraph::query::QueryRuntimeException const &e) {
-    EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("versioning branch"));
+    EXPECT_THAT(std::string{e.what()},
+                ::testing::HasSubstr("SHOW SCHEMA INFO is not supported on a versioning branch"));
   }
 
   faker.Interpret("CHECKOUT BRANCH 'main'");

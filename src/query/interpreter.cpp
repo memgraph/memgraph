@@ -4618,11 +4618,11 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
     }
   }
 #endif
-  auto plan = std::make_shared<PullPlanDump>(
-      dba,
-      *current_db.db_acc_,
-      auth_checker.get(),
-      dba->branch_context() != nullptr ? &dba->branch_context()->historical() : nullptr);
+  auto plan =
+      std::make_shared<PullPlanDump>(dba,
+                                     *current_db.db_acc_,
+                                     auth_checker.get(),
+                                     dba->branch_context() != nullptr ? &dba->branch_context()->historical() : nullptr);
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),
@@ -8067,7 +8067,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         if (branch) {
           auto const seen = std::unordered_set<storage::EdgeTypeId>(edge_types.begin(), edge_types.end());
           for (auto const edge_type : branch->diff_engine().ListAllPossiblyPresentEdgeTypes()) {
-            if (!seen.contains(edge_type)) edge_types.push_back(edge_type);
+            if (edge_type != branch->GidWatermarkEdgeType() && !seen.contains(edge_type)) {
+              edge_types.push_back(edge_type);
+            }
           }
         }
         std::vector<std::vector<TypedValue>> results;
@@ -9244,10 +9246,10 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
   versioning::VersionStore *version_store = nullptr;
   if (!cross_tenant_show_branches) {
     // Chunk-0 gate (R6/D8/D9): checked BEFORE anything below ever touches VersionStore or main.
-    if (const auto gate_err =
-            versioning::CheckVersioningGate(FLAGS_versioning_enabled,
-                                            license::global_license_checker.IsEnterpriseValidFast(),
-                                            storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL)) {
+    if (const auto gate_err = versioning::CheckVersioningGate(
+            FLAGS_versioning_enabled,
+            license::global_license_checker.IsEnterpriseValidFast(),
+            storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL)) {
       throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
     }
 
@@ -11647,8 +11649,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // Indexes belong to main; every schema DDL (CREATE and DROP alike) is rejected on a branch.
       const bool is_schema_or_storage_global_ddl =
           (utils::Downcast<IndexQuery>(q) != nullptr || utils::Downcast<EdgeIndexQuery>(q) != nullptr ||
-           utils::Downcast<PointIndexQuery>(q) != nullptr ||
-           utils::Downcast<VectorIndexQuery>(q) != nullptr ||
+           utils::Downcast<PointIndexQuery>(q) != nullptr || utils::Downcast<VectorIndexQuery>(q) != nullptr ||
            utils::Downcast<CreateVectorEdgeIndexQuery>(q) != nullptr || utils::Downcast<TextIndexQuery>(q) != nullptr ||
            utils::Downcast<CreateTextEdgeIndexQuery>(q) != nullptr ||
            utils::Downcast<DropAllIndexesQuery>(q) != nullptr ||
@@ -11669,7 +11670,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (is_schema_or_storage_global_ddl) {
         throw QueryRuntimeException(
             "Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP "
-            "GRAPH, STORAGE MODE, RECOVER SNAPSHOT, TRIGGER, STREAM, DESCRIPTION) are not allowed while a versioning branch is "
+            "GRAPH, STORAGE MODE, RECOVER SNAPSHOT, TRIGGER, STREAM, DESCRIPTION) are not allowed while a versioning "
+            "branch is "
             "checked out. Run CHECKOUT BRANCH 'main' first.");
       }
     }
@@ -12509,7 +12511,8 @@ void Interpreter::Commit() {
         return std::unexpected{storage::StorageManipulationError{valid.error()}};
       }
     }
-    return current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
+    return current_db_.db_transactional_accessor_->PrepareForCommitPhase(
+        make_commit_arg(is_main, *current_db_.db_acc_));
   }();
   // Proactively unlock repl_state
   locked_repl_state.reset();
@@ -12553,11 +12556,11 @@ void Interpreter::Commit() {
                 // Main checks type constraints at write time; only a branch reaches this at commit.
                 MG_ASSERT(constraint_violation.properties.size() == 1U && constraint_violation.constraint_kind);
                 auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
-                throw storage::TypeConstraintViolationException("IS TYPED {} violation on {}({})",
-                                                                storage::TypeConstraintKindToString(
-                                                                    *constraint_violation.constraint_kind),
-                                                                label_name,
-                                                                property_name);
+                throw storage::TypeConstraintViolationException(
+                    "IS TYPED {} violation on {}({})",
+                    storage::TypeConstraintKindToString(*constraint_violation.constraint_kind),
+                    label_name,
+                    property_name);
               }
               default:
                 LOG_FATAL("Unknown constraint violation type");

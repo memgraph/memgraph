@@ -26,6 +26,7 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/scheduler.hpp"
+#include "versioning/branch_engine.hpp"
 #include "versioning/version_store.hpp"
 
 namespace {
@@ -58,8 +59,8 @@ struct Gids {
   memgraph::storage::Gid post_fork;
 };
 
-// Creates a vertex, two branches at the same fork point, then a second vertex after the fork. With `with_stray_branch_dir`, a
-// leftover versioning/ directory is created to mimic one written by an older build.
+// Creates a vertex, two branches at the same fork point, then a second vertex after the fork. With
+// `with_stray_branch_dir`, a leftover versioning/ directory is created to mimic one written by an older build.
 Gids PopulateWithBranches(bool with_stray_branch_dir) {
   Gids gids;
   auto config = MakeConfig(/*recover_on_startup=*/false);
@@ -129,16 +130,6 @@ TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedOnRestartAndMainIsInta
   EXPECT_FALSE(storage->OldestForkPin().has_value());
 }
 
-TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedOnRestartWithRecoveryDisabled) {
-  PopulateWithBranches(/*with_stray_branch_dir=*/false);
-
-  auto config = MakeConfig(/*recover_on_startup=*/false);
-  memgraph::dbms::Database db{config};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-
-  ExpectNoBranchState(db);
-}
-
 // A schema op committed on main after a branch's fork point survives the restart that drops the branch.
 TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkSurvivesRestart) {
   memgraph::storage::Gid post_fork_vertex;
@@ -175,23 +166,95 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkSurvivesRestart) {
   EXPECT_TRUE(acc->FindVertex(post_fork_vertex, memgraph::storage::View::OLD).has_value());
 }
 
-TEST_F(VersioningDurabilityRestartTest, NoBranchRestartIsByteIdenticalFastPath) {
-  memgraph::storage::Gid vertex_gid;
+// Writes committed ON A BRANCH (new vertex + edge, label + property change on a fork-era vertex) live only in the
+// branch's transient diff engine: after a restart main holds exactly its own data and the diff engine left no files.
+TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart) {
+  namespace ms = memgraph::storage;
+  constexpr auto kForkLabel = "ForkLabel";
+  constexpr auto kBranchLabel = "BranchOnlyLabel";
+  constexpr auto kBranchProp = "BranchOnlyProp";
+  ms::Gid fork_vertex;
+
   {
     auto config = MakeConfig(/*recover_on_startup=*/false);
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    auto acc = db.Access(memgraph::storage::WRITE);
-    auto v = acc->CreateVertex();
-    vertex_gid = v.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+    const auto fork_label = db.storage()->NameToLabel(kForkLabel);
+    const auto branch_label = db.storage()->NameToLabel(kBranchLabel);
+    const auto x = db.storage()->NameToProperty("x");
+    const auto branch_prop = db.storage()->NameToProperty(kBranchProp);
+    const auto edge_type = db.storage()->NameToEdgeType("E");
+
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto a = acc->CreateVertex();
+      fork_vertex = a.Gid();
+      ASSERT_TRUE(a.AddLabel(fork_label).has_value());
+      ASSERT_TRUE(a.SetProperty(x, ms::PropertyValue(1)).has_value());
+      auto b = acc->CreateVertex();
+      ASSERT_TRUE(acc->CreateEdge(&a, &b, edge_type).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    auto info = db.version_store()->CreateBranch("b1", "main", std::nullopt);
+    ASSERT_TRUE(info.has_value());
+    auto ctx = memgraph::versioning::BranchContext::BuildFromFork(
+        *storage, info->fork_ts, memgraph::tests::MakeMainCommitArgs());
+    ASSERT_TRUE(ctx.has_value());
+    {
+      auto diff_acc = (*ctx)->diff_engine().Access(ms::WRITE);
+      ASSERT_TRUE((*ctx)->BeginTransaction(diff_acc.get()).has_value());
+      auto stub = (*ctx)->CowVertex(fork_vertex);
+      ASSERT_TRUE(stub.has_value());
+      ASSERT_TRUE(stub->AddLabel(branch_label).has_value());
+      ASSERT_TRUE(stub->SetProperty(x, ms::PropertyValue(2)).has_value());
+      auto c = diff_acc->CreateVertex();
+      auto d = diff_acc->CreateVertex();
+      ASSERT_TRUE(c.AddLabel(branch_label).has_value());
+      ASSERT_TRUE(c.SetProperty(branch_prop, ms::PropertyValue(7)).has_value());
+      ASSERT_TRUE(diff_acc->CreateEdge(&c, &d, edge_type).has_value());
+      ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      (*ctx)->EndTransaction();
+    }
   }
 
   auto config = MakeConfig(/*recover_on_startup=*/true);
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ExpectNoBranchState(db);
 
+  auto acc = db.Access(ms::READ);
+  size_t vertices = 0;
+  size_t edges = 0;
+  for (auto v : acc->Vertices(ms::View::OLD)) {
+    ++vertices;
+    for (auto const label : *v.Labels(ms::View::OLD)) {
+      EXPECT_NE(acc->LabelToName(label), kBranchLabel) << "branch label leaked into main";
+    }
+    for (auto const &[prop, value] : *v.Properties(ms::View::OLD)) {
+      EXPECT_NE(db.storage()->PropertyToName(prop), kBranchProp) << "branch property leaked into main";
+    }
+    edges += v.OutEdges(ms::View::OLD)->edges.size();
+  }
+  EXPECT_EQ(vertices, 2u) << "main must hold exactly its own two vertices (no branch-native vertices)";
+  EXPECT_EQ(edges, 1u) << "main must hold exactly its own edge (no branch-native edge)";
 
-  auto acc = db.Access(memgraph::storage::READ);
-  EXPECT_TRUE(acc->FindVertex(vertex_gid, memgraph::storage::View::OLD).has_value());
+  auto fork = acc->FindVertex(fork_vertex, ms::View::OLD);
+  ASSERT_TRUE(fork.has_value());
+  auto labels = fork->Labels(ms::View::OLD);
+  ASSERT_TRUE(labels.has_value());
+  ASSERT_EQ(labels->size(), 1u);
+  EXPECT_EQ(acc->LabelToName((*labels)[0]), kForkLabel);
+  auto x_val = fork->GetProperty(db.storage()->NameToProperty("x"), ms::View::OLD);
+  ASSERT_TRUE(x_val.has_value());
+  EXPECT_EQ(*x_val, ms::PropertyValue(1)) << "the branch's property change must not reach main";
+
+  // The diff engine is transient: it must not have written any WAL/snapshot file under the main data directory.
+  auto const diff_dir = kStorageDirectory / "versioning_diff_engine";
+  if (std::filesystem::exists(diff_dir)) {
+    for (auto const &entry : std::filesystem::recursive_directory_iterator(diff_dir)) {
+      EXPECT_FALSE(entry.is_regular_file()) << "diff engine persisted " << entry.path();
+    }
+  }
 }

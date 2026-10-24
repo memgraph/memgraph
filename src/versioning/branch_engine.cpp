@@ -40,8 +40,11 @@ constexpr std::string_view kDeletedEdgesName = "__mg_deleted_edges";
 // A sacrificial create+delete at this gid advances vertex_id_/edge_id_ past it (atomic_fetch_max_explicit in
 // CreateVertexEx/CreateEdgeEx, inmemory/storage.cpp) — the only way to advance the counter without a direct setter.
 constexpr uint64_t kBranchNativeGidWatermark = 1ULL << 62;
+constexpr std::string_view kGidWatermarkEdgeTypeName = "__branch_native_gid_watermark__";
 
-void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage::CommitArgs commit_args) {
+// Returns the placeholder edge's type id so callers can hide it from schema listings.
+storage::EdgeTypeId ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine,
+                                                storage::CommitArgs commit_args) {
   std::unique_ptr<storage::ReplicationAccessor> reserve(
       static_cast<storage::ReplicationAccessor *>(diff_engine.Access(storage::StorageAccessType::WRITE).release()));
 
@@ -54,7 +57,7 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
   // are auto-gid and deleted in this same transaction, so their gids never escape this function.
   auto sac_from = reserve->CreateVertex();
   auto sac_to = reserve->CreateVertex();
-  auto edge_type = reserve->NameToEdgeType("__branch_native_gid_watermark__");
+  auto edge_type = reserve->NameToEdgeType(kGidWatermarkEdgeTypeName);
   auto sacrificial_edge =
       reserve->CreateEdgeEx(&sac_from, &sac_to, edge_type, storage::Gid::FromUint(kBranchNativeGidWatermark));
   MG_ASSERT(sacrificial_edge.has_value(),
@@ -79,6 +82,7 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
 
   auto commit_res = reserve->PrepareForCommitPhase(std::move(commit_args));
   MG_ASSERT(commit_res.has_value(), "BranchCore::Build: gid-watermark reservation commit failed.");
+  return edge_type;
 }
 
 // Mirrors main's index DEFINITIONS (not contents) onto the diff engine so the query planner can
@@ -232,8 +236,9 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 
 }  // namespace
 
-std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
+std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(storage::InMemoryStorage &main,
+                                                                                     uint64_t fork_ts,
+                                                                                     storage::CommitArgs commit_args) {
   // Everything below allocates on behalf of main's tenant: scope the build to main's arena pool (borrowed when the
   // caller is already in it) so the diff engine's structures are attributed like main's own. A no-op with no pool.
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
@@ -299,7 +304,7 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.GetSharedNameIdMapper());
 
   // 3. Reserve the branch-native gid range (see kBranchNativeGidWatermark).
-  ReserveBranchNativeGidRange(*diff_engine, std::move(commit_args));
+  const auto gid_watermark_edge_type = ReserveBranchNativeGidRange(*diff_engine, std::move(commit_args));
 
   // 4. Mirror main's fork_ts-pinned index definitions (see MirrorMainIndexDefinitionsIntoDiffEngine). Done once here,
   //    before the core is visible to any session, so the diff engine never needs UNIQUE / READ_ONLY afterwards.
@@ -310,17 +315,19 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
   // `new` not make_shared: private ctor.
-  return std::shared_ptr<BranchCore>(new BranchCore(&main, fork_ts, std::move(diff_engine)));
+  return std::shared_ptr<BranchCore>(new BranchCore(&main, fork_ts, std::move(diff_engine), gid_watermark_edge_type));
 }
 
 BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
-                       std::unique_ptr<storage::InMemoryStorage> diff_engine)
+                       std::unique_ptr<storage::InMemoryStorage> diff_engine,
+                       storage::EdgeTypeId gid_watermark_edge_type)
     : main_(main),
       fork_ts_(fork_ts),
       diff_engine_(std::move(diff_engine)),
       removed_props_key_(diff_engine_->NameToProperty(kRemovedPropsName)),
       deleted_label_(diff_engine_->NameToLabel(kDeletedLabelName)),
-      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)) {}
+      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)),
+      gid_watermark_edge_type_(gid_watermark_edge_type) {}
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
     storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
@@ -444,8 +451,8 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
   }
 
   if (!diff_engine().config_.salient.items.properties_on_edges) {
-    return std::unexpected(CowError{fmt::format(
-        "Cannot copy-on-write edge {}: edge properties are disabled.", edge_gid.AsUint())});
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write edge {}: edge properties are disabled.", edge_gid.AsUint())});
   }
 
   // Endpoint stubs first: CowVertex also flags the main vertices as branched, which gates their stub reads.
