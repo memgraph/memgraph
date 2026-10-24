@@ -36,9 +36,8 @@ constexpr std::string_view kRemovedPropsName = "__mg_removed";
 constexpr std::string_view kDeletedLabelName = "__mg_deleted";
 constexpr std::string_view kDeletedEdgesName = "__mg_deleted_edges";
 
-// Branch-native gid range: gids ≥ this are exclusively branch-native (main allocates from 0 upward).
-// A sacrificial create+delete at this gid advances vertex_id_/edge_id_ past it (atomic_fetch_max_explicit in
-// CreateVertexEx/CreateEdgeEx, inmemory/storage.cpp) — the only way to advance the counter without a direct setter.
+// Gids >= this are branch-native (main allocates from 0 upward). A sacrificial create+delete at this gid advances
+// vertex_id_/edge_id_ past it (CreateVertexEx/CreateEdgeEx fetch_max); there is no direct setter.
 constexpr uint64_t kBranchNativeGidWatermark = 1ULL << 62;
 constexpr std::string_view kGidWatermarkEdgeTypeName = "__branch_native_gid_watermark__";
 
@@ -53,8 +52,8 @@ storage::EdgeTypeId ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_e
             "BranchCore::Build: gid-watermark reservation collided on a freshly-created, empty diff "
             "engine -- should be impossible.");
 
-  // CreateEdgeEx MG_ASSERTs same-transaction live endpoints (inmemory/storage.cpp:987); sac_from/sac_to
-  // are auto-gid and deleted in this same transaction, so their gids never escape this function.
+  // CreateEdgeEx MG_ASSERTs both endpoints belong to this transaction; sac_from/sac_to are deleted below, so their
+  // gids never escape.
   auto sac_from = reserve->CreateVertex();
   auto sac_to = reserve->CreateVertex();
   auto edge_type = reserve->NameToEdgeType(kGidWatermarkEdgeTypeName);
@@ -64,7 +63,7 @@ storage::EdgeTypeId ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_e
             "BranchCore::Build: edge gid-watermark reservation collided on a freshly-created, empty diff "
             "engine -- should be impossible.");
 
-  // Edge before endpoints: DeleteVertex returns VERTEX_HAS_EDGES without cascading; endpoints must be edge-free.
+  // Edge before endpoints: DeleteVertex returns VERTEX_HAS_EDGES rather than cascading.
   auto deleted_edge = reserve->DeleteEdge(&*sacrificial_edge);
   MG_ASSERT(deleted_edge.has_value() && deleted_edge->has_value(),
             "BranchCore::Build: failed to remove the edge gid-watermark placeholder edge.");
@@ -85,18 +84,12 @@ storage::EdgeTypeId ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_e
   return edge_type;
 }
 
-// Mirrors main's index DEFINITIONS (not contents) onto the diff engine so the query planner can
-// select index scans on a checked-out branch; diff engine auto-populates them via ordinary index
-// maintenance. Uses fork_ts-pinned snapshot from `historical`. CreateIndex requires READ_ONLY
-// access (MG_ASSERTs it, inmemory/storage.cpp); diff_engine.make_database_protector() supplies
-// the commit protector (null database_protector_factory_ resolves to DefaultDatabaseProtector).
+// Mirrors main's index definitions (not contents) so the planner can pick index scans on a checked-out branch;
+// the diff engine populates them through ordinary index maintenance.
 void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
                                               const storage::IndicesInfo &main_indices) {
-  // No early-return guard: a guard enumerated all index kinds in one check, was twice forgotten when
-  // a new kind was added, and silently fell branches back to full scans. Loops are the single truth.
-  // ONE ReadOnlyAccess per index: CreateIndex calls DowngradeToReadIfValid (inmemory/storage.cpp),
-  // dropping READ_ONLY→READ after the first call; a second CreateIndex on the same access trips its
-  // own MG_ASSERT(type() == UNIQUE || READ_ONLY). Each index gets its own fresh accessor.
+  // No early-return emptiness guard: it enumerated every index kind, was twice forgotten for a new kind, and silently
+  // fell branches back to full scans. One accessor per index: CreateIndex downgrades READ_ONLY to READ and asserts.
   auto commit_one = [&diff_engine](storage::Storage::Accessor &acc) {
     auto protector = diff_engine.make_database_protector();
     MG_ASSERT(protector != nullptr,
@@ -117,7 +110,6 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     commit_one(*mirror);
   }
   for (const auto &entry : main_indices.label_properties) {
-    // All variants (single, composite, nested) mirrored; branch read path handles all of them.
     auto mirror = diff_engine.ReadOnlyAccess();
     auto created = mirror->CreateIndex(entry.label, entry.properties, entry.order);
     MG_ASSERT(created.has_value(),
@@ -127,10 +119,8 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     commit_one(*mirror);
   }
 
-  // Overlay support for label+property scans (query::DbAccessor::Vertices(view, label, properties, ...)). A touched
-  // fork vertex is a sparse stub, so a stub that newly matches (:L gained, or a key property set) is absent from the
-  // diff composite index. It is enumerated instead through a diff label index on L and a diff property-only index on
-  // each key property's top-level pid ("stubs that SET p"). Created here only when not already mirrored above.
+  // A sparse stub that newly matches a label+property scan (:L gained or key property set) is absent from the diff
+  // composite index, so it is enumerated via a diff label index on L and a property-only index on each key pid.
   {
     std::unordered_set<storage::LabelId> labels(main_indices.label.begin(), main_indices.label.end());
     std::unordered_set<storage::PropertyId> pids(main_indices.vertex_property.begin(),
@@ -159,8 +149,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     }
   }
 
-  // Edge-type and edge-property indexes require properties_on_edges: PopulateIndex reads EdgeRef.ptr,
-  // which is garbage when only .gid is set (reference-only edges); CreateIndex refuses without it.
+  // Edge indexes are only populated with properties_on_edges: without it EdgeRef.ptr aliases a bare gid.
   if (diff_engine.config_.salient.items.properties_on_edges) {
     for (const auto &edge_type : main_indices.edge_type) {
       auto mirror = diff_engine.ReadOnlyAccess();
@@ -171,8 +160,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
                 edge_type.AsUint());
       commit_one(*mirror);
     }
-    // Edge-type+property: ordering-sensitive — planner elides Sort for edge-property index scans,
-    // so the ASC-ordered branch merge must be paired with these mirrored definitions.
+    // Edge-property mirrors feed MergeBranchEdgePropertyScan, which needs both streams ascending (Sort is elided).
     for (const auto &[edge_type, property] : main_indices.edge_type_property) {
       auto mirror = diff_engine.ReadOnlyAccess();
       auto created = mirror->CreateIndex(edge_type, property);
@@ -183,7 +171,6 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
                 property.AsUint());
       commit_one(*mirror);
     }
-    // Global edge-property: same ordering constraint as edge-type+property (ASC-ordered merge, Sort elided).
     for (const auto &property : main_indices.edge_property) {
       auto mirror = diff_engine.ReadOnlyAccess();
       auto created = mirror->CreateGlobalEdgeIndex(property);
@@ -194,9 +181,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
       commit_one(*mirror);
     }
   }
-  // Global vertex-property: no properties_on_edges dependency — vertex scans are always available regardless
-  // of the edge storage mode. Mirrors main_indices.vertex_property via CreateGlobalVertexIndex so
-  // VertexPropertyIndexReady returns true on the branch and branch-aware vertex-property scans are reachable.
+  // Vertex-property indexes do not depend on properties_on_edges, so they sit outside the gate above.
   for (const auto &property : main_indices.vertex_property) {
     auto mirror = diff_engine.ReadOnlyAccess();
     auto created = mirror->CreateGlobalVertexIndex(property);
@@ -208,15 +193,12 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
   }
 }
 
-// Mirrors main's EnumStore onto the diff engine (MIRROR not SHARE: two Storage instances, two locks).
-// Order-preserving replay reproduces identical positional enum ids (id = insertion position, enum_store.hpp).
+// Mirrors rather than shares main's EnumStore (separate Storage instances, separate locks); in-order registration
+// reproduces the positional enum ids (RegisterEnum: id = insertion position).
 void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const storage::EnumStore &main_enums) {
-  // No early-return guard: same reason as MirrorMainIndexDefinitionsIntoDiffEngine (foot-gun risk outweighs the no-op
-  // cost).
   auto registered = main_enums.AllRegistered();
 
-  // ONE UniqueAccess for all enums: CreateEnum does not call DowngradeToReadIfValid (unlike CreateIndex),
-  // so all enums can be registered and committed in a single transaction.
+  // One UniqueAccess for all enums: unlike CreateIndex, CreateEnum does not downgrade the access.
   auto unique_acc = diff_engine.UniqueAccess();
   for (const auto &[type_str, value_strs] : registered) {
     auto created = unique_acc->CreateEnum(type_str, value_strs);
@@ -239,13 +221,11 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(storage::InMemoryStorage &main,
                                                                                      uint64_t fork_ts,
                                                                                      storage::CommitArgs commit_args) {
-  // Everything below allocates on behalf of main's tenant: scope the build to main's arena pool (borrowed when the
-  // caller is already in it) so the diff engine's structures are attributed like main's own. A no-op with no pool.
+  // Attribute the diff engine's allocations to main's tenant arena pool.
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
-  // 1. Time-travel main to fork_ts first -- fail before paying for the diff engine construction. This accessor only
-  //    lives for the duration of Build: it supplies main's fork-time index set, and its READ guard blocks a concurrent
-  //    CREATE ENUM while the enum store is mirrored.
+  // Pin main at fork_ts first so an unpinned fork fails before the diff engine is built. This accessor's READ guard
+  // also blocks a concurrent CREATE ENUM while the enum store is mirrored below.
   auto hist_exp = main.HistoricalAccess(fork_ts);
   if (!hist_exp.has_value()) {
     return std::unexpected(
@@ -254,23 +234,19 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   }
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
-  // 2. Construct the empty diff engine (O(1) -- nothing copied from main's graph).
-  //    Shares main's NameIdMapper: historical vertices carry main's label/property ids; a separate
-  //    mapper would silently misdecode them. Config derived from main.config_ wholesale so any
-  //    future salient flag (properties_on_edges, storage_light_edge, etc.) is inherited automatically.
+  // Shares main's NameIdMapper (historical vertices carry main's ids; a separate mapper would misdecode them).
+  // Config is copied wholesale so future salient flags are inherited.
   storage::Config config = main.config_;
-  // Distinct throwaway instance -- avoid aliasing main's UUID in any registry. The NAME is deliberately kept as
-  // main's: query::DbAccessor::DatabaseName() (auth, FGA, SHOW, DUMP) reads it, and a branch must look like main.
+  // Fresh UUID avoids aliasing main in any registry; the NAME stays main's because DbAccessor::DatabaseName() (auth,
+  // FGA, SHOW, DUMP) reads it.
   config.salient.uuid = utils::UUID{};
-  // config.gc stays main's: the diff engine needs its own GC, else committed branch deltas are never freed while any
-  // other transaction is active (fast-discard needs a quiet engine) and branch memory grows with write volume.
-  // Transient in-RAM copy: all durability mechanisms off regardless of what main configured.
+  // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
+  // transaction is active.
   config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
   config.durability.recover_on_startup = false;
   config.durability.snapshot_on_exit = false;
   config.durability.restore_replication_state_on_startup = false;
-  // Repoint storage/disk/name paths away from main's own directories; durability is off, but a
-  // stale path is one accidental future durability flip away from aliasing main's live data.
+  // Durability is off, but a stale path is one flip away from aliasing main's live data.
   {
     const auto diff_engine_directory =
         config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
@@ -287,11 +263,10 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
     config.disk.wal_directory = diff_engine_directory / config.disk.wal_directory;
   }
   config.force_on_disk = false;
-  // Avoid duplicating/aliasing main's Prometheus metrics as a spurious second database.
+  // Else main's Prometheus metrics would be duplicated as a spurious second database.
   config.register_metrics = false;
-  // Memory attribution: main's arena pool (its GC thread installs a DbArenaScope on that pool, and every allocating
-  // thread is already in main's scope), main's embedding tracker, and main's unreleased-delta gauge so branch deltas
-  // show up in the tenant's storage info. No other metric is shared.
+  // Share main's arena pool, embedding tracker and unreleased-delta gauge so branch memory shows up under the tenant;
+  // no other metric is shared.
   metrics::DatabaseMetricHandles metric_handles{};
   metric_handles.unreleased_delta_objects = main.metric_handles_.unreleased_delta_objects;
   auto diff_engine = std::make_unique<storage::InMemoryStorage>(config,
@@ -303,18 +278,13 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.DbEmbeddingMemoryTracker(),
                                                                 main.GetSharedNameIdMapper());
 
-  // 3. Reserve the branch-native gid range (see kBranchNativeGidWatermark).
   const auto gid_watermark_edge_type = ReserveBranchNativeGidRange(*diff_engine, std::move(commit_args));
 
-  // 4. Mirror main's fork_ts-pinned index definitions (see MirrorMainIndexDefinitionsIntoDiffEngine). Done once here,
-  //    before the core is visible to any session, so the diff engine never needs UNIQUE / READ_ONLY afterwards.
+  // Done before the core is visible to any session, so the diff engine never needs UNIQUE/READ_ONLY afterwards.
   MirrorMainIndexDefinitionsIntoDiffEngine(*diff_engine, historical->ListAllIndices());
 
-  // 5. Mirror main's current EnumStore (historical's SHARED guard on main_lock_ blocks concurrent
-  //    CREATE ENUM -- see MirrorMainEnumsIntoDiffEngine).
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
-  // `new` not make_shared: private ctor.
   return std::shared_ptr<BranchCore>(new BranchCore(&main, fork_ts, std::move(diff_engine), gid_watermark_edge_type));
 }
 
@@ -379,7 +349,7 @@ bool BranchCore::IsReservedProperty(storage::PropertyId property) {
 
 void BranchContext::MarkMainObjectBranched(storage::Gid gid) {
   auto hist_vertex = historical().FindVertex(gid, storage::View::OLD);
-  if (!hist_vertex) return;  // best-effort hint -- see doc-comment.
+  if (!hist_vertex) return;
   storage::Vertex *main_vertex = hist_vertex->vertex_;
   auto guard = std::unique_lock{main_vertex->lock};
   main_vertex->SetBranched(true);
@@ -394,16 +364,15 @@ void BranchContext::MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge)
 }
 
 std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {
-  // MG_ASSERT not DMG_ASSERT: null current_diff_txn_ is an invariant break (SetupDatabaseTransaction
-  // never ran), not a debug-only condition.
+  // MG_ASSERT not DMG_ASSERT: null current_diff_txn_ is an invariant break, not a debug-only condition (applies to
+  // every such assert below).
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::CowVertex: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   storage::Storage::Accessor *diff_txn = current_diff_txn_;
 
-  // Idempotent: a prior COW already in the diff engine wins outright -- unless it is a stub marked deleted, which
-  // must not be mutated again.
+  // A prior COW in the diff engine wins, unless it is a stub marked deleted.
   if (auto existing = diff_txn->FindVertex(gid, storage::View::NEW)) {
     if (IsForkGid(gid) && IsStubDeleted(*existing, storage::View::NEW)) {
       return std::unexpected(
@@ -414,18 +383,16 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
 
   auto hist_vertex = historical().FindVertex(gid, storage::View::OLD);
   if (!hist_vertex) {
-    // Defensive: callers resolve a vertex before mutating it; gid should exist in one of the two stores.
     return std::unexpected(
         CowError{fmt::format("Cannot copy-on-write vertex {}: not found in the branch's fork-state base either -- "
                              "this should be unreachable (callers resolve a vertex before mutating it).",
                              gid.AsUint())});
   }
 
-  // Over-marking is safe (branched()==true is a hint, never a claim of actual divergence).
+  // Over-marking is safe: branched() is a hint, not a claim of divergence.
   MarkMainObjectBranched(gid);
 
-  // Empty delta-less stub: fork labels/properties are read from historical_ and merged on read.
-  // diff_txn is a ReplicationAccessor (adds no data members over InMemoryAccessor); cast is safe.
+  // diff_txn is a ReplicationAccessor (adds no data members over InMemoryAccessor), so the cast is safe.
   return static_cast<storage::ReplicationAccessor *>(diff_txn)->MaterializeStubVertex(gid);
 }
 
@@ -445,7 +412,7 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
         CowError{fmt::format("Cannot copy-on-write edge {}: already deleted on this branch.", edge_gid.AsUint())});
   }
 
-  // Idempotent: a prior stub (or branch-native edge) in the diff engine wins outright.
+  // A prior stub (or branch-native edge) in the diff engine wins.
   if (auto existing = FindDiffEdge(edge_gid, from_gid, storage::View::NEW)) {
     return *existing;
   }
@@ -455,7 +422,7 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
         CowError{fmt::format("Cannot copy-on-write edge {}: edge properties are disabled.", edge_gid.AsUint())});
   }
 
-  // Endpoint stubs first: CowVertex also flags the main vertices as branched, which gates their stub reads.
+  // Endpoint stubs first: CowVertex also sets the main vertices' branched bit, which gates their stub reads.
   auto from_diff = CowVertex(from_gid);
   if (!from_diff) return std::unexpected(from_diff.error());
   auto to_diff = CowVertex(to_gid);
@@ -598,7 +565,6 @@ std::optional<storage::VertexAccessor> BranchContext::FindStubOrDiffVertex(stora
 }
 
 std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid gid, storage::View view) {
-  // MG_ASSERT not DMG_ASSERT: on the hot read path; a null deref in release would be frequently reachable.
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::ResolveVertex: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
@@ -627,7 +593,7 @@ std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid ed
   return current_diff_txn_->FindEdge(edge_gid, from_gid, view);
 }
 
-// historical_ uses View::OLD throughout (frozen snapshot — no concept of NEW relative to any txn).
+// historical_ is a frozen snapshot, so it is read with View::OLD throughout.
 std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
                                                                storage::EdgeDirection direction, storage::View view,
                                                                bool *vertex_deleted) {
@@ -650,7 +616,6 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
         if (vertex_deleted != nullptr) *vertex_deleted = true;
         return result;
       }
-      // One stub read covers every fork edge of this vertex.
       listed_deleted = DeletedEdgeGids(*diff_vertex, view);
     }
     auto maybe_result =
@@ -663,7 +628,6 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
     }
   }
 
-  // Historical side: fork edges the branch has not deleted.
   if (auto hist_vertex = historical().FindVertex(vertex_gid, storage::View::OLD)) {
     auto maybe_result = out ? hist_vertex->OutEdges(storage::View::OLD, edge_types, nullptr)
                             : hist_vertex->InEdges(storage::View::OLD, edge_types, nullptr);
@@ -681,7 +645,6 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
 }
 
 BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view) {
-  // MG_ASSERT not DMG_ASSERT (same rationale as CowVertex).
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::Vertices: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
@@ -726,9 +689,8 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
   return *this;
 }
 
-// Streaming gid-ordered merge (O(H+D); see class comment in branch_engine.hpp). A fork vertex deleted on the branch
-// has a stub in the diff stream carrying the delete marker, so it is dropped when the two streams meet on its gid;
-// a fork vertex without a stub is untouched and passes through.
+// Streaming gid-ordered merge, O(H+D). A fork vertex deleted on the branch has a delete-marked stub that meets it on
+// its gid and drops it; a fork vertex without a stub passes through.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
   auto deleted_stub = [this](const storage::VertexAccessor &v) {
     if (v.Gid().AsUint() >= kBranchNativeGidWatermark) return false;

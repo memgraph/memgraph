@@ -212,27 +212,11 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
-  // A checked-out branch routes ordinary Cypher straight at the branch's shared diff engine (one per branch, built
-  // by the first CHECKOUT -- see CheckoutBranchEngine) instead of the real database's storage.
-  // Database::Access/UniqueAccess/ReadOnlyAccess are themselves thin forwarders straight to
-  // Storage::Access/UniqueAccess/ReadOnlyAccess (dbms/database.cpp), so calling the SAME methods
-  // on the diff engine below is equivalent, just against a different physical engine
-  // -- this transaction's PrepareForCommitPhase/Abort machinery (Interpreter::Commit/Abort) works
-  // completely unmodified against it. The diff engine starts EMPTY: reads for a gid the diff engine doesn't (yet)
-  // have fall back to the branch's historical base (BranchContext::ResolveVertex/Vertices), and writes materialize a
-  // stub of the touched object first (BranchContext::CowVertex) -- both wired through DbAccessor below, not through
-  // target_storage. When current_version_ is unset (the overwhelmingly common case) or no context is held,
-  // `target_storage` is `db_acc->storage()` and this is BYTE-FOR-BYTE the pre-versioning behavior.
-  //
-  // force_main_override (USING VERSION 'main'): lets a single query escape the session's branch checkout and run
-  // against main. It routes THIS transaction only; current_version_/branch_context_ are left untouched.
+  // Branch transactions run against the branch's shared diff engine instead of the database's storage;
+  // USING VERSION 'main' (force_main_override) opts a single transaction out of that routing.
   const bool on_branch = current_version_.has_value() && branch_context_ != nullptr && !force_main_override;
   storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
 
-  // A branch transaction first opens its own historical accessor on main at fork_ts (holding main's READ guard until
-  // CleanupDBTransaction), THEN the diff-engine accessor: the lock order is always main READ -> diff engine. A failure
-  // (branch dropped, or the diff accessor below throwing) unwinds into the caller's abort path, which releases
-  // whichever of the two was opened.
   if (on_branch) {
     if (auto opened = branch_context_->OpenHistorical(); !opened) {
       throw QueryRuntimeException(opened.error().message);
@@ -258,9 +242,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
       throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
-  // `db_transactional_accessor_` IS the branch's diff-engine transaction when on_branch (see target_storage above).
-  // Publish it as the context's current transaction BEFORE constructing DbAccessor below, so
-  // branch_ctx_->ResolveVertex/Vertices/CowVertex have it as soon as any query code can reach them.
+  // Published before DbAccessor is constructed so branch object resolution can use it immediately.
   if (on_branch) {
     branch_context_->SetCurrentDiffTxn(db_transactional_accessor_.get());
   }
@@ -268,32 +250,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
-  // CHUNK 7b(2): do NOT collect/run triggers for a branch write. Triggers are a main-database
-  // concept; a checked-out branch is an isolated v1 workspace. Both BEFORE and AFTER commit trigger
-  // execution below are gated on trigger_context (populated only from this collector), so skipping
-  // the emplace disables both. This is required for correctness, not just semantics: AFTER-commit
-  // triggers re-open an accessor on MAIN and adapt the branch-collected TriggerContext onto main's
-  // gid space (RunTriggersAfterCommit -> TriggerContext::AdaptForAccessor), which -- because the
-  // branch engine's post-fork gid counter diverges from main's -- would silently misattribute or
-  // drop branch-only changes against unrelated main objects. Branch triggers are deferred.
-  //
-  // FORCE-MAIN fix (USING VERSION 'main' routing): gate on `on_branch` (computed above, already
-  // folds in `force_main_override`), not the raw session flag `current_version_`. `current_version_`
-  // stays set for the whole checkout even during a `USING VERSION 'main'` query that routes THIS
-  // transaction at main's own storage (target_storage above); keying off it alone skipped
-  // main-trigger collection for a write that actually lands on main. `on_branch` reflects the
-  // effective per-query routing decision instead, so a force-main write correctly collects main's
-  // triggers while a real branch write is still deferred as before.
+  // No trigger collection for branch writes: AFTER-commit triggers would adapt branch-native gids onto main's gid
+  // space. Keyed on `on_branch`, not current_version_, so a USING VERSION 'main' write still collects main's triggers.
   if (db_acc->trigger_store()->HasTriggers() && could_commit && !on_branch) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
   }
 }
 
 void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
-  // Clear the context's per-transaction slots (and release this transaction's historical accessor, with main's READ
-  // guard) BEFORE db_transactional_accessor_ itself is reset/destroyed below. Guarded on branch_context_ (not
-  // current_version_): CleanupDBTransaction runs on every ordinary (non-branch) query too, where branch_context_ is
-  // simply null; on a USING VERSION 'main' query EndTransaction is a no-op.
+  // Release the historical accessor (and main's READ guard) before db_transactional_accessor_ is destroyed.
   if (branch_context_) {
     branch_context_->EndTransaction();
   }
@@ -332,11 +297,8 @@ void memgraph::query::CurrentDB::ClearBranchContext() {
   if (!branch_context_) {
     return;
   }
-  // Drop the context first (releases its core reference and any open historical accessor), then detach: by the time
-  // the attach count drops, this session no longer touches the shared core.
+  // Drop the context before detaching so this session no longer touches the shared core once the attach count drops.
   branch_context_.reset();
-  // The branch-local plan cache is per session and holds no cross-Database pointers; torn down next to the context
-  // so the two lifetimes match.
   branch_plan_cache_.reset();
   branch_context_version_store_->ReleaseCheckout(branch_context_name_);
   branch_context_version_store_ = nullptr;
@@ -397,12 +359,7 @@ constexpr std::string_view kBrokenDatabaseError =
     "backup of the whole data directory, please replace the current data directory with the backup one and "
     "restart the process.";
 
-// Not MG_ENTERPRISE-gated: repl_state/IsReplica() are core (community) replication primitives.
-// Originally paired only with the (enterprise-only) TTL dispatch, but PrepareVersioningQuery below
-// -- which is compiled unconditionally, community build included; branch management itself is
-// gated at runtime via license::global_license_checker.IsEnterpriseValidFast() -- also needs it
-// (Graph Versioning v1, Fix #3: branch DDL on a REPLICA must be rejected the same way TTL/
-// multi-tenancy already are, instead of silently diverging that replica's local VersionStore).
+// Not MG_ENTERPRISE-gated: PrepareVersioningQuery also needs it and compiles in community builds.
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
   if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
     throw QueryException(
@@ -4148,12 +4105,9 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 }
 #endif
 
-// Selects the correct plan cache for a query execution within `current_db`.
-// Returns nullptr when the query is not cacheable. When the current transaction
-// is running against a branch diff engine (signaled by current_diff_txn() being
-// non-null), the branch-local cache is returned so branch plans are never
-// cross-contaminated with main's cache. See the fuller rationale at the
-// PrepareCypherQuery call site (interpreter.cpp).
+// Plans are shaped by the accessor they were built against: branch transactions use the session's branch-local cache.
+// Keyed on current_diff_txn() (per transaction), not branch_context(), so USING VERSION 'main' queries use main's
+// cache.
 query::PlanCacheLRU *SelectPlanCache(CurrentDB &current_db, bool is_cacheable) {
   if (!is_cacheable) return nullptr;
   auto *bctx = current_db.branch_context();
@@ -4214,21 +4168,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto *const dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
   bool const skipped_transaction = dba == nullptr;
 
-  // Graph Versioning v1 (branch-local plan cache) HIGH-3(a) FIX (adversarial-review): the shared,
-  // per-Database plan cache is main-shaped -- a plan built while on main (e.g. a ScanAllByLabel
-  // using main's populated label index) would otherwise be reused verbatim on a branch, where it
-  // scans the diff engine's own (always-empty) index instead -- silently returning 0 rows. Rather
-  // than disabling caching for branches outright, route a checked-out session to its own private,
-  // per-checkout branch_plan_cache() (see CurrentDB::SetBranchContext/ClearBranchContext): it holds
-  // ONLY plans built against that branch's own DbAccessor, so it structurally can never be
-  // cross-contaminated with -- or reused from -- main's cache, while still giving branches plan
-  // reuse within a checkout. `on_branch` must be the per-TRANSACTION signal, not session state:
-  // current_db.branch_context() alone stays non-null across a USING VERSION 'main' force-main
-  // override, which routes THIS transaction at main's own storage -- caching that plan under the
-  // branch would still be a main-shaped plan mislabeled as branch-shaped. `current_diff_txn()` is
-  // set only when SetupDatabaseTransaction actually ran this transaction against the branch's diff
-  // engine (interpreter.cpp:282), so it is false on a force-main query -- mirroring the identical
-  // guard Commit() uses to decide branch-changelog capture (interpreter.cpp:~11938).
   auto *plan_cache = SelectPlanCache(current_db, parsed_query.is_cacheable);
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query,
@@ -4380,11 +4319,6 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Graph Versioning v1 (branch-local plan cache) HIGH-3(a) FIX: same branch-vs-main plan cache
-  // selection as the main Cypher path above -- EXPLAIN routes a checked-out branch to its own
-  // private branch_plan_cache() instead of main's cache (see the fuller comment at the CypherQuery
-  // plan-cache selection, including why `on_branch` must key off the per-transaction
-  // current_diff_txn(), not session-level branch_context() alone).
   auto *plan_cache = SelectPlanCache(current_db, parsed_inner_query.is_cacheable);
 
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
@@ -4503,11 +4437,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Graph Versioning v1 (branch-local plan cache) HIGH-3(a) FIX: same branch-vs-main plan cache
-  // selection as the main Cypher path above -- PROFILE routes a checked-out branch to its own
-  // private branch_plan_cache() instead of main's cache (see the fuller comment at the CypherQuery
-  // plan-cache selection, including why `on_branch` must key off the per-transaction
-  // current_diff_txn(), not session-level branch_context() alone).
   auto *plan_cache = SelectPlanCache(current_db, parsed_inner_query.is_cacheable);
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
@@ -6825,9 +6754,6 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
     throw StorageModeModificationInMulticommandTxException();
   }
   MG_ASSERT(current_db.db_acc_, "Storage Mode query expects a current DB");
-  // Graph Versioning v1 chunk 9b (R17): reject while ANY branch exists (broader than chunk 8's
-  // on-branch schema-DDL guard) -- this op would strand every branch's fork-point base.
-  // version_store() is null on non-transactional storage (guard is then a no-op).
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot switch storage mode while versioning branches exist: it would strand their "
@@ -6897,9 +6823,6 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
 PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
-  // Graph Versioning v1 chunk 9b (R17): reject while ANY branch exists (broader than chunk 8's
-  // on-branch schema-DDL guard) -- this op would strand every branch's fork-point base.
-  // version_store() is null on non-transactional storage (guard is then a no-op).
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot drop the graph while versioning branches exist: it would strand their fork-point "
@@ -7018,9 +6941,6 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
-  // Graph Versioning v1 chunk 9b (R17): reject while ANY branch exists (broader than chunk 8's
-  // on-branch schema-DDL guard) -- this op would strand every branch's fork-point base.
-  // version_store() is null on non-transactional storage (guard is then a no-op).
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot recover a snapshot while versioning branches exist: it would replace the storage "
@@ -7847,10 +7767,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
-      // On a checked-out branch this reports MAIN's index definitions: indexes cannot be created or dropped on a
-      // branch, and fork-side reads use main's current set. The diff engine's own indexes are an implementation
-      // detail (synthetic overlay indexes) and are never listed. `count` is main's current approximate count, not
-      // adjusted for branch changes.
+      // On a branch this reports MAIN's indexes (branches cannot create or drop them) with main's current approximate
+      // counts; the diff engine's overlay indexes are never listed.
       handler = [storage = database->storage()] {
         constexpr std::string_view label_index_mark{"label"};
         constexpr std::string_view label_property_index_mark{"label+property"};
@@ -9133,15 +9051,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 }
 
 namespace {
-// Graph Versioning (branches) v1, CHUNK 7a helpers ------------------------------------------------
-
-// `main` is the implicit, un-persisted version 1 (versioning::VersionStore's own doc-comment) --
-// it never appears in VersionStore::Get/List, so SHOW BRANCH/SHOW BRANCHES synthesize this number
-// directly rather than querying the registry for it.
+// `main` is the implicit version 1 and never appears in VersionStore::Get/List.
 constexpr uint64_t kMainVersionNumber{1};
 
-// {version, number, description, parent} -- CREATE BRANCH's and CHECKOUT ... FROM's return row
-// (spec §4.2).
+// CREATE BRANCH / CHECKOUT ... FROM return row: {version, number, description, parent}.
 std::vector<TypedValue> VersioningDetailRow(std::string_view name, const versioning::BranchInfo &info) {
   return {TypedValue(std::string(name)),
           TypedValue(static_cast<int64_t>(info.number)),
@@ -9149,20 +9062,10 @@ std::vector<TypedValue> VersioningDetailRow(std::string_view name, const version
           TypedValue(info.parent)};
 }
 
-// Attaches this session to branch `name`: acquires a counted checkout via `version_store`, gets (building it on
-// the branch's first checkout) the branch's shared BranchCore, and installs a fresh per-session BranchContext over it
-// on `current_db`. Called from the CHECKOUT_BRANCH query_handler (both the plain-switch and create-and-switch forms)
-// at Pull time, AFTER the caller has already released any PREVIOUSLY held branch context (via
-// current_db.SetCurrentVersion(std::nullopt)).
-//
-// Branches are ephemeral: nothing is replayed at checkout -- every branch write lives in the shared diff engine, and
-// a later session simply attaches to it. Throws QueryRuntimeException (leaving current_db's branch state untouched)
-// if the branch no longer exists / is being merged, or if building the core fails (fork_ts no longer pinned); in the
-// latter case the just-acquired attach is released first so a failed CHECKOUT never leaks a hold.
+// Attaches this session to branch `name`, building the branch's shared BranchCore on its first checkout. On failure
+// the acquired attach is released and current_db's branch state is untouched.
 void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store,
                           memgraph::dbms::DatabaseAccess db_acc, const std::string &name) {
-  // version_store (hence this whole function) is only ever reached for IN_MEMORY_TRANSACTIONAL
-  // databases -- the chunk-0 gate in PrepareVersioningQuery already enforced that mode.
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
 
   auto info = version_store->TryAcquireCheckout(name);
@@ -9192,22 +9095,8 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
 }
 }  // namespace
 
-// Graph Versioning (branches) v1, CHUNK 7a: management-query dispatch for CREATE/CHECKOUT/MERGE/
-// DROP/SHOW BRANCH* -- mirrors PrepareMultiDatabaseQuery's shape (Downcast + switch(Action) +
-// PreparedQuery), but the registry here is a single database's VersionStore (chunk 2B) plus its
-// own main storage, not the DbmsHandler -- there is no system_transaction_ involved, and (like
-// CreateSnapshotQuery) no interpreter-level storage accessor is opened either: VersionStore has
-// its own internal locking.
-//
-// Control-plane ONLY (per the feature's own §4.2 split): this resolves/creates/drops registry
-// entries and flips the session's current_version_ pointer. Routing ordinary Cypher reads/writes
-// through a checked-out branch (its diff-engine/BranchContext machinery, versioning/branch_engine.hpp)
-// is NOT touched here -- CHECKOUT only moves the pointer that later code will consult.
-//
-// R6 (zero cost when versioning is off): this function -- and everything it calls, including
-// FLAGS_versioning_enabled and the gate check -- is reached only when the parsed query actually IS
-// a VersioningQuery (see the dispatch ladder in Interpreter::Prepare), so an ordinary session that
-// never issues a branch query never executes a single line of it.
+// Management-query dispatch for CREATE/CHECKOUT/DROP/SHOW BRANCH*. Opens no storage accessor (VersionStore has its
+// own locking); CHECKOUT only attaches the session to a branch, ordinary Cypher routing lives in CurrentDB.
 PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                      CurrentDB &current_db) {
   auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
@@ -9217,35 +9106,17 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
   auto db_acc = *current_db.db_acc_;
   storage::Storage *storage = db_acc->storage();
 
-  // Graph Versioning v1, Fix #3 (instance-role guard): CREATE/CHECKOUT/DROP BRANCH mutate this
-  // database's VersionStore -- a purely local, per-instance registry that is NOT itself
-  // replicated (unlike MERGE BRANCH's storage-level write, which DOES fail cleanly on a REPLICA
-  // at the commit layer). Without this guard, a REPLICA would happily execute branch management
-  // commands against its own local VersionStore, silently diverging from MAIN's registry (only
-  // surfacing much later, and only for MERGE). Mirrors PrepareTtlQuery's identical guard
-  // (EnsureMainInstance, used for TTL) and PrepareMultiDatabaseQuery's per-action `is_replica`
-  // checks -- placed at the very top of dispatch, before the chunk-0 gate, so it applies
-  // uniformly to every VersioningQuery::Action (including SHOW BRANCHES* reads, same as TTL's
-  // guard covers all its actions) rather than requiring a bespoke per-action carve-out.
+  // VersionStore is a local, unreplicated registry that would silently diverge from MAIN's on a REPLICA, so every
+  // action (including SHOW) is rejected there, ahead of the storage-mode gate.
   EnsureMainInstance(interpreter_context, "Branch management operations");
 
-  // MEDIUM fix: SHOW BRANCHES FOR DATABASE reports on a DIFFERENT database's registry -- gating
-  // it against the CURRENT database's storage mode/WAL would wrongly reject an eligible target
-  // purely because the CURRENT db happens to be ineligible (e.g. current db is
-  // ON_DISK_TRANSACTIONAL while the FOR DATABASE target is a perfectly fine
-  // IN_MEMORY_TRANSACTIONAL tenant). Every other action -- and SHOW BRANCHES WITHOUT FOR DATABASE
-  // -- genuinely operates on the current db, so only THIS one case defers its storage-mode/WAL
-  // gate to the SHOW_BRANCHES case body below, once the target is resolved (see the re-gate
-  // there). flag_enabled/enterprise_valid are process-global, not per-database, so they are still
-  // enforced immediately below regardless -- a versioning-off operator cannot probe ANY
-  // database's registry via FOR DATABASE just because the current db is ineligible for a
-  // different reason.
+  // SHOW BRANCHES FOR DATABASE reports on another database, so its storage-mode gate is deferred to the resolved
+  // target below; the process-global flag/license checks still apply immediately.
   const bool cross_tenant_show_branches =
       query->action_ == VersioningQuery::Action::SHOW_BRANCHES && query->for_database_.has_value();
 
   versioning::VersionStore *version_store = nullptr;
   if (!cross_tenant_show_branches) {
-    // Chunk-0 gate (R6/D8/D9): checked BEFORE anything below ever touches VersionStore or main.
     if (const auto gate_err = versioning::CheckVersioningGate(
             FLAGS_versioning_enabled,
             license::global_license_checker.IsEnterpriseValidFast(),
@@ -9254,8 +9125,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
     }
 
     version_store = db_acc->version_store();
-    // The gate above already guarantees IN_MEMORY_TRANSACTIONAL, and Database only ever
-    // constructs version_store_ for that mode (dbms/database.cpp) -- defensive, unreachable.
+    // Defensive: the gate guarantees IN_MEMORY_TRANSACTIONAL, the only mode that constructs version_store_.
     if (version_store == nullptr) [[unlikely]] {
       throw QueryRuntimeException("Graph versioning registry is unavailable for this database.");
     }
@@ -9265,10 +9135,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
     throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
   }
 
-  // name_/description_/parent_ are Expression* -- a PrimitiveLiteral, or under a cached AST a
-  // ParameterLookup (ast.hpp's own doc-comment) -- never resolved at parse time. Evaluate them
-  // here exactly like PrepareSessionSettingQuery/CoordinatorQuery resolve setting_name_/
-  // setting_value_.
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
@@ -9280,17 +9146,10 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
 
   switch (query->action_) {
     case VersioningQuery::Action::CREATE_BRANCH: {
-      // Grammar guarantees name_/parent_ are both present (FROM is mandatory for CREATE BRANCH --
-      // see the parser's VersioningQueryInvalidSyntax test); these are invariants, not
-      // user-reachable error paths.
       MG_ASSERT(name && parent, "CREATE BRANCH: grammar guarantees a name and a FROM parent");
       if (auto err = versioning::ValidateBranchName(*name)) {
         throw QueryRuntimeException(*err);
       }
-      // v1 product decision: nested branches (FROM a non-main parent) are rejected at parse time
-      // because MERGE BRANCH applies the child's changelog to MAIN, not to the declared parent --
-      // silently misrouting writes. Reject here, before any state mutation, so the user gets a
-      // clear error rather than silent data misrouting.
       if (*parent != "main") {
         throw QueryRuntimeException(
             "CREATE BRANCH FROM a non-main branch (nested branches) is not supported in this "
@@ -9325,7 +9184,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       MG_ASSERT(name, "CHECKOUT BRANCH: grammar guarantees a name");
 
       if (query->checkout_) {
-        // Combined create-if-absent + switch (FROM present).
         MG_ASSERT(parent, "CHECKOUT BRANCH ... FROM: grammar guarantees a parent");
         if (auto err = versioning::ValidateBranchName(*name)) {
           throw QueryRuntimeException(*err);
@@ -9347,8 +9205,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 if (!created) {
                   throw QueryRuntimeException(created.error());
                 }
-                // Release whatever branch this session is currently attached to BEFORE attaching to the new,
-                // just-created one.
                 if (current_db.CurrentVersion()) {
                   current_db.SetCurrentVersion(std::nullopt);
                 }
@@ -9365,13 +9221,8 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
             .rw_type = RWType::W};
       }
 
-      // Plain switch -- 'main' clears the active version; any other name must already exist
-      // (spec §4.2: "Fails if <name> does not exist"). LOW fix: the existence check is now tied
-      // to the SAME Pull-time call as the current_version_ mutation (mirroring how CREATE/DROP/
-      // MERGE already tie their own check + mutation together) rather than checked here at
-      // Prepare time and acted on later at Pull time -- closes the TOCTOU window where the branch
-      // could have been dropped in between, which would otherwise switch the session onto a
-      // version that no longer exists with no error.
+      // Existence is checked in the Pull-time handler together with the switch, so a concurrent DROP cannot leave
+      // the session on a branch that no longer exists.
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
@@ -9382,17 +9233,13 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                             pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              // Resolve/validate the target FIRST, before touching any currently-held branch
-              // checkout -- a CHECKOUT to a non-existent branch must leave the session on its PREVIOUS branch
-              // untouched, not silently reset it.
+              // Validate the target before detaching, so a failed CHECKOUT leaves the session on its previous branch.
               if (target != "main" && !version_store->Exists(target)) {
                 throw QueryRuntimeException("Version '{}' does not exist.", target);
               }
 
-              // Only now that `target` is confirmed valid (or is 'main') detach from the current branch.
-              // NOTE: if CheckoutBranchEngine itself still fails below (the target was dropped between the
-              // check above and here, or building the core failed), the session lands on 'main' rather than back on
-              // its now-released old branch.
+              // If CheckoutBranchEngine fails below (target dropped meanwhile, or the core could not be built), the
+              // session lands on 'main', not on its old branch.
               if (current_db.CurrentVersion()) {
                 current_db.SetCurrentVersion(std::nullopt);
               }
@@ -9408,17 +9255,12 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
             }
             return std::nullopt;
           },
-          // Spec §4.2 does not define a row shape for the plain-switch form (only the create-
-          // and-switch form returns `version, number, description, parent`); a single STATUS
-          // confirmation row mirrors LockPathQuery/CreateDatabase-style management-query
-          // responses. Flagged as a deliberate choice, not a spec requirement.
           .rw_type = RWType::NONE};
     }
     case VersioningQuery::Action::MERGE_BRANCH: {
       MG_ASSERT(name, "MERGE BRANCH: grammar guarantees a name");
 
-      // Branches are discard-only (D1): their writes live in a shared in-memory diff engine with no durable
-      // change-log, so there is nothing to merge.
+      // Branches are discard-only: their writes live in an in-memory diff engine, so there is nothing to merge.
       throw QueryRuntimeException("MERGE BRANCH is not supported: branches are discard-only.");
     }
     case VersioningQuery::Action::DROP_BRANCH: {
@@ -9434,10 +9276,8 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                   AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              // VersionStore::DropBranch refuses a branch that has ANY attached session. Dropping the branch
-              // THIS session is attached to must keep working (spec §4.2), so this session detaches itself
-              // first -- but only after confirming no OTHER session is attached, so a refused DROP leaves the
-              // session where it was.
+              // DropBranch refuses a branch with any attached session; this session detaches itself first, but only
+              // after confirming no OTHER session is attached, so a refused DROP leaves it where it was.
               const size_t own_attachments = current_db.CurrentVersion() == name ? 1 : 0;
               if (version_store->CheckoutCount(name) > own_attachments) {
                 throw QueryRuntimeException(
@@ -9447,8 +9287,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 current_db.SetCurrentVersion(std::nullopt);
               }
               if (!version_store->DropBranch(name)) {
-                // TOCTOU: another connection raced a DropBranch(name) or a checkout of `name` between the
-                // pre-checks above and this call. Rare; surfaced rather than silently no-op'd.
+                // Raced with another connection's DropBranch or checkout of `name` after the pre-checks above.
                 throw QueryRuntimeException(
                     "Version '{}' could not be dropped (it no longer exists or is checked out by another "
                     "session). Retry DROP BRANCH.",
@@ -9474,8 +9313,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               if (const auto &current = current_db.CurrentVersion(); current) {
                 auto info = version_store->Get(*current);
                 if (!info) {
-                  // The checked-out branch was dropped/merged (by this or another connection)
-                  // since CHECKOUT -- surfaced rather than silently reporting 'main' instead.
+                  // Dropped since CHECKOUT; reported rather than silently showing 'main'.
                   throw QueryRuntimeException(
                       "The checked-out version '{}' no longer exists. Use CHECKOUT BRANCH to select another "
                       "version.",
@@ -9499,10 +9337,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           .rw_type = RWType::NONE};
     }
     case VersioningQuery::Action::SHOW_BRANCHES: {
-      // FOR DATABASE targets ANOTHER tenant's registry. Full cross-tenant scoping/gating is chunk
-      // 8's job (grounded fact); this chunk resolves it when the enterprise multi-tenancy API is
-      // available (dbms_handler->Get(name) is MG_ENTERPRISE-only, mirroring UseDatabaseQuery) and
-      // otherwise flags it as not-yet-supported rather than silently ignoring the clause.
+      // dbms_handler->Get(name) is MG_ENTERPRISE-only (as in UseDatabaseQuery); community builds reject FOR DATABASE.
       auto target_db_acc = db_acc;
 #ifdef MG_ENTERPRISE
       if (query->for_database_) {
@@ -9518,13 +9353,8 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
         throw QueryRuntimeException("SHOW BRANCHES FOR DATABASE requires an enterprise multi-tenant build.");
       }
 #endif
-      // MEDIUM fix: flag_enabled/enterprise_valid were already enforced above (for BOTH the
-      // plain and FOR DATABASE forms); storage mode is PER-DATABASE and were
-      // deliberately NOT checked above for the FOR DATABASE form (cross_tenant_show_branches),
-      // so gate the RESOLVED target here -- unconditionally whenever FOR DATABASE was given, not
-      // just when the target differs from the current db (a user naming their OWN db via FOR
-      // DATABASE must still go through this, since the top-level gate above was skipped for them
-      // too).
+      // Gate the resolved target's storage mode whenever FOR DATABASE is given (even naming the current db), since the
+      // top-level gate skipped it for this form.
       if (query->for_database_) {
         storage::Storage *target_storage = target_db_acc->storage();
         if (const auto target_gate_err = versioning::CheckVersioningGate(
@@ -9815,14 +9645,6 @@ PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_que
 
 PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Create Enum query expects a current DB");
-  // Graph Versioning v1 fix M5/L2 (2026-07-18): extend chunk 9b's R17 gate to enum DDL -- reject
-  // while ANY branch exists, same mechanism/message-shape as PrepareStorageModeQuery/
-  // PrepareDropGraphQuery/PrepareRecoverSnapshotQuery above. A checked-out branch carries a frozen
-  // enum-store mirror taken at fork time; a concurrent CREATE ENUM on main would silently drift that
-  // mirror out of sync, causing enum-label mismatches on merge (M5) and general staleness (L2) for
-  // the lifetime of the checkout. This is the MAIN-side half only -- branches already reject enum
-  // DDL themselves via the on-branch blocklist. version_store() is null on non-transactional
-  // storage (guard is then a no-op).
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot create an enum while versioning branches exist: it would drift their frozen enum "
@@ -9878,9 +9700,6 @@ PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current
 
 PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
-  // Graph Versioning v1 fix M5/L2 (2026-07-18): extend chunk 9b's R17 gate to enum DDL -- see
-  // PrepareCreateEnumQuery's own doc-comment above for the full rationale (frozen enum mirror
-  // drift). Same mechanism/message-shape as the other R17 gates.
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot alter an enum while versioning branches exist: it would drift their frozen enum "
@@ -9916,9 +9735,6 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
 
 PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
-  // Graph Versioning v1 fix M5/L2 (2026-07-18): extend chunk 9b's R17 gate to enum DDL -- see
-  // PrepareCreateEnumQuery's own doc-comment above for the full rationale (frozen enum mirror
-  // drift). Same mechanism/message-shape as the other R17 gates.
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot alter an enum while versioning branches exist: it would drift their frozen enum "
@@ -11086,9 +10902,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(MultiDatabaseQuery & /*unused*/) override {}
 
-  // Chunk 7a: VersioningQuery needs the current database (for VersionStore/storage mode/WAL
-  // config) but leaves accessor_type_ unset -- like CreateSnapshotQuery below, it manages its own
-  // storage access internally (VersionStore's own lock), so no interpreter-level accessor is set up for it.
   void Visit(VersioningQuery & /*unused*/) override {}
 
   void Visit(ReplicationQuery & /*unused*/) override {}
@@ -11353,15 +11166,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
   }
 
-  // Graph Versioning v1 (USING VERSION per-query override, Step 1): resolve the clause here, while
-  // parsed_query.query/cypher_query are still valid -- parsed_query is std::move'd into a
-  // Prepare*Query(...) helper further down the dispatch ladder, after which its AST storage is freed.
-  //
-  // Step 1 scope is intentionally narrow: PreQueryDirectives::version_target_ only exists on a
-  // CypherQuery's own AST node (grammar attaches USING VERSION only to cypherQuery), not on the
-  // sibling ProfileQuery node -- so `PROFILE ... USING VERSION 'x' ...` is silently ignored here
-  // (has_explicit_version stays false) and the query falls through to ordinary session routing.
-  // Lifting PROFILE support is Step 2+ scope.
+  // Resolved before parsed_query is moved into a Prepare*Query helper that frees its AST. Only a top-level CypherQuery
+  // is read: a wrapped (EXPLAIN/PROFILE) USING VERSION is ignored and falls through to session routing.
   std::optional<std::string> using_version;
   if (cypher_query != nullptr && cypher_query->pre_query_directives_.version_target_ != nullptr) {
     EvaluationContext version_eval_ctx;
@@ -11373,18 +11179,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   const bool has_explicit_version = using_version.has_value();
   bool force_main_this_query = false;
   if (has_explicit_version) {
-    // A per-query override cannot re-route inside an already-open explicit-tx accessor:
-    // SetupDatabaseTransaction only runs once, at BEGIN (see the !in_explicit_transaction_ guard
-    // below), so there is no per-query routing hook left to honor USING VERSION against.
+    // SetupDatabaseTransaction runs once, at BEGIN, so a per-query override cannot re-route an open explicit
+    // transaction.
     if (in_explicit_transaction_) {
       throw utils::NotYetImplemented("USING VERSION inside an explicit (BEGIN) transaction is not yet supported");
     }
     if (*using_version == "main") {
-      // Route THIS query to main even if the session is checked out on a branch (or engaged and
-      // unresolved on main -- the D10 escape hatch); session/branch state is left untouched.
+      // Route THIS query to main even when the session is checked out on a branch; session state is untouched.
       force_main_this_query = true;
     } else if (current_db_.CurrentVersion().has_value() && *using_version == *current_db_.CurrentVersion()) {
-      // Same as the session's current checkout -- ordinary session routing already gets this right.
+      // Same as the session's current checkout: ordinary routing already applies.
     } else {
       throw utils::NotYetImplemented(
           "USING VERSION for a branch other than 'main' or the currently checked-out branch is not yet supported");
@@ -11620,33 +11424,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       cached_fga_->Reset();
     }
 #endif
-    // Graph Versioning v1 chunk 8 (R14) -- schema-plane DDL mutates storage-global state that
-    // doesn't preview/roll-back per-transaction (enum value ids are positional + NOT rolled back
-    // on abort -> mainline enum corruption); on a branch it would also hit the throwaway diff
-    // engine and be silently lost at merge. Reject before planning; data-plane writes remain
-    // allowed; introspection (SHOW ...) remains allowed. Reconciliation/fork-era-catalog (index
-    // SEEKS on a branch) is a separate deferred perf slice.
-    //
-    // Widened set (adversarial review follow-up): TtlQuery (ENABLE/CONFIGURE TTL) mutates the same
-    // storage-global `ttl_` state and enqueues a real index build on main -- it is the same
-    // silent-mutate-main class as the index/constraint/enum DDL above, so it belongs in this guard
-    // for the same reason. StorageModeQuery and RecoverSnapshotQuery are additionally in scope of a
-    // broader R17 rule -- they must be rejected whenever ANY branch exists on the database, not only
-    // when THIS session happens to be checked out on one -- but that `branches-exist` guard is
-    // deferred to chunk 9b (backup completeness + mode guards). What's implemented here is the
-    // strict subset of R17 that is cheap to close now: running RECOVER SNAPSHOT (wholesale-replaces
-    // storage contents from disk) or STORAGE MODE (flips whole-DB storage mode, bypassing MVCC)
-    // while THIS session is actively on a branch is an immediate corruption hazard to the diff
-    // engine referencing the base storage, so it's rejected unconditionally here; the wider
-    // any-branch-exists case is chunk 9b's job. EdgeImportModeQuery only mutates on-disk
-    // edge-import mode, which is unreachable under versioning's in-memory-only rule -- included
-    // anyway as cheap defense-in-depth. CreateSnapshotQuery is deliberately NOT included: it
-    // snapshots main's storage (a separate storage object from the branch's diff engine), is a
-    // harmless durability op, and rejecting it would break a legitimate "snapshot before merge"
-    // workflow.
+    // Rejected on a branch: these mutate main-global state (schema, TTL, triggers, streams) that the discard-only diff
+    // engine cannot preview or roll back. CreateSnapshotQuery stays allowed: it snapshots main's storage.
     if (current_db_.branch_context() != nullptr) {
       auto *q = parsed_query.query;
-      // Indexes belong to main; every schema DDL (CREATE and DROP alike) is rejected on a branch.
       const bool is_schema_or_storage_global_ddl =
           (utils::Downcast<IndexQuery>(q) != nullptr || utils::Downcast<EdgeIndexQuery>(q) != nullptr ||
            utils::Downcast<PointIndexQuery>(q) != nullptr || utils::Downcast<VectorIndexQuery>(q) != nullptr ||
@@ -11659,13 +11440,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
            utils::Downcast<AnalyzeGraphQuery>(q) != nullptr || utils::Downcast<DropGraphQuery>(q) != nullptr ||
            utils::Downcast<TtlQuery>(q) != nullptr || utils::Downcast<StorageModeQuery>(q) != nullptr ||
            utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<EdgeImportModeQuery>(q) != nullptr ||
-           // Fix #7: CREATE/DROP TRIGGER and CREATE/START/STOP STREAM mutate main's global,
-           // durable trigger/stream registries (TriggerStore/Streams live on the Database, not
-           // the diff engine) -- same class of storage-global side effect as TTL/STORAGE MODE
-           // above, so a branch session must not be able to touch them either.
+           // Trigger/stream registries live on the Database, not the diff engine.
            utils::Downcast<TriggerQuery>(q) != nullptr || utils::Downcast<StreamQuery>(q) != nullptr ||
-           // Descriptions are keyed on main's schema entities and live in main's storage; on a branch a write
-           // would land in the diff engine (lost) and a read would see nothing.
+           // Descriptions live in main's storage; a branch write would be lost and a read would see nothing.
            utils::Downcast<DescriptionQuery>(q) != nullptr);
       if (is_schema_or_storage_global_ddl) {
         throw QueryRuntimeException(
@@ -11885,9 +11662,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // DMG_ASSERT(system_guard);
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
     } else if (utils::Downcast<VersioningQuery>(parsed_query.query)) {
-      // Graph Versioning (branches) v1, chunk 7a: management queries (CREATE/CHECKOUT/MERGE/DROP/
-      // SHOW BRANCH*) are autocommit-only, mirroring MultiDatabaseQuery immediately above (spec
-      // §4.1/§4.4).
       if (in_explicit_transaction_) {
         throw VersioningQueryInMulticommandTxException();
       }
@@ -12578,8 +12352,6 @@ void Interpreter::Commit() {
         error);
   }
 
-  // Graph Versioning: the diff engine fast-discards a committed transaction's deltas during
-  // PrepareForCommitPhase, so by this point curr_txn->deltas is already empty.
   bool const txn_committed = maybe_commit_error.has_value() || replication_error_committed;
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of

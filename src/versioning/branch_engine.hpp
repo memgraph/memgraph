@@ -34,8 +34,7 @@
 
 namespace memgraph::versioning {
 
-// Visits the integers of a list-valued marker property (a list of ints; the property store may hold it as a
-// generic list or a packed int list). Works for PropertyValue and ExternalPropertyValue alike.
+// Visits the ints of a list-valued marker property, stored either as a generic list or a packed int list.
 template <typename PV, typename F>
 void ForEachListedInt(PV const &value, F &&visit) {
   if (value.IsList()) {
@@ -47,32 +46,27 @@ void ForEachListedInt(PV const &value, F &&visit) {
   }
 }
 
-// Visits the property ids encoded in a stub's `__mg_removed` value.
 template <typename PV, typename F>
 void ForEachRemovedPid(PV const &value, F &&visit) {
   ForEachListedInt(value, [&](int64_t pid) { visit(storage::PropertyId::FromInt(static_cast<int32_t>(pid))); });
 }
 
-// Shared, per-branch state: one per live branch, handed out as shared_ptr by VersionStore's core registry and held
-// by every session that has the branch checked out. Everything a session mutates lives either inside the diff engine
-// (versioned by its MVCC) or behind an atomic / mutex here; per-session and per-transaction state is BranchContext's.
+// Shared per-branch state: one per live branch, shared by every session that has it checked out. Session-mutated
+// state lives in the diff engine (MVCC) or behind an atomic / mutex here; per-transaction state is BranchContext's.
 //
-// ONE SHARED NameIdMapper (main's own): historical (not-yet-stubbed) vertices carry main's label/property ids, so the
-// diff engine must decode through the same mapper. Enum-TYPE ids are the one exception (enum_store_ is mirrored, not
-// shared); stubs copy no fork values, so nothing carries a main enum-type id into the diff engine.
+// The diff engine shares main's NameIdMapper because not-yet-stubbed fork vertices carry main's label/property ids.
+// Enum-type ids differ (the enum store is mirrored, not shared); stubs copy no fork values, so none cross over.
 //
-// Edge stubs mirror vertex stubs: a fork edge whose properties change gets an empty delta-less diff edge with the same
-// gid between the endpoint stubs; the stub holds only changed properties plus the `__mg_removed` pid list (shared with
-// vertices) for removed ones, and is never visible as such.
+// Edge stubs mirror vertex stubs: an empty delta-less diff edge with the fork edge's gid, holding only changed
+// properties plus the `__mg_removed` pid list for removed ones.
 //
-// GID COLLISION HAZARD: the diff engine's gid counters start at 0; `Build` reserves a disjoint range for branch-native
-// creates (kBranchNativeGidWatermark, branch_engine.cpp).
+// The diff engine's gid counters start at 0, so `Build` reserves a disjoint range for branch-native creates
+// (kBranchNativeGidWatermark, branch_engine.cpp).
 //
-// Deletes: a deleted fork object is recorded INSIDE the diff engine (MVCC-versioned like every other branch write): the
-// vertex stub carries the label `__mg_deleted`, a deleted fork edge's gid sits in the list property
-// `__mg_deleted_edges` on both endpoint stubs.
+// Deleted fork objects are recorded in the diff engine: the vertex stub carries label `__mg_deleted`; a deleted fork
+// edge's gid is listed in property `__mg_deleted_edges` on both endpoint stubs.
 //
-// Lifetime: must not outlive the Database's storage (the registry that owns it is destroyed before storage_).
+// Must not outlive the Database's storage (the owning registry is destroyed before storage_).
 class BranchCore {
  public:
   // Build fails if fork_ts is no longer pinned.
@@ -80,18 +74,16 @@ class BranchCore {
     std::string message;
   };
 
-  // Reserved-name markers recording REMOVALS on a sparse fork stub. Everything lives in the stub itself
-  // (diff-engine MVCC versions it): label L removed => stub carries label `__mg_rm:L`; properties
-  // removed => stub property `__mg_removed` holds a list of the removed property ids (ints).
-  // Names with the `__mg_` prefix are reserved: query writes of them on a branch are rejected.
+  // Removal markers on a fork stub: label L removed => stub label `__mg_rm:L`; properties removed => stub property
+  // `__mg_removed` listing their ids. The `__mg_` prefix is reserved: query writes of it on a branch are rejected.
   struct LabelInfo {
     bool reserved{false};
     // Set iff the label is a removal marker: the label it removes.
     std::optional<storage::LabelId> removed_label;
   };
 
-  // Builds the diff engine (empty, sharing main's NameIdMapper), reserves the branch-native gid range, and mirrors
-  // main's index and enum definitions as of now. `commit_args` is consumed by the gid-reservation commit.
+  // Builds an empty diff engine, reserves the branch-native gid range, and mirrors main's index and enum definitions.
+  // `commit_args` is consumed by the gid-reservation commit.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main, uint64_t fork_ts,
                                                                       storage::CommitArgs commit_args);
 
@@ -113,8 +105,6 @@ class BranchCore {
 
   storage::PropertyId RemovedPropsKey() const { return removed_props_key_; }
 
-  // Delete markers: label `__mg_deleted` on a deleted fork vertex's stub; list property `__mg_deleted_edges` (edge
-  // gids) on both endpoint stubs of a deleted fork edge.
   storage::LabelId DeletedLabel() const { return deleted_label_; }
 
   storage::PropertyId DeletedEdgesKey() const { return deleted_edges_key_; }
@@ -122,8 +112,7 @@ class BranchCore {
   // Edge type of the gid-watermark placeholder edge; lingers in the diff engine's schema metadata.
   storage::EdgeTypeId GidWatermarkEdgeType() const { return gid_watermark_edge_type_; }
 
-  // Branch-side per-kind change filters (branch_change_filter.hpp). Lock-free (atomic fetch_or / acquire load), so
-  // concurrent sessions may record and query without further synchronisation.
+  // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions.
   void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept {
     change_filters_.RecordVertexChange(gid, kind);
   }
@@ -148,18 +137,17 @@ class BranchCore {
   BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts, std::unique_ptr<storage::InMemoryStorage> diff_engine,
              storage::EdgeTypeId gid_watermark_edge_type);
 
-  storage::InMemoryStorage *main_;  // Not owned; outlives the core (see class comment).
+  storage::InMemoryStorage *main_;  // Not owned.
   uint64_t fork_ts_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
-  // Fixed reserved names, resolved once in the constructor so the hot read paths take no lock.
+  // Resolved once in the constructor so hot read paths take no lock.
   storage::PropertyId removed_props_key_;
   storage::LabelId deleted_label_;
   storage::PropertyId deleted_edges_key_;
   storage::EdgeTypeId gid_watermark_edge_type_;
 
-  // Lazy caches over the shared NameIdMapper for the reserved-name markers above. Guarded because reads
-  // classify labels lazily; entries are immutable once inserted.
+  // Lazy caches over the shared NameIdMapper; entries are immutable once inserted.
   std::mutex marker_mutex_;
   std::unordered_map<storage::LabelId, LabelInfo> label_info_;
   std::unordered_map<storage::LabelId, storage::LabelId> removal_marker_;
@@ -168,17 +156,15 @@ class BranchCore {
   BranchChangeFilters change_filters_;
 };
 
-// One session's view of a branch: a shared BranchCore plus the per-transaction state. Reads resolve diff-engine-first,
-// falling back to the historical base (main time-traveled to fork_ts; `ResolveVertex`/`Vertices`). A write first
-// materializes an empty stub of the touched object in the diff engine (`CowVertex`/`CowEdge`), then mutates it.
+// One session's view of a branch: a shared BranchCore plus per-transaction state. Reads resolve diff-engine-first,
+// falling back to the historical base (main at fork_ts). A write first materializes an empty stub of the touched
+// object in the diff engine (`CowVertex`/`CowEdge`), then mutates it.
 //
-// The two per-transaction slots (`current_diff_txn_`, `historical_`) are opened by OpenHistorical + SetCurrentDiffTxn
-// and released by EndTransaction, called by CurrentDB::SetupDatabaseTransaction / CleanupDBTransaction. They are NOT
-// duplicated onto every query::VertexAccessor/DbAccessor (mgp_vertex size budget). A BranchContext belongs to exactly
-// one session and is used by one transaction at a time; concurrent sessions each hold their own BranchContext over the
-// same core.
+// The per-transaction slots (`current_diff_txn_`, `historical_`) are opened by CurrentDB::SetupDatabaseTransaction
+// and released by CleanupDBTransaction. Owned by one session and used by one transaction at a time; concurrent
+// sessions each hold their own BranchContext over the same core.
 //
-// historical_ holds main's READ storage guard (and a self fork pin) only while a branch transaction is open.
+// historical_ holds main's READ storage guard only while a branch transaction is open.
 class BranchContext {
  public:
   using BuildError = BranchCore::BuildError;
@@ -189,8 +175,7 @@ class BranchContext {
                                                                                  uint64_t fork_ts,
                                                                                  storage::CommitArgs commit_args);
 
-  // `name` is the branch this context was attached through (empty for unregistered, test-built contexts); a nested
-  // session (mgp_execute_query) re-attaches by it.
+  // `name` is the branch this context was attached through (empty for test-built contexts); nested sessions use it.
   explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {})
       : core_(std::move(core)), name_(std::move(name)) {}
 
@@ -199,7 +184,6 @@ class BranchContext {
   BranchContext(BranchContext &&) = delete;
   BranchContext &operator=(BranchContext &&) = delete;
 
-  // historical_ is declared after core_, so it is released first.
   ~BranchContext() = default;
 
   const std::shared_ptr<BranchCore> &core() const { return core_; }
@@ -214,22 +198,20 @@ class BranchContext {
     return *historical_;
   }
 
-  // Opens a fresh historical accessor on main at fork_ts (holding main's READ guard). Fails if the fork timestamp is
-  // no longer pinned (branch dropped); nothing is left open on failure. CurrentDB opens it BEFORE the diff-engine
-  // accessor so the lock order is always main READ -> diff engine.
+  // Opens a historical accessor on main at fork_ts (holding main's READ guard). Fails, leaving nothing open, if
+  // fork_ts is no longer pinned. Call BEFORE opening the diff-engine accessor: lock order is main READ -> diff engine.
   std::expected<void, BuildError> OpenHistorical();
 
-  // Publishes `diff_txn` (the session's diff-engine accessor) as the current transaction.
   void SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) { current_diff_txn_ = diff_txn; }
 
-  // OpenHistorical + SetCurrentDiffTxn, for callers that already hold the diff-engine accessor (unit tests).
+  // OpenHistorical + SetCurrentDiffTxn, for callers that already hold the diff-engine accessor (tests).
   std::expected<void, BuildError> BeginTransaction(storage::Storage::Accessor *diff_txn) {
     if (auto opened = OpenHistorical(); !opened) return opened;
     SetCurrentDiffTxn(diff_txn);
     return {};
   }
 
-  // Clears both slots; releases the historical accessor (and with it main's READ guard). Idempotent.
+  // Clears both slots and releases main's READ guard. Idempotent.
   void EndTransaction() noexcept {
     current_diff_txn_ = nullptr;
     historical_.reset();
@@ -237,20 +219,14 @@ class BranchContext {
 
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
 
-  // CowVertex/CowEdge fail when the object is already deleted on the branch or is missing from the fork state.
   struct CowError {
     std::string message;
   };
 
-  // Copy-on-write: returns the diff engine's VertexAccessor for `gid` via current_diff_txn().
-  //   - Idempotent: if the diff engine already has `gid` (prior COW or branch-native create),
-  //     returns that copy immediately.
-  //   - CowError if the vertex is deleted on the branch.
-  //   - Else: materializes an EMPTY delta-less stub with the same gid in current_diff_txn();
-  //     fork labels/properties stay in historical_ and are not copied.
+  // Returns the diff engine's vertex for `gid`, materializing an empty delta-less stub if none exists (fork
+  // labels/properties stay in historical_). CowError if deleted on the branch.
   std::expected<storage::VertexAccessor, CowError> CowVertex(storage::Gid gid);
 
-  // Reserved-name markers (see BranchCore); forwarded so query code keeps one entry point.
   LabelInfo ClassifyLabel(storage::LabelId label) { return core_->ClassifyLabel(label); }
 
   storage::LabelId RemovalMarker(storage::LabelId label) { return core_->RemovalMarker(label); }
@@ -263,12 +239,11 @@ class BranchContext {
 
   storage::PropertyId DeletedEdgesKey() { return core_->DeletedEdgesKey(); }
 
-  // Deleted-ness is read from the stub as visible to the current diff transaction at `view` (never from side
-  // state), so it follows diff-engine MVCC: own writes, snapshots and rollback all behave like main's.
+  // Read from the stub as visible at `view`, so deletion follows diff-engine MVCC (own writes, snapshots, rollback).
   bool IsStubDeleted(const storage::VertexAccessor &stub, storage::View view);
   // False for native gids (their deletes are ordinary diff-engine deletes) and for fork vertices without a stub.
   bool IsVertexDeleted(storage::Gid gid, storage::View view);
-  // `fork_vertex` is a main@fork accessor; a clear branched() bit proves no stub exists, skipping the lookup.
+  // `fork_vertex` is a main@fork accessor; a clear branched() bit means no stub exists, so the lookup is skipped.
   bool IsForkVertexDeleted(const storage::VertexAccessor &fork_vertex, storage::View view);
   // True when the fork edge is deleted on the branch (gid listed on its FROM stub) or either fork endpoint is.
   // `fork_edge` may also be the edge's diff-engine copy.
@@ -277,12 +252,11 @@ class BranchContext {
   std::vector<uint64_t> DeletedEdgeGids(const storage::VertexAccessor &stub, storage::View view);
   storage::Result<bool> StoreDeletedEdgeGids(storage::VertexAccessor &stub, const std::vector<uint64_t> &gids);
 
-  // DELETE of a fork vertex: stub (materialized if needed) plus the `__mg_deleted` label. The stub is never
-  // physically deleted. Returns the stub, or nullopt when already deleted. Edges are NOT touched: incident fork
-  // edges are hidden by the endpoint marker, incident diff-engine edges are the caller's to delete.
+  // Marks the fork vertex's stub (materialized if needed) with `__mg_deleted`; returns nullopt if already deleted.
+  // Edges are NOT touched: incident fork edges are hidden by the marker, diff-engine edges are the caller's to delete.
   storage::Result<std::optional<storage::VertexAccessor>> DeleteForkVertex(storage::Gid gid);
-  // DELETE of a fork edge: its gid goes on both endpoint stubs, and a diff-engine copy (an earlier property write
-  // COW'd it) is deleted normally. Returns false when it was already deleted.
+  // Lists the fork edge's gid on both endpoint stubs and deletes its diff-engine copy, if any. False if already
+  // deleted.
   storage::Result<bool> DeleteForkEdge(const storage::EdgeAccessor &fork_edge);
 
   bool IsForkGid(storage::Gid gid) const;
@@ -291,46 +265,33 @@ class BranchContext {
   // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
   std::optional<storage::VertexAccessor> FindStubOrDiffVertex(storage::Gid gid, storage::View view);
 
-  // Copy-on-write for edges. Takes the fork edge's EdgeAccessor (or its stub) directly because
-  // historical_->FindEdge(gid) is unreliable for edges (see ResolveEdge's doc-comment).
-  //   - Idempotent: if edge_gid already has a diff-engine edge (prior stub or branch-native create), returns it.
-  //   - CowError if the edge is deleted on the branch.
-  //   - Else: COWs BOTH endpoints (CowVertex, idempotent) and materializes an EMPTY delta-less edge stub with the
-  //     same gid linked between the endpoint stubs (InMemoryAccessor::MaterializeStubEdge). Fork properties stay in
-  //     historical_ and are not copied; writes then land on the stub as ordinary diff-engine MVCC writes, and reads
-  //     overlay the stub on the fork edge (query::EdgeAccessor). Because the stub is not transactional, a rolled-back
-  //     write leaves it behind harmlessly and the next COW simply finds it. It adds no edge to the branch (adjacency
-  //     reads emit the fork edge, see ResolveEdges), so it records no edge change.
+  // Returns the diff engine's edge for the fork edge's gid, materializing an empty edge stub between the (COW'd)
+  // endpoint stubs if none exists. The stub is not transactional: a rolled-back write leaves it behind harmlessly.
+  // It adds no edge to the branch (adjacency emits the fork edge, see ResolveEdges), so no edge change is recorded.
+  // CowError if the edge is deleted on the branch.
   std::expected<storage::EdgeAccessor, CowError> CowEdge(const storage::EdgeAccessor &fork_edge);
 
   // The fork edge (historical_, View::OLD) behind a diff-engine edge stub, found through its endpoints' adjacency.
   std::optional<storage::EdgeAccessor> FindForkEdge(const storage::EdgeAccessor &stub);
 
-  // True for a diff-engine edge or vertex that stands for a fork object (a stub), as opposed to a branch-native one.
   template <typename Accessor>
   bool IsStub(const Accessor &diff_object) const {
     return diff_object.storage_ == &core_->diff_engine() && IsForkGid(diff_object.Gid());
   }
 
-  // True when `stub` carries its own value for `property` or records its removal, i.e. the fork edge's value of that
-  // property is not the branch's. Used by index overlays to drop stale fork-side candidates.
+  // True when `stub` carries its own value for `property` or records its removal (the fork edge's value is stale).
   bool StubEdgeTouches(const storage::EdgeAccessor &stub, storage::PropertyId property, storage::View view);
 
-  // Diff-engine-first point lookup, falling back to historical_ on a miss.
-  // A fork vertex whose stub is deleted at `view` never resolves.
+  // Diff-engine-first point lookup, falling back to historical_; a fork vertex whose stub is deleted never resolves.
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
-  // Diff-engine-ONLY point lookup by edge gid (no historical_ fallback). Used for:
-  //   (1) CowEdge's idempotency check — "already COW'd or branch-natively created?"
-  //   (2) EdgeAccessor self-correcting property reads (GetProperty/Properties/GetPropertySize).
+  // Diff-engine-ONLY point lookup by edge gid (no historical_ fallback).
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
   // Same lookup when the FROM endpoint's gid is known: avoids the diff engine's all-vertex scan for the edge.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
-  // Gid-ordered streaming UNION of historical_ (every fork-state vertex, resolved: a COW'd gid
-  // yields the diff engine's copy) with current_diff_txn()->Vertices(view) (branch-native creates).
-  // Both sides are gid-ordered (storage::Vertex::operator<), so this is a single O(H + D) forward
-  // pass — never a per-object lookup. Yields live storage::VertexAccessor directly; no eager copy.
+  // Gid-ordered streaming union of historical_ (a COW'd gid yields the diff engine's copy) with the diff engine's
+  // vertices (branch-native creates). Both sides are gid-ordered, so it is one O(H + D) forward pass.
   class UnionVerticesIterable {
    public:
     class Iterator {
@@ -338,9 +299,7 @@ class BranchContext {
       using difference_type = std::ptrdiff_t;
       using value_type = storage::VertexAccessor;
 
-      // Default-constructed = end iterator (done_ == true).
       Iterator() = default;
-      // `deleted_label`/`view`: a fork vertex whose diff-engine stub carries the delete marker at `view` is skipped.
       Iterator(storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
                storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
                storage::LabelId deleted_label, storage::View view);
@@ -349,7 +308,7 @@ class BranchContext {
 
       Iterator &operator++();
 
-      // Only tests "reached end" (done_ flag); mid-iteration position comparison is not supported.
+      // Only compares "reached end"; mid-iteration positions are not comparable.
       bool operator==(const Iterator &other) const { return done_ == other.done_; }
 
      private:
@@ -383,26 +342,18 @@ class BranchContext {
 
   UnionVerticesIterable Vertices(storage::View view);
 
-  // Per-vertex UNION of historical_'s fork-state incident edges with current_diff_txn()'s branch-native ones. An edge
-  // stub in the diff adjacency is skipped: its fork edge is emitted from historical_ (once, in fork identity) and
-  // reads overlay the stub. NOT a lazy streaming merge: vertex incident-edge sets are degree-bounded, so an eager
-  // owned vector is simpler here.
-  // historical_ is always read at View::OLD (frozen snapshot, no notion of caller-relative NEW).
-  // Fork edges listed as deleted on `vertex_gid`'s stub, or whose other fork endpoint is deleted at `view`, are
-  // dropped; diff-engine deletes are hidden by MVCC. A deleted vertex yields no edges and sets `*vertex_deleted`.
+  // Union of historical_'s incident edges (always View::OLD) with branch-native ones from the diff engine. Edge stubs
+  // are skipped: the fork edge is emitted from historical_ and reads overlay the stub. Eager (degree-bounded).
+  // Fork edges listed as deleted on `vertex_gid`'s stub, or whose other endpoint is deleted at `view`, are dropped.
+  // A deleted vertex yields no edges and sets `*vertex_deleted`.
   std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
                                                   storage::View view, bool *vertex_deleted = nullptr);
 
-  // Per-kind change filters live in the shared core (see branch_change_filter.hpp for the model).
-  // Write side: RecordVertexChange fires from VertexAccessor::CowIfNeeded; RecordEdgeChange fires
-  // from CowEdge and DbAccessor::InsertEdge. Read side: MayHave* let readers skip the resolve when a kind is
-  // definitely unchanged.
+  // Forwarders to the core's change filters; MayHave* let readers skip the resolve when a kind is definitely unchanged.
   void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept { core_->RecordVertexChange(gid, kind); }
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { core_->RecordEdgeChange(endpoint_gid); }
 
-  // Fine-grained per-property recording/query. Gates GetProperty/GetPropertySize fast paths;
-  // Properties() (whole-map) uses the coarse MayHavePropertyChange instead.
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     core_->RecordPropertyFieldChange(gid, pid);
   }
@@ -418,19 +369,16 @@ class BranchContext {
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
  private:
-  // Sets the monotonic `branched()` bit on MAIN's own Vertex for `gid`, resolved through the transaction's historical
-  // accessor with the vertex's lock held. Best-effort hint, safe to call from concurrent sessions (the bit is written
-  // under main's vertex lock, no diff-engine lock is held by any caller). Call site: CowVertex.
+  // Sets the monotonic `branched()` hint bit on main's Vertex for `gid` under its lock; callers hold no diff-engine
+  // lock.
   void MarkMainObjectBranched(storage::Gid gid);
 
-  // Sets the `branched()` bit on a main@fork edge reached directly (its Edge* is main's live object). Same
-  // properties_on_edges gate as above; takes only the edge's own lock.
+  // Sets the `branched()` bit on a main@fork edge (its Edge* is main's live object); no-op without properties_on_edges.
   void MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge);
 
   std::shared_ptr<BranchCore> core_;
   std::string name_;
-  // Per-transaction slots; see the class comment. current_diff_txn_ is not owned: it points into
-  // CurrentDB::db_transactional_accessor_ for the duration of one transaction, nullptr otherwise.
+  // current_diff_txn_ is not owned: it points into CurrentDB::db_transactional_accessor_ for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;
 };

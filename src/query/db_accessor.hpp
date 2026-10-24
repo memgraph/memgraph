@@ -113,10 +113,6 @@ class SubgraphVertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-1 knock-on fix: query::VertexAccessor::
-  // UpdateProperties dropped `const` (see its own doc-comment) so it could CowIfNeeded() on a
-  // branch -- `impl_` here is a by-value member (not a pointer), so a `const` SubgraphVertexAccessor
-  // method can no longer call it either. Mirrors SetProperty below, already non-const.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.UpdateProperties(properties);
@@ -129,43 +125,15 @@ class SubgraphVertexAccessor final {
 namespace memgraph::query {
 
 class VerticesIterable final {
-  // Graph Versioning v1 (lazy diff-context, slice E-1): the 3rd alternative -- a branch-checkout's
-  // gid-ordered union scan (versioning::BranchContext::UnionVerticesIterable, branch_engine.hpp) --
-  // is added ALONGSIDE the two pre-existing alternatives below (a plain storage-level scan, or a
-  // caller-materialized set), not in place of either. Only DbAccessor::Vertices (below) ever
-  // constructs this alternative, and only when a branch context is active.
-  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) FIX (adversarial-review): the 4th
-  // alternative is a fully-materialized, already-filtered result set for the branch label/property
-  // scan workaround (see DbAccessor::Vertices(view, label[, properties, property_ranges]) below) --
-  // a checked-out branch's diff engine has no label/property index reconciled with historical_, so
-  // those scans fall back to filtering the (already-existing) unfiltered union scan by label/
-  // property instead of seeking an index. Filtering eagerly into an owned std::shared_ptr<vector<>>
-  // (rather than lazily skipping non-matches during iteration, which would need a predicate-aware
-  // variant of BranchContext::UnionVerticesIterable::Iterator) trades some memory/time for
-  // correctness and keeps the existing union-scan machinery untouched -- "at minimum correct even
-  // if slower" per the adversarial-review fix. shared_ptr (not a raw owned member here) so the
-  // materialized vector's lifetime is independent of how many copies of this VerticesIterable (or
-  // of Iterator, which also holds a copy -- see below) get made; VertexAccessor is NOT subject to
-  // the mgp_vertex 64-byte C-API budget concern that shaped its own single-pointer design, since
-  // VerticesIterable/Iterator never appear inside mgp_vertex.
+  // Alternatives: storage scan, caller-materialized set, branch union scan, and a materialized (already filtered)
+  // branch result; shared_ptr keeps that vector alive across copies of the iterable and its Iterator.
   std::variant<storage::VerticesIterable,
                std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                   utils::Allocator<VertexAccessor>> *,
                versioning::BranchContext::UnionVerticesIterable, std::shared_ptr<std::vector<VertexAccessor>>>
       iterable_;
-  // Only meaningful for the 3rd (branch) alternative -- stamped onto every yielded VertexAccessor
-  // so its mutators can later CowVertex through the SAME context (see query::VertexAccessor's own
-  // doc-comment). NON-const: ResolveVertex/Vertices/CowVertex open accessors against the diff
-  // engine and are therefore non-const member functions of BranchContext -- a const pointer here
-  // could not call them. nullptr for the other two alternatives.
-  //
-  // SINGLE-POINTER COLLAPSE (mg_procedure_impl.hpp's kMaxMgpVertexSize budget, R6): there used to
-  // be a SECOND pointer here (the diff-engine accessor), duplicated onto every yielded
-  // VertexAccessor too -- that overflowed mgp_vertex's 64-byte C-API size budget and grew the hot
-  // accessor for every caller, branch or not. `BranchContext` now holds that accessor itself
-  // (`current_diff_txn()`, branch_engine.hpp) in a single per-query slot -- safe because a
-  // checked-out branch is exclusive single-writer, so at most one query ever runs against a given
-  // BranchContext at a time. `branch_ctx_` is therefore the ONLY extra pointer needed here.
+  // Branch union-scan alternative only: stamped onto each yielded VertexAccessor so mutators can CowVertex through it.
+  // The diff-engine accessor lives in BranchContext::current_diff_txn(), keeping accessors at one extra pointer.
   versioning::BranchContext *branch_ctx_{nullptr};
 
  public:
@@ -176,9 +144,6 @@ class VerticesIterable final {
                  versioning::BranchContext::UnionVerticesIterable::Iterator, std::vector<VertexAccessor>::iterator>
         it_;
     versioning::BranchContext *branch_ctx_{nullptr};
-    // HIGH-3(b): keeps the materialized vector (4th alternative above) alive independently of the
-    // parent VerticesIterable -- cheap (one atomic refcount bump), and removes any doubt about
-    // Iterator outliving the VerticesIterable it was created from.
     std::shared_ptr<std::vector<VertexAccessor>> materialized_;
 
    public:
@@ -194,13 +159,6 @@ class VerticesIterable final {
     Iterator(std::vector<VertexAccessor>::iterator it, std::shared_ptr<std::vector<VertexAccessor>> materialized)
         : it_(it), materialized_(std::move(materialized)) {}
 
-    // All four alternatives return the SAME type (query::VertexAccessor, std::visit requires a
-    // common return type across every Overloaded branch) -- the branch alternative additionally
-    // stamps ctx (2-arg VertexAccessor ctor) so a later mutation on the yielded accessor can
-    // CowVertex through `branch_ctx_->current_diff_txn()` (see query::VertexAccessor's own
-    // doc-comment). The materialized (4th) alternative already holds fully-stamped VertexAccessor
-    // values (branch_ctx_ set at materialization time, see DbAccessor::MaterializeFilteredBranchScan
-    // below) so it's just a dereference.
     VertexAccessor operator*() const {
       return std::visit(
           memgraph::utils::Overloaded{[](const storage::VerticesIterable::Iterator &it) { return VertexAccessor(*it); },
@@ -236,8 +194,6 @@ class VerticesIterable final {
   VerticesIterable(versioning::BranchContext::UnionVerticesIterable iterable, versioning::BranchContext *ctx)
       : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
 
-  // HIGH-3(b): the materialized/filtered branch label-or-property scan alternative -- see
-  // DbAccessor::MaterializeFilteredBranchScan.
   explicit VerticesIterable(std::shared_ptr<std::vector<VertexAccessor>> materialized)
       : iterable_(std::move(materialized)) {}
 
@@ -396,16 +352,8 @@ class EdgesChunkedIterable {
 };
 
 class EdgesIterable final {
-  // Graph Versioning v1 (lazy diff-context, slice E-2d): the 3rd alternative -- a fully-materialized,
-  // already-filtered result set for the branch edge-type/property index-scan workaround (see
-  // DbAccessor::Edges(...) overloads below and MaterializeFilteredBranchEdgeScan) -- mirrors
-  // VerticesIterable's own materialized (4th) alternative byte-for-byte. shared_ptr (not an owned
-  // member) so the materialized vector's lifetime is independent of how many copies of this
-  // EdgesIterable (or of Iterator, which also holds a copy) get made. Unlike VerticesIterable, no
-  // `branch_ctx_` member is needed here: every EdgeAccessor is already fully branch-stamped at
-  // materialization time (MaterializeFilteredBranchEdgeScan stamps `branch_ctx_` into each candidate
-  // before filtering), so there is no lazy union-scan alternative on the edge side that would need a
-  // context pointer to re-stamp yielded values.
+  // 3rd alternative: materialized, already-filtered branch scan result; its EdgeAccessors are branch-stamped at
+  // materialization, so unlike VerticesIterable no branch_ctx_ member is needed.
   std::variant<
       storage::EdgesIterable,
       std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>> *,
@@ -419,10 +367,6 @@ class EdgesIterable final {
                                     utils::Allocator<EdgeAccessor>>::iterator,
                  std::vector<EdgeAccessor>::iterator>
         it_;
-    // Graph Versioning v1 (lazy diff-context, slice E-2d): keeps the materialized vector (3rd
-    // alternative above) alive independently of the parent EdgesIterable -- mirrors
-    // VerticesIterable::Iterator::materialized_ exactly (cheap atomic refcount bump; removes any
-    // doubt about an Iterator outliving the EdgesIterable it was created from).
     std::shared_ptr<std::vector<EdgeAccessor>> materialized_;
 
    public:
@@ -435,10 +379,6 @@ class EdgesIterable final {
     Iterator(std::vector<EdgeAccessor>::iterator it, std::shared_ptr<std::vector<EdgeAccessor>> materialized)
         : it_(it), materialized_(std::move(materialized)) {}
 
-    // The materialized (3rd) alternative already holds fully-stamped EdgeAccessor values
-    // (branch_ctx_ set at materialization time, see DbAccessor::MaterializeFilteredBranchEdgeScan)
-    // so it's just a dereference -- no re-stamping needed, unlike VerticesIterable's lazy branch
-    // alternative.
     EdgeAccessor operator*() const {
       return std::visit(
           memgraph::utils::Overloaded{
@@ -467,8 +407,6 @@ class EdgesIterable final {
                                             utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2d): the materialized/filtered branch edge-type/
-  // property scan alternative -- see DbAccessor::MaterializeFilteredBranchEdgeScan.
   explicit EdgesIterable(std::shared_ptr<std::vector<EdgeAccessor>> materialized)
       : iterable_(std::move(materialized)) {}
 
@@ -528,35 +466,16 @@ class VerticesChunkCollection final {
 
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
-  // Graph Versioning v1 (lazy diff-context, slice E-1): non-null iff this DbAccessor belongs to a
-  // checked-out branch's query transaction -- in which case `accessor_` IS the branch's diff-engine
-  // accessor for this transaction (see CurrentDB::SetupDatabaseTransaction, interpreter.cpp: it
-  // opens `db_transactional_accessor_` on `branch_context_->diff_engine()`, not on main, whenever a
-  // branch is active). nullptr on `main` -- every method below that checks it therefore costs
-  // exactly one extra pointer compare on the non-branch path (R6/zero-cost-when-off). NON-const:
-  // ResolveVertex/Vertices/CowVertex open accessors against the diff engine and are therefore
-  // non-const member functions of BranchContext -- a const pointer here could not call them (the
-  // context genuinely is mutated by a COW).
+  // Non-null iff this belongs to a checked-out branch's transaction, where `accessor_` is the branch's diff-engine
+  // accessor. Non-const: BranchContext's resolve/COW methods mutate it.
   versioning::BranchContext *branch_ctx_{nullptr};
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) helpers (adversarial-review fix):
-  // only ever called when branch_ctx_ != nullptr, from the label/property Vertices() overloads
-  // below.
-
-  // HasLabel through the query-layer VertexAccessor (not the raw storage one) so it benefits from
-  // the HIGH-2 self-correcting-read fix -- a not-yet-resolved historical `v` still reads correctly
-  // even if some other reference to the same gid triggered a COW earlier in this same scan.
   static bool VertexHasLabel(VertexAccessor &v, storage::View view, storage::LabelId label) {
     auto has_label = v.HasLabel(view, label);
     return has_label.has_value() && *has_label;
   }
 
-  // Eagerly filters branch_ctx_->Vertices(view) (the unfiltered gid-ordered union scan) by
-  // `predicate`, materializing every match into an owned vector -- see VerticesIterable's own
-  // doc-comment on why eager materialization (not a lazy predicate-skipping iterator) was chosen
-  // here. O(fork-state graph size) -- a full scan -- regardless of how selective `predicate` is;
-  // flagged as a slower-but-correct fallback, not a permanent substitute for a real branch-aware
-  // index (out of scope for this slice).
+  // Full scan of the branch union, O(graph) regardless of selectivity; fallback when an index is not ready.
   template <typename Pred>
   auto MaterializeFilteredBranchScan(storage::View view, Pred &&predicate)
       -> std::shared_ptr<std::vector<VertexAccessor>> {
@@ -570,14 +489,8 @@ class DbAccessor final {
     return result;
   }
 
-  // ---- Branch index-scan overlay (design R5) ----
-  // A branch-touched fork vertex is a delta-less stub holding only the branch's changes, so the diff engine's own
-  // indexes cannot see its reconstructed (label, key), while main's fork-side index sees its stale one. A scan is
-  // therefore the union of
-  //   - the fork index stream, minus every stubbed vertex (fork values are authoritative for the rest),
-  //   - a "touched" set (stubbed fork candidates, branch-native hits, and stubs enumerated through the diff engine's
-  //     indexes) rechecked on the reconstructed vertex,
-  // merged in index order. Cost is O(log V + fork matches + touched candidates), never O(V).
+  // Index-scan overlay: the fork index minus stubbed vertices, merged in index order with a touched set (stubs, branch-
+  // native hits) rechecked on the reconstructed vertex. Cost is O(log V + fork matches + touched), never O(V).
   using BranchKey = std::vector<storage::PropertyValue>;
 
   // Touched candidates, deduplicated by gid. A deleted fork vertex (its stub carries the delete marker) may be a
@@ -591,7 +504,6 @@ class DbAccessor final {
     }
   };
 
-  // Index key of a reconstructed vertex (nested paths walked through Maps); nullopt if a key property is missing.
   static std::optional<BranchKey> ReadBranchKey(VertexAccessor &v, storage::View view,
                                                 std::span<storage::PropertyPath const> properties) {
     BranchKey key;
@@ -624,9 +536,8 @@ class DbAccessor final {
     return !std::ranges::all_of(key, [](auto const &v) { return v.IsNull(); });
   }
 
-  // Splits the fork index stream: untouched candidates are kept in stream order, stubbed ones join `touched` bound
-  // to the stub. The `branched()` bit is the lock-free fast path (clear => identical to the fork); a set bit is
-  // confirmed by a stub lookup.
+  // Untouched fork candidates keep stream order; stubbed ones join `touched`, bound to the stub. The `branched()` bit
+  // is a lock-free fast path (clear => identical to the fork); a set bit is confirmed by a stub lookup.
   std::vector<storage::VertexAccessor> SplitBranchForkStream(storage::VerticesIterable fork_stream, storage::View view,
                                                              BranchTouchedSet &touched) {
     std::vector<storage::VertexAccessor> untouched;
@@ -645,8 +556,6 @@ class DbAccessor final {
     return untouched;
   }
 
-  // Rechecks `touched` on the reconstructed vertex (`accept(vertex, key)`), sorts the survivors by (key, gid) in
-  // `order`, and merges them with the already-ordered `untouched` fork stream.
   template <typename ReadKey, typename Accept>
   VerticesIterable MergeBranchOverlay(std::vector<storage::VertexAccessor> untouched, BranchTouchedSet &touched,
                                       storage::IndexOrder order, ReadKey &&read_key, Accept &&accept) {
@@ -671,7 +580,6 @@ class DbAccessor final {
       diff.push_back(Keyed{std::move(*key), candidate});
     }
     bool const asc = order == storage::IndexOrder::ASC;
-    // True iff (ak, ag) strictly precedes (bk, bg) in scan order; ties break by gid, in scan direction.
     auto before = [asc](BranchKey const &ak, storage::Gid ag, BranchKey const &bk, storage::Gid bg) {
       if (ak < bk) return asc;
       if (bk < ak) return !asc;
@@ -705,9 +613,8 @@ class DbAccessor final {
            (range.type_ == storage::PropertyRangeType::BOUNDED && (range.lower_ || range.upper_));
   }
 
-  // Diff-engine stubs that SET `pid`, narrowed by `range` when given (only valid for a top-level key: a nested key's
-  // top-level value is a Map, which the range does not describe). Branch-native hits are covered by the composite
-  // scan, so only fork-gid stubs are collected.
+  // Fork-gid stubs that SET `pid`; `range` narrows only top-level keys (a nested key's top-level value is a Map).
+  // Branch-native hits are already covered by the composite scan.
   void AddDiffStubsSettingProperty(BranchTouchedSet &touched, storage::View view, storage::PropertyId pid,
                                    storage::PropertyValueRange const *range) {
     auto collect = [&](storage::VerticesIterable hits) {
@@ -722,8 +629,6 @@ class DbAccessor final {
     }
   }
 
-  // Full-scan fallback for the sorted branch scans: `extract(candidate)` yields the index key or nullopt to drop the
-  // vertex; the survivors are stable-sorted by `less(key, key)`. O(graph).
   template <typename Key, typename Extract, typename Less>
   VerticesIterable MaterializeSortedBranchScan(storage::View view, Extract &&extract, Less &&less) {
     using Keyed = std::pair<Key, VertexAccessor>;
@@ -734,7 +639,8 @@ class DbAccessor final {
       if (!key) continue;
       keyed.emplace_back(std::move(*key), candidate);
     }
-    std::stable_sort(keyed.begin(), keyed.end(), [&](Keyed const &a, Keyed const &b) { return less(a.first, b.first); });
+    std::stable_sort(
+        keyed.begin(), keyed.end(), [&](Keyed const &a, Keyed const &b) { return less(a.first, b.first); });
     auto result = std::make_shared<std::vector<VertexAccessor>>();
     result->reserve(keyed.size());
     for (auto &entry : keyed) result->push_back(entry.second);
@@ -769,7 +675,6 @@ class DbAccessor final {
     if (!overlay_ready) {
       return MaterializeSortedBranchLabelPropertyScan(view, label, properties, property_ranges, order);
     }
-    // A range nothing can match admits no vertex.
     if (std::ranges::any_of(property_ranges,
                             [](auto const &r) { return r.type_ == storage::PropertyRangeType::INVALID; })) {
       return VerticesIterable(std::make_shared<std::vector<VertexAccessor>>());
@@ -783,9 +688,8 @@ class DbAccessor final {
     for (auto raw : accessor_->Vertices(label, view)) {
       if (branch_ctx_->IsForkGid(raw.Gid())) touched.Add(raw);
     }
-    // Stubs that SET a key property. When a null-excluding range anchors the match, a fork vertex that failed it did
-    // so on a constrained position, so only those positions can have turned into a match; otherwise every key
-    // position is enumerated.
+    // Stubs that SET a key property. A null-excluding range anchors the match, so only constrained positions can have
+    // turned into a match; otherwise every key position is enumerated.
     bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
     for (size_t i = 0; i < properties.size(); ++i) {
       bool const constrained = i < property_ranges.size();
@@ -841,16 +745,8 @@ class DbAccessor final {
         [&](VertexAccessor &, BranchKey const &key) { return !key[0].IsNull() && in_range(key[0]); });
   }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2d): edge-side mirror of
-  // MaterializeFilteredBranchScan above -- eagerly filters every edge reachable via the branch's
-  // union vertex scan (branch_ctx_->Vertices) by walking each vertex's OUT adjacency
-  // (branch_ctx_->ResolveEdges) exactly once. OUT-only is deliberate, not an oversight: every edge is
-  // stored on exactly its FROM-vertex's adjacency list, so enumerating every vertex's OUT edges once
-  // visits every (historical ∪ diff, delete-aware) edge exactly once -- also enumerating IN edges
-  // would double-count. O(fork-state graph size) full scan regardless of predicate selectivity, the
-  // same "slower but correct" fallback MaterializeFilteredBranchScan already accepted for vertices --
-  // there is no branch-aware edge-type/property index to seek instead (out of scope for this slice).
-  // Walks every branch edge exactly once (see above); `fn(raw_edge)` returns true to stop the walk.
+  // Walks every branch edge once via each vertex's OUT adjacency (an edge lives on its FROM vertex; IN would double-
+  // count). O(graph); `fn(raw_edge)` returns true to stop.
   template <typename Fn>
   void ForEachBranchEdge(storage::View view, Fn &&fn) {
     for (auto raw_v : branch_ctx_->Vertices(view)) {
@@ -872,49 +768,20 @@ class DbAccessor final {
     return result;
   }
 
-  // Graph Versioning v1, Slice 3b/Part B: edge-type+PROPERTY analogue of the vertex label-property
-  // merge (`Vertices(view, label, properties, ranges, order)` above) combined with the plain
-  // edge-type merge's delete/COW skip (`Edges(view, edge_type)` below). The storage-layer
-  // edge-property index scans (unlike the vertex label-property ones) take no `IndexOrder` parameter
-  // at all -- they are ascending-only -- and the planner elides the explicit OrderBy for
-  // ScanAllByEdgeTypeProperty/…PropertyValue/…PropertyRange exactly as it does for the label-property
-  // vertex scan, trusting index order. So this merge must also produce rows ASCENDING by `property`,
-  // not gid-ordered ones. Two streams, both already filtered to (edge_type [, value/range]) by the
-  // caller's chosen storage-layer scan overload:
-  //   (a) `diff_stream` -- the diff engine's own mirrored edge-type+property index scan (Part A,
-  //       branch_engine.cpp, always populates it once a branch exists), and
-  //   (b) `hist_stream` -- main@fork's edge-type+property index as of the fork timestamp, via
-  //       `historical()`; a main-stream candidate is skipped if the branch deleted it, OR if the
-  //       branch's edge stub for that gid changed `property` (`StubEdgeTouches`): the stub's own value is
-  //       then the authoritative one and (a) carries it when it matches the scan. A stub that left
-  //       `property` alone does not shadow the fork candidate, whose fork value is still current.
-  // Diff-engine candidates in (a) are branch-native edges and edge stubs that SET `property`; a stub's
-  // own value is the reconstructed one, and a stub hidden by a delete (an endpoint, or its edge listed
-  // as deleted) is dropped.
-  // `storage::EdgesIterable` is move-only (see edges_iterable.hpp) so both streams are taken BY VALUE
-  // -- callers pass the storage scan's return value directly (a prvalue), which guaranteed copy
-  // elision (C++17) direct-initializes these parameters with no copy/move call at all.
+  // Merges the diff engine's edge-property scan with main@fork's, both ascending by `property` (the planner elides
+  // OrderBy on this scan, so output must be ascending). A fork candidate is dropped if hidden by a delete or if its
+  // stub changed `property`.
   auto MergeBranchEdgePropertyScan(storage::View view, storage::PropertyId property, storage::EdgesIterable diff_stream,
                                    storage::EdgesIterable hist_stream) -> std::shared_ptr<std::vector<EdgeAccessor>> {
     using KeyedEdge = std::pair<storage::PropertyValue, EdgeAccessor>;
 
-    // Both `diff_stream` and `hist_stream` are already ASCENDING by the indexed property (each is a
-    // native storage index scan) -- reusing storage::PropertyValue's own `operator<=>` (defined in
-    // property_value.cppm), EXACTLY the comparator the storage index itself uses. So this merges the
-    // two sorted streams in one O(D+H) pass instead of materializing+`std::stable_sort`ing a combined
-    // vector: hold the current candidate + its extracted key on each side, emit whichever key comes
-    // first (diff on an exact tie, matching the old stable_sort's diff-pushed-first stability -- see
-    // ties below), and advance only the emitted side. `explicit Iterator` (move-only, single-pass:
-    // edges_iterable.hpp) means each side is walked with its own `begin()/end()` pair, never
-    // re-iterated.
     auto diff_it = diff_stream.begin();
     auto diff_end = diff_stream.end();
     auto hist_it = hist_stream.begin();
     auto hist_end = hist_stream.end();
 
-    // Advances past diff-engine candidates until the next keyed one (or the stream is exhausted).
-    // Only an edge stub can be hidden by a delete the diff engine's own MVCC does not show (a deleted
-    // endpoint, or the fork edge listed as deleted); a defensively-missing property also excludes one.
+    // Only a stub can be hidden by a delete the diff engine's own MVCC does not show (deleted endpoint, or fork edge
+    // listed as deleted).
     auto advance_diff = [&]() -> std::optional<KeyedEdge> {
       while (diff_it != diff_end) {
         EdgeAccessor e(*diff_it, branch_ctx_);
@@ -927,8 +794,6 @@ class DbAccessor final {
       return std::nullopt;
     };
 
-    // Advances past main@fork candidates until the next one that survives the delete skip and whose
-    // property the branch's stub (if any) did not change, AND is keyed.
     auto advance_hist = [&]() -> std::optional<KeyedEdge> {
       while (hist_it != hist_end) {
         EdgeAccessor mc(*hist_it, branch_ctx_);
@@ -950,9 +815,6 @@ class DbAccessor final {
     auto diff_cur = advance_diff();
     auto hist_cur = advance_hist();
     while (diff_cur.has_value() || hist_cur.has_value()) {
-      // Emit diff whenever hist is exhausted, OR diff's key does not strictly exceed hist's --
-      // ties resolve to diff first (a `!(hist < diff)` test, so an exact tie takes this branch),
-      // matching the old stable_sort's diff-pushed-first-in-`keyed` stability.
       const bool take_diff = diff_cur.has_value() && (!hist_cur.has_value() || !(hist_cur->first < diff_cur->first));
       if (take_diff) {
         result->push_back(diff_cur->second);
@@ -965,17 +827,8 @@ class DbAccessor final {
     return result;
   }
 
-  // Graph Versioning v1, slice E-4: branch-aware VERTEX_HAS_EDGES guard for a plain (non-cascading)
-  // vertex delete (RemoveVertex/DetachDelete-with-detach=false below). `accessor_->DeleteVertex`'s
-  // own native check (storage.cpp's TryDeleteVertices) only ever inspects the DIFF ENGINE's own
-  // physical adjacency (`vertex_ptr->in_edges`/`out_edges`) -- for a COW'd fork vertex that is EMPTY
-  // (CowVertex copies props+labels only, NOT adjacency, see its own doc-comment, branch_engine.cpp),
-  // so the native check would silently "succeed" deleting a fork vertex that still has fork-resident
-  // incident edges, leaving them dangling (pointing at a now-deleted vertex, resurfaced the next time
-  // ResolveEdges runs). Consult the branch's FULL adjacency (historical_ UNION diff_engine_, via
-  // ResolveEdges) instead. `co_deleted_edge_gids` excludes edges THIS SAME delete statement is ALSO
-  // deleting (mirrors main's own PrepareDeletableEdges/DetachRemainingEdges accounting, storage.cpp)
-  // -- they are gone by the time the vertex delete "happens", so they must not count against it.
+  // The diff engine's native check sees only its own adjacency (empty for a stub), so consult the branch's full
+  // adjacency. Edges this same statement deletes (`co_deleted_edge_gids`) do not count against the vertex.
   bool BranchVertexHasUncountedEdges(storage::Gid vertex_gid,
                                      const std::unordered_set<storage::Gid> &co_deleted_edge_gids) {
     auto has_uncounted = [&](storage::EdgeDirection direction) {
@@ -985,12 +838,9 @@ class DbAccessor final {
     return has_uncounted(storage::EdgeDirection::OUT) || has_uncounted(storage::EdgeDirection::IN);
   }
 
-  // DELETE on a branch. Objects that live in the diff engine (branch-native, or COW'd by an earlier write) are
-  // deleted by an ordinary diff-engine delete. Fork objects are never physically deleted: a fork vertex gets the
-  // delete marker on its stub and a fork edge is listed on its endpoint stubs (BranchContext::DeleteForkVertex /
-  // DeleteForkEdge), and adjacency reads hide whatever those markers cover. So DETACH DELETE of a fork vertex writes
-  // only the vertex marker; just its incident diff-engine edges are deleted for real, and its incident fork edges
-  // are merely reported as deleted. Already-deleted targets are skipped, as on main.
+  // DELETE on a branch: diff-engine objects are deleted normally; a fork vertex gets the delete marker on its stub and
+  // a fork edge is listed on its endpoint stubs (DeleteForkVertex/DeleteForkEdge). DETACH DELETE of a fork vertex thus
+  // writes only the marker; just its incident diff-engine edges are deleted for real.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
@@ -1006,8 +856,8 @@ class DbAccessor final {
                                        : !ctx.FindDiffEdge(edge.Gid(), kView).has_value();
     });
 
-    // Plain DELETE of a vertex that keeps a visible edge fails like main. Edges this same statement deletes do not
-    // count. Checked before any write.
+    // Plain DELETE fails like main if a visible edge remains (edges this statement deletes excluded); checked before
+    // any write.
     if (!detach) {
       std::unordered_set<storage::Gid> co_deleted_edges;
       for (const auto &edge : edges) co_deleted_edges.insert(edge.Gid());
@@ -1091,7 +941,8 @@ class DbAccessor final {
   explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
       : accessor_(accessor), branch_ctx_(branch_ctx) {}
 
-  // Non-null iff this accessor serves a checked-out branch's transaction (never on main or a USING VERSION 'main' query).
+  // Non-null iff this accessor serves a checked-out branch's transaction (never on main or a USING VERSION 'main'
+  // query).
   versioning::BranchContext *branch_context() const { return branch_ctx_; }
 
   void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
@@ -1104,10 +955,6 @@ class DbAccessor final {
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
-      // Diff-engine-first, falling back to the branch's historical (fork-state) base -- see
-      // BranchContext::ResolveVertex's own doc-comment. ResolveVertex reads the diff-engine
-      // accessor from branch_ctx_->current_diff_txn() (== accessor_, set once per query by
-      // CurrentDB::SetupDatabaseTransaction) rather than taking it as a parameter here.
       auto maybe_vertex = branch_ctx_->ResolveVertex(gid, view);
       if (maybe_vertex) return VertexAccessor(*maybe_vertex, branch_ctx_);
       return std::nullopt;
@@ -1117,32 +964,8 @@ class DbAccessor final {
     return std::nullopt;
   }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2a) HIGH FIX (adversarial-review, ROUND 2): was
-  // UNGUARDED -- `accessor_->FindEdge` on a branch is the diff-engine's accessor ONLY (see
-  // `branch_ctx_`'s own doc-comment above), so any pre-fork (historical) edge silently "didn't
-  // exist" on a branch. Reachable via `MATCH ()-[e]-() WHERE id(e)=<gid>` (rewritten to a
-  // ScanAllByEdgeId unconditionally) and the `mgp_graph_get_edge_by_id` C-API.
-  //
-  // ROUND 1 of this fix routed through `BranchContext::ResolveEdge` (diff-first, falling back to
-  // `historical_->FindEdge`) -- adversarially verified WRONG: finding an edge by bare gid against
-  // `historical_` (a HistoricalAccess accessor) is not the simple diff-engine-mirroring point lookup
-  // ResolveVertex gets away with -- it depends on `properties_on_edges`/gid-storage-layout and
-  // HistoricalAccess's own scan semantics in ways that don't just work by calling the same
-  // `FindEdge(gid, view)` two of the storage layer already exposes elsewhere. That round REJECTED
-  // cleanly instead (NotYetImplemented) rather than get it subtly wrong.
-  //
-  // SLICE E-2d IMPLEMENTATION: diff-first via `BranchContext::FindDiffEdge` (reliable, no
-  // `historical_` dependency -- anything already COW'd/created into the diff engine is a direct
-  // O(1) hit), falling back to a full union-vertex scan (`branch_ctx_->Vertices`) + per-vertex OUT-
-  // adjacency walk (`ResolveEdges`) when the diff engine doesn't have it. Every edge lives on
-  // exactly its FROM-vertex's OUT list, so walking every vertex's OUT edges once via the same
-  // already-trusted `ResolveEdges` primitive the delete cascade and VERTEX_HAS_EDGES guard rely on
-  // is guaranteed to surface it if it's visible at all, historical or diff-resident. O(V+E) worst
-  // case for this fallback -- a full scan, same "slower but correct" trade-off
-  // MaterializeFilteredBranchScan already accepted for the vertex-side label/property scans; there
-  // is no branch-aware edge-by-id index to seek instead (out of scope for this slice). The
-  // 3-argument overload below is strictly cheaper when the caller already has the endpoint, so
-  // prefer it there.
+  // On a branch `accessor_` is the diff engine only: look up diff-first, else fall back to a full union scan, O(V+E).
+  // Prefer the 3-argument overload when the FROM vertex is known.
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
       if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) {
@@ -1163,10 +986,7 @@ class DbAccessor final {
     return std::nullopt;
   }
 
-  // HIGH FIX (adversarial-review, ROUND 2): same gap as the overload above -- FIXED in slice E-2d.
-  // PREFERRED overload whenever the caller already has the FROM-vertex gid (e.g. an already-resolved
-  // pattern edge): no full scan needed, just that one vertex's OUT adjacency via `ResolveEdges` --
-  // an edge lives on exactly its FROM-vertex's OUT list, so this is a reliable, non-scanning lookup.
+  // Walks only the FROM vertex's OUT adjacency, no full scan.
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
       for (auto &e : branch_ctx_->ResolveEdges(from_vertex_gid, storage::EdgeDirection::OUT, view)) {
@@ -1195,15 +1015,6 @@ class DbAccessor final {
 
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1): the plain ScanAll AND (as of the HIGH-3(b)
-  // adversarial-review fix, below) the label/property-indexed overloads are all branch-aware now.
-  // A checked-out branch's diff engine has no label/property index population reconciled with
-  // historical_ -- so the indexed overloads cannot seek an index like they do on main; instead they
-  // fall back to filtering the union scan (see MaterializeFilteredBranchScan). Slower than an index
-  // seek (O(fork-state graph size) instead of O(matches)), but CORRECT -- the prior version of this
-  // code silently used accessor_->Vertices(label, ...), which hit the diff engine's own, always-
-  // empty index and silently missed every historical (non-COW'd) vertex, e.g. `MATCH (n:A) RETURN
-  // n` after a branch SET on an existing vertex would come back empty.
   VerticesIterable Vertices(storage::View view) {
     if (branch_ctx_ != nullptr) {
       return VerticesIterable(branch_ctx_->Vertices(view), branch_ctx_);
@@ -1211,25 +1022,9 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(view));
   }
 
-  // Graph Versioning v1, Task 4: label-only scan is now INDEX-ACCELERATED, mirroring the plain
-  // edge-type merge (`Edges(view, edge_type)` above) rather than the label-PROPERTY merge
-  // (`Vertices(view, label, properties, ranges, order)` above): a label index carries no property
-  // key, so both streams are already just "every vertex with this label" in whatever order their
-  // respective index storage yields them -- a plain gid-order SET-UNION, no merge-sort needed
-  // (unlike the property-ordered merge, which must explicitly sort to match the planner's elided
-  // OrderBy). Two streams:
-  //   (a) the diff engine's own label index (`accessor_->Vertices(label, view)` -- Part A,
-  //       branch_engine.cpp, mirrors main's label index definitions onto the diff engine, so this
-  //       is always populated once a branch exists), and
-  //   (b) main@fork's label index as of the fork timestamp, via `historical()` -- falling back (B1)
-  //       to the existing full filter-scan (MaterializeFilteredBranchScan) if main DROPPED the
-  //       index after the fork (largely unreachable in practice, since label indexes are covered by
-  //       the same global schema gate as everything else Part A mirrors, but defense-in-depth
-  //       against a mid-flight drop).
-  // A deleted fork vertex is dropped from both streams (its stub carries the delete marker), and a main-stream
-  // candidate is skipped if the diff engine already holds that gid (`accessor_->FindVertex(g, View::NEW)` -- a COW):
-  // the diff stream in (a) already represents that gid at its authoritative/new value, so counting it again from (b)
-  // would double-count it.
+  // Union of the fork label index and the diff engine's, unsorted (no property key); full-scan fallback if main dropped
+  // the index after the fork. Deleted fork vertices are dropped; fork candidates with a stub are re-checked on the
+  // reconstructed vertex.
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
@@ -1240,9 +1035,8 @@ class DbAccessor final {
 
       auto result = std::make_shared<std::vector<VertexAccessor>>();
 
-      // (a) Fork stream. A patched fork vertex is a sparse stub that may carry a removal marker for `label`,
-      // so a candidate with a stub is re-checked against the reconstructed vertex (a removed label drops
-      // it, as does a delete marker); it is emitted bound to the stub.
+      // (a) Fork stream: a candidate with a stub is re-checked on the reconstructed vertex (removed label or delete
+      // marker drops it) and emitted bound to the stub.
       for (auto raw : historical.Vertices(label, storage::View::OLD)) {
         if (!raw.vertex_->branched()) {
           result->push_back(VertexAccessor(raw, branch_ctx_));
@@ -1326,20 +1120,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
   }
 
-  // Graph Versioning v1 (lazy diff-context) DEFENSIVE HARDENING (adversarial-review): every
-  // `ChunkedVertices(...)`/`ChunkedEdges(...)` overload below backs the enterprise `ScanParallel*`
-  // operators (src/query/plan/operator.cpp) and, unlike their serial `Vertices(...)`/`Edges(...)`
-  // counterparts, goes straight to `accessor_` UNCONDITIONALLY -- on a checked-out branch `accessor_`
-  // is the diff engine ONLY (see `branch_ctx_`'s own doc-comment above), so a parallel/chunked scan
-  // would silently return JUST the diff engine's own (structurally incomplete, historical-edges/
-  // vertices-absent) contents. Same gap HIGH-3(b) closed for the serial `Vertices()`/`Edges()` paths
-  // (`MaterializeFilteredBranchScan`/`MaterializeFilteredBranchEdgeScan`) -- but a correct chunked
-  // UNION scan (reconciling `historical_` and the diff engine across parallel chunks) is a
-  // meaningfully larger effort, deferred to its own slice. Reject cleanly (`NotYetImplemented`)
-  // rather than return incomplete results in the meantime. Single-threaded ScanAll/ScanAllByLabel/
-  // edge scans are unaffected and remain correct -- they route through the union-aware `Vertices()`/
-  // `Edges()` above -- so the planner falling back to those on a branch is the right behavior; only
-  // the enterprise `ScanParallel*` path that reaches these `Chunked*` overloads is guarded here.
+  // Chunked scans bypass the branch union and would return only the diff engine's contents; rejected until a union
+  // chunked scan exists. Serial scans are unaffected.
   void RejectBranchChunkedVertexScan() const {
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
   }
@@ -1433,86 +1215,36 @@ class DbAccessor final {
                      TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
       -> PointIterable;
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2a) MED FIX (adversarial-review): every
-  // `Edges(...)` overload below is an edge-TYPE-and/or-PROPERTY-INDEX scan (there is no non-indexed
-  // "all edges" primitive on this class, unlike the plain `Vertices(view)` full scan) -- exactly the
-  // class of gap HIGH-3(b) already closed on the vertex side (`Vertices(view, label)`,
-  // MaterializeFilteredBranchScan): `accessor_` on a branch is the diff engine ONLY, so
-  // `accessor_->Edges(...)` would silently return JUST the diff engine's own (structurally
-  // incomplete, unreconciled-with-`historical_`) index contents, missing every still-historical
-  // edge. Dead/unreachable TODAY only because the diff engine never has an edge-type/property index
-  // to begin with (nothing creates one on a branch yet) -- but silently wrong the moment that
-  // changes, so guard now rather than wait for a silent-data-loss bug report.
-  //
-  // SLICE E-2d IMPLEMENTATION (edge_type+property / +value / +range overloads below):
-  // each of THOSE overloads builds a predicate over the dimensions it cares about (property
-  // presence / property value / property range) and hands it to `MaterializeFilteredBranchEdgeScan`
-  // -- the edge-side mirror of `MaterializeFilteredBranchScan`, union-materialize instead of an
-  // index seek, same "eager, full-scan, but correct" trade-off (no branch-aware edge index to seek
-  // instead, out of scope for this slice). A property read that comes back without a value, or with
-  // a Null value, is treated as "does not match" by every predicate below -- matching main's own
-  // index semantics: an edge missing (or nulled-out on) the property is never a member of a
-  // property index.
-  //
-  // Slice 3a/Part B: the plain edge_type-only overload immediately below is now
-  // INDEX-ACCELERATED, mirroring the vertex label-property Part B merge above (Vertices(view,
-  // label, properties, ranges, order)) but WITHOUT that overload's explicit sort: an edge-type
-  // index carries no property key, so both streams are already just "every edge of this type" in
-  // whatever order their respective index storage yields them -- a plain gid-order SET-UNION, no
-  // merge-sort needed. Two streams:
-  //   (a) the diff engine's own edge-type index (`accessor_->Edges(edge_type, view)` -- Part A,
-  //       branch_engine.cpp, mirrors main's edge-type index definitions onto the diff engine in
-  //       full-edge mode, so this is always populated once a branch exists), and
-  //   (b) main@fork's edge-type index as of the fork timestamp, via `historical()` -- falling back
-  //       (B1) to the existing full filter-scan if main DROPPED the index after the fork (largely
-  //       unreachable in practice, since edge-type indexes are covered by the same global schema
-  //       gate as everything else Part A mirrors, but defense-in-depth against a mid-flight drop).
-  // A main-stream candidate is skipped if the branch deleted it (listed on its endpoint stubs, or an endpoint
-  // vertex is deleted). An edge stub never changes type or endpoints and is not in the diff edge-type index, so the
-  // fork candidate is the one and only entry for it.
-  // Requires properties_on_edges=true (which the --storage-light-edge feature also satisfies, so
-  // light edges are fully supported): an edge-type index cannot exist when properties_on_edges=false
-  // (reference-only edges), so this path is only ever reached when Part A actually mirrored one.
+  // On a branch `accessor_` is the diff engine only, so Edges() overloads merge it with main@fork's index via
+  // historical(). Edge-type scan: unsorted union (no property key); a fork candidate is skipped if the branch deleted
+  // it (stubs never change type or endpoints).
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypeIndexReady(edge_type)) {
-        // B1: main dropped this edge-type index after the fork -- fall back to the existing
-        // full filter-scan (correct, just O(graph) instead of O(matches)).
+        // main dropped this index after the fork: full-scan fallback.
         return EdgesIterable(MaterializeFilteredBranchEdgeScan(
             view, [edge_type](EdgeAccessor &e) { return e.EdgeType() == edge_type; }));
       }
 
       auto result = std::make_shared<std::vector<EdgeAccessor>>();
 
-      // (a) Diff stream: the diff engine's own (branch-native) edge-type index scan.
       for (auto raw : accessor_->Edges(edge_type, view)) {
         result->push_back(EdgeAccessor(raw, branch_ctx_));
       }
 
-      // (b) Main@fork stream, gated by the delete skip.
       for (auto raw : historical.Edges(edge_type, storage::View::OLD)) {
         if (branch_ctx_->IsForkEdgeHidden(raw, view)) continue;
         result->push_back(EdgeAccessor(raw, branch_ctx_));
       }
 
-      // No sort: edge-type indexes carry no property order, so gid/unspecified order matches
-      // main's own edge-type scan semantics.
       return EdgesIterable(std::move(result));
     }
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
-  // Slice 3b/Part B: PRESENCE (property IS NOT NULL) edge-type+property scan, index-accelerated like
-  // the plain edge-type overload above -- merges the diff engine's own mirrored edge-type+property
-  // index (Part A always mirrors it) with main@fork's index via `historical()` in
-  // `MergeBranchEdgePropertyScan`, which also applies the delete/COW skip and returns rows sorted
-  // ASCENDING by `property` (the planner elides the OrderBy here, trusting index order -- verified:
-  // `MATCH ()-[r:T]->() WHERE r.p>0 RETURN r ORDER BY r.p` plans a bare ScanAllByEdgeTypeProperty
-  // with no OrderBy operator on main). B1: if main dropped this index after the fork, fall back to the
-  // existing (gid-order) full filter-scan verbatim -- largely unreachable via the global schema gate
-  // Part A relies on, and the sort is preserved because the planner only elides the OrderBy when the
-  // index is actually selected, which requires readiness.
+  // Presence scan. The full-scan fallback (main dropped the index after the fork) is gid-ordered, not ascending by
+  // `property`; assumed safe because the planner elides OrderBy only for a ready index.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
@@ -1531,18 +1263,11 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
 
-  // Slice 3b/Part B: EQUALITY edge-type+property scan -- same index-accelerated merge as the
-  // presence overload above, ASC-ordered by `property` (planner elides the OrderBy, same
-  // verification), B1 fallback to the existing filter-scan verbatim when main dropped the index.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const storage::PropertyValue value) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
-        // Copy `value` by VALUE into the predicate closure -- same defensive reasoning as the
-        // label/property vertex scan above (see its own doc-comment): the predicate is invoked
-        // eagerly, during THIS call, never stored past it, but the copy is cheap and avoids relying
-        // on the caller's `value` reference outliving this call.
         return EdgesIterable(
             MaterializeFilteredBranchEdgeScan(view, [edge_type, property, value, view](EdgeAccessor &e) {
               if (e.EdgeType() != edge_type) return false;
@@ -1559,17 +1284,12 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
   }
 
-  // Slice 3b/Part B: RANGE edge-type+property scan -- same index-accelerated merge as the presence
-  // overload above, ASC-ordered by `property` (planner elides the OrderBy, same verification), B1
-  // fallback to the existing filter-scan verbatim when main dropped the index.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
-        // Copy lower/upper by VALUE (via PropertyValueRange::Bounded) into the predicate closure --
-        // same defensive reasoning as the label/property vertex scan above.
         auto range = storage::PropertyValueRange::Bounded(lower, upper);
         return EdgesIterable(
             MaterializeFilteredBranchEdgeScan(view, [edge_type, property, range, view](EdgeAccessor &e) {
@@ -1587,14 +1307,6 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
   }
 
-  // Slice 3c/Part B: PRESENCE (property IS NOT NULL) GLOBAL edge-property scan (no edge_type) --
-  // reuses the exact same index-accelerated merge as the edge-type+property presence overload above
-  // (`MergeBranchEdgePropertyScan`), just seeking main's GLOBAL edge-property index instead of the
-  // edge-type+property one: merges the diff engine's own mirrored global edge-property index (Part A
-  // always mirrors it) with main@fork's index via `historical()`, delete/COW skip applied inside
-  // the helper, rows returned ASCENDING by `property` (the planner elides the OrderBy here too,
-  // trusting index order, exactly as for the edge-type+property case). B1: if main dropped this
-  // index after the fork, fall back to the existing (gid-order) full filter-scan verbatim.
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
@@ -1610,17 +1322,10 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
-  // Slice 3c/Part B: EQUALITY GLOBAL edge-property scan -- same index-accelerated merge as the
-  // presence overload above, ASC-ordered by `property` (planner elides the OrderBy, same
-  // verification), B1 fallback to the existing filter-scan verbatim when main dropped the index.
   EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
-        // Copy `value` by VALUE into the predicate closure -- same defensive reasoning as the
-        // edge-type+property equality overload above (see its own doc-comment): the predicate is
-        // invoked eagerly, during THIS call, never stored past it, but the copy is cheap and avoids
-        // relying on the caller's `value` reference outliving this call.
         return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, value, view](EdgeAccessor &e) {
           auto prop = e.GetProperty(view, property);
           return prop.has_value() && *prop == value;
@@ -1634,17 +1339,12 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
-  // Slice 3c/Part B: RANGE GLOBAL edge-property scan -- same index-accelerated merge as the presence
-  // overload above, ASC-ordered by `property` (planner elides the OrderBy, same verification), B1
-  // fallback to the existing filter-scan verbatim when main dropped the index.
   EdgesIterable Edges(storage::View view, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
-        // Copy lower/upper by VALUE (via PropertyValueRange::Bounded) into the predicate closure --
-        // same defensive reasoning as the edge-type+property range overload above.
         auto range = storage::PropertyValueRange::Bounded(lower, upper);
         return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, range, view](EdgeAccessor &e) {
           auto prop = e.GetProperty(view, property);
@@ -1659,11 +1359,8 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }
 
-  // Branch-native create: `accessor_->CreateVertex()` already targets the diff engine when
-  // branch_ctx_ is set (see branch_ctx_'s own doc-comment) -- stock CreateVertex, just stamped
-  // with the context so subsequent mutations/identity comparisons on the returned accessor are
-  // branch-aware. The gid-watermark reservation (branch_engine.cpp) keeps this auto-assigned gid
-  // disjoint from anything historical_ could ever contain.
+  // Stock CreateVertex on the diff engine, stamped with the context; branch-native gids start at 2^62, disjoint from
+  // fork gids.
   VertexAccessor InsertVertex() {
     if (branch_ctx_ != nullptr) {
       return VertexAccessor(accessor_->CreateVertex(), branch_ctx_);
@@ -1671,21 +1368,8 @@ class DbAccessor final {
     return VertexAccessor(accessor_->CreateVertex());
   }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2a) COW-BOTH-ENDPOINTS: `accessor_` IS the
-  // branch's diff-engine accessor for this transaction on a checked-out branch (see `branch_ctx_`'s
-  // own doc-comment above) -- so `accessor_->CreateEdge` itself needs no branch-specific dispatch,
-  // UNLIKE InsertVertex/CreateVertex above. The catch: `CreateEdge` (InMemoryAccessor::CreateEdgeEx's
-  // public, auto-gid sibling) MG_ASSERTs both endpoint VertexAccessors' `transaction_ == &this
-  // transaction`, i.e. both must already be PHYSICALLY resident in the diff engine -- a
-  // not-yet-touched endpoint (still resolving through the read-only `historical_`) would trip that
-  // assert. `CowVertex` (idempotent -- a no-op if either endpoint was already COW'd, e.g. by an
-  // earlier `MATCH`/`SET` in the same statement) brings both into the diff engine first, mirroring
-  // `VertexAccessor::CowIfNeeded`'s own mutator idiom one level up (there is no analogous
-  // `EdgeAccessor::CowIfNeeded` to call THROUGH here -- the edge doesn't exist yet, this call is
-  // what creates it). `from`/`to` are redirected to their diff-engine copies too (not just used
-  // locally) so the caller's own accessors -- and, per the HIGH-2 self-correcting-read precedent, any
-  // other outstanding copy of the same gid -- stay consistent with the just-created edge's actual
-  // endpoints.
+  // CreateEdge MG_ASSERTs both endpoints are resident in the diff engine, so CowVertex them first (idempotent) and
+  // redirect `from`/`to` to the copies so outstanding accessors stay consistent with the new edge.
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     if (branch_ctx_ != nullptr) {
@@ -1700,12 +1384,8 @@ class DbAccessor final {
       auto maybe_edge = accessor_->CreateEdge(&*from_diff, &*to_diff, edge_type);
       if (!maybe_edge) return std::unexpected{maybe_edge.error()};
 
-      // Branch-side change filter (INV-1, edge kind): a brand-new edge changes BOTH endpoints'
-      // adjacency. This is the second disjoint edge choke point -- InsertEdge creates the edge
-      // natively via CreateEdge and never routes through CowEdge (which records the same two
-      // endpoints for property/delete edge changes), so the endpoints must be flagged here too
-      // (design section 6). Recorded AFTER the edge is created (record-after-write, mirroring
-      // CowEdge / CowIfNeeded). Both gids are stable across the COW above.
+      // InsertEdge creates the edge natively and never goes through CowEdge, so both endpoints' adjacency change is
+      // recorded here, after the write.
       branch_ctx_->RecordEdgeChange(from->Gid());
       branch_ctx_->RecordEdgeChange(to->Gid());
       return EdgeAccessor(*maybe_edge, branch_ctx_);
@@ -1716,8 +1396,7 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
-  // DELETE on a branch (mgp C-API single-object entry points; the Cypher clause goes through DetachDelete below).
-  // All of them share BranchDetachDelete's mechanism.
+  // mgp C-API single-object deletes on a branch; the Cypher clause goes through DetachDelete below.
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     if (branch_ctx_ != nullptr) {
       auto res = BranchDetachDelete({}, {*edge}, false);
@@ -1738,7 +1417,6 @@ class DbAccessor final {
     return std::make_optional<EdgeAccessor>(*value);
   }
 
-  // Single-vertex DETACH DELETE (always cascades to incident edges).
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
@@ -1770,7 +1448,6 @@ class DbAccessor final {
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
 
-  // Plain (non-cascading) vertex delete; fails with VERTEX_HAS_EDGES while a visible edge remains.
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
     if (branch_ctx_ != nullptr) {
       auto res = BranchDetachDelete({*vertex_accessor}, {}, false);
@@ -1791,8 +1468,6 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
-  // Every Cypher `DELETE`/`DETACH DELETE` clause -- single node, single edge, or an arbitrary batch of both --
-  // routes through this one method (query::plan::Delete::DeleteCursor::Pull, operator.cpp).
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
@@ -1867,9 +1542,8 @@ class DbAccessor final {
     return accessor_->PrepareForCommitPhase(std::move(commit_args));
   }
 
-  // Branch only (no-op on main): checks main's existence and type constraints against the reconstructed view of every
-  // vertex this transaction touched. Must run before the diff engine's commit, outside its engine lock. The caller
-  // aborts the transaction on a violation.
+  // Branch only: checks main's existence and type constraints on the reconstructed view of every touched vertex, before
+  // the diff engine's commit and outside its engine lock; on violation the caller aborts.
   std::expected<void, storage::ConstraintViolation> ValidateBranchConstraints();
 
   std::expected<void, storage::StorageManipulationError> PeriodicCommit(storage::CommitArgs commit_args) {
