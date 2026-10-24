@@ -58,8 +58,8 @@ struct Gids {
   memgraph::storage::Gid post_fork;
 };
 
-// Creates a vertex, two branches at the same fork point, then a second vertex after the fork. A stray file under
-// versioning/branches/ mimics a leftover v1 on-disk branch directory.
+// Creates a vertex, two branches at the same fork point, then a second vertex after the fork. With `with_stray_branch_dir`, a
+// leftover versioning/ directory is created to mimic one written by an older build.
 Gids PopulateWithBranches(bool with_stray_branch_dir) {
   Gids gids;
   auto config = MakeConfig(/*recover_on_startup=*/false);
@@ -100,7 +100,7 @@ void ExpectNoBranchState(memgraph::dbms::Database &db) {
   EXPECT_FALSE(db.version_store()->TryAcquireCheckout("b1").has_value());
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
   EXPECT_FALSE(storage->OldestForkPin().has_value());
-  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning" / "branches"));
+  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning"));
 }
 }  // namespace
 

@@ -119,7 +119,6 @@ DECLARE_bool(storage_backup_dir_enabled);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(versioning_enabled);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 
 // RocksDB flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

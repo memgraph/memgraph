@@ -1240,8 +1240,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
 }
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
-                                 FineGrainedAuthChecker const *auth_checker, storage::Storage::Accessor *schema_acc) {
-  PullPlanDump(dba, std::move(db_acc), auth_checker, schema_acc).Pull(stream, {});
+                                 FineGrainedAuthChecker const *auth_checker) {
+  PullPlanDump(dba, std::move(db_acc), auth_checker).Pull(stream, {});
 }
 
 }  // namespace memgraph::query

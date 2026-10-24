@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <optional>
 
+#include "query/branch_reserved.hpp"
 #include "query/exceptions.hpp"
 #include "query/vertex_accessor.hpp"
 #include "utils/logging.hpp"
@@ -88,12 +89,7 @@ storage::Result<PropertyMap> MergedProperties(versioning::BranchContext &ctx, co
                                               const storage::EdgeAccessor &fork, storage::View view) {
   auto stub_props = stub.Properties(view);  // single call: no torn read between value and removal list
   if (!stub_props) return stub_props;
-  auto removed = versioning::TakeRemoved(ctx, *stub_props);
-  auto merged = fork.Properties(storage::View::OLD);
-  if (!merged) return merged;
-  for (auto const pid : removed) merged->erase(pid);
-  for (auto &[key, value] : *stub_props) merged->insert_or_assign(key, std::move(value));
-  return merged;
+  return versioning::OverlayProperties(ctx, *stub_props, fork);
 }
 
 storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchContext &ctx,
@@ -104,12 +100,7 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
   auto in_fork = fork.GetProperty(key, storage::View::OLD);
   if (!in_fork) return in_fork;
   if (in_fork->IsNull()) return stub.GetProperty(key, view);
-  auto stub_props = stub.Properties(view);  // single call: value and removal list must agree
-  if (!stub_props) return std::unexpected{stub_props.error()};
-  if (auto it = stub_props->find(key); it != stub_props->end()) return std::move(it->second);
-  auto removed = versioning::TakeRemoved(ctx, *stub_props);
-  if (std::ranges::contains(removed, key)) return storage::PropertyValue{};
-  return std::move(*in_fork);
+  return versioning::OverlayOnForkValue(ctx, stub, view, key, std::move(*in_fork));
 }
 
 storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::EdgeAccessor &stub,
@@ -119,23 +110,7 @@ storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, 
   auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
   if (!in_fork) return in_fork;
   if (*in_fork == 0) return stub.GetPropertySize(key, view);
-  auto stub_props = stub.Properties(view);
-  if (!stub_props) return std::unexpected{stub_props.error()};
-  if (stub_props->contains(key)) return stub.GetPropertySize(key, view);
-  auto removed = versioning::TakeRemoved(ctx, *stub_props);
-  if (std::ranges::contains(removed, key)) return uint64_t{0};
-  return in_fork;
-}
-
-[[noreturn]] void ThrowReserved() {
-  throw QueryRuntimeException(
-      "Names starting with '__mg_' are reserved for versioning and cannot be used as a property on a branch.");
-}
-
-void RejectReservedProperties(versioning::BranchContext &ctx, const PropertyMap &properties) {
-  for (const auto &[pid, _] : properties) {
-    if (ctx.IsReservedProperty(pid)) ThrowReserved();
-  }
+  return versioning::OverlaySizeOnFork(ctx, stub, view, key, *in_fork);
 }
 
 // Where a write lands: `stub` is the diff-engine edge written; `fork` is the fork edge it overlays, empty for a
@@ -150,19 +125,11 @@ WriteTarget ResolveWriteTarget(versioning::BranchContext &ctx, const storage::Ed
   if (impl.storage_ == &ctx.diff_engine() && !ctx.IsForkGid(impl.Gid())) return {impl, std::nullopt};
   auto stub = ctx.CowEdge(impl);
   if (!stub) {
-    if (stub.error().storage_error == storage::Error::SERIALIZATION_ERROR) throw TransactionSerializationException();
     throw QueryRuntimeException(stub.error().message);
   }
   auto fork = impl.storage_ != &ctx.diff_engine() ? std::optional<storage::EdgeAccessor>{impl} : ctx.FindForkEdge(*stub);
   if (!fork) throw QueryRuntimeException("Cannot write edge {}: its fork edge is missing.", impl.Gid().AsUint());
   return {*stub, std::move(fork)};
-}
-
-auto ForkHas(const storage::EdgeAccessor &fork) {
-  return [&fork](storage::PropertyId pid) {
-    auto in_fork = fork.GetProperty(pid, storage::View::OLD);
-    return in_fork && !in_fork->IsNull();
-  };
 }
 
 }  // namespace
@@ -224,7 +191,7 @@ storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAcces
 storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
                                                                         const storage::PropertyValue &value) {
   auto &ctx = *branch_ctx_;
-  if (ctx.IsReservedProperty(key)) ThrowReserved();
+  if (ctx.IsReservedProperty(key)) ThrowReserved("property");
   auto target = ResolveWriteTarget(ctx, impl_);
   if (!target.fork) return target.stub.SetProperty(key, value);
 
@@ -234,7 +201,7 @@ storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage:
   if (!removed) return std::unexpected{removed.error()};
   const PropertyMap changes{{key, value}};
   auto applied =
-      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), changes, ForkHas(*target.fork));
+      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), changes, versioning::ForkHas(*target.fork));
   if (!applied) return std::unexpected{applied.error()};
   return old_value;
 }
@@ -251,7 +218,7 @@ storage::Result<bool> EdgeAccessor::BranchInitProperties(PropertyMap &properties
   auto removed = versioning::ReadRemoved(ctx, target.stub);
   if (!removed) return std::unexpected{removed.error()};
   auto applied =
-      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), properties, ForkHas(*target.fork));
+      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), properties, versioning::ForkHas(*target.fork));
   if (!applied) return std::unexpected{applied.error()};
   return true;
 }
@@ -268,18 +235,11 @@ EdgeAccessor::BranchUpdateProperties(PropertyMap &properties) {
   auto removed = versioning::ReadRemoved(ctx, target.stub);
   if (!removed) return std::unexpected{removed.error()};
 
-  std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
-  changes.reserve(properties.size());
-  for (const auto &[pid, new_value] : properties) {
-    auto it = existing->find(pid);
-    changes.emplace_back(pid, it != existing->end() ? it->second : storage::PropertyValue{}, new_value);
-  }
+  auto changes = versioning::UpdateChanges(*existing, properties);
   auto applied =
-      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), properties, ForkHas(*target.fork));
+      versioning::ApplyPropertyChanges(ctx, target.stub, std::move(*removed), properties, versioning::ForkHas(*target.fork));
   if (!applied) return std::unexpected{applied.error()};
-  // Storage's UpdateProperties leaves the untouched old properties merged into the caller's map (callers count it
-  // for UPDATED_PROPERTIES); keep that contract.
-  for (auto &[pid, old_value] : *existing) properties.emplace(pid, std::move(old_value));
+  versioning::MergeOldBack(*existing, properties);
   return changes;
 }
 
@@ -293,13 +253,8 @@ storage::Result<PropertyMap> EdgeAccessor::BranchClearProperties() {
   auto fork_props = target.fork->Properties(storage::View::OLD);
   if (!fork_props) return std::unexpected{fork_props.error()};
   if (auto cleared = target.stub.ClearProperties(); !cleared) return std::unexpected{cleared.error()};  // incl. the list
-  std::vector<storage::PropertyId> removed;
-  removed.reserve(fork_props->size());
-  for (const auto &[pid, _] : *fork_props) removed.push_back(pid);
-  if (!removed.empty()) {
-    if (auto written = versioning::WriteRemoved(ctx, target.stub, removed); !written) {
-      return std::unexpected{written.error()};
-    }
+  if (auto written = versioning::WriteAllForkRemoved(ctx, target.stub, *fork_props); !written) {
+    return std::unexpected{written.error()};
   }
   return existing;
 }

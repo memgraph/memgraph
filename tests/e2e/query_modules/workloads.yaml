@@ -32,7 +32,7 @@ in_memory_cluster_edge_props: &in_memory_cluster_edge_props
       setup_queries: []
       validation_queries: []
 
-# Versioning branches need an enterprise license, WAL and a snapshot interval that never fires during the test.
+# Versioning branches need an enterprise license and a snapshot interval that never fires during the test.
 # schema.so lives in build/query_modules (relative to the e2e cwd, build/tests/e2e); versioning_mgp.so next to it.
 args_versioning: &args_versioning
   - "--bolt_port"

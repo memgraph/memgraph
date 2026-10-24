@@ -53,8 +53,6 @@ class VersioningMgpTest : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
-    // Chunk-0 gate requires PERIODIC_SNAPSHOT_WITH_WAL (D9) -- see WalGateDisabled below for the
-    // default-config (WAL-off) rejection path instead.
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.disk.main_storage_directory = data_directory / "disk";

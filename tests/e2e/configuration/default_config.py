@@ -399,6 +399,6 @@ startup_config_dict = {
     "versioning_enabled": (
         "false",
         "false",
-        "Enable graph versioning (branches). Startup-only; enterprise feature; requires IN_MEMORY_TRANSACTIONAL + WAL. Off by default.",
+        "Enable graph versioning (branches). Startup-only; enterprise feature; requires IN_MEMORY_TRANSACTIONAL. Off by default.",
     ),
 }

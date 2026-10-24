@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "flags/general.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -584,7 +583,6 @@ class DbAccessor final {
   // Touched candidates, deduplicated by gid. A deleted fork vertex (its stub carries the delete marker) may be a
   // candidate: the recheck on the reconstructed vertex fails with DELETED_OBJECT and drops it.
   struct BranchTouchedSet {
-    versioning::BranchContext *ctx;
     std::unordered_set<storage::Gid> seen;
     std::vector<storage::VertexAccessor> items;
 
@@ -724,27 +722,38 @@ class DbAccessor final {
     }
   }
 
-  // Full-scan fallback for a label+property scan, used when main's or the diff engine's index is not ready.
-  // O(graph): filters the union scan on the reconstructed vertex and sorts by the index key.
-  VerticesIterable MaterializeSortedBranchLabelPropertyScan(
-      storage::View view, storage::LabelId label, std::span<storage::PropertyPath const> properties,
-      std::span<storage::PropertyValueRange const> property_ranges, storage::IndexOrder order) {
-    using KeyedVertex = std::pair<BranchKey, VertexAccessor>;
-    std::vector<KeyedVertex> keyed;
+  // Full-scan fallback for the sorted branch scans: `extract(candidate)` yields the index key or nullopt to drop the
+  // vertex; the survivors are stable-sorted by `less(key, key)`. O(graph).
+  template <typename Key, typename Extract, typename Less>
+  VerticesIterable MaterializeSortedBranchScan(storage::View view, Extract &&extract, Less &&less) {
+    using Keyed = std::pair<Key, VertexAccessor>;
+    std::vector<Keyed> keyed;
     for (auto raw : branch_ctx_->Vertices(view)) {
       VertexAccessor candidate(raw, branch_ctx_);
-      if (!VertexHasLabel(candidate, view, label)) continue;
-      auto key = ReadBranchKey(candidate, view, properties);
-      if (!key || !BranchKeyInRange(*key, property_ranges)) continue;
+      auto key = extract(candidate);
+      if (!key) continue;
       keyed.emplace_back(std::move(*key), candidate);
     }
-    std::stable_sort(keyed.begin(), keyed.end(), [order](KeyedVertex const &a, KeyedVertex const &b) {
-      return order == storage::IndexOrder::ASC ? a.first < b.first : b.first < a.first;
-    });
+    std::stable_sort(keyed.begin(), keyed.end(), [&](Keyed const &a, Keyed const &b) { return less(a.first, b.first); });
     auto result = std::make_shared<std::vector<VertexAccessor>>();
     result->reserve(keyed.size());
     for (auto &entry : keyed) result->push_back(entry.second);
     return VerticesIterable(std::move(result));
+  }
+
+  // Full-scan fallback for a label+property scan, used when main's or the diff engine's index is not ready.
+  VerticesIterable MaterializeSortedBranchLabelPropertyScan(
+      storage::View view, storage::LabelId label, std::span<storage::PropertyPath const> properties,
+      std::span<storage::PropertyValueRange const> property_ranges, storage::IndexOrder order) {
+    return MaterializeSortedBranchScan<BranchKey>(
+        view,
+        [&](VertexAccessor &v) -> std::optional<BranchKey> {
+          if (!VertexHasLabel(v, view, label)) return std::nullopt;
+          auto key = ReadBranchKey(v, view, properties);
+          if (!key || !BranchKeyInRange(*key, property_ranges)) return std::nullopt;
+          return key;
+        },
+        [order](BranchKey const &a, BranchKey const &b) { return order == storage::IndexOrder::ASC ? a < b : b < a; });
   }
 
   VerticesIterable BranchLabelPropertyScan(storage::View view, storage::LabelId label,
@@ -766,7 +775,7 @@ class DbAccessor final {
       return VerticesIterable(std::make_shared<std::vector<VertexAccessor>>());
     }
 
-    BranchTouchedSet touched{.ctx = branch_ctx_, .seen = {}, .items = {}};
+    BranchTouchedSet touched;
 
     // Candidates the fork index cannot contain: branch-native hits, and stubs carrying both the label and the key.
     for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) touched.Add(raw);
@@ -806,9 +815,16 @@ class DbAccessor final {
                                       DiffScan &&diff_scan, InRange &&in_range) {
     if (!branch_ctx_->historical().VertexPropertyIndexReady(property) ||
         !accessor_->VertexPropertyIndexReady(property)) {
-      return VerticesIterable(MaterializeSortedBranchPropertyScan(view, property, in_range));
+      return MaterializeSortedBranchScan<storage::PropertyValue>(
+          view,
+          [&](VertexAccessor &v) -> std::optional<storage::PropertyValue> {
+            auto prop = v.GetProperty(view, property);
+            if (!prop.has_value() || prop->IsNull() || !in_range(*prop)) return std::nullopt;
+            return std::move(*prop);
+          },
+          [](storage::PropertyValue const &a, storage::PropertyValue const &b) { return a < b; });
     }
-    BranchTouchedSet touched{.ctx = branch_ctx_, .seen = {}, .items = {}};
+    BranchTouchedSet touched;
     for (auto raw : diff_scan()) touched.Add(raw);
     auto untouched = SplitBranchForkStream(fork_scan(), view, touched);
     return MergeBranchOverlay(
@@ -834,19 +850,25 @@ class DbAccessor final {
   // would double-count. O(fork-state graph size) full scan regardless of predicate selectivity, the
   // same "slower but correct" fallback MaterializeFilteredBranchScan already accepted for vertices --
   // there is no branch-aware edge-type/property index to seek instead (out of scope for this slice).
+  // Walks every branch edge exactly once (see above); `fn(raw_edge)` returns true to stop the walk.
+  template <typename Fn>
+  void ForEachBranchEdge(storage::View view, Fn &&fn) {
+    for (auto raw_v : branch_ctx_->Vertices(view)) {
+      for (auto &raw_e : branch_ctx_->ResolveEdges(raw_v.Gid(), storage::EdgeDirection::OUT, view)) {
+        if (fn(raw_e)) return;
+      }
+    }
+  }
+
   template <typename Pred>
   auto MaterializeFilteredBranchEdgeScan(storage::View view, Pred &&predicate)
       -> std::shared_ptr<std::vector<EdgeAccessor>> {
     auto result = std::make_shared<std::vector<EdgeAccessor>>();
-    for (auto raw_v : branch_ctx_->Vertices(view)) {
-      VertexAccessor v(raw_v, branch_ctx_);
-      for (auto &raw_e : branch_ctx_->ResolveEdges(v.Gid(), storage::EdgeDirection::OUT, view, {})) {
-        EdgeAccessor candidate(raw_e, branch_ctx_);
-        if (predicate(candidate)) {
-          result->push_back(candidate);
-        }
-      }
-    }
+    ForEachBranchEdge(view, [&](auto &raw_e) {
+      EdgeAccessor candidate(raw_e, branch_ctx_);
+      if (predicate(candidate)) result->push_back(candidate);
+      return false;
+    });
     return result;
   }
 
@@ -897,7 +919,7 @@ class DbAccessor final {
       while (diff_it != diff_end) {
         EdgeAccessor e(*diff_it, branch_ctx_);
         ++diff_it;
-        if (branch_ctx_->IsEdgeStub(e.impl_) && branch_ctx_->IsForkEdgeHidden(e.impl_, view)) continue;
+        if (branch_ctx_->IsStub(e.impl_) && branch_ctx_->IsForkEdgeHidden(e.impl_, view)) continue;
         auto prop_res = e.impl_.GetProperty(property, view);
         if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
         return std::make_optional<KeyedEdge>(std::move(*prop_res), e);
@@ -957,7 +979,7 @@ class DbAccessor final {
   bool BranchVertexHasUncountedEdges(storage::Gid vertex_gid,
                                      const std::unordered_set<storage::Gid> &co_deleted_edge_gids) {
     auto has_uncounted = [&](storage::EdgeDirection direction) {
-      auto edges = branch_ctx_->ResolveEdges(vertex_gid, direction, storage::View::NEW, {});
+      auto edges = branch_ctx_->ResolveEdges(vertex_gid, direction, storage::View::NEW);
       return std::ranges::any_of(edges, [&](auto &e) { return !co_deleted_edge_gids.contains(e.Gid()); });
     };
     return has_uncounted(storage::EdgeDirection::OUT) || has_uncounted(storage::EdgeDirection::IN);
@@ -1027,7 +1049,7 @@ class DbAccessor final {
       // All incident edges are enumerated before any marker is written, so an edge between two deleted vertices
       // is seen from both ends and counted once.
       for (auto direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
-        for (auto &raw : ctx.ResolveEdges(node.Gid(), direction, kView, {})) {
+        for (auto &raw : ctx.ResolveEdges(node.Gid(), direction, kView)) {
           if (!seen_edges.insert(raw.Gid()).second) continue;
           EdgeAccessor incident(raw, branch_ctx_);
           if (raw.storage_ == &ctx.diff_engine()) {
@@ -1124,17 +1146,17 @@ class DbAccessor final {
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
       if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) {
-        if (!branch_ctx_->IsEdgeStub(*diff_edge) || !branch_ctx_->IsForkEdgeHidden(*diff_edge, view)) {
+        if (!branch_ctx_->IsStub(*diff_edge) || !branch_ctx_->IsForkEdgeHidden(*diff_edge, view)) {
           return EdgeAccessor(*diff_edge, branch_ctx_);
         }
       }
-      for (auto raw_v : branch_ctx_->Vertices(view)) {
-        VertexAccessor v(raw_v, branch_ctx_);
-        for (auto &e : branch_ctx_->ResolveEdges(v.Gid(), storage::EdgeDirection::OUT, view, {})) {
-          if (e.Gid() == gid) return EdgeAccessor(e, branch_ctx_);
-        }
-      }
-      return std::nullopt;
+      std::optional<EdgeAccessor> found;
+      ForEachBranchEdge(view, [&](auto &e) {
+        if (e.Gid() != gid) return false;
+        found.emplace(e, branch_ctx_);
+        return true;
+      });
+      return found;
     }
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
@@ -1147,7 +1169,7 @@ class DbAccessor final {
   // an edge lives on exactly its FROM-vertex's OUT list, so this is a reliable, non-scanning lookup.
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
-      for (auto &e : branch_ctx_->ResolveEdges(from_vertex_gid, storage::EdgeDirection::OUT, view, {})) {
+      for (auto &e : branch_ctx_->ResolveEdges(from_vertex_gid, storage::EdgeDirection::OUT, view)) {
         if (e.Gid() == edge_gid) return EdgeAccessor(e, branch_ctx_);
       }
       return std::nullopt;
@@ -1265,26 +1287,6 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
-  // Full-scan fallback for a global vertex-property scan (used when main's or the diff engine's property index is
-  // not ready; see BranchPropertyScan for the indexed overlay). Filters the union scan on the reconstructed
-  // vertex and sorts ascending by `property` -- the planner elides the OrderBy and trusts index order. O(graph).
-  template <typename Pred>
-  auto MaterializeSortedBranchPropertyScan(storage::View view, storage::PropertyId property, Pred &&predicate)
-      -> std::shared_ptr<std::vector<VertexAccessor>> {
-    std::vector<std::pair<storage::PropertyValue, VertexAccessor>> keyed;
-    for (auto raw : branch_ctx_->Vertices(view)) {
-      VertexAccessor candidate(raw, branch_ctx_);
-      auto prop = candidate.GetProperty(view, property);
-      if (!prop.has_value() || prop->IsNull() || !predicate(*prop)) continue;
-      keyed.emplace_back(std::move(*prop), candidate);
-    }
-    std::stable_sort(keyed.begin(), keyed.end(), [](auto const &x, auto const &y) { return x.first < y.first; });
-    auto result = std::make_shared<std::vector<VertexAccessor>>();
-    result->reserve(keyed.size());
-    for (auto &entry : keyed) result->push_back(entry.second);
-    return result;
-  }
-
   VerticesIterable Vertices(storage::View view, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
       return BranchPropertyScan(
@@ -1338,17 +1340,21 @@ class DbAccessor final {
   // edge scans are unaffected and remain correct -- they route through the union-aware `Vertices()`/
   // `Edges()` above -- so the planner falling back to those on a branch is the right behavior; only
   // the enterprise `ScanParallel*` path that reaches these `Chunked*` overloads is guarded here.
+  void RejectBranchChunkedVertexScan() const {
+    if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
+  }
+
+  void RejectBranchChunkedEdgeScan() const {
+    if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+  }
+
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
-    }
+    RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
   }
 
   VerticesChunkedIterable ChunkedVertices(storage::View view, storage::LabelId label, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
-    }
+    RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{accessor_->ChunkedVertices(label, view, num_chunks)};
   }
 
@@ -1356,25 +1362,19 @@ class DbAccessor final {
                                           std::span<storage::PropertyPath const> properties,
                                           std::span<storage::PropertyValueRange const> property_ranges,
                                           size_t num_chunks, storage::IndexOrder order = storage::IndexOrder::ASC) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
-    }
+    RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{
         accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
   }
 
   VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
-    }
+    RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{accessor_->ChunkedVertices(property, view, num_chunks)};
   }
 
   VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
                                           const storage::PropertyValue &value, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
-    }
+    RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{accessor_->ChunkedVertices(property, value, view, num_chunks)};
   }
 
@@ -1382,24 +1382,18 @@ class DbAccessor final {
                                           const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                           const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                           size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
-    }
+    RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{accessor_->ChunkedVertices(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
-    }
+    RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                                     size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
-    }
+    RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, view, num_chunks)};
   }
 
@@ -1407,25 +1401,19 @@ class DbAccessor final {
                                     const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                     size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
-    }
+    RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{
         accessor_->ChunkedEdges(edge_type, property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
-    }
+    RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
                                     const storage::PropertyValue value, size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
-    }
+    RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
   }
 
@@ -1433,9 +1421,7 @@ class DbAccessor final {
                                     const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                     size_t num_chunks) {
-    if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
-    }
+    RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, lower_bound, upper_bound, view, num_chunks)};
   }
 

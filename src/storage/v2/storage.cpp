@@ -162,24 +162,6 @@ Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ) {}
 
-Storage::Accessor::Accessor(RecoveryReplayAccess /* tag */, Storage *storage,
-                            std::function<Transaction()> build_transaction, StorageAccessType rw_type,
-                            const std::optional<std::chrono::milliseconds> timeout)
-    : storage_(storage),
-      // Unlike HistoricalAccess (hardcoded READ), a recovery-replay accessor can WRITE real deltas
-      // or perform DDL, so it takes exactly `rw_type` (defaulting to WRITE). AcquireGuardOrThrow
-      // maps every StorageAccessType to its ResourceLockGuard::Type via ToGuardType, including
-      // UNIQUE (BUG-1 fix: DDL replay needs UNIQUE so that type() == UNIQUE satisfies the DDL
-      // methods' own gates, e.g. CreateIndex). During single-threaded recovery replay the UNIQUE
-      // hold is a structural requirement (makes type() report UNIQUE), not a concurrency one.
-      guard_(AcquireGuardOrThrow(storage, rw_type, timeout)),
-      // Same MEDIUM-fix ordering guarantee as HistoricalAccess: build_transaction() runs strictly
-      // after guard_ (member declaration order) already holds its lock, so the snapshot (active
-      // indices/constraints, engine_lock_ state) is captured under the guard.
-      transaction_(build_transaction()),
-      is_transaction_active_(true),
-      original_access_type_(rw_type) {}
-
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       guard_(std::move(other.guard_)),

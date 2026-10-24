@@ -2104,7 +2104,7 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
-  /// Graph versioning target (USING VERSION literal); see specs/graph-versioning.md §4.2.
+  /// Graph versioning target (USING VERSION literal).
   /// Kept as an Expression (not resolved eagerly) for the same reason as hops_limit_/num_threads_:
   /// the AST is cached across executions.
   memgraph::query::Expression *version_target_{nullptr};
@@ -4108,8 +4108,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
   }
 };
 
-/// Graph Versioning (branches) query surface. See specs/graph-versioning.md §4.2.
-/// Parse/AST only in v1 chunk 1 — no semantics are attached here (chunk 7 wires dispatch).
+/// Graph Versioning (branches) query surface.
 class VersioningQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -4124,8 +4123,7 @@ class VersioningQuery : public memgraph::query::Query {
     MERGE_BRANCH,
     DROP_BRANCH,
     SHOW_BRANCH,
-    SHOW_BRANCHES,
-    SHOW_BRANCH_DIFF
+    SHOW_BRANCHES
   };
 
   // name_/description_/parent_ are StringLiteral-or-symbolicName-derived, so (like hops_limit_,
@@ -4134,7 +4132,7 @@ class VersioningQuery : public memgraph::query::Query {
   // is being parsed off a cached/stripped AST (see visitBranchName). Never resolve these to a
   // plain std::string in the visitor: the AST is cached across executions with different
   // stripped-literal values.
-  /// Branch being created/checked-out/merged/dropped (unused for SHOW_BRANCH; optional target for SHOW_BRANCH_DIFF).
+  /// Branch being created/checked-out/merged/dropped (unused for SHOW_BRANCH).
   memgraph::query::Expression *name_{nullptr};
   /// WITH DESCRIPTION '...' on CREATE BRANCH / CHECKOUT BRANCH ... FROM ...
   memgraph::query::Expression *description_{nullptr};
@@ -4146,8 +4144,6 @@ class VersioningQuery : public memgraph::query::Query {
   memgraph::query::VersioningQuery::Action action_;
   /// Distinguishes CHECKOUT BRANCH x (switch only) from CHECKOUT BRANCH x FROM y (create-if-absent + switch).
   bool checkout_{false};
-  /// FORMAT TABLE on SHOW BRANCH DIFF
-  bool format_table_{false};
 
   VersioningQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<VersioningQuery>();
@@ -4157,7 +4153,6 @@ class VersioningQuery : public memgraph::query::Query {
     object->parent_ = parent_ ? parent_->Clone(storage) : nullptr;
     object->for_database_ = for_database_;
     object->checkout_ = checkout_;
-    object->format_table_ = format_table_;
     return object;
   }
 };

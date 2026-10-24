@@ -21,7 +21,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
@@ -112,7 +111,6 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/exceptions.hpp"
 #include "storage/v2/fmt.hpp"
@@ -6833,7 +6831,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot switch storage mode while versioning branches exist: it would strand their "
-        "fork-point history. Merge or drop all branches first.");
+        "fork-point history. Drop all branches first.");
   }
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
@@ -6905,7 +6903,7 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot drop the graph while versioning branches exist: it would strand their fork-point "
-        "base. Merge or drop all branches first.");
+        "base. Drop all branches first.");
   }
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
@@ -7026,7 +7024,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot recover a snapshot while versioning branches exist: it would replace the storage "
-        "the branches forked from. Merge or drop all branches first.");
+        "the branches forked from. Drop all branches first.");
   }
   storage::Storage *storage = current_db.db_acc_->get()->storage();
 
@@ -9192,128 +9190,6 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
 }
 }  // namespace
 
-// Defined here (moved up from its original position further below, alongside Interpreter::Commit's
-// own after-commit trigger dispatch) so that this and every other call site in the file see a single
-// definition -- clang 20.1.2 treats an anon-namespace forward declaration and an anon-namespace
-// definition in a *different* `namespace { ... }` block as two distinct overload candidates and
-// rejects calls as ambiguous, even though both blocks reopen the same internal-linkage namespace.
-namespace {
-
-auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
-  if (is_main) {
-    auto protector = dbms::DatabaseProtector{db_acc};
-    return storage::CommitArgs::make_main(protector.clone());
-  }
-  return storage::CommitArgs::make_replica_read();
-}
-
-void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
-                            TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
-  // Run the triggers
-  for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
-    QueryAllocator execution_memory{db_acc->DbQueryMemoryTracker()};
-
-    // create a new transaction for each trigger
-    auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
-    DbAccessor db_accessor{tx_acc.get()};
-
-    // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
-    // So we need to adapt TriggerContext based on user transaction which is still alive.
-    auto trigger_context = original_trigger_context;
-    trigger_context.AdaptForAccessor(&db_accessor);
-    try {
-      auto is_main = interpreter_context->repl_state->ReadLock()->IsMain();
-      trigger.Execute(&db_accessor,
-                      db_acc,
-                      execution_memory.resource(),
-                      flags::run_time::GetExecutionTimeout(),
-                      &interpreter_context->is_shutting_down,
-                      /* transaction_status = */ nullptr,
-                      trigger_context,
-                      is_main,
-                      triggering_user,
-                      interpreter_context->auth_checker);
-    } catch (const utils::BasicException &exception) {
-      spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
-      db_accessor.Abort();
-      continue;
-    }
-
-    auto maybe_commit_error = std::invoke([&]() {
-      auto locked_repl_state = interpreter_context->repl_state->ReadLock();
-      const bool is_main = locked_repl_state->IsMain();
-      return db_accessor.Commit(make_commit_arg(is_main, db_acc));
-    });
-
-    if (!maybe_commit_error) {
-      const auto &error = maybe_commit_error.error();
-
-      std::visit(
-          [&trigger, &db_accessor]<typename T>(T &&arg) {
-            using ErrorType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-              spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
-            } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
-              const auto &constraint_violation = arg;
-              switch (constraint_violation.type) {
-                case storage::ConstraintViolation::Type::EXISTENCE: {
-                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-                  MG_ASSERT(constraint_violation.properties.size() == 1U);
-                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-                  spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on: {}({}) ",
-                               trigger.Name(),
-                               label_name,
-                               property_name);
-                  break;
-                }
-                case storage::ConstraintViolation::Type::UNIQUE: {
-                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-                  std::stringstream property_names_stream;
-                  utils::PrintIterable(
-                      property_names_stream,
-                      constraint_violation.properties,
-                      ", ",
-                      [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-                  spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
-                               trigger.Name(),
-                               label_name,
-                               property_names_stream.str());
-                  break;
-                }
-                case storage::ConstraintViolation::Type::TYPE: {
-                  MG_ASSERT(constraint_violation.properties.size() == 1U);
-                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-                  spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) IS TYPED {}",
-                               trigger.Name(),
-                               label_name,
-                               property_name,
-                               storage::TypeConstraintKindToString(*constraint_violation.constraint_kind));
-
-                  break;
-                }
-                default:
-                  LOG_FATAL("Unknown ConstraintViolation type");
-                  ;
-              }
-            } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-              throw QueryException(MessageWithDocsLink(
-                  "Unable to commit due to serialization error. Try retrying this transaction when the conflicting "
-                  "transaction is finished."));
-            } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-              throw QueryException("Unable to commit due to persistance error.");
-            } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
-              throw QueryException("Queries on replica shouldn't write.");
-            } else {
-              static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-            }
-          },
-          error);
-    }
-  }
-}
-}  // namespace
-
 // Graph Versioning (branches) v1, CHUNK 7a: management-query dispatch for CREATE/CHECKOUT/MERGE/
 // DROP/SHOW BRANCH* -- mirrors PrepareMultiDatabaseQuery's shape (Downcast + switch(Action) +
 // PreparedQuery), but the registry here is a single database's VersionStore (chunk 2B) plus its
@@ -9368,13 +9244,10 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
   versioning::VersionStore *version_store = nullptr;
   if (!cross_tenant_show_branches) {
     // Chunk-0 gate (R6/D8/D9): checked BEFORE anything below ever touches VersionStore or main.
-    // IsDurabilityCompleteForSuspend() is exactly "periodic snapshots + WAL", the same durability
-    // precondition the gate's kWalDisabled error describes (storage.hpp's own doc-comment).
     if (const auto gate_err =
             versioning::CheckVersioningGate(FLAGS_versioning_enabled,
                                             license::global_license_checker.IsEnterpriseValidFast(),
-                                            storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                                            storage->IsDurabilityCompleteForSuspend())) {
+                                            storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL)) {
       throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
     }
 
@@ -9551,11 +9424,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       if (!version_store->Exists(*name)) {
         throw QueryRuntimeException("Version '{}' does not exist.", *name);
       }
-      // Fail fast: avoid a post-hoc DropBranch surprise.
-      if (version_store->HasChildren(*name)) {
-        throw QueryRuntimeException("Cannot drop '{}': it has child branches. Merge or drop its children first.",
-                                    *name);
-      }
 
       return PreparedQuery{
           .header = {},
@@ -9577,14 +9445,11 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 current_db.SetCurrentVersion(std::nullopt);
               }
               if (!version_store->DropBranch(name)) {
-                // TOCTOU: another connection raced a CreateBranch(parent=name) or DropBranch(name)
-                // between the pre-checks above and this call (VersionStore's own lock_ only
-                // serializes each call individually, not this check-then-act pair across two
-                // separate interpreter calls) -- or another session currently has `name` checked
-                // out (see the comment above). Rare; surfaced rather than silently no-op'd.
+                // TOCTOU: another connection raced a DropBranch(name) or a checkout of `name` between the
+                // pre-checks above and this call. Rare; surfaced rather than silently no-op'd.
                 throw QueryRuntimeException(
-                    "Version '{}' could not be dropped (it no longer exists, gained a child branch "
-                    "concurrently, or is checked out by another session). Retry DROP BRANCH.",
+                    "Version '{}' could not be dropped (it no longer exists or is checked out by another "
+                    "session). Retry DROP BRANCH.",
                     name);
               }
               pull_plan = std::make_shared<PullPlanVector>(std::vector<std::vector<TypedValue>>{});
@@ -9652,7 +9517,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       }
 #endif
       // MEDIUM fix: flag_enabled/enterprise_valid were already enforced above (for BOTH the
-      // plain and FOR DATABASE forms); storage mode and WAL are PER-DATABASE and were
+      // plain and FOR DATABASE forms); storage mode is PER-DATABASE and were
       // deliberately NOT checked above for the FOR DATABASE form (cross_tenant_show_branches),
       // so gate the RESOLVED target here -- unconditionally whenever FOR DATABASE was given, not
       // just when the target differs from the current db (a user naming their OWN db via FOR
@@ -9663,8 +9528,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
         if (const auto target_gate_err = versioning::CheckVersioningGate(
                 FLAGS_versioning_enabled,
                 license::global_license_checker.IsEnterpriseValidFast(),
-                target_storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                target_storage->IsDurabilityCompleteForSuspend())) {
+                target_storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL)) {
           throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*target_gate_err)));
         }
       }
@@ -9692,27 +9556,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
             return std::nullopt;
           },
           .rw_type = RWType::R};
-    }
-    case VersioningQuery::Action::SHOW_BRANCH_DIFF: {
-      std::string target;
-      if (name) {
-        target = *name;
-      } else if (current_db.CurrentVersion()) {
-        target = *current_db.CurrentVersion();
-      } else {
-        throw QueryRuntimeException(
-            "SHOW BRANCH DIFF with no name requires an active checked-out version (CHECKOUT BRANCH first), or name "
-            "one explicitly: SHOW BRANCH DIFF '<name>'.");
-      }
-      if (target == "main") {
-        throw QueryRuntimeException("SHOW BRANCH DIFF cannot target 'main' -- it names a branch's own change-log.");
-      }
-      if (!version_store->Exists(target)) {
-        throw QueryRuntimeException("Version '{}' does not exist.", target);
-      }
-
-      // Branches keep no change-log (discard-only), so there is no row data to list yet.
-      throw utils::NotYetImplemented("SHOW BRANCH DIFF (requires branch write-capture wiring from chunks 7b/7c)");
     }
   }
   LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
@@ -9981,7 +9824,7 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot create an enum while versioning branches exist: it would drift their frozen enum "
-        "mirror out of sync. Merge or drop all branches first.");
+        "mirror out of sync. Drop all branches first.");
   }
 
   auto *create_enum_query = utils::Downcast<CreateEnumQuery>(parsed_query.query);
@@ -10039,7 +9882,7 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot alter an enum while versioning branches exist: it would drift their frozen enum "
-        "mirror out of sync. Merge or drop all branches first.");
+        "mirror out of sync. Drop all branches first.");
   }
 
   auto *alter_enum_add_query = utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query);
@@ -10077,7 +9920,7 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot alter an enum while versioning branches exist: it would drift their frozen enum "
-        "mirror out of sync. Merge or drop all branches first.");
+        "mirror out of sync. Drop all branches first.");
   }
 
   auto *alter_enum_update_query = utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
@@ -11510,17 +11353,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   // Graph Versioning v1 (USING VERSION per-query override, Step 1): resolve the clause here, while
   // parsed_query.query/cypher_query are still valid -- parsed_query is std::move'd into a
-  // Prepare*Query(...) helper further down the dispatch ladder (see the chunk 7d comment above the
-  // D10 rail), after which its AST storage is freed. `has_explicit_version` is captured in this
-  // Prepare-local so it survives, unread from parsed_query, all the way to that rail.
+  // Prepare*Query(...) helper further down the dispatch ladder, after which its AST storage is freed.
   //
   // Step 1 scope is intentionally narrow: PreQueryDirectives::version_target_ only exists on a
   // CypherQuery's own AST node (grammar attaches USING VERSION only to cypherQuery), not on the
   // sibling ProfileQuery node -- so `PROFILE ... USING VERSION 'x' ...` is silently ignored here
-  // (has_explicit_version stays false). That's safe, not a routing hole: with the directive
-  // unrecognized, the query falls through to ordinary session routing, and an engaged connection
-  // sitting on main with no resolved version still fails loud via the D10 rail below rather than
-  // silently mis-routing. Lifting PROFILE support is Step 2+ scope.
+  // (has_explicit_version stays false) and the query falls through to ordinary session routing.
+  // Lifting PROFILE support is Step 2+ scope.
   std::optional<std::string> using_version;
   if (cypher_query != nullptr && cypher_query->pre_query_directives_.version_target_ != nullptr) {
     EvaluationContext version_eval_ctx;
@@ -11803,27 +11642,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // snapshots main's storage (a separate storage object from the branch's diff engine), is a
     // harmless durability op, and rejecting it would break a legitimate "snapshot before merge"
     // workflow.
-    // Graph Versioning v1 chunk 7d (D10): classify the query BEFORE the dispatch ladder std::move's
-    // parsed_query into a Prepare*Query helper (after which parsed_query.query dangles). The
-    // write-routing rail below needs this to exclude management/DDL from the data-write guard.
-    // Widened set (adversarial review follow-up, narrow-bypass fix): PROFILE wraps an inner Cypher
-    // query (see PrepareProfileQuery), and its PreparedQuery's rw_type is taken from that INNER
-    // plan (cypher_query_plan->rw_type()) -- so `PROFILE CREATE (n)` reports write_query == true
-    // even though the OUTER AST node here is a ProfileQuery, not a CypherQuery (they're siblings,
-    // not sub/super-class). Without this, an engaged connection sitting on `main` could slip a
-    // PROFILE'd write past the rail below. EXPLAIN is deliberately NOT included: PrepareExplainQuery
-    // hardcodes `.rw_type = RWType::NONE` for its PreparedQuery regardless of the inner plan, so it
-    // never enters the `write_query` block and the rail is never consulted for it.
-    const bool query_is_data_plane = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr ||
-                                     utils::Downcast<ProfileQuery>(parsed_query.query) != nullptr;
-
     if (current_db_.branch_context() != nullptr) {
       auto *q = parsed_query.query;
       // Indexes belong to main; every schema DDL (CREATE and DROP alike) is rejected on a branch.
-      auto *iq = utils::Downcast<IndexQuery>(q);
-      auto *eiq = utils::Downcast<EdgeIndexQuery>(q);
       const bool is_schema_or_storage_global_ddl =
-          (iq != nullptr || eiq != nullptr || utils::Downcast<PointIndexQuery>(q) != nullptr ||
+          (utils::Downcast<IndexQuery>(q) != nullptr || utils::Downcast<EdgeIndexQuery>(q) != nullptr ||
+           utils::Downcast<PointIndexQuery>(q) != nullptr ||
            utils::Downcast<VectorIndexQuery>(q) != nullptr ||
            utils::Downcast<CreateVectorEdgeIndexQuery>(q) != nullptr || utils::Downcast<TextIndexQuery>(q) != nullptr ||
            utils::Downcast<CreateTextEdgeIndexQuery>(q) != nullptr ||
@@ -12182,34 +12006,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw WriteQueryOnMainException();
       }
 #endif
-      // Graph Versioning v1 chunk 7d (D10): an engaged-but-unresolved connection (VersioningEngaged()
-      // true with CurrentVersion() nullopt) must never silently write production data (see
-      // WriteWithoutResolvedVersionException). Data-plane writes only (CypherQuery / PROFILE-wrapped
-      // CypherQuery) -- versioning management (CHECKOUT/MERGE/DROP) and admin/DDL are excluded so
-      // versioning stays operable and this is not a general main-write ban.
-      //
-      // The session target is simply current_version_ -- the last CHECKOUT wins, exactly like USE
-      // DATABASE -- so CHECKOUT BRANCH 'main' un-engages the rail (SetCurrentVersion(std::nullopt),
-      // interpreter.hpp) instead of leaving it stuck on. In steady state VersioningEngaged() is true
-      // iff CurrentVersion() names a branch, so the condition below (engaged AND unresolved) should
-      // be unreachable in normal operation post-fix. The check is kept anyway as a cheap
-      // defense-in-depth invariant guard against a future regression that leaves `engaged` set while
-      // the session is actually on main -- not a routine "engaged-on-main" block anymore.
-      // NOTE: query_is_data_plane was captured pre-dispatch, above -- by this point parsed_query has
-      // already been std::move'd into the chosen Prepare*Query(...) helper and its AST storage is
-      // freed, so parsed_query.query itself must NOT be dereferenced here.
-      //
-      // Graph Versioning v1 (USING VERSION per-query override, Step 1): `!has_explicit_version`
-      // exempts a query that named its target version explicitly -- an explicit target (currently
-      // only 'main' or the session's own branch, enforced pre-dispatch above) is never a silent
-      // write, and `USING VERSION 'main'` is precisely the escape hatch that lets an
-      // engaged-and-unresolved-on-main connection write main on purpose. has_explicit_version is a
-      // Prepare-local captured pre-dispatch alongside query_is_data_plane, so it's still valid here.
-      if (current_db_.VersioningEngaged() && !current_db_.CurrentVersion().has_value() && query_is_data_plane &&
-          !has_explicit_version) {
-        query_execution = nullptr;
-        throw WriteWithoutResolvedVersionException();
-      }
     }
 
     // Set the target db to the current db (some queries have different target from the current db)
@@ -12409,6 +12205,123 @@ std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() 
   // CAS failed, return to avoid busy loops
   return std::nullopt;
 }
+
+namespace {
+
+auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
+  if (is_main) {
+    auto protector = dbms::DatabaseProtector{db_acc};
+    return storage::CommitArgs::make_main(protector.clone());
+  }
+  return storage::CommitArgs::make_replica_read();
+}
+
+void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
+                            TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
+  // Run the triggers
+  for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
+    QueryAllocator execution_memory{db_acc->DbQueryMemoryTracker()};
+
+    // create a new transaction for each trigger
+    auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
+    DbAccessor db_accessor{tx_acc.get()};
+
+    // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
+    // So we need to adapt TriggerContext based on user transaction which is still alive.
+    auto trigger_context = original_trigger_context;
+    trigger_context.AdaptForAccessor(&db_accessor);
+    try {
+      auto is_main = interpreter_context->repl_state->ReadLock()->IsMain();
+      trigger.Execute(&db_accessor,
+                      db_acc,
+                      execution_memory.resource(),
+                      flags::run_time::GetExecutionTimeout(),
+                      &interpreter_context->is_shutting_down,
+                      /* transaction_status = */ nullptr,
+                      trigger_context,
+                      is_main,
+                      triggering_user,
+                      interpreter_context->auth_checker);
+    } catch (const utils::BasicException &exception) {
+      spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
+      db_accessor.Abort();
+      continue;
+    }
+
+    auto maybe_commit_error = std::invoke([&]() {
+      auto locked_repl_state = interpreter_context->repl_state->ReadLock();
+      const bool is_main = locked_repl_state->IsMain();
+      return db_accessor.Commit(make_commit_arg(is_main, db_acc));
+    });
+
+    if (!maybe_commit_error) {
+      const auto &error = maybe_commit_error.error();
+
+      std::visit(
+          [&trigger, &db_accessor]<typename T>(T &&arg) {
+            using ErrorType = std::remove_cvref_t<T>;
+            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
+            } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+              const auto &constraint_violation = arg;
+              switch (constraint_violation.type) {
+                case storage::ConstraintViolation::Type::EXISTENCE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on: {}({}) ",
+                               trigger.Name(),
+                               label_name,
+                               property_name);
+                  break;
+                }
+                case storage::ConstraintViolation::Type::UNIQUE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  std::stringstream property_names_stream;
+                  utils::PrintIterable(
+                      property_names_stream,
+                      constraint_violation.properties,
+                      ", ",
+                      [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
+                  spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
+                               trigger.Name(),
+                               label_name,
+                               property_names_stream.str());
+                  break;
+                }
+                case storage::ConstraintViolation::Type::TYPE: {
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) IS TYPED {}",
+                               trigger.Name(),
+                               label_name,
+                               property_name,
+                               storage::TypeConstraintKindToString(*constraint_violation.constraint_kind));
+
+                  break;
+                }
+                default:
+                  LOG_FATAL("Unknown ConstraintViolation type");
+                  ;
+              }
+            } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+              throw QueryException(MessageWithDocsLink(
+                  "Unable to commit due to serialization error. Try retrying this transaction when the conflicting "
+                  "transaction is finished."));
+            } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+              throw QueryException("Unable to commit due to persistance error.");
+            } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
+              throw QueryException("Queries on replica shouldn't write.");
+            } else {
+              static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+            }
+          },
+          error);
+    }
+  }
+}
+}  // namespace
 
 void Interpreter::Commit() {
 #ifdef MG_ENTERPRISE

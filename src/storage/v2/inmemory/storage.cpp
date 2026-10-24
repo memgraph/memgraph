@@ -39,7 +39,6 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal_delta_apply.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -620,12 +619,6 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemo
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(RecoveryReplayAccess tag, InMemoryStorage *storage,
-                                                    std::function<Transaction()> build_transaction,
-                                                    StorageAccessType rw_type,
-                                                    std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, std::move(build_transaction), rw_type, timeout), config_(storage->config_.salient.items) {}
-
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1044,14 +1037,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   return *result;
 }
 
-bool InMemoryStorage::InMemoryAccessor::EdgeGidExists(storage::Gid gid) {
-  // Deliberately calls the RAW storage-level lookup (InMemoryStorage::FindEdge), NOT the
-  // accessor-level FindEdge(gid, view) -- see the doc-comment on the declaration (storage.hpp) for
-  // why the view-filtered accessor lookup is not a safe substitute here.
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  return static_cast<bool>(mem_storage->FindEdge(gid));
-}
-
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
   auto const has_any_existence_constraints = !transaction_.active_constraints_->existence_->empty();
@@ -1163,23 +1148,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     // Transaction::is_historical_ in transaction.hpp) -- never finalize it here. In practice a
     // historical accessor is read-only and always takes this empty-delta branch if Commit() is
     // ever called on it, so this guard is the one that actually matters for it.
-    //
-    // Graph Versioning v1 (S3a): a recovery-replay transaction's start_timestamp is likewise a
-    // HISTORICAL value (see Transaction::is_recovery_replay_, transaction.hpp) -- MarkFinished on it
-    // would alias onto commit_log_'s current head block and corrupt the GC/MVCC horizon. Unlike the
-    // is_historical_ branch below, a replay transaction owns no fork pin to release, so it simply
-    // skips the call (recovery reseeds the commit_log en-masse post-replay, S3c/S3d).
-    if (transaction_.is_recovery_replay_) {
-      // No MarkFinished, no ReleaseForkPin -- just terminate the transaction here, mirroring the
-      // is_historical_ branch's `is_transaction_active_ = false` below (nothing else in this branch
-      // sets it, and this fast path is this transaction's only finalize path).
-      is_transaction_active_ = false;
-    } else if (!transaction_.is_historical_) {
+    if (!transaction_.is_historical_) {
       mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
     } else {
-      // HIGH-1: release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess /
-      // AddForkPinAt) -- NOT the branch's pin, which is owned separately and released by DROP
-      // BRANCH's own ReleaseForkPin call.
+      // Release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess) -- NOT the branch's
+      // pin, which is owned separately and released by DROP BRANCH's own ReleaseForkPin call.
       mem_storage->ReleaseForkPin(transaction_.start_timestamp);
       // IMPORTANT: unlike the non-historical branch above, this path must also terminate the
       // transaction HERE. Nothing else in this fast path sets `is_transaction_active_ = false`
@@ -1243,28 +1216,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // comparison notices first.
   DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
              "on a main the durable commit timestamp must be the local one");
-
-  // Graph Versioning v1 durability (S3a, FIX C): recovery-replay commits are already durable in the
-  // retained WAL (S1) at their ORIGINAL commit timestamp -- re-writing them into a NEW wal_file_
-  // here would duplicate durability (and, since replay runs during ctor recovery, would also try to
-  // touch replication/2PC machinery that must never run for a replay commit). Skip straight to
-  // FinalizeCommitPhase (delta-visibility stamping via `commit_info->timestamp`, commit_log_
-  // MarkFinished, and GC bookkeeping) exactly as the EXISTING !InitializeWalFile early-return
-  // immediately below does for its own (unrelated) reason. Placed BEFORE that check and before any
-  // replication/StartPrepareCommitPhase/2PC machinery -- this must run REGARDLESS of whether a WAL
-  // file happens to be open.
-  if (commit_args.suppress_wal()) [[unlikely]] {
-    // Defense-in-depth (see CommitArgs::make_recovery_replay's doc-comment, commit_args.hpp): the
-    // caller is responsible for driving `timestamp_ := Ci` immediately before this call so that
-    // `GetCommitTimestamp()` (already evaluated above, into `commit_timestamp_`) naturally landed on
-    // the exact original commit timestamp. Catch a caller bug here rather than silently rebuilding
-    // the MVCC chain in the wrong clock frame.
-    DMG_ASSERT(commit_args.recovery_replay_desired_timestamp() == *commit_timestamp_,
-               "recovery-replay commit landed at the wrong timestamp -- caller must set timestamp_ = Ci "
-               "before calling PrepareForCommitPhase");
-    FinalizeCommitPhase(durability_commit_timestamp);
-    return {};
-  }
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
@@ -1443,22 +1394,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   // Mark transaction as finished for commit ordering and MVCC visibility.
-  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers
-  // to vertices. GC protects these by using last_processed_commit_ts_ as a safety horizon
-  // (see CollectGarbage implementation).
+  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
+  // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
+  // requires that nothing at or above that boundary is unlinked while it waits.
   // R37: as in the empty-delta fast path above, never finalize a historical accessor's shared
   // fork_ts here. Unreachable in practice -- a historical accessor is read-only and never
   // accumulates deltas/md_deltas, so it cannot reach this non-empty-delta commit path -- guarded
   // for defense-in-depth (see Transaction::is_historical_ in transaction.hpp).
-  //
-  // Graph Versioning v1 (S3a): a recovery-replay transaction DOES reach this non-empty-delta path
-  // (it writes real deltas), but its start_timestamp is still a HISTORICAL value -- see
-  // Transaction::is_recovery_replay_'s doc-comment (transaction.hpp) for why MarkFinished on it would
-  // corrupt commit_log_'s current head block. Skip ONLY the MarkFinished call; every other finalize
-  // step below (schema updates, CheckForFastDiscardOfDeltas's GC path, text-index apply,
-  // is_transaction_active_) still runs unconditionally for a replay transaction, same as a normal
-  // commit -- the replayed deltas must remain visible and GC-tracked.
-  if (!transaction_.is_historical_ && !transaction_.is_recovery_replay_) {
+  if (!transaction_.is_historical_) {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   }
 
@@ -1951,21 +1894,11 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
   // (and thus GC, once no other pin/txn covers it) advance past a boundary the pin is supposed to
   // protect -- and would double-mark the id once whichever real transaction the tick is eventually
   // (legitimately) dispensed to also finishes.
-  //
-  // Graph Versioning v1 (S3a): a recovery-replay transaction can also reach Abort() (e.g. a failed
-  // constraint check during replay, or the destructor path if it's never explicitly committed). Its
-  // start_timestamp is likewise a HISTORICAL value (see Transaction::is_recovery_replay_'s
-  // doc-comment, transaction.hpp) -- MarkFinished on it would alias onto commit_log_'s current head
-  // block. Unlike is_historical_, it owns no fork pin, so it skips straight past both branches below.
-  if (transaction_.is_recovery_replay_) {
-    // Neither MarkFinished nor ReleaseForkPin -- recovery reseeds the commit_log en-masse
-    // post-replay (S3c/S3d); `is_transaction_active_ = false` below still runs unconditionally.
-  } else if (!transaction_.is_historical_) {
+  if (!transaction_.is_historical_) {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
-    // HIGH-1: release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess /
-    // AddForkPinAt) -- NOT the branch's pin (released separately by DROP BRANCH's own
-    // ReleaseForkPin call). This is the path a well-behaved historical accessor actually takes on
+    // Release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess) -- NOT the branch's
+    // pin (released separately by DROP BRANCH's own ReleaseForkPin call). This is the path a well-behaved historical accessor actually takes on
     // destruction (RAII -> ~InMemoryAccessor -> Abort(), since it never has deltas to undo above).
     // Exactly-once with the empty-delta commit fast path's mirror-image release: that path (if
     // ever taken instead, e.g. Commit() mistakenly called on a historical accessor) sets
@@ -2140,18 +2073,6 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  if (!in_memory->config_.salient.items.properties_on_edges) {
-    // The edge-type index stores/derefs an Edge* per entry (see InMemoryEdgeTypeIndex::Entry) and
-    // its population reads EdgeRef::ptr unconditionally -- but with properties_on_edges=false
-    // (REFERENCE-ONLY edges: an EdgeRef holds only a gid, there is no Edge object) `.ptr` is a
-    // garbage pointer, so populating/scanning would deref it (SIGSEGV). Refuse cleanly here, matching
-    // the sibling edge-type+property and global edge-property CreateIndex overloads which already
-    // gate on this flag. NOTE: this is NOT the --storage-light-edge feature (that has pool-allocated
-    // Edge* objects and REQUIRES properties_on_edges=true, so edge-type indexes work fine with it).
-    // Supporting properties_on_edges=false here would need the Entry to carry an EdgeRef and the scan
-    // to reconstruct a reference-only EdgeRef -- a separate, larger change.
-    return std::unexpected{IndexDefinitionConfigError{}};
-  }
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
   if (!mem_edge_type_index->RegisterIndex(edge_type, updater)) {
@@ -3152,11 +3073,6 @@ void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
   version_fork_pins_.erase(it);  // erase ONE (iterator), not all equal keys
 }
 
-void InMemoryStorage::AddForkPinAt(uint64_t fork_ts) {
-  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
-  version_fork_pins_.insert(fork_ts);
-}
-
 std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
   auto guard = std::lock_guard{version_fork_pin_lock_};
   if (version_fork_pins_.empty()) return std::nullopt;
@@ -3221,85 +3137,6 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   return transaction;
 }
 
-Transaction InMemoryStorage::CreateRecoveryReplayTransaction(uint64_t start_ts) {
-  // Mirrors CreateHistoricalTransaction (above) except:
-  //  - `start_timestamp` is the caller-supplied `start_ts` (recovery replay's `Ci - 1`) rather than
-  //    the fork_ts parameter, and `timestamp_` is likewise never touched (only `transaction_id_++`).
-  //  - the returned Transaction is left `is_historical_ = false` (the default) -- see this method's
-  //    doc-comment in storage.hpp for why that's load-bearing (this transaction WRITES real deltas).
-  //
-  // MEDIUM: same as CreateHistoricalTransaction -- runs from inside
-  // Accessor(RecoveryReplayAccess, ...)'s own `transaction_` initializer (via the `build_transaction`
-  // callback), i.e. AFTER storage_guard_ (shared main_lock_, WRITE-type for this accessor) is
-  // already held -- coherent with respect to a concurrent main_lock_-UNIQUE op, exactly like every
-  // other accessor's CreateTransaction call.
-  uint64_t transaction_id = 0;
-  uint64_t last_durable_ts = 0;
-  uint64_t last_durable_num_committed_txns = 0;
-  std::optional<PointIndexContext> point_index_context;
-  ActiveIndicesPtr active_indices;
-  ActiveConstraintsPtr active_constraints;
-  {
-    auto guard = std::lock_guard{engine_lock_};
-    transaction_id = transaction_id_++;
-    point_index_context = indices_.point_index_.CreatePointIndexContext();
-    // Load ldt and num_committed_txns from the same atomic -- mirrors CreateTransaction's rationale:
-    // a mutually consistent pair, no concurrent commit can inflate num_committed_txns relative to ldt.
-    auto commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
-    last_durable_ts = commit_ts_info.ldt_;
-    last_durable_num_committed_txns = commit_ts_info.num_committed_txns_;
-    active_indices = GetActiveIndices();
-    active_constraints = GetActiveConstraints();
-  }
-
-  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_ts};
-
-  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  // Unconditionally SNAPSHOT_ISOLATION, like CreateHistoricalTransaction: replay must
-  // deterministically see exactly base@F plus every prior window commit (ts <= start_ts), never
-  // anything newer, regardless of the database's configured ambient isolation level.
-  Transaction transaction{transaction_id,
-                          start_ts,
-                          IsolationLevel::SNAPSHOT_ISOLATION,
-                          storage_mode_,
-                          false,
-                          *std::move(point_index_context),
-                          std::move(active_indices),
-                          std::move(active_constraints),
-                          std::move(async_index_helper),
-                          last_durable_ts,
-                          last_durable_num_committed_txns,
-                          metric_handles_.unreleased_delta_objects};
-  // Deliberately NOT setting transaction.is_historical_ = true here -- see the doc-comment on this
-  // method's declaration (storage.hpp) and on Transaction::is_historical_ (transaction.hpp).
-  //
-  // BUT `start_timestamp` above is still a HISTORICAL value (a past WAL commit ts, `Ci - 1`), so this
-  // transaction's finalize path must NOT call `commit_log_->MarkFinished(start_timestamp)` any more
-  // than a historical reader may -- doing so for an id below commit_log_'s current `head_start_`
-  // silently corrupts an unrelated live block (see Transaction::is_recovery_replay_'s doc-comment,
-  // transaction.hpp, for the exact hazard). Flag it so every MarkFinished-guarded finalize site skips
-  // that call for this transaction (recovery reseeds the commit_log en-masse post-replay instead).
-  transaction.is_recovery_replay_ = true;
-  return transaction;
-}
-
-std::unique_ptr<Storage::Accessor> InMemoryStorage::CreateRecoveryReplayAccessor(uint64_t start_ts,
-                                                                                 StorageAccessType rw_type) {
-  // No fork-pin bookkeeping here (unlike HistoricalAccess) -- pin seeding around the recovery
-  // window is S3d's concern, not this primitive's. See this method's doc-comment in storage.hpp.
-  //
-  // BUG-1 fix: `rw_type` is now threaded through from the caller instead of being hardcoded to
-  // WRITE -- window-replay (wal_window_replay.cpp) resolves the original WAL transaction's real
-  // access type (UNIQUE for DDL/schema replay, WRITE/READ/READ_ONLY for data-plane replay) and
-  // passes it here so the accessor's type() matches what the transaction actually needs.
-  return std::unique_ptr<Storage::Accessor>(
-      new InMemoryAccessor{Storage::Accessor::recovery_replay_access,
-                           this,
-                           [this, start_ts] { return CreateRecoveryReplayTransaction(start_ts); },
-                           rw_type,
-                           std::nullopt});
-}
-
 std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
 InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
   {
@@ -3307,9 +3144,8 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
     // version_fork_pin_lock_ critical section. If we checked `contains` and then released the
     // lock before inserting our own pin, a concurrent ReleaseForkPin (DROP BRANCH) could fully
     // unpin fork_ts in between -- we'd observe "pinned" but end up building an accessor over a
-    // fork_ts nothing protects anymore. See AddForkPinAt's doc-comment for why we inline the
-    // insert here instead of calling it (that would re-acquire the lock and reopen this exact
-    // window).
+    // fork_ts nothing protects anymore. The insert is inlined here rather than going through a
+    // separate helper, which would re-acquire the lock and reopen this exact window.
     auto pin_guard = std::lock_guard{version_fork_pin_lock_};
     if (!version_fork_pins_.contains(fork_ts)) {
       return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};

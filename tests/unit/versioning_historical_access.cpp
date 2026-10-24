@@ -341,62 +341,6 @@ TEST_F(VersioningHistoricalAccessGcTest, TransientReadsDoNotReleaseSharedForkTim
   EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
 }
 
-// HIGH-1 (UAF) self-pin bookkeeping, tested directly against AddForkPinAt/ReleaseForkPin --
-// independent of HistoricalAccess's own accessor-level locking. A lower-level, deterministic
-// complement to DropDuringOpenReadDoesNotReclaim below (which exercises the same invariant
-// end-to-end through the real API, concurrently). AddForkPinAt is the exact primitive
-// HistoricalAccess uses to self-pin; this test simulates "a reader has self-pinned fork_ts"
-// directly and verifies retention survives the BRANCH's own pin being released, and stops
-// surviving once the reader's own pin is ALSO released. Fails without the extra self-pin:
-// retention would already read 0 right after the first ReleaseForkPin below.
-TEST_F(VersioningHistoricalAccessGcTest, SelfPinKeepsHistoryAfterBranchPinReleased) {
-  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-
-  memgraph::storage::Gid v_gid;
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->CreateVertex();
-    v_gid = v.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  const uint64_t fork_ts = mem_storage->RegisterForkPin();  // the branch's own pin
-
-  // A reader "opens" at fork_ts and self-pins -- exactly what HistoricalAccess does internally
-  // (under version_fork_pin_lock_, atomically with its pinned-check; here we just exercise the
-  // insert directly since there's no live accessor in this test).
-  mem_storage->AddForkPinAt(fork_ts);
-
-  for (int i = 0; i < 5; ++i) {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
-    ASSERT_TRUE(v.has_value());
-    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L" + std::to_string(i))).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  ASSERT_GT(registration_.handles().unreleased_delta_objects.Value(), 0);
-
-  // Simulate DROP BRANCH: releases the branch's OWN pin. version_fork_pins_ still holds ONE entry
-  // for fork_ts (the reader's self-pin), so GC's floor must not advance past it.
-  mem_storage->ReleaseForkPin(fork_ts);
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-  EXPECT_GT(registration_.handles().unreleased_delta_objects.Value(), 0)
-      << "the reader's self-pin (AddForkPinAt) must keep this history alive even after the "
-         "branch's own pin is released (HIGH-1)";
-
-  // Reader "closes": releases its own self-pin (mirrors ReleaseForkPin(transaction_.start_timestamp)
-  // in InMemoryAccessor's is_historical_ finalize paths). GC is now free to reclaim.
-  mem_storage->ReleaseForkPin(fork_ts);
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-  EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
-}
-
 // HIGH-1 (UAF) integration regression through the REAL HistoricalAccess API, with GC running
 // GENUINELY CONCURRENTLY: open a reader at fork_ts, simulate DROP BRANCH (ReleaseForkPin) WHILE
 // it is still open, hammer GC from a background thread while repeatedly reading through the
@@ -814,37 +758,6 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
   }
   historical->reset();
   mem_storage->ReleaseForkPin(fork_ts);
-}
-
-// Regression for the pre-existing MAIN crash: creating an edge-type index with
-// properties_on_edges=false (REFERENCE-ONLY edges: an EdgeRef holds only a gid, no Edge object)
-// used to SEGFAULT during PopulateIndex (verified: exit 139), because InMemoryEdgeTypeIndex
-// stores/derefs an Edge* per entry but `.ptr` is garbage when only `.gid` is set.
-// CreateIndex(EdgeTypeId) now GATES on properties_on_edges (inmemory/storage.cpp) and refuses
-// cleanly -- matching the sibling edge-type+property and global edge-property overloads -- instead
-// of crashing. This asserts the clean rejection (no crash).
-//
-// TERMINOLOGY: properties_on_edges=false is NOT the `--storage-light-edge` feature. Light edges
-// have pool-allocated Edge* objects and REQUIRE properties_on_edges=true, so edge-type/edge-property
-// indexes work fine with light edges (verified separately); this gate never fires for them.
-// Supporting properties_on_edges=false itself would need the index Entry to carry an EdgeRef + a
-// reference-only scan reconstruction -- a separate, larger storage change; until then refusing is
-// correct, and the branch edge-index mirror is correspondingly gated to properties_on_edges=true.
-// A plain (non-fixture) TEST is used because this needs its own properties_on_edges=false
-// InMemoryStorage, not the fixture's default (properties_on_edges=true) one.
-TEST(VersioningHistoricalAccessEdgeIndexTest, EdgeTypeIndexRejectedCleanlyWithoutPropertiesOnEdges) {
-  ms::Config config;
-  config.gc = {.type = ms::Config::Gc::Type::NONE};
-  config.salient.items.properties_on_edges = false;
-  auto storage = std::make_unique<ms::InMemoryStorage>(config);
-
-  const auto knows_type = storage->NameToEdgeType("KNOWS");
-
-  auto index_acc = storage->ReadOnlyAccess();
-  auto created = index_acc->CreateIndex(knows_type);
-  EXPECT_FALSE(created.has_value()) << "creating an edge-type index with properties_on_edges=false must be refused "
-                                       "cleanly (not crash) -- the edge-type index is unsupported in that mode "
-                                       "(this is NOT the --storage-light-edge feature, which supports it)";
 }
 
 }  // namespace

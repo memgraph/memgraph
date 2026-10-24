@@ -19,11 +19,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "storage/v2/durability/wal.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/stub_properties.hpp"
 
 namespace memgraph::versioning {
 
@@ -46,7 +47,7 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
 
   auto sacrificial = reserve->CreateVertexEx(storage::Gid::FromUint(kBranchNativeGidWatermark));
   MG_ASSERT(sacrificial.has_value(),
-            "BranchContext::BuildFromFork: gid-watermark reservation collided on a freshly-created, empty diff "
+            "BranchCore::Build: gid-watermark reservation collided on a freshly-created, empty diff "
             "engine -- should be impossible.");
 
   // CreateEdgeEx MG_ASSERTs same-transaction live endpoints (inmemory/storage.cpp:987); sac_from/sac_to
@@ -57,27 +58,27 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
   auto sacrificial_edge =
       reserve->CreateEdgeEx(&sac_from, &sac_to, edge_type, storage::Gid::FromUint(kBranchNativeGidWatermark));
   MG_ASSERT(sacrificial_edge.has_value(),
-            "BranchContext::BuildFromFork: edge gid-watermark reservation collided on a freshly-created, empty diff "
+            "BranchCore::Build: edge gid-watermark reservation collided on a freshly-created, empty diff "
             "engine -- should be impossible.");
 
   // Edge before endpoints: DeleteVertex returns VERTEX_HAS_EDGES without cascading; endpoints must be edge-free.
   auto deleted_edge = reserve->DeleteEdge(&*sacrificial_edge);
   MG_ASSERT(deleted_edge.has_value() && deleted_edge->has_value(),
-            "BranchContext::BuildFromFork: failed to remove the edge gid-watermark placeholder edge.");
+            "BranchCore::Build: failed to remove the edge gid-watermark placeholder edge.");
 
   auto deleted_to = reserve->DeleteVertex(&sac_to);
   MG_ASSERT(deleted_to.has_value() && deleted_to->has_value(),
-            "BranchContext::BuildFromFork: failed to remove an edge gid-watermark sacrificial vertex.");
+            "BranchCore::Build: failed to remove an edge gid-watermark sacrificial vertex.");
   auto deleted_from = reserve->DeleteVertex(&sac_from);
   MG_ASSERT(deleted_from.has_value() && deleted_from->has_value(),
-            "BranchContext::BuildFromFork: failed to remove an edge gid-watermark sacrificial vertex.");
+            "BranchCore::Build: failed to remove an edge gid-watermark sacrificial vertex.");
 
   auto deleted = reserve->DeleteVertex(&*sacrificial);
   MG_ASSERT(deleted.has_value() && deleted->has_value(),
-            "BranchContext::BuildFromFork: failed to remove the gid-watermark placeholder vertex.");
+            "BranchCore::Build: failed to remove the gid-watermark placeholder vertex.");
 
   auto commit_res = reserve->PrepareForCommitPhase(std::move(commit_args));
-  MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: gid-watermark reservation commit failed.");
+  MG_ASSERT(commit_res.has_value(), "BranchCore::Build: gid-watermark reservation commit failed.");
 }
 
 // Mirrors main's index DEFINITIONS (not contents) onto the diff engine so the query planner can
@@ -95,18 +96,18 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
   auto commit_one = [&diff_engine](storage::Storage::Accessor &acc) {
     auto protector = diff_engine.make_database_protector();
     MG_ASSERT(protector != nullptr,
-              "BranchContext::BuildFromFork: failed to obtain a database protector for the freshly-built diff "
+              "BranchCore::Build: failed to obtain a database protector for the freshly-built diff "
               "engine while mirroring main's index definitions -- should be impossible (a null "
               "database_protector_factory_ always resolves to a non-null DefaultDatabaseProtector, storage.cpp).");
     auto commit_res = acc.PrepareForCommitPhase(storage::CommitArgs::make_main(std::move(protector)));
-    MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: index-definition mirror commit failed.");
+    MG_ASSERT(commit_res.has_value(), "BranchCore::Build: index-definition mirror commit failed.");
   };
 
   for (const auto &label : main_indices.label) {
     auto mirror = diff_engine.ReadOnlyAccess();
     auto created = mirror->CreateIndex(label);
     MG_ASSERT(created.has_value(),
-              "BranchContext::BuildFromFork: mirroring main's label index (label {}) onto a freshly-built, "
+              "BranchCore::Build: mirroring main's label index (label {}) onto a freshly-built, "
               "otherwise-empty diff engine failed -- should be impossible.",
               label.AsUint());
     commit_one(*mirror);
@@ -116,7 +117,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     auto mirror = diff_engine.ReadOnlyAccess();
     auto created = mirror->CreateIndex(entry.label, entry.properties, entry.order);
     MG_ASSERT(created.has_value(),
-              "BranchContext::BuildFromFork: mirroring main's label-property index (label {}) onto a "
+              "BranchCore::Build: mirroring main's label-property index (label {}) onto a "
               "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
               entry.label.AsUint());
     commit_one(*mirror);
@@ -135,7 +136,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
         auto mirror = diff_engine.ReadOnlyAccess();
         auto created = mirror->CreateIndex(entry.label);
         MG_ASSERT(created.has_value(),
-                  "BranchContext::BuildFromFork: creating the diff-side overlay label index (label {}) on a "
+                  "BranchCore::Build: creating the diff-side overlay label index (label {}) on a "
                   "freshly-built diff engine failed -- should be impossible.",
                   entry.label.AsUint());
         commit_one(*mirror);
@@ -146,7 +147,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
         auto mirror = diff_engine.ReadOnlyAccess();
         auto created = mirror->CreateGlobalVertexIndex(pid);
         MG_ASSERT(created.has_value(),
-                  "BranchContext::BuildFromFork: creating the diff-side overlay property index (property {}) on a "
+                  "BranchCore::Build: creating the diff-side overlay property index (property {}) on a "
                   "freshly-built diff engine failed -- should be impossible.",
                   pid.AsUint());
         commit_one(*mirror);
@@ -161,7 +162,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
       auto mirror = diff_engine.ReadOnlyAccess();
       auto created = mirror->CreateIndex(edge_type);
       MG_ASSERT(created.has_value(),
-                "BranchContext::BuildFromFork: mirroring main's edge-type index (edge type {}) onto a "
+                "BranchCore::Build: mirroring main's edge-type index (edge type {}) onto a "
                 "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
                 edge_type.AsUint());
       commit_one(*mirror);
@@ -172,7 +173,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
       auto mirror = diff_engine.ReadOnlyAccess();
       auto created = mirror->CreateIndex(edge_type, property);
       MG_ASSERT(created.has_value(),
-                "BranchContext::BuildFromFork: mirroring main's edge-type+property index (edge type {}, "
+                "BranchCore::Build: mirroring main's edge-type+property index (edge type {}, "
                 "property {}) onto a freshly-built, otherwise-empty diff engine failed -- should be impossible.",
                 edge_type.AsUint(),
                 property.AsUint());
@@ -183,7 +184,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
       auto mirror = diff_engine.ReadOnlyAccess();
       auto created = mirror->CreateGlobalEdgeIndex(property);
       MG_ASSERT(created.has_value(),
-                "BranchContext::BuildFromFork: mirroring main's global edge-property index (property {}) onto a "
+                "BranchCore::Build: mirroring main's global edge-property index (property {}) onto a "
                 "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
                 property.AsUint());
       commit_one(*mirror);
@@ -196,7 +197,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     auto mirror = diff_engine.ReadOnlyAccess();
     auto created = mirror->CreateGlobalVertexIndex(property);
     MG_ASSERT(created.has_value(),
-              "BranchContext::BuildFromFork: mirroring main's global vertex-property index (property {}) onto a "
+              "BranchCore::Build: mirroring main's global vertex-property index (property {}) onto a "
               "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
               property.AsUint());
     commit_one(*mirror);
@@ -216,17 +217,17 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
   for (const auto &[type_str, value_strs] : registered) {
     auto created = unique_acc->CreateEnum(type_str, value_strs);
     MG_ASSERT(created.has_value(),
-              "BranchContext::BuildFromFork: mirroring main's enum '{}' onto a freshly-built, otherwise-empty "
+              "BranchCore::Build: mirroring main's enum '{}' onto a freshly-built, otherwise-empty "
               "diff engine failed -- should be impossible.",
               type_str);
   }
   auto protector = diff_engine.make_database_protector();
   MG_ASSERT(protector != nullptr,
-            "BranchContext::BuildFromFork: failed to obtain a database protector for the freshly-built diff "
+            "BranchCore::Build: failed to obtain a database protector for the freshly-built diff "
             "engine while mirroring main's enum definitions -- should be impossible (a null "
             "database_protector_factory_ always resolves to a non-null DefaultDatabaseProtector, storage.cpp).");
   auto commit_res = unique_acc->PrepareForCommitPhase(storage::CommitArgs::make_main(std::move(protector)));
-  MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: enum-definition mirror commit failed.");
+  MG_ASSERT(commit_res.has_value(), "BranchCore::Build: enum-definition mirror commit failed.");
 }
 
 }  // namespace
@@ -312,6 +313,15 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   return std::shared_ptr<BranchCore>(new BranchCore(&main, fork_ts, std::move(diff_engine)));
 }
 
+BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
+                       std::unique_ptr<storage::InMemoryStorage> diff_engine)
+    : main_(main),
+      fork_ts_(fork_ts),
+      diff_engine_(std::move(diff_engine)),
+      removed_props_key_(diff_engine_->NameToProperty(kRemovedPropsName)),
+      deleted_label_(diff_engine_->NameToLabel(kDeletedLabelName)),
+      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)) {}
+
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
     storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
   auto core = BranchCore::Build(main, fork_ts, std::move(commit_args));
@@ -360,24 +370,6 @@ bool BranchCore::IsReservedProperty(storage::PropertyId property) {
   return reserved;
 }
 
-storage::PropertyId BranchCore::RemovedPropsKey() {
-  auto guard = std::lock_guard{marker_mutex_};
-  if (!removed_props_key_) removed_props_key_ = diff_engine_->NameToProperty(kRemovedPropsName);
-  return *removed_props_key_;
-}
-
-storage::LabelId BranchCore::DeletedLabel() {
-  auto guard = std::lock_guard{marker_mutex_};
-  if (!deleted_label_) deleted_label_ = diff_engine_->NameToLabel(kDeletedLabelName);
-  return *deleted_label_;
-}
-
-storage::PropertyId BranchCore::DeletedEdgesKey() {
-  auto guard = std::lock_guard{marker_mutex_};
-  if (!deleted_edges_key_) deleted_edges_key_ = diff_engine_->NameToProperty(kDeletedEdgesName);
-  return *deleted_edges_key_;
-}
-
 void BranchContext::MarkMainObjectBranched(storage::Gid gid) {
   auto hist_vertex = historical().FindVertex(gid, storage::View::OLD);
   if (!hist_vertex) return;  // best-effort hint -- see doc-comment.
@@ -399,7 +391,7 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
   // never ran), not a debug-only condition.
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::CowVertex: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   storage::Storage::Accessor *diff_txn = current_diff_txn_;
 
@@ -434,7 +426,7 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
     const storage::EdgeAccessor &fork_edge) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::CowEdge: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
 
   const auto edge_gid = fork_edge.Gid();
@@ -480,20 +472,12 @@ std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(const storage::
   return std::nullopt;
 }
 
-bool BranchContext::IsEdgeStub(const storage::EdgeAccessor &diff_edge) const {
-  return diff_edge.storage_ == &core_->diff_engine() && IsForkGid(diff_edge.Gid());
-}
-
 bool BranchContext::StubEdgeTouches(const storage::EdgeAccessor &stub, storage::PropertyId property,
                                     storage::View view) {
   auto props = stub.Properties(view);
   if (!props) return false;
   if (props->contains(property)) return true;
-  auto removed = props->find(RemovedPropsKey());
-  if (removed == props->end()) return false;
-  bool listed = false;
-  ForEachRemovedPid(removed->second, [&](storage::PropertyId pid) { listed = listed || pid == property; });
-  return listed;
+  return std::ranges::contains(TakeRemoved(*this, *props), property);
 }
 
 bool BranchContext::IsForkGid(storage::Gid gid) const { return gid.AsUint() < kBranchNativeGidWatermark; }
@@ -537,26 +521,15 @@ bool BranchContext::IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, sto
 }
 
 std::vector<uint64_t> BranchContext::DeletedEdgeGids(const storage::VertexAccessor &stub, storage::View view) {
-  std::vector<uint64_t> gids;
-  auto value = stub.GetProperty(DeletedEdgesKey(), view);
-  if (!value) return gids;
-  ForEachListedInt(*value, [&](int64_t gid) { gids.push_back(static_cast<uint64_t>(gid)); });
-  std::ranges::sort(gids);
-  return gids;
+  auto gids = ReadIntList<uint64_t>(stub, DeletedEdgesKey(), view);
+  if (!gids) return {};
+  std::ranges::sort(*gids);
+  return std::move(*gids);
 }
 
 storage::Result<bool> BranchContext::StoreDeletedEdgeGids(storage::VertexAccessor &stub,
                                                           const std::vector<uint64_t> &gids) {
-  storage::PropertyValue value;
-  if (!gids.empty()) {
-    storage::PropertyValue::list_t list;
-    list.reserve(gids.size());
-    for (auto const gid : gids) list.emplace_back(static_cast<int64_t>(gid));
-    value = storage::PropertyValue{std::move(list)};
-  }
-  auto set = stub.SetProperty(DeletedEdgesKey(), value);
-  if (!set) return std::unexpected{set.error()};
-  return true;
+  return WriteIntList(stub, DeletedEdgesKey(), gids);
 }
 
 storage::Result<std::optional<storage::VertexAccessor>> BranchContext::DeleteForkVertex(storage::Gid gid) {
@@ -621,7 +594,7 @@ std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid
   // MG_ASSERT not DMG_ASSERT: on the hot read path; a null deref in release would be frequently reachable.
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::ResolveVertex: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   if (auto diff_vertex = current_diff_txn_->FindVertex(gid, view)) {
     if (IsForkGid(gid) && IsStubDeleted(*diff_vertex, view)) return std::nullopt;
@@ -633,7 +606,7 @@ std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid
 std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::FindDiffEdge: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   return current_diff_txn_->FindEdge(edge_gid, view);
 }
@@ -642,7 +615,7 @@ std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid ed
                                                                  storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::FindDiffEdge: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   return current_diff_txn_->FindEdge(edge_gid, from_gid, view);
 }
@@ -650,14 +623,14 @@ std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid ed
 // historical_ uses View::OLD throughout (frozen snapshot — no concept of NEW relative to any txn).
 std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
                                                                storage::EdgeDirection direction, storage::View view,
-                                                               const std::vector<storage::EdgeTypeId> &edge_types,
                                                                bool *vertex_deleted) {
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::ResolveEdges: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
 
   if (vertex_deleted != nullptr) *vertex_deleted = false;
+  const std::vector<storage::EdgeTypeId> edge_types;  // unfiltered: callers filter after charging hops
   const bool out = direction == storage::EdgeDirection::OUT;
   std::vector<storage::EdgeAccessor> result;
   std::vector<uint64_t> listed_deleted;
@@ -704,7 +677,7 @@ BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view)
   // MG_ASSERT not DMG_ASSERT (same rationale as CowVertex).
   MG_ASSERT(current_diff_txn_ != nullptr,
             "BranchContext::Vertices: no current diff transaction set -- "
-            "CurrentDB::SetupDatabaseTransaction must call BeginTransaction() before any query "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   return UnionVerticesIterable(
       historical().Vertices(storage::View::OLD), current_diff_txn_->Vertices(view), DeletedLabel(), view);

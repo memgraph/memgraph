@@ -17,7 +17,7 @@
 
 namespace memgraph::versioning {
 
-enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kWalDisabled };
+enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode };
 
 // Pure predicate for whether graph versioning (branches) may be used, given the current
 // startup/runtime configuration expressed as primitives. Returns std::nullopt when versioning
@@ -25,12 +25,10 @@ enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode,
 //   1. flag_enabled == false             -> kDisabled
 //   2. enterprise_valid == false         -> kNoLicense
 //   3. is_in_memory_transactional==false -> kUnsupportedStorageMode
-//   4. wal_enabled == false              -> kWalDisabled
 // Deliberately takes primitives (not Storage/StorageMode/license singletons) so callers (and unit
-// tests) can invoke it without any Storage/DB/license machinery; chunk 7 computes these four bools
+// tests) can invoke it without any Storage/DB/license machinery; chunk 7 computes these three bools
 // from the real singletons/Storage at the call site.
-std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional,
-                                             bool wal_enabled);
+std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional);
 
 std::string_view GateErrorMessage(GateError err);
 

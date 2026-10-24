@@ -13,12 +13,10 @@
 
 namespace memgraph::versioning {
 
-std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional,
-                                             bool wal_enabled) {
+std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional) {
   if (!flag_enabled) return GateError::kDisabled;
   if (!enterprise_valid) return GateError::kNoLicense;
   if (!is_in_memory_transactional) return GateError::kUnsupportedStorageMode;
-  if (!wal_enabled) return GateError::kWalDisabled;
   return std::nullopt;
 }
 
@@ -33,9 +31,6 @@ std::string_view GateErrorMessage(GateError err) {
     case kUnsupportedStorageMode:
       return "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in "
              "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL."sv;
-    case kWalDisabled:
-      return "Graph versioning requires durability with WAL enabled (--storage-wal-enabled=true). Enable "
-             "periodic snapshots + WAL to use branches."sv;
   }
   return "unknown"sv;
 }

@@ -30,7 +30,7 @@
 // The HIGH-2 fix (VersionStore::BeginMerge/FinishMerge/AbortMerge closing the double-merge TOCTOU
 // window) is unit-tested directly at the VersionStore level in
 // tests/unit/versioning_version_store.cpp -- that is where the invariant actually lives; this
-// file's MergeHappyPathFastForwardsEmptyChangelog/MergeAndDropRejectedWhenBranchHasChildren below
+// file's MergeHappyPathFastForwardsEmptyChangelog below
 // only re-confirm the interpreter still dispatches through it correctly end-to-end.
 
 #include <algorithm>
@@ -86,8 +86,6 @@ class VersioningInterpreterTest : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
-    // Chunk-0 gate requires PERIODIC_SNAPSHOT_WITH_WAL (D9) -- see WalGateDisabled below for the
-    // default-config (WAL-off) rejection path instead.
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.disk.main_storage_directory = data_directory / "disk";
@@ -131,7 +129,7 @@ class VersioningInterpreterTest : public ::testing::Test {
     std::filesystem::remove_all(data_directory);
   }
 
-  // Flips on every chunk-0 gate precondition (flag + license); storage mode + WAL are already
+  // Flips on every chunk-0 gate precondition (flag + license); the storage mode is already
   // satisfied by `config` above.
   void SatisfyGate() {
     FLAGS_versioning_enabled = true;
@@ -166,22 +164,6 @@ TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {
     FLAGS_versioning_enabled = false;
     memgraph::license::global_license_checker.DisableTesting();
   }
-}
-
-TEST_F(VersioningInterpreterTest, GateRejectsWhenWalDisabled) {
-  // A second, WAL-less database -- everything else about the gate (flag+license) satisfied.
-  memgraph::storage::Config no_wal_config{};
-  no_wal_config.durability.storage_directory = data_directory / "no_wal";
-  no_wal_config.disk.main_storage_directory = data_directory / "no_wal" / "disk";
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> no_wal_gk{no_wal_config};
-  auto no_wal_db_acc_opt = no_wal_gk.access();
-  ASSERT_TRUE(no_wal_db_acc_opt);
-  auto no_wal_db = *no_wal_db_acc_opt;
-  ASSERT_EQ(no_wal_db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
-
-  InterpreterFaker no_wal_faker{&interpreter_context, no_wal_db};
-  SatisfyGate();
-  ASSERT_THROW(no_wal_faker.Interpret("CREATE BRANCH 'feature' FROM 'main'"), memgraph::query::QueryRuntimeException);
 }
 
 // Graph Versioning v1, Fix #3 (instance-role guard, MED-HIGH): PrepareVersioningQuery had no
@@ -301,14 +283,10 @@ TEST_F(VersioningInterpreterTest, CheckoutCreateAndSwitchClearsOnDrop) {
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 }
 
-// Graph Versioning v1, chunk 7d (D10): strict write-routing rail, updated for the current-version
-// model. The session target is simply CurrentDB::current_version_ -- the last CHECKOUT wins,
-// exactly like USE DATABASE. CHECKOUT BRANCH '<name>' engages the rail and routes writes to the
-// branch; CHECKOUT BRANCH 'main' un-engages it again (CurrentDB::SetCurrentVersion(std::nullopt)
-// now also clears versioning_engaged_, interpreter.hpp) and routes writes straight back to main --
-// there is no stickiness across a return to main. This test is the regression lock for that: a bare
-// data-plane write after an explicit CHECKOUT BRANCH 'main' must SUCCEED, not throw
-// WriteWithoutResolvedVersionException.
+// The session target is simply CurrentDB::current_version_ -- the last CHECKOUT wins, exactly like
+// USE DATABASE. CHECKOUT BRANCH '<name>' routes writes to the branch; CHECKOUT BRANCH 'main'
+// routes them straight back to main. A bare data-plane write after an explicit CHECKOUT BRANCH 'main'
+// must SUCCEED.
 TEST_F(VersioningInterpreterTest, EngagedConnectionCannotSilentlyWriteMain) {
   SatisfyGate();
 
@@ -326,7 +304,6 @@ TEST_F(VersioningInterpreterTest, EngagedConnectionCannotSilentlyWriteMain) {
   // Back to main -- un-engages (no longer sticky).
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_FALSE(faker.interpreter.current_db_.VersioningEngaged());
 
   // A bare data-plane write to main now SUCCEEDS directly -- this is the fix: CHECKOUT BRANCH 'main'
   // must make main writable again on the very same connection, with no reconnect required.
@@ -370,7 +347,6 @@ TEST_F(VersioningInterpreterTest, EngagedConnectionProfileWriteOnMainRejected) {
   faker.Interpret("CHECKOUT BRANCH 'b'");
   faker.Interpret("CHECKOUT BRANCH 'main'");  // un-engages; back on main, writable again
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_FALSE(faker.interpreter.current_db_.VersioningEngaged());
 
   // PROFILE of a write on main now succeeds, matching bare CREATE's post-fix behavior.
   faker.Interpret("PROFILE CREATE (:NoLongerBlockedProfiledWrite)");
@@ -385,10 +361,9 @@ TEST_F(VersioningInterpreterTest, EngagedConnectionProfileWriteOnMainRejected) {
 }
 
 // Counterpart to EngagedConnectionCannotSilentlyWriteMain: a connection that never genuinely checks
-// out a branch (versioning_engaged_ stays false -- CREATE BRANCH alone never calls SetBranchContext,
-// only CHECKOUT_BRANCH's CheckoutBranchEngine does, interpreter.cpp) must keep writing main exactly
-// as if versioning didn't exist -- the rail must be a strict no-op for such a connection, including
-// right after issuing a (never-checked-out) CREATE BRANCH management query.
+// out a branch (CREATE BRANCH alone never calls SetBranchContext, only CHECKOUT_BRANCH's
+// CheckoutBranchEngine does, interpreter.cpp) must keep writing main exactly as if versioning
+// didn't exist, including right after issuing a (never-checked-out) CREATE BRANCH management query.
 TEST_F(VersioningInterpreterTest, NeverEngagedConnectionWritesMainNormally) {
   SatisfyGate();
 
@@ -414,10 +389,7 @@ TEST_F(VersioningInterpreterTest, NeverEngagedConnectionWritesMainNormally) {
 // model on a SINGLE session/interpreter: the session target is just current_version_ -- the last
 // CHECKOUT wins, exactly like USE DATABASE. CHECKOUT BRANCH 'x' routes writes to x, then CHECKOUT
 // BRANCH 'y' routes to y, then CHECKOUT BRANCH 'main' routes back to main and main stays WRITABLE --
-// all on the one connection, with no reconnect. Before the fix, the second CHECKOUT (to 'y', or
-// back to 'main') would leave versioning_engaged_ stuck true from the FIRST branch checkout, and a
-// bare write after the final CHECKOUT BRANCH 'main' would be rejected with
-// WriteWithoutResolvedVersionException instead of landing on main.
+// all on the one connection, with no reconnect.
 TEST_F(VersioningInterpreterTest, CheckoutSwitchesBetweenBranchesThenBackToMainLikeUseDatabase) {
   SatisfyGate();
 
@@ -457,8 +429,6 @@ TEST_F(VersioningInterpreterTest, CheckoutSwitchesBetweenBranchesThenBackToMainL
   // and SUCCEED, on the very same connection that just came from two branch checkouts.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_FALSE(faker.interpreter.current_db_.VersioningEngaged())
-      << "returning to main must un-engage the rail, not leave it stuck from the earlier checkouts";
   faker.Interpret("CREATE (:OnMain {v:3})");
 
   // Read-back on main: sees :Base and :OnMain, but neither branch-native write -- writes really
@@ -729,25 +699,6 @@ TEST_F(VersioningInterpreterTest, MergeNonExistentBranchRejected) {
   ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
 }
 
-TEST_F(VersioningInterpreterTest, MergeAndDropRejectedWhenBranchHasChildren) {
-  SatisfyGate();
-  faker.Interpret("CREATE BRANCH 'parent' FROM 'main'");
-  // The interpreter's B2 guard rejects nested branches (FROM a non-main parent) at query time,
-  // so the child is registered via the VersionStore API directly. The MERGE/DROP "has children"
-  // rejection lives in VersionStore::HasChildren (called by the interpreter's MERGE_BRANCH and
-  // DROP_BRANCH handlers), not in the interpreter path that creates the branch, so the invariant
-  // under test is still fully exercised end-to-end through the interpreter.
-  auto created = db->version_store()->CreateBranch("child", "parent", std::nullopt);
-  ASSERT_TRUE(created.has_value()) << "VersionStore must accept a nested branch (the B2 guard is interpreter-only)";
-
-  ASSERT_THROW(faker.Interpret("MERGE BRANCH 'parent'"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("DROP BRANCH 'parent'"), memgraph::query::QueryRuntimeException);
-
-  // Children first, then the parent -- both should now succeed.
-  faker.Interpret("DROP BRANCH 'child'");
-  faker.Interpret("DROP BRANCH 'parent'");
-}
-
 // Graph Versioning v1, B2 fix: CREATE BRANCH FROM a non-main parent is rejected at the
 // interpreter layer. MERGE BRANCH replays the changelog onto MAIN (not onto the declared parent),
 // so permitting nested creation would silently misroute branch writes. The rejection must happen
@@ -981,23 +932,6 @@ class ThrowingAuthChecker final : public memgraph::query::AuthChecker {
   }
 };
 }  // namespace
-
-TEST_F(VersioningInterpreterTest, ShowBranchDiffValidatesThenFlagsNotYetImplemented) {
-  SatisfyGate();
-
-  // No name, no active checkout.
-  ASSERT_THROW(faker.Interpret("SHOW BRANCH DIFF"), memgraph::query::QueryRuntimeException);
-
-  // 'main' is rejected outright.
-  ASSERT_THROW(faker.Interpret("SHOW BRANCH DIFF 'main'"), memgraph::query::QueryRuntimeException);
-
-  // Non-existent branch.
-  ASSERT_THROW(faker.Interpret("SHOW BRANCH DIFF 'nope'"), memgraph::query::QueryRuntimeException);
-
-  // A real, existing branch -- validation passes, then the (flagged, chunk 7b/7c) data gap fires.
-  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
-  ASSERT_THROW(faker.Interpret("SHOW BRANCH DIFF 'feature'"), memgraph::utils::NotYetImplemented);
-}
 
 // HIGH-1 fix: glue/SessionHL.cpp's RuntimeConfig::Configure re-invokes
 // Interpreter::SetCurrentDB(same_db_name, ...) whenever ANY field of the Bolt RUN "extra" map
@@ -2100,7 +2034,6 @@ TEST_F(VersioningInterpreterTest, UsingVersionMainIsEscapeHatchOnEngagedMain) {
   faker.Interpret("CHECKOUT BRANCH 'b'");
   faker.Interpret("CHECKOUT BRANCH 'main'");  // un-engages; back on main, writable again
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_FALSE(faker.interpreter.current_db_.VersioningEngaged());
 
   // Plain write: succeeds directly (no rail to bypass anymore).
   faker.Interpret("CREATE (:PlainWrite {v:6})");

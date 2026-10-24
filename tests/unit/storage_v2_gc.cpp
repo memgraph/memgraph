@@ -2053,8 +2053,7 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_MultisetSemanticsOldestPinWins) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// OldestForkPin() is the accessor WAL retention (EnsureNecessaryWalFilesExist, branch durability
-// S1) uses to clamp deletion to the oldest live branch fork -- it must track the same "min of
+// OldestForkPin() is a test/diagnostic observer of the GC floor: it must track the same "min of
 // version_fork_pins_" the GC horizon clamp uses, and flip back to nullopt once fully unpinned.
 TEST_F(StorageV2GcMetricsTest, ForkPin_OldestForkPinTracksMinimumAndClearsWhenUnpinned) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());

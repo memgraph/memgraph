@@ -9,7 +9,9 @@ target_sources(mg-versioning
         branch_change_kind.hpp
         branch_engine.hpp
         gate.hpp
+        main_constraints.hpp
         name.hpp
+        stub_properties.hpp
         version_store.hpp
 
         PRIVATE
@@ -19,4 +21,4 @@ target_sources(mg-versioning
         version_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-kvstore mg-utils mg-storage-v2 mg-metrics)
+target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics)

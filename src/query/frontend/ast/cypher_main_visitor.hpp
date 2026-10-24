@@ -1325,8 +1325,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
   /**
    * @return Expression* -- a PrimitiveLiteral (symbolicName, or StringLiteral on an uncached AST)
-   * or a ParameterLookup (StringLiteral on a cached AST), mirroring visitLiteral(); see
-   * specs/graph-versioning.md §4.2.
+   * or a ParameterLookup (StringLiteral on a cached AST), mirroring visitLiteral().
    */
   antlrcpp::Any visitBranchName(MemgraphCypher::BranchNameContext *ctx) override;
 
@@ -1359,11 +1358,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return VersioningQuery* (action=SHOW_BRANCHES)
    */
   antlrcpp::Any visitShowBranches(MemgraphCypher::ShowBranchesContext *ctx) override;
-
-  /**
-   * @return VersioningQuery* (action=SHOW_BRANCH_DIFF)
-   */
-  antlrcpp::Any visitShowBranchDiff(MemgraphCypher::ShowBranchDiffContext *ctx) override;
 
   /**
    * @return UseDatabaseQuery*

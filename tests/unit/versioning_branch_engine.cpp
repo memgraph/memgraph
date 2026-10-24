@@ -758,10 +758,10 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     ASSERT_TRUE(stub->SetProperty(prop_w, ms::PropertyValue(3)).has_value());
 
     // Fork identity wins in adjacency: exactly one edge, the historical one; the stub is not emitted.
-    auto resolved = branch_context_->ResolveEdges(s_gid, ms::EdgeDirection::OUT, ms::View::NEW, {});
+    auto resolved = branch_context_->ResolveEdges(s_gid, ms::EdgeDirection::OUT, ms::View::NEW);
     ASSERT_EQ(resolved.size(), 1u);
     EXPECT_NE(resolved[0].storage_, &branch_context_->diff_engine());
-    auto resolved_in = branch_context_->ResolveEdges(a_gid, ms::EdgeDirection::IN, ms::View::NEW, {});
+    auto resolved_in = branch_context_->ResolveEdges(a_gid, ms::EdgeDirection::IN, ms::View::NEW);
     ASSERT_EQ(resolved_in.size(), 1u);
     EXPECT_NE(resolved_in[0].storage_, &branch_context_->diff_engine());
 
@@ -775,7 +775,7 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
   Begin(read_acc.get());
   auto stub = branch_context_->FindDiffEdge(edge_gid, ms::View::NEW);
   ASSERT_TRUE(stub.has_value());
-  EXPECT_TRUE(branch_context_->IsEdgeStub(*stub));
+  EXPECT_TRUE(branch_context_->IsStub(*stub));
   auto fork = branch_context_->FindForkEdge(*stub);
   ASSERT_TRUE(fork.has_value());
   EXPECT_EQ(fork->Gid(), edge_gid);
@@ -974,7 +974,7 @@ TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRemate
   auto fork_edge = fork_edge_of();
   EXPECT_FALSE(ctx_->FindDiffEdge(edge_gid_, ms::View::NEW).has_value());
   EXPECT_TRUE(ctx_->IsForkEdgeHidden(fork_edge, ms::View::NEW));
-  EXPECT_TRUE(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::OUT, ms::View::NEW, {}).empty());
+  EXPECT_TRUE(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::OUT, ms::View::NEW).empty());
   EXPECT_FALSE(ctx_->CowEdge(fork_edge).has_value());
 
   auto fresh =

@@ -20,7 +20,6 @@
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
-#include "kvstore/kvstore.hpp"
 #include "memory/db_arena.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
@@ -134,30 +133,13 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
-  // Captured before config is std::move()'d into whichever storage engine gets constructed below;
-  // version_store_ itself can only be constructed after storage_ exists (its GC-pin callbacks bind
-  // to the concrete InMemoryStorage instance).
+  // Captured before config is std::move()'d into the storage engine below.
   const auto versioning_directory = config.durability.storage_directory / "versioning";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-  // Branches are ephemeral (their state lives only in memory), so any registry persisted by a previous run
-  // describes branches that can no longer be reconstructed. Drop them all: wipe the whole versioning/ tree and seed
-  // no fork pins, so main's GC and WAL/snapshot retention are not held back by a dead branch. The branch-number
-  // counter restarts with the wiped registry; numbers only need to be unique within one process lifetime.
-  if (utils::DirExists(versioning_directory)) {
-    size_t dropped_branches = 0;
-    {
-      // Closed before the directory is deleted: kvstore's RocksDB instance holds an exclusive directory lock.
-      kvstore::KVStore stale_registry{versioning_directory};
-      for (auto const &entry : stale_registry) {
-        if (entry.first != versioning::kNextNumberKey) ++dropped_branches;
-      }
-    }
-    if (!utils::DeleteDir(versioning_directory)) {
-      spdlog::warn("Graph Versioning: failed to remove stale branch directory '{}'.", versioning_directory.string());
-    }
-    spdlog::info("Graph Versioning: dropped {} branch(es) at startup; branches do not survive a restart.",
-                 dropped_branches);
+  // Branches are ephemeral and nothing is persisted for them; remove a versioning/ directory left by an older build.
+  if (utils::DirExists(versioning_directory) && !utils::DeleteDir(versioning_directory)) {
+    spdlog::warn("Graph Versioning: failed to remove legacy branch directory '{}'.", versioning_directory.string());
   }
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
@@ -190,7 +172,6 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(
-        versioning_directory,
         [in_memory_storage] { return in_memory_storage->RegisterForkPin(); },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
   }

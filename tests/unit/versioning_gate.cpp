@@ -20,49 +20,36 @@ using memgraph::versioning::GateErrorMessage;
 TEST(VersioningGate, AllowedWhenEverythingSatisfied) {
   ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
                                 /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/true,
-                                /*wal_enabled=*/true),
+                                /*is_in_memory_transactional=*/true),
             std::nullopt);
 }
 
 TEST(VersioningGate, DisabledWhenFlagOff) {
   ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/false,
                                 /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/true,
-                                /*wal_enabled=*/true),
+                                /*is_in_memory_transactional=*/true),
             GateError::kDisabled);
 }
 
 TEST(VersioningGate, FlagOffWinsOverAllOtherSimultaneousFailures) {
   ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/false,
                                 /*enterprise_valid=*/false,
-                                /*is_in_memory_transactional=*/false,
-                                /*wal_enabled=*/false),
+                                /*is_in_memory_transactional=*/false),
             GateError::kDisabled);
 }
 
 TEST(VersioningGate, NoLicenseWhenEnterpriseInvalid) {
   ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
                                 /*enterprise_valid=*/false,
-                                /*is_in_memory_transactional=*/true,
-                                /*wal_enabled=*/true),
+                                /*is_in_memory_transactional=*/true),
             GateError::kNoLicense);
 }
 
 TEST(VersioningGate, UnsupportedStorageModeWhenNotInMemoryTransactional) {
   ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
                                 /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/false,
-                                /*wal_enabled=*/true),
+                                /*is_in_memory_transactional=*/false),
             GateError::kUnsupportedStorageMode);
-}
-
-TEST(VersioningGate, WalDisabledWhenWalOff) {
-  ASSERT_EQ(CheckVersioningGate(/*flag_enabled=*/true,
-                                /*enterprise_valid=*/true,
-                                /*is_in_memory_transactional=*/true,
-                                /*wal_enabled=*/false),
-            GateError::kWalDisabled);
 }
 
 TEST(VersioningGate, ErrorMessagesMatchSpecVerbatim) {
@@ -73,7 +60,4 @@ TEST(VersioningGate, ErrorMessagesMatchSpecVerbatim) {
   ASSERT_EQ(GateErrorMessage(GateError::kUnsupportedStorageMode),
             "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in "
             "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL.");
-  ASSERT_EQ(GateErrorMessage(GateError::kWalDisabled),
-            "Graph versioning requires durability with WAL enabled (--storage-wal-enabled=true). Enable "
-            "periodic snapshots + WAL to use branches.");
 }

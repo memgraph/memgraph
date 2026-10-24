@@ -313,9 +313,6 @@ struct CurrentDB {
     if (!same_db) {
       ClearBranchContext();
       current_version_.reset();
-      // CHUNK 7d (D10): a genuine db switch un-engages the rail same as any other return-to-main
-      // (see VersioningEngaged() doc-comment above).
-      versioning_engaged_ = false;
     }
     // old_db destructs here, outside the lock.
   }
@@ -335,8 +332,6 @@ struct CurrentDB {
     // before ClearBranchContext runs (cross-thread UAF).
     ClearBranchContext();
     current_version_.reset();
-    // CHUNK 7d (D10): identity reset is also a return-to-main -- un-engage the rail.
-    versioning_engaged_ = false;
     old_db.reset();  // release db access before the accessors below, as before
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
@@ -394,32 +389,15 @@ struct CurrentDB {
   // std::optional<std::string> per CurrentDB.
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
 
-  // Graph Versioning v1, CHUNK 7d (D10): true iff this connection is currently resolved onto a
-  // real, checked-out branch (see SetBranchContext below). The session target is simply
-  // current_version_ -- the last CHECKOUT wins, exactly like USE DATABASE -- so this is NOT sticky
-  // across a return to main: SetCurrentVersion(std::nullopt) (an explicit CHECKOUT BRANCH 'main',
-  // or MERGE/DROP clearing the session's own current branch) un-engages it immediately, same as a
-  // genuine identity change (SetCurrentDB's !same_db switch, or ResetDB). In steady state, then,
-  // VersioningEngaged() is true iff CurrentVersion() names a branch. This is what lets the
-  // write-routing rail in Interpreter::Prepare (interpreter.cpp) guarantee that a connection sitting
-  // unresolved on `main` never silently writes it: see WriteWithoutResolvedVersionException
-  // (exceptions.hpp). That combination (engaged, no current version) should not arise in normal
-  // operation post-fix; the rail is kept anyway as a defense-in-depth invariant guard.
-  bool VersioningEngaged() const { return versioning_engaged_; }
-
   // CHUNK 7b(2): clearing the version (switching back to 'main', or being cleared out from under
   // the session by MERGE/DROP) is exactly when any held branch context/checkout must be released
-  // too -- see ClearBranchContext's own doc-comment. It is ALSO exactly a return-to-main, so it
-  // un-engages the rail here too (see VersioningEngaged()'s doc-comment) -- there is no "sticky"
-  // state once this call runs with nullopt. Setting a NON-null version does NOT touch
-  // versioning_engaged_ here: a direct branch-to-branch CHECKOUT must release the OLD context (via
-  // an explicit SetCurrentVersion(std::nullopt) call, which un-engages) BEFORE building+installing
-  // the new one via SetBranchContext (which re-engages), or the just-installed context would be torn
-  // down again by this same call.
+  // too -- see ClearBranchContext's own doc-comment. Setting a NON-null version does NOT release
+  // anything: a direct branch-to-branch CHECKOUT must release the OLD context (via an explicit
+  // SetCurrentVersion(std::nullopt) call) BEFORE building+installing the new one via
+  // SetBranchContext, or the just-installed context would be torn down again by this same call.
   void SetCurrentVersion(std::optional<std::string> version) {
     if (!version) {
       ClearBranchContext();
-      versioning_engaged_ = false;
     }
     current_version_ = std::move(version);
   }
@@ -438,10 +416,6 @@ struct CurrentDB {
     // no stale plans from whatever branch/checkout previously used this CurrentDB slot. Sized the
     // same as main's own plan_cache_ (dbms/database.cpp), via the same flag.
     branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
-    // CHUNK 7d (D10): a real branch context is now installed -- this connection is (re-)engaged
-    // onto a branch; see VersioningEngaged() doc-comment above. A subsequent CHECKOUT BRANCH 'main'
-    // un-engages this again via SetCurrentVersion(std::nullopt); there is no stickiness.
-    versioning_engaged_ = true;
   }
 
   // Attaches this (fresh, nested) session to the branch `outer` is on: takes its own counted checkout and a
@@ -496,11 +470,6 @@ struct CurrentDB {
   std::unique_ptr<query::PlanCacheLRU> branch_plan_cache_;
 
  private:
-  // Graph Versioning v1, CHUNK 7d (D10) -- paired with current_version_ above; see
-  // VersioningEngaged()'s doc-comment for the full set/clear contract. Private: only mutated from
-  // the specific set/clear points enumerated there, never read/written ad hoc.
-  bool versioning_engaged_{false};
-
   // Not owned: the Database (hence its VersionStore) outlives any session's CurrentDB. Only ever
   // non-null while branch_context_ is held, so ReleaseCheckout is always called against the SAME
   // VersionStore that granted the attach, even if db_acc_ has since been reassigned.

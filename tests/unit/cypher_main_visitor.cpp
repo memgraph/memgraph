@@ -9441,9 +9441,9 @@ TEST_P(CypherMainVisitorTest, SuspendResumeDatabaseInvalidSyntax) {
   TestInvalidQuery("RESUME DATABASE", ast_generator);
 }
 
-// Graph Versioning (branches) parser/AST round-trip tests. See specs/graph-versioning.md §4.2.
-// Parse/AST only (chunk 1) -- no semantics are asserted here. Name validation (§4.1) is deferred
-// to execution time (chunk 7); see the standalone `versioning_name` unit test for
+// Graph Versioning (branches) parser/AST round-trip tests.
+// Parse/AST only -- no semantics are asserted here. Name validation is deferred
+// to execution time; see the standalone `versioning_name` unit test for
 // `versioning::ValidateBranchName` coverage.
 //
 // name_/description_/parent_ on VersioningQuery are Expression* -- like CoordinatorQuery's
@@ -9527,7 +9527,7 @@ TEST_P(CypherMainVisitorTest, CheckoutBranch) {
   }
 
   // Switching back to 'main' (no FROM) -- name validation does not run at parse time at all
-  // (deferred to chunk 7), so this is unconditionally fine.
+  // (deferred to execution), so this is unconditionally fine.
   {
     auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'main'"));
     ASSERT_NE(query, nullptr);
@@ -9615,45 +9615,6 @@ TEST_P(CypherMainVisitorTest, ShowBranches) {
     EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
     ASSERT_TRUE(query->for_database_.has_value());
     EXPECT_EQ(*query->for_database_, "testdb");
-  }
-}
-
-TEST_P(CypherMainVisitorTest, ShowBranchDiff) {
-  auto &ast_generator = *GetParam();
-
-  // Bare -- no name, no FORMAT.
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF"));
-    ASSERT_NE(query, nullptr);
-    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH_DIFF);
-    EXPECT_EQ(query->name_, nullptr);
-    EXPECT_FALSE(query->format_table_);
-  }
-
-  // With an explicit branch name.
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF 'feature'"));
-    ASSERT_NE(query, nullptr);
-    ASSERT_NE(query->name_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
-    EXPECT_FALSE(query->format_table_);
-  }
-
-  // With FORMAT TABLE.
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF 'feature' FORMAT TABLE"));
-    ASSERT_NE(query, nullptr);
-    ASSERT_NE(query->name_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
-    EXPECT_TRUE(query->format_table_);
-  }
-
-  // FORMAT TABLE without a name.
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF FORMAT TABLE"));
-    ASSERT_NE(query, nullptr);
-    EXPECT_EQ(query->name_, nullptr);
-    EXPECT_TRUE(query->format_table_);
   }
 }
 

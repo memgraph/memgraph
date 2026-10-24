@@ -27,6 +27,7 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "versioning/main_constraints.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::query {
@@ -370,10 +371,9 @@ std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchCons
 
   // The diff engine mirrors no constraints (D12): main's current set is checked against each touched vertex's
   // reconstructed view. Unique constraints are not enforced on a branch.
-  auto const constraints = ctx.core()->main().GetActiveConstraints();
-  constexpr uint64_t kAllCommitted = storage::kTransactionInitialId - 1;
-  auto const existence = constraints->existence_->ListConstraints(kAllCommitted);
-  auto const types = constraints->type_->ListConstraints(kAllCommitted);
+  versioning::MainConstraints const main_constraints{ctx};
+  auto const existence = main_constraints.Existence();
+  auto const types = main_constraints.Types();
   if (existence.empty() && types.empty()) return {};
 
   // The newest delta of every object this transaction wrote is that object's chain head (a concurrent writer would

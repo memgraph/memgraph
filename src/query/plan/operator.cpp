@@ -2521,26 +2521,25 @@ class STShortestPathCursor : public query::plan::Cursor {
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
           for (const auto &edge : out_edges_result.edges) {
-            const auto to = edge.To();
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      to, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
-            if (ShouldExpand(to, edge, frame, evaluator, context) && !in_edge.contains(to)) {
-              in_edge.emplace(to, edge);
-              if (out_edge.contains(to)) {
+            if (ShouldExpand(edge.To(), edge, frame, evaluator, context) && !in_edge.contains(edge.To())) {
+              in_edge.emplace(edge.To(), edge);
+              if (out_edge.contains(edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(to, in_edge, out_edge, frame, context);
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
                 }
               }
-              source_next.push_back(to);
+              source_next.push_back(edge.To());
             }
           }
         }
@@ -2549,26 +2548,25 @@ class STShortestPathCursor : public query::plan::Cursor {
               UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
           for (const auto &edge : in_edges_result.edges) {
-            const auto from = edge.From();
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      from, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
-            if (ShouldExpand(from, edge, frame, evaluator, context) && !in_edge.contains(from)) {
-              in_edge.emplace(from, edge);
-              if (out_edge.contains(from)) {
+            if (ShouldExpand(edge.From(), edge, frame, evaluator, context) && !in_edge.contains(edge.From())) {
+              in_edge.emplace(edge.From(), edge);
+              if (out_edge.contains(edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(from, in_edge, out_edge, frame, context);
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
                 }
               }
-              source_next.push_back(from);
+              source_next.push_back(edge.From());
             }
           }
         }
@@ -2592,26 +2590,25 @@ class STShortestPathCursor : public query::plan::Cursor {
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
           for (const auto &edge : out_edges_result.edges) {
-            const auto to = edge.To();
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      to, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(to)) {
-              out_edge.emplace(to, edge);
-              if (in_edge.contains(to)) {
+            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.To())) {
+              out_edge.emplace(edge.To(), edge);
+              if (in_edge.contains(edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(to, in_edge, out_edge, frame, context);
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
                 }
               }
-              sink_next.push_back(to);
+              sink_next.push_back(edge.To());
             }
           }
         }
@@ -2620,26 +2617,25 @@ class STShortestPathCursor : public query::plan::Cursor {
               UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
           for (const auto &edge : in_edges_result.edges) {
-            const auto from = edge.From();
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(
-                      from, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                      edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(from)) {
-              out_edge.emplace(from, edge);
-              if (in_edge.contains(from)) {
+            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.From())) {
+              out_edge.emplace(edge.From(), edge);
+              if (in_edge.contains(edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(from, in_edge, out_edge, frame, context);
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
                 }
               }
-              sink_next.push_back(from);
+              sink_next.push_back(edge.From());
             }
           }
         }

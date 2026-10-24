@@ -17,6 +17,7 @@
 #include <tuple>
 #include <vector>
 
+#include "query/branch_reserved.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -24,6 +25,7 @@
 #include "storage/v2/exceptions.hpp"
 #include "storage/v2/transaction_constants.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/main_constraints.hpp"
 #include "versioning/stub_properties.hpp"
 
 namespace memgraph::query {
@@ -38,10 +40,6 @@ using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 // (BranchContext::RemovalMarker / RemovedPropsKey), and so are deletes (DeletedLabel / DeletedEdgesKey): a stub
 // carrying the delete marker at the read's view is a deleted vertex (DELETED_OBJECT, like main). Native vertices
 // (gid >= 2^62) are complete and never merged.
-bool IsStub(versioning::BranchContext &ctx, const storage::VertexAccessor &impl) {
-  return impl.storage_ == &ctx.diff_engine() && ctx.IsForkGid(impl.Gid());
-}
-
 storage::Result<storage::VertexKey> MergedLabels(versioning::BranchContext &ctx, const storage::VertexAccessor &stub,
                                                  storage::View view) {
   auto stub_labels = stub.Labels(view);
@@ -99,29 +97,13 @@ storage::Result<PropertyMap> MergedProperties(versioning::BranchContext &ctx, co
   auto stub_props = stub.Properties(view);  // single call: no torn read between value and removal list
   if (!stub_props) return stub_props;
   if (ctx.IsStubDeleted(stub, view)) return std::unexpected{storage::Error::DELETED_OBJECT};
-  auto removed = TakeRemoved(ctx, *stub_props);
   auto fork = ctx.FindForkVertex(stub.Gid());
   DMG_ASSERT(fork.has_value(), "Fork vertex missing for stub {}", stub.Gid().AsUint());
-  if (!fork) return stub_props;
-  auto merged = fork->Properties(storage::View::OLD);
-  if (!merged) return merged;
-  for (auto const pid : removed) merged->erase(pid);
-  for (auto &[key, value] : *stub_props) {
-    merged->insert_or_assign(key, std::move(value));
+  if (!fork) {
+    versioning::TakeRemoved(ctx, *stub_props);
+    return stub_props;
   }
-  return merged;
-}
-
-// Fork value + stub snapshot -> reconstructed value of `key`. `fork_value` non-null here.
-storage::Result<storage::PropertyValue> OverlayOnForkValue(versioning::BranchContext &ctx,
-                                                           const storage::VertexAccessor &stub, storage::View view,
-                                                           storage::PropertyId key, storage::PropertyValue fork_value) {
-  auto stub_props = stub.Properties(view);  // single call: value and removal list must agree
-  if (!stub_props) return std::unexpected{stub_props.error()};
-  if (auto it = stub_props->find(key); it != stub_props->end()) return std::move(it->second);
-  auto removed = TakeRemoved(ctx, *stub_props);
-  if (std::ranges::contains(removed, key)) return storage::PropertyValue{};
-  return fork_value;
+  return versioning::OverlayProperties(ctx, *stub_props, *fork);
 }
 
 storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchContext &ctx,
@@ -135,7 +117,7 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
   auto in_fork = fork->GetProperty(key, storage::View::OLD);
   if (!in_fork) return in_fork;
   if (in_fork->IsNull()) return stub.GetProperty(key, view);
-  return OverlayOnForkValue(ctx, stub, view, key, std::move(*in_fork));
+  return versioning::OverlayOnForkValue(ctx, stub, view, key, std::move(*in_fork));
 }
 
 storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::VertexAccessor &stub,
@@ -148,35 +130,7 @@ storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, 
   auto in_fork = fork->GetPropertySize(key, storage::View::OLD);
   if (!in_fork) return in_fork;
   if (*in_fork == 0) return stub.GetPropertySize(key, view);
-  auto stub_props = stub.Properties(view);
-  if (!stub_props) return std::unexpected{stub_props.error()};
-  if (stub_props->contains(key)) return stub.GetPropertySize(key, view);
-  auto removed = TakeRemoved(ctx, *stub_props);
-  if (std::ranges::contains(removed, key)) return uint64_t{0};
-  return in_fork;
-}
-
-[[noreturn]] void ThrowReserved(const char *what) {
-  throw QueryRuntimeException(
-      "Names starting with '__mg_' are reserved for versioning and cannot be used as a {} on a branch.", what);
-}
-
-void RejectReservedProperties(versioning::BranchContext &ctx, const PropertyMap &properties) {
-  for (const auto &[pid, _] : properties) {
-    if (ctx.IsReservedProperty(pid)) ThrowReserved("property");
-  }
-}
-
-using TypeConstraintList = std::vector<std::tuple<storage::LabelId, storage::PropertyId, storage::TypeConstraintKind>>;
-
-// The diff engine mirrors no constraints (D12): a branch statement is checked against main's current type
-// constraints so a violation surfaces at the statement, as on main. Empty (no allocation beyond the shared_ptr
-// copy) when main has none.
-TypeConstraintList MainTypeConstraints(versioning::BranchContext &ctx) {
-  constexpr uint64_t kAllCommitted = storage::kTransactionInitialId - 1;
-  auto const constraints = ctx.core()->main().GetActiveConstraints();
-  if (constraints->type_->empty()) return {};
-  return constraints->type_->ListConstraints(kAllCommitted);
+  return versioning::OverlaySizeOnFork(ctx, stub, view, key, *in_fork);
 }
 
 [[noreturn]] void ThrowTypeViolation(versioning::BranchContext &ctx, storage::LabelId label,
@@ -195,7 +149,7 @@ TypeConstraintList MainTypeConstraints(versioning::BranchContext &ctx) {
 template <typename FindWritten>
 std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                         FindWritten &&find, bool require_no_properties = false) {
-  auto const types = MainTypeConstraints(ctx);
+  auto const types = versioning::MainConstraints{ctx}.Types();
   if (types.empty()) return std::nullopt;
   auto const written = [&](storage::PropertyId pid) -> const storage::PropertyValue * {
     auto const *value = find(pid);
@@ -223,7 +177,7 @@ std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContex
 // vertex already has the label), BEFORE the stub is mutated.
 std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                    storage::LabelId label) {
-  auto const types = MainTypeConstraints(ctx);
+  auto const types = versioning::MainConstraints{ctx}.Types();
   if (!std::ranges::any_of(types, [&](auto const &c) { return std::get<0>(c) == label; })) return std::nullopt;
   auto const labels = vertex.Labels(storage::View::NEW);
   if (!labels) return labels.error();
@@ -247,12 +201,12 @@ std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ct
 // always reach the stub, where the delete marker turns the read into DELETED_OBJECT.
 auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(view)) {
   if (branch_ctx_ != nullptr) {
-    if (IsStub(*branch_ctx_, impl_)) return MergedLabels(*branch_ctx_, impl_, view);
+    if (branch_ctx_->IsStub(impl_)) return MergedLabels(*branch_ctx_, impl_, view);
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->MayHaveLabelChange(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
-          if (IsStub(*branch_ctx_, *stub)) return MergedLabels(*branch_ctx_, *stub, view);
+          if (branch_ctx_->IsStub(*stub)) return MergedLabels(*branch_ctx_, *stub, view);
           return stub->Labels(view);
         }
       }
@@ -263,12 +217,12 @@ auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(v
 
 storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::LabelId label) const {
   if (branch_ctx_ != nullptr) {
-    if (IsStub(*branch_ctx_, impl_)) return MergedHasLabel(*branch_ctx_, impl_, view, label);
+    if (branch_ctx_->IsStub(impl_)) return MergedHasLabel(*branch_ctx_, impl_, view, label);
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->MayHaveLabelChange(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
-          if (IsStub(*branch_ctx_, *stub)) return MergedHasLabel(*branch_ctx_, *stub, view, label);
+          if (branch_ctx_->IsStub(*stub)) return MergedHasLabel(*branch_ctx_, *stub, view, label);
           return stub->HasLabel(label, view);
         }
       }
@@ -279,12 +233,12 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
 
 auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
   if (branch_ctx_ != nullptr) {
-    if (IsStub(*branch_ctx_, impl_)) return MergedProperties(*branch_ctx_, impl_, view);
+    if (branch_ctx_->IsStub(impl_)) return MergedProperties(*branch_ctx_, impl_, view);
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->MayHavePropertyChange(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
-          if (IsStub(*branch_ctx_, *stub)) return MergedProperties(*branch_ctx_, *stub, view);
+          if (branch_ctx_->IsStub(*stub)) return MergedProperties(*branch_ctx_, *stub, view);
           return stub->Properties(view);
         }
       }
@@ -295,14 +249,14 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
-    if (IsStub(*branch_ctx_, impl_)) return MergedGetProperty(*branch_ctx_, impl_, view, key);
+    if (branch_ctx_->IsStub(impl_)) return MergedGetProperty(*branch_ctx_, impl_, view, key);
     // Fine per-property filter: merges only when THIS property changed on the branch, or the vertex's labels did
     // (a delete is a label marker; reading a deleted vertex must fail).
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveLabelChange(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
-          if (IsStub(*branch_ctx_, *stub)) return MergedGetProperty(*branch_ctx_, *stub, view, key);
+          if (branch_ctx_->IsStub(*stub)) return MergedGetProperty(*branch_ctx_, *stub, view, key);
           return stub->GetProperty(key, view);
         }
       }
@@ -313,12 +267,12 @@ storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::Vie
 
 storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
   if (branch_ctx_ != nullptr) {
-    if (IsStub(*branch_ctx_, impl_)) return MergedGetPropertySize(*branch_ctx_, impl_, key, view);
+    if (branch_ctx_->IsStub(impl_)) return MergedGetPropertySize(*branch_ctx_, impl_, key, view);
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveLabelChange(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
-          if (IsStub(*branch_ctx_, *stub)) return MergedGetPropertySize(*branch_ctx_, *stub, key, view);
+          if (branch_ctx_->IsStub(*stub)) return MergedGetPropertySize(*branch_ctx_, *stub, key, view);
           return stub->GetPropertySize(key, view);
         }
       }
@@ -346,7 +300,7 @@ storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
   if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
   if (auto err = CheckTypesOnAddLabel(ctx, *this, label)) return std::unexpected{*err};
   CowIfNeeded(versioning::BranchChangeKind::kLabel);
-  if (!IsStub(ctx, impl_)) return impl_.AddLabel(label);
+  if (!ctx.IsStub(impl_)) return impl_.AddLabel(label);
 
   auto fork = ctx.FindForkVertex(impl_.Gid());
   if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
@@ -373,7 +327,7 @@ storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) 
   auto &ctx = *branch_ctx_;
   if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
   CowIfNeeded(versioning::BranchChangeKind::kLabel);
-  if (!IsStub(ctx, impl_)) return impl_.RemoveLabel(label);
+  if (!ctx.IsStub(impl_)) return impl_.RemoveLabel(label);
 
   auto fork = ctx.FindForkVertex(impl_.Gid());
   if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
@@ -405,20 +359,17 @@ storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storag
   }
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChange(key);
-  if (!IsStub(ctx, impl_)) return impl_.SetProperty(key, value);
+  if (!ctx.IsStub(impl_)) return impl_.SetProperty(key, value);
 
   auto fork = ctx.FindForkVertex(impl_.Gid());
   if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
   auto old_value = MergedGetProperty(ctx, impl_, storage::View::NEW, key);
   if (!old_value) return old_value;
-  auto removed = ReadRemoved(ctx, impl_);
+  auto removed = versioning::ReadRemoved(ctx, impl_);
   if (!removed) return std::unexpected{removed.error()};
 
   const PropertyMap changes{{key, value}};
-  auto applied = ApplyPropertyChanges(ctx, impl_, std::move(*removed), changes, [&](storage::PropertyId pid) {
-    auto in_fork = fork->GetProperty(pid, storage::View::OLD);
-    return in_fork && !in_fork->IsNull();
-  });
+  auto applied = versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), changes, versioning::ForkHas(*fork));
   if (!applied) return std::unexpected{applied.error()};
   return old_value;
 }
@@ -434,19 +385,16 @@ storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properti
   }
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChanges(properties);
-  if (!IsStub(ctx, impl_)) return impl_.InitProperties(properties);
+  if (!ctx.IsStub(impl_)) return impl_.InitProperties(properties);
 
   auto fork = ctx.FindForkVertex(impl_.Gid());
   if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
   auto existing = MergedProperties(ctx, impl_, storage::View::NEW);
   if (!existing) return std::unexpected{existing.error()};
   if (!existing->empty()) return false;
-  auto removed = ReadRemoved(ctx, impl_);
+  auto removed = versioning::ReadRemoved(ctx, impl_);
   if (!removed) return std::unexpected{removed.error()};
-  auto applied = ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, [&](storage::PropertyId pid) {
-    auto in_fork = fork->GetProperty(pid, storage::View::OLD);
-    return in_fork && !in_fork->IsNull();
-  });
+  auto applied = versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, versioning::ForkHas(*fork));
   if (!applied) return std::unexpected{applied.error()};
   return true;
 }
@@ -461,36 +409,26 @@ VertexAccessor::BranchUpdateProperties(PropertyMap &properties) {
   })) return std::unexpected{*err};
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChanges(properties);
-  if (!IsStub(ctx, impl_)) return impl_.UpdateProperties(properties);
+  if (!ctx.IsStub(impl_)) return impl_.UpdateProperties(properties);
 
   auto fork = ctx.FindForkVertex(impl_.Gid());
   if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
   auto existing = MergedProperties(ctx, impl_, storage::View::NEW);
   if (!existing) return std::unexpected{existing.error()};
-  auto removed = ReadRemoved(ctx, impl_);
+  auto removed = versioning::ReadRemoved(ctx, impl_);
   if (!removed) return std::unexpected{removed.error()};
 
-  std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
-  changes.reserve(properties.size());
-  for (const auto &[pid, new_value] : properties) {
-    auto it = existing->find(pid);
-    changes.emplace_back(pid, it != existing->end() ? it->second : storage::PropertyValue{}, new_value);
-  }
-  auto applied = ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, [&](storage::PropertyId pid) {
-    auto in_fork = fork->GetProperty(pid, storage::View::OLD);
-    return in_fork && !in_fork->IsNull();
-  });
+  auto changes = versioning::UpdateChanges(*existing, properties);
+  auto applied = versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, versioning::ForkHas(*fork));
   if (!applied) return std::unexpected{applied.error()};
-  // Storage's UpdateProperties leaves the untouched old properties merged into the caller's map
-  // (callers count it for UPDATED_PROPERTIES); keep that contract.
-  for (auto &[pid, old_value] : *existing) properties.emplace(pid, std::move(old_value));
+  versioning::MergeOldBack(*existing, properties);
   return changes;
 }
 
 storage::Result<PropertyMap> VertexAccessor::BranchClearProperties() {
   auto &ctx = *branch_ctx_;
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
-  if (!IsStub(ctx, impl_)) {
+  if (!ctx.IsStub(impl_)) {
     auto result = impl_.ClearProperties();
     if (result.has_value()) RecordPropertyFieldChanges(*result);
     return result;
@@ -507,11 +445,8 @@ storage::Result<PropertyMap> VertexAccessor::BranchClearProperties() {
   if (!deleted_edges.empty()) {
     if (auto stored = ctx.StoreDeletedEdgeGids(impl_, deleted_edges); !stored) return std::unexpected{stored.error()};
   }
-  std::vector<storage::PropertyId> removed;
-  removed.reserve(fork_props->size());
-  for (const auto &[pid, _] : *fork_props) removed.push_back(pid);
-  if (!removed.empty()) {
-    if (auto written = WriteRemoved(ctx, impl_, removed); !written) return std::unexpected{written.error()};
+  if (auto written = versioning::WriteAllForkRemoved(ctx, impl_, *fork_props); !written) {
+    return std::unexpected{written.error()};
   }
   RecordPropertyFieldChanges(*existing);
   return existing;
@@ -557,7 +492,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
     }
 
     bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {}, &vertex_deleted);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, &vertex_deleted);
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     std::vector<EdgeAccessor> edges;
     int64_t expanded_count = 0;
@@ -609,7 +544,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
     }
 
     bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {}, &vertex_deleted);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, &vertex_deleted);
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     auto const dest_gid = dest.Gid();
     std::vector<EdgeAccessor> edges;
@@ -663,7 +598,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
     }
 
     bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {}, &vertex_deleted);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, &vertex_deleted);
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     std::vector<EdgeAccessor> edges;
     int64_t expanded_count = 0;
@@ -714,7 +649,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
     }
 
     bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {}, &vertex_deleted);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, &vertex_deleted);
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     auto const dest_gid = dest.Gid();
     std::vector<EdgeAccessor> edges;
@@ -751,7 +686,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
 storage::Result<size_t> VertexAccessor::InDegree(storage::View view) const {
   if (branch_ctx_ != nullptr) {
     bool vertex_deleted = false;
-    auto const count = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {}, &vertex_deleted).size();
+    auto const count = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, &vertex_deleted).size();
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     return count;
   }
@@ -761,7 +696,7 @@ storage::Result<size_t> VertexAccessor::InDegree(storage::View view) const {
 storage::Result<size_t> VertexAccessor::OutDegree(storage::View view) const {
   if (branch_ctx_ != nullptr) {
     bool vertex_deleted = false;
-    auto const count = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {}, &vertex_deleted).size();
+    auto const count = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, &vertex_deleted).size();
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     return count;
   }

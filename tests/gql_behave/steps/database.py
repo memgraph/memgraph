@@ -13,7 +13,7 @@
 
 import re
 
-# --- Graph Versioning v1 --versioned-branch arm -----------------------------
+# --- Graph Versioning --versioned-branch arm -----------------------------
 #
 # `CHECKOUT BRANCH` is per-Bolt-connection state on the server. The default
 # path below opens a fresh session (and thus, in practice, a fresh physical
@@ -26,10 +26,8 @@ import re
 # maybe_fork_to_branch() below for the fork point.
 #
 # close_vbranch_session() checks out back to `main` before dropping the
-# branch and closing the session: `CHECKOUT BRANCH main` un-engages the
-# connection's versioning state (fixed in ddf60d59f), so once the session
-# closes and its connection is returned to the shared pool, the next
-# scenario that reuses it starts on main, un-engaged and main-writable.
+# branch and closing the session, so the connection returns to the shared
+# pool on main for the next scenario.
 
 
 def get_vbranch_session(context):
@@ -48,8 +46,7 @@ def get_vbranch_session(context):
 def close_vbranch_session(context):
     """
     Best-effort teardown of the persistent versioned-branch session: if the
-    scenario forked onto a branch, checkout back to main (un-engaging the
-    connection's versioning state, see ddf60d59f) and drop the branch (both
+    scenario forked onto a branch, checkout back to main and drop the branch (both
     swallowed on error -- this is cleanup, not the scenario under test), then
     close the session so its connection goes back to the shared pool clean
     for the next scenario. Safe to call even if no session was ever opened.

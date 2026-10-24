@@ -22,8 +22,7 @@ namespace memgraph::query {
 class FineGrainedAuthChecker;
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
-                                 FineGrainedAuthChecker const *auth_checker = nullptr,
-                                 storage::Storage::Accessor *schema_acc = nullptr);
+                                 FineGrainedAuthChecker const *auth_checker = nullptr);
 
 struct PullPlanDump {
   // `schema_acc`: where indexes/constraints/TTL/descriptions are read from. nullptr = the DbAccessor's own storage

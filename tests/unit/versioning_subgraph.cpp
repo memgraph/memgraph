@@ -70,8 +70,6 @@ class VersioningSubgraphTest : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
-    // Chunk-0 gate requires PERIODIC_SNAPSHOT_WITH_WAL (D9) -- see WalGateDisabled below for the
-    // default-config (WAL-off) rejection path instead.
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.disk.main_storage_directory = data_directory / "disk";
@@ -115,7 +113,7 @@ class VersioningSubgraphTest : public ::testing::Test {
     std::filesystem::remove_all(data_directory);
   }
 
-  // Flips on every chunk-0 gate precondition (flag + license); storage mode + WAL are already
+  // Flips on every chunk-0 gate precondition (flag + license); storage mode is already
   // satisfied by `config` above.
   void SatisfyGate() {
     FLAGS_versioning_enabled = true;

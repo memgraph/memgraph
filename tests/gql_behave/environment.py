@@ -55,7 +55,7 @@ def before_all(context):
     # test results
     context.test_results = TestResults()
 
-    # Graph Versioning v1 --versioned-branch arm: monotonic counter used to
+    # Graph Versioning --versioned-branch arm: monotonic counter used to
     # build a unique per-scenario branch name (see before_scenario), so a
     # failed best-effort DROP BRANCH in one scenario can't collide with the
     # next scenario's CREATE BRANCH.

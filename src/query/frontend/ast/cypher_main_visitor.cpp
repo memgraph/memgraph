@@ -4581,7 +4581,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateBranch(MemgraphCypher::CreateBranchC
   }
   // The FROM parent references an existing branch (commonly 'main'); name validity (it may not be
   // "main", may not start with '.', etc.) is only relevant for a name being minted, so it is
-  // checked at execution time (chunk 7) against the resolved value, not here against the AST.
+  // checked at execution time against the resolved value, not here against the AST.
   versioning_query->parent_ = std::any_cast<Expression *>(ctx->branchName(1)->accept(this));
   query_ = versioning_query;
   return versioning_query;
@@ -4634,17 +4634,6 @@ antlrcpp::Any CypherMainVisitor::visitShowBranches(MemgraphCypher::ShowBranchesC
     // databaseName is a plain identifier (symbolicName), never stripped -- safe as a std::string.
     versioning_query->for_database_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   }
-  query_ = versioning_query;
-  return versioning_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitShowBranchDiff(MemgraphCypher::ShowBranchDiffContext *ctx) {
-  auto *versioning_query = storage_->Create<VersioningQuery>();
-  versioning_query->action_ = VersioningQuery::Action::SHOW_BRANCH_DIFF;
-  if (ctx->branchName()) {
-    versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
-  }
-  versioning_query->format_table_ = ctx->FORMAT() != nullptr;
   query_ = versioning_query;
   return versioning_query;
 }

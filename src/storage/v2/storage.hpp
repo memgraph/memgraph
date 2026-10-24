@@ -272,7 +272,7 @@ class Storage {
   friend class VectorIndex;
 
  public:
-  // `shared_name_id_mapper`: Graph Versioning v1 (lazy diff-context, slice E-1) -- when non-null,
+  // `shared_name_id_mapper`: Graph Versioning -- when non-null,
   // this Storage SHARES that NameIdMapper instance instead of constructing its own (see
   // GetSharedNameIdMapper()'s own doc-comment above for why: versioning::BranchContext::
   // BuildFromFork passes main's own mapper here so the diff engine and main's historical view
@@ -338,7 +338,7 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1): lets versioning::BranchContext::
+  // Graph Versioning: lets versioning::BranchContext::
   // BuildFromFork construct the diff engine's InMemoryStorage SHARING main's own NameIdMapper
   // instance (see the Storage ctor's shared_name_id_mapper param below), rather than each store
   // owning a numerically-unrelated mapper of its own. One shared id space means a historical
@@ -457,7 +457,7 @@ class Storage {
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> broken_{false};
 
-  // shared_ptr (not unique_ptr): Graph Versioning v1 (lazy diff-context, slice E-1) lets a branch's
+  // shared_ptr (not unique_ptr): Graph Versioning lets a branch's
   // diff engine share THIS instance instead of owning a numerically-unrelated mapper of its own --
   // see GetSharedNameIdMapper()'s own doc-comment above. All existing `.get()`-based call sites are
   // unaffected (shared_ptr also has `.get()`, no refcounting on that path); the refcount is only
@@ -577,15 +577,6 @@ class Accessor {
   static constexpr struct HistoricalAccess {
   } historical_access;
 
-  // Graph Versioning v1 durability (S3a, FIX B): tag for opening a WRITE-capable accessor from an
-  // already-built, explicit Transaction whose `start_timestamp` is a caller-supplied value (recovery
-  // replay's `Ci - 1`) instead of a fresh `timestamp_++` tick -- mirrors HistoricalAccess's deferred
-  // `build_transaction()` construction, but (unlike HistoricalAccess) the resulting Transaction is
-  // NOT `is_historical_`, so it can create real deltas via the normal write path. See
-  // InMemoryStorage::CreateRecoveryReplayTransaction / CreateRecoveryReplayAccessor.
-  static constexpr struct RecoveryReplayAccess {
-  } recovery_replay_access;
-
   // Uses a plain SHARED (READ-type) guard via AcquireGuardOrThrow -- the same lock mode an ordinary
   // read transaction uses, NOT READ_ONLY mode: a branch/historical read must COEXIST with concurrent
   // main writers (spec S2/D2 -- main stays fully writable while branches exist), whereas READ_ONLY
@@ -606,17 +597,6 @@ class Accessor {
   // (InMemoryStorage::HistoricalAccess) that can't call the ordinary virtual CreateTransaction
   // (it needs an explicit past start_timestamp).
   Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
-           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-  // Graph Versioning v1 durability (S3a, FIX B). Unlike HistoricalAccess's hardcoded READ-type
-  // guard (that accessor is read-only by construction), a recovery-replay accessor WRITES real
-  // deltas, so it needs the SAME lock semantics as an ordinary writer -- `rw_type` (defaulting to
-  // WRITE) is passed to AcquireGuardOrThrow, which handles all four guard types including UNIQUE.
-  // rw_type == UNIQUE is supported for DDL replay (BUG-1 fix): a window-replay transaction whose
-  // original WAL op was DDL needs a UNIQUE-typed accessor so type() == UNIQUE satisfies the DDL
-  // methods' own gates (e.g. CreateIndex). AcquireGuardOrThrow handles UNIQUE natively via
-  // ResourceLockGuard::UNIQUE, so no two-guard split is required.
-  Accessor(RecoveryReplayAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
-           StorageAccessType rw_type = StorageAccessType::WRITE,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
