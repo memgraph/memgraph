@@ -21,62 +21,32 @@
 
 namespace memgraph::versioning {
 
-// Graph Versioning v1 -- branch-side change filters.
+// Branch-side change filters. On a branch, reading a MAIN-resident vertex with the global `branched()`
+// bit set costs a diff-engine FindVertex (BranchContext::ResolveVertex); that bit is global across
+// branches and coarse. A per-branch gid-keyed filter per change KIND answers "did this branch change
+// this kind on gid G?" first: clear => read the fork copy (impl_); set => resolve (a false positive
+// only wastes a resolve).
 //
-// PROBLEM. On a checked-out branch, reading a field of a MAIN-resident vertex whose global
-// `branched()` bit is set costs a diff-engine skiplist `FindVertex` (BranchContext::ResolveVertex)
-// -- the dominant worst-churn branch-read hotspot. That bit is (i) GLOBAL (set by ANY branch, never
-// cleared -- a vertex changed by branch X forces a resolve on branch Y that never touched it) and
-// (ii) COARSE (it says *something* changed, not *what* -- reading `:User` / `n.id` on a vertex whose
-// only change was `SET n.age` still resolves, only to re-fetch fork-identical fields).
-//
-// FIX. A per-branch, monotonic, gid-keyed approximate-membership filter, one per change KIND, that
-// answers "did *this* branch change *this kind* of thing on gid G?" BEFORE paying the resolve. A
-// CLEAR answer => definitely-unchanged => read the fork copy the branch already holds (impl_), no
-// lookup. A SET answer => maybe-changed => resolve as today (a false positive only wastes a resolve,
-// never a stale read).
-//
-// CORRECTNESS rests on the no-false-negatives property of a monotonic filter: a clear bit means the
-// key was *never inserted*. So the single load-bearing invariant is INV-1 (completeness): every
-// branch mutation of gid inserts into the matching kind filter, with zero misses, on BOTH the
-// live-write path and the change-log replay path. See the design doc for the enumerated
-// population sites and the replay re-walk.
+// Correctness rests on no false negatives: every branch mutation of gid MUST insert into the matching
+// kind filter.
 
-// The per-kind change filters a branch maintains, plus the record/query surface BranchContext
-// forwards to. One instance lives on each BranchCore (branch_engine.hpp), shared by every session that has the
-// branch checked out; branches are ephemeral, so it starts empty and only ever grows.
+// Per-kind change filters of one branch, owned by BranchCore (branch_engine.hpp) and shared by every
+// session on it. Starts empty and only grows. `label_`, `edge_`, `property_` are per-gid; the fine
+// `property_field_` is keyed by (gid, property_id) and gates point reads `GetProperty(gid, pid)`,
+// while `property_` gates whole-map `Properties()`.
 //
-// FOUR filters: coarse `label_`, `edge_`, `property_` (per-gid: "did this kind change on gid G?"),
-// plus a FINE `property_field_` keyed by (gid, property_id): "did THIS property change on gid G?".
-// The fine filter is what a point read `GetProperty(gid, pid)` gates on -- so `n.id` reads skip the
-// resolve when only `n.age` changed (the coarse `property_` filter can't tell `id` from `age` and
-// would resolve both). The coarse `property_` is still maintained, for the whole-property-map read
-// `Properties()` (which has no single pid to probe). INV-1 for the fine filter: EVERY property
-// mutation must record (gid, pid) for each affected pid -- SetProperty (one), Init/UpdateProperties
-// (the map's keys), ClearProperties (the cleared map's keys), and the replay re-walk
-// (WalVertexSetProperty's property, name-resolved). A miss is a stale read (a point read of a changed
-// property that skips its resolve), so all five sites are load-bearing.
+// For the fine filter: EVERY property mutation must record (gid, pid) for each affected pid --
+// SetProperty (one), Init/UpdateProperties (the map's keys), ClearProperties (the cleared map's keys).
+// A miss is a stale read.
 //
-// NO `any_change` CATCH-ALL (deviation from design section 4, deliberate): the design carried a 4th
-// `any_change` filter set on every mutation, as a backstop. It is omitted here because it is
-// runtime-dead for the current read set: monotonicity gives `any_kind_change ⇒ any_change`, so
-// `!any_change ⇒ !any_kind_change` -- a read gated on its own kind filter already gets the
-// cross-branch fast-exit (a gid this branch never touched has every kind filter clear), and a read
-// of an instrumented kind gains nothing from also consulting `any_change` (a missed kind-filter
-// insert is a stale read whether or not `any_change` was set, since the read trusts the kind filter).
-// MAINTENANCE INVARIANT this places on future work: every value/adjacency read on a branch MUST gate
-// on a dedicated kind filter that ALL of that kind's mutation sites populate (INV-1). A new read kind
-// with no dedicated filter has nothing safe to gate on -- add its filter + instrument its mutations;
-// do NOT reintroduce a read that trusts a coarse bit without the matching kind coverage.
+// There is deliberately no `any_change` catch-all: every value/adjacency read on a branch MUST gate
+// on a dedicated kind filter that ALL of that kind's mutation sites populate.
 //
-// Sized by kFilterWords below -- FIXED per branch (a monotonic bloom cannot cheaply resize). The
-// design assumes "small branches"; a branch that changes far more gids than the filter is tuned for
-// saturates gracefully (rising false-positive rate => more resolves => degrades toward today's
-// all-resolve behaviour, never toward incorrectness -- design section 11, risk 5).
+// Size is fixed per branch (a bloom cannot resize); saturation only raises the false-positive rate,
+// degrading toward all-resolve, never toward incorrectness.
 class BranchChangeFilters {
  public:
-  // 4096 words * 8 bytes = 32 KiB per filter, 128 KiB per branch (4 filters). Holds ~8k changed keys
-  // at ~1% false-positive; ~20k at ~10% (still correct, just more resolves). Power of two (mask).
+  // 32 KiB per filter, 128 KiB per branch. ~8k keys at ~1% false-positive, ~20k at ~10%. Power of two (mask).
   static constexpr size_t kFilterWords = 4096;
   static_assert((kFilterWords & (kFilterWords - 1)) == 0, "kFilterWords must be a power of two");
 
@@ -93,9 +63,7 @@ class BranchChangeFilters {
     (kind == BranchChangeKind::kLabel ? label_ : property_).Insert(gid);
   }
 
-  // Fine-grained property change: records that property `pid` of `gid` may have changed. Keyed by a
-  // mix of (gid, pid) folded into the same Gid-keyed filter (a bloom false collision only wastes a
-  // resolve). Populated at every property mutation site alongside the coarse `property_`.
+  // Keyed by a mix of (gid, pid); populated at every property mutation site alongside `property_`.
   void RecordPropertyField(storage::Gid gid, storage::PropertyId pid) noexcept {
     property_field_.Insert(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
@@ -104,10 +72,8 @@ class BranchChangeFilters {
     return property_field_.MayContain(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
 
-  // Records that `endpoint_gid`'s adjacency (edge add/remove/property, or delete-cascade) may have
-  // changed on this branch. Called for BOTH endpoints of every changed edge -- a traversal reads a
-  // vertex's incident edges keyed by that vertex's gid, so both sides must be flagged so an
-  // expansion from EITHER endpoint sees the change (design section 6).
+  // Records `endpoint_gid`'s adjacency as possibly changed. Call for BOTH endpoints of a changed edge,
+  // since expansion from either side reads incident edges keyed by that vertex's gid.
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { edge_.Insert(endpoint_gid); }
 
   [[nodiscard]] bool MayHaveLabelChange(storage::Gid gid) const noexcept { return label_.MayContain(gid); }
@@ -117,36 +83,18 @@ class BranchChangeFilters {
   [[nodiscard]] bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return edge_.MayContain(gid); }
 
  private:
-  // A monotonic (insert-only, never-clear), thread-safe, approximate-membership filter keyed by gid.
+  // Monotonic (insert-only) lock-free approximate-membership filter keyed by gid. Register-blocked
+  // bloom, k=2: one gid maps to one 64-bit word with two bits set.
   //
-  // Register-blocked bloom, k=2: gids are dense, unique, high-entropy integers, so a single
-  // multiply-shift Fibonacci mix distributes them well with no hash cascade. One gid maps to exactly
-  // ONE 64-bit word (one atomic op, within a single cache line) in which two bits are set/tested --
-  // "one memory access, a few ALU ops" (design section 8).
-  //
-  // THREAD SAFETY (design section 7): bits are only ever set, never cleared. Insert is a lock-free
-  // atomic release fetch-or; MayContain is an acquire atomic load. No lock, no torn read: `fetch_or`
-  // is an indivisible RMW (no lost update even under a concurrent same-word insert from another session), and a
-  // reader either sees a bit or does not -- either answer is safe (a
-  // set bit => resolve; a not-yet-visible set bit only risks a missed resolve, i.e. a stale read, so
-  // visibility DOES matter and is guaranteed as follows).
-  //
-  // A session's write (VertexAccessor::CowIfNeeded -> Insert, during a mutating query) must be
-  // visible to every later read of the filter, on any session. Two invariants make this hold WITHOUT relying on
-  // thread identity (Bolt sessions run on a shared asio io_context pool):
-  //   (1) MULTI-WRITER SAFE: Insert is an indivisible atomic fetch_or, so concurrent sessions of one branch never lose
-  //       an update; a filter write is recorded before the owning transaction commits, so any transaction that can
-  //       see the committed change also sees the bit.
-  //   (2) RELEASE/ACQUIRE: Insert publishes with memory_order_release and MayContain consumes with
-  //       memory_order_acquire, so a reader that observes a set bit also observes every write the setting query made.
-  //       A rolled-back transaction leaves its bit set: a false positive (wasted resolve), never a stale read.
-  //       The planner refuses to parallelise a non-read-only sub-plan (plan/rewrite/parallel_rewrite.hpp), so no
-  //       write runs concurrently with a read fan-out within one query.
+  // A bit not yet visible to a reader is a stale read, so visibility matters. Insert is a release
+  // fetch_or and MayContain an acquire load: a reader that sees the bit also sees the setting query's
+  // writes, independent of thread identity (Bolt sessions share an io_context pool). Concurrent
+  // same-word inserts lose no update. The bit is set before the owning transaction commits, and a
+  // rolled-back transaction leaves it set (false positive, never stale). Parallel plans are read-only
+  // (plan/rewrite/parallel_rewrite.hpp), so no write races a read fan-out within one query.
   class MonotonicGidFilter {
    public:
-    // `num_words` MUST be a power of two (enforced by BranchChangeFilters via a static_assert on
-    // kFilterWords). Value-initialises every word to 0 (make_unique for arrays value-initialises,
-    // and a value-initialised std::atomic<uint64_t> holds 0).
+    // `num_words` MUST be a power of two (static_assert on kFilterWords).
     explicit MonotonicGidFilter(size_t num_words)
         : index_mask_(num_words - 1), words_(std::make_unique<std::atomic<uint64_t>[]>(num_words)) {}
 
@@ -167,9 +115,7 @@ class BranchChangeFilters {
     };
 
     [[nodiscard]] Slot Locate(storage::Gid gid) const noexcept {
-      // Fibonacci hashing: multiply by 2^64/phi (odd => bijective mod 2^64) avalanches the gid's
-      // entropy toward the high bits. Word index from the high bits; the two in-word bit positions
-      // from two disjoint low 6-bit fields -- all three drawn from non-overlapping regions of `h`.
+      // Fibonacci hash; word index from the high bits, the two bit positions from disjoint low 6-bit fields.
       uint64_t const h = gid.AsUint() * 0x9E3779B97F4A7C15ULL;
       size_t const idx = (h >> 40U) & index_mask_;
       uint64_t const bit_a = 1ULL << (h & 63U);
@@ -181,10 +127,7 @@ class BranchChangeFilters {
     std::unique_ptr<std::atomic<uint64_t>[]> words_;
   };
 
-  // Folds (gid, pid) into one 64-bit key. pid is multiplied by an odd constant (bijective mod 2^64,
-  // decorrelating it from gid) then XORed in; the result stays high-entropy for Locate's Fibonacci
-  // hash. Distinct (gid, pid) pairs may collide (a bloom false positive => a wasted resolve, safe);
-  // the same pair always maps identically (Insert/MayContain agree).
+  // Folds (gid, pid) into one high-entropy 64-bit key; collisions are bloom false positives.
   [[nodiscard]] static uint64_t CombineGidProp(storage::Gid gid, storage::PropertyId pid) noexcept {
     return gid.AsUint() ^ (static_cast<uint64_t>(pid.AsUint()) * 0xD1B54A32D192ED03ULL);
   }

@@ -9,29 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Graph Versioning v2: multi-threaded stress tests for the shared per-branch diff engines. Meant to be run under
-// TSan/ASan; the point is the absence of data races / crashes / invariant violations, not throughput.
+// Multi-threaded stress tests for the shared per-branch diff engines; meant to run under TSan/ASan (checks for races,
+// crashes and invariant violations, not throughput). Every thread owns its own Interpreter (one Bolt session) on ONE
+// database.
 //
-// Every thread owns its own Interpreter (= one Bolt session) on ONE database, exactly like
-// VersioningMultiSessionTest in versioning_interpreter.cpp, but really concurrent.
-//
-// Knobs:
-//   VERSIONING_STRESS_SCALE  (double, default 1.0, clamped to [0.05, 100]) multiplies every per-thread op count.
-//   Each phase also has a wall-clock deadline (12 s * max(1, scale)) as a safety net so a slow TSan run is bounded;
-//   a thread that hits the deadline just stops early (the invariants are checked on whatever was committed).
-//   All RNGs are seeded deterministically (thread-id derived); only the OS interleaving is non-deterministic.
-//
-// Risks targeted (design doc section 3.8):
-//   branch writers      - cross-storage lock order (main vertex locks vs diff vertex locks), delta-less stub
-//                         materialization (MaterializeStubVertex/Edge) races, shared change filters / branched bits,
-//                         write-write conflicts on the diff engine's MVCC, rollback of a stub-creating txn.
-//   branch readers      - readers racing first-touch materialization, marker leakage (__mg_*) through
-//                         labels()/keys()/properties(), union-aware scans (index + expand) under concurrent writers.
-//   main writers        - the branch must NEVER cause a main conflict/error; fork isolation (no main write leaks to
-//                         the branch and no branch write leaks to main); historical accessor open/close vs main GC.
-//   lifecycle thread    - CREATE/CHECKOUT/DROP BRANCH churn vs attached sessions, diff-engine creation/teardown and
-//                         its GC thread vs readers/writers on other branches.
-//   same-vertex hammer  - first-touch races + write-write conflicts on the very same fork vertices.
+// VERSIONING_STRESS_SCALE (double, default 1.0, clamped to [0.05, 100]) multiplies every per-thread op count. Each
+// phase also has a wall-clock deadline (12 s * max(1, scale)); a thread hitting it stops early. RNGs are seeded
+// deterministically.
 
 #include <algorithm>
 #include <atomic>
@@ -85,13 +69,12 @@ constexpr int64_t kSeedEdges = 6000;
 // Id ranges (ids are never reused, so "committed" bookkeeping is exact):
 constexpr int64_t kBranchNativeBase = 1'000'000;  // branch writer t: kBranchNativeBase * (t + 1) + k
 constexpr int64_t kMainNativeBase = 50'000'000;   // main writer w:   kMainNativeBase + w * 1'000'000 + k
-// Random branch writers only touch ids below kRandomIds. The ids above are phase-0 sentinels, written once
-// and single-threaded before the workload, so their invariants can never be vacuous nor disturbed by a writer.
+// Random branch writers only touch ids below kRandomIds; ids above are phase-0 sentinels written once, single-threaded.
 constexpr int64_t kRandomIds = 1800;
-constexpr int64_t kSentinelDeleteFirst = 1990;  // [1990, 2000): DETACH DELETEd
-constexpr int64_t kSentinelLabelFirst = 1800;   // [1800, 1810): SET :L, stays
+constexpr int64_t kSentinelDeleteFirst = 1990;   // [1990, 2000): DETACH DELETEd
+constexpr int64_t kSentinelLabelFirst = 1800;    // [1800, 1810): SET :L, stays
 constexpr int64_t kSentinelUnlabelFirst = 1810;  // [1810, 1820): SET :L then REMOVE :L
-constexpr int64_t kSentinelEdgeFirst = 1820;    // [1820, 1830): ring of new edges with w = kSentinelEdgeW
+constexpr int64_t kSentinelEdgeFirst = 1820;     // [1820, 1830): ring of new edges with w = kSentinelEdgeW
 constexpr int64_t kSentinelEdgeW = -7;
 constexpr int64_t kSentinelEdgeDelFirst = 1830;  // [1830, 1835): one fork out-edge each deleted
 // Values: branch writers set v in [1, kMainValueBase), main writers set v >= kMainValueBase. A main value visible on
@@ -112,9 +95,12 @@ double Scale() {
 
 int Scaled(int base) { return std::max(1, static_cast<int>(base * Scale())); }
 
-Clock::time_point Deadline() { return Clock::now() + std::chrono::milliseconds(static_cast<int>(12000 * std::max(1.0, Scale()))); }
+Clock::time_point Deadline() {
+  return Clock::now() + std::chrono::milliseconds(static_cast<int>(12000 * std::max(1.0, Scale())));
+}
 
-// Thread-safe sink for unexpected events; asserted empty from the main thread (gtest assertions off-thread are avoided).
+// Thread-safe sink for unexpected events; asserted empty from the main thread (gtest assertions off-thread are
+// avoided).
 class FailureLog {
  public:
   void Add(std::string msg) {
@@ -151,9 +137,8 @@ struct Counters {
   std::atomic<uint64_t> rollbacks{0};
 };
 
-// Runs one query on `s`; never throws. Only TransactionSerializationException (the write-write conflict main raises)
-// is Outcome::kConflict; everything else, including other RetryBasicException subtypes such as HintedAbortError, is
-// Outcome::kError and is logged.
+// Runs one query on `s`; never throws. Only TransactionSerializationException is kConflict; any other error (including
+// other RetryBasicException subtypes such as HintedAbortError) is kError and is logged.
 Outcome Exec(InterpreterFaker &s, const std::string &query, FailureLog &log, Counters &c, std::string_view who,
              BoltRows *rows = nullptr) {
   c.ops.fetch_add(1, std::memory_order_relaxed);
@@ -171,7 +156,6 @@ Outcome Exec(InterpreterFaker &s, const std::string &query, FailureLog &log, Cou
   }
 }
 
-// Best-effort ROLLBACK of an explicit transaction that failed; "no transaction" style errors are irrelevant.
 void SwallowRollback(InterpreterFaker &s) {
   try {
     s.Interpret("ROLLBACK");
@@ -277,9 +261,6 @@ class VersioningStressTest : public ::testing::Test {
   }
 };
 
-// -------------------------------------------------------------------------------------------------------------------
-// Test 1: writers + readers on one branch, writers on main, branch lifecycle churn.
-// -------------------------------------------------------------------------------------------------------------------
 namespace {
 
 struct BranchPending {
@@ -352,7 +333,7 @@ void BranchWriter(InterpreterFaker &s, int tid, int ops, Clock::time_point deadl
   int64_t next_native = 0;
   const std::string who = "branch-writer-" + std::to_string(tid);
   for (int i = 0; i < ops && Clock::now() < deadline; ++i) {
-    if (rng() % 3 != 0) {  // implicit transaction
+    if (rng() % 3 != 0) {
       auto op = MakeBranchOp(rng, tid, next_native);
       if (Exec(s, op.query, log, c, who) == Outcome::kOk) {
         BranchPending p;
@@ -362,7 +343,6 @@ void BranchWriter(InterpreterFaker &s, int tid, int ops, Clock::time_point deadl
       }
       continue;
     }
-    // explicit transaction
     if (Exec(s, "BEGIN", log, c, who) != Outcome::kOk) continue;
     BranchPending pending;
     bool failed = false;
@@ -403,7 +383,7 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, Clock::time_point dea
     std::string q;
     rows.clear();
     switch (pick) {
-      case 0: {  // point lookup through the :P(id) index
+      case 0: {
         q = "MATCH (n:P {id:" + std::to_string(x) + "}) RETURN n.id, labels(n), keys(n), properties(n)";
         if (Exec(s, q, log, c, who, &rows) != Outcome::kOk) break;
         if (rows.size() > 1) log.Add(who + ": id lookup returned " + std::to_string(rows.size()) + " rows: " + q);
@@ -420,7 +400,7 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, Clock::time_point dea
         }
         break;
       }
-      case 1: {  // label scan on the indexed label
+      case 1: {
         q = "MATCH (n:L) RETURN n.id, labels(n) LIMIT 100";
         if (Exec(s, q, log, c, who, &rows) != Outcome::kOk) break;
         for (const auto &r : rows) {
@@ -429,7 +409,7 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, Clock::time_point dea
         }
         break;
       }
-      case 2: {  // one hop
+      case 2: {
         q = "MATCH (n:P {id:" + std::to_string(x) + "})-[r:R]->(m) RETURN n.id, m.id, r.w";
         if (Exec(s, q, log, c, who, &rows) != Outcome::kOk) break;
         for (const auto &r : rows) {
@@ -439,13 +419,13 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, Clock::time_point dea
         }
         break;
       }
-      case 3: {  // two hops
+      case 3: {
         q = "MATCH (n:P {id:" + std::to_string(x) + "})-[:R]->()-[:R]->(m) RETURN count(m)";
         if (Exec(s, q, log, c, who, &rows) != Outcome::kOk) break;
         if (rows.size() != 1 || !rows[0][0].IsInt() || rows[0][0].ValueInt() < 0) log.Add(who + ": bad count: " + q);
         break;
       }
-      case 4: {  // full scans / global invariants (rarely, they are the expensive ones)
+      case 4: {
         if (rng() % 8 != 0) {
           // One statement = one snapshot: the (edge-property indexed) filtered count must equal a full-scan count.
           const auto w = std::to_string(rng() % 100'000);
@@ -495,7 +475,7 @@ void MainWriter(InterpreterFaker &s, int w, int ops, Clock::time_point deadline,
                 Counters &c) {
   std::mt19937_64 rng{kSeed + 300 + static_cast<uint64_t>(w)};
   const std::string who = "main-writer-" + std::to_string(w);
-  std::vector<int64_t> live;  // own native vertices
+  std::vector<int64_t> live;
   int64_t next_native = 0;
   for (int i = 0; i < ops && Clock::now() < deadline; ++i) {
     const int pick = static_cast<int>(rng() % 10);
@@ -504,7 +484,8 @@ void MainWriter(InterpreterFaker &s, int w, int ops, Clock::time_point deadline,
       const int64_t v = kMainValueBase + static_cast<int64_t>(rng() % 900'000'000);
       const auto o = Exec(s, "MATCH (n:P {id:" + std::to_string(x) + "}) SET n.v = " + std::to_string(v), log, c, who);
       if (o == Outcome::kOk) book.last_v[x] = v;
-      if (o == Outcome::kConflict) log.Add(who + ": branch-caused serialization conflict on SET (id " + std::to_string(x) + ")");
+      if (o == Outcome::kConflict)
+        log.Add(who + ": branch-caused serialization conflict on SET (id " + std::to_string(x) + ")");
     } else if (pick < 9 || live.empty()) {
       const int64_t id = kMainNativeBase + w * 1'000'000 + next_native++;
       const auto o = Exec(s, "CREATE (:P {id:" + std::to_string(id) + ", v:0, w:0})", log, c, who);
@@ -526,8 +507,8 @@ void MainWriter(InterpreterFaker &s, int w, int ops, Clock::time_point deadline,
   }
 }
 
-// CREATE BRANCH tmp FROM main; CHECKOUT; write a bit; CHECKOUT main; DROP BRANCH tmp. Every step must succeed: this
-// session is the only one ever attached to tmp.
+// CREATE BRANCH tmp; CHECKOUT; write; CHECKOUT main; DROP BRANCH tmp. This session is the only one attached to tmp, so
+// every step must succeed.
 void Lifecycle(InterpreterFaker &s, int iters, Clock::time_point deadline, FailureLog &log, Counters &c) {
   std::mt19937_64 rng{kSeed + 400};
   const std::string who = "lifecycle";
@@ -551,7 +532,10 @@ void Lifecycle(InterpreterFaker &s, int iters, Clock::time_point deadline, Failu
     if (Exec(s,
              "MATCH (n:P) WHERE n.id >= " + std::to_string(kBranchNativeBase) + " AND n.id < " +
                  std::to_string(kMainNativeBase) + " RETURN count(*)",
-             log, c, who, &rows) == Outcome::kOk &&
+             log,
+             c,
+             who,
+             &rows) == Outcome::kOk &&
         (rows.size() != 1 || rows[0][0].ValueInt() != 0)) {
       log.Add(who + ": branch b's native vertices leaked into tmp");
     }
@@ -565,9 +549,9 @@ void SeedMain(InterpreterFaker &s) {
   s.Interpret("CREATE INDEX ON :P(id)");
   s.Interpret("CREATE INDEX ON :L");
   s.Interpret("UNWIND range(0," + std::to_string(kSeedVertices - 1) + ") AS i CREATE (:P {id:i, v:0, w:i})");
-  s.Interpret("UNWIND range(0," + std::to_string(kSeedEdges - 1) +
-              ") AS i MATCH (a:P {id: i % " + std::to_string(kSeedVertices) + "}), (b:P {id: (i * 7 + 13) % " +
-              std::to_string(kSeedVertices) + "}) CREATE (a)-[:R {w:i}]->(b)");
+  s.Interpret("UNWIND range(0," + std::to_string(kSeedEdges - 1) + ") AS i MATCH (a:P {id: i % " +
+              std::to_string(kSeedVertices) + "}), (b:P {id: (i * 7 + 13) % " + std::to_string(kSeedVertices) +
+              "}) CREATE (a)-[:R {w:i}]->(b)");
 }
 
 }  // namespace
@@ -607,8 +591,8 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   const int main_ops = Scaled(300);
   const int life_iters = Scaled(8);
 
-  // ---- phase 0 (single-threaded, on branch b): deterministic sentinel writes so the delete/label/edge invariants below
-  // always have something to check. Random writers never mutate these vertices nor the edges sourced at them.
+  // Phase 0 (single-threaded, on branch b): sentinel writes so the delete/label/edge invariants always have something
+  // to check.
   const auto id_range = [](int64_t first, int64_t count) {
     return "n.id >= " + std::to_string(first) + " AND n.id < " + std::to_string(first + count);
   };
@@ -628,9 +612,9 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
       prep.Interpret("MATCH (n:P {id:" + std::to_string(kSentinelLabelFirst + i) + "}) SET n:L");
       prep.Interpret("MATCH (n:P {id:" + std::to_string(kSentinelUnlabelFirst + i) + "}) SET n:L");
       prep.Interpret("MATCH (n:P {id:" + std::to_string(kSentinelUnlabelFirst + i) + "}) REMOVE n:L");
-      prep.Interpret("MATCH (a:P {id:" + std::to_string(kSentinelEdgeFirst + i) + "}), (b:P {id:" +
-                     std::to_string(kSentinelEdgeFirst + (i + 1) % 10) + "}) CREATE (a)-[:R {w:" +
-                     std::to_string(kSentinelEdgeW) + "}]->(b)");
+      prep.Interpret("MATCH (a:P {id:" + std::to_string(kSentinelEdgeFirst + i) +
+                     "}), (b:P {id:" + std::to_string(kSentinelEdgeFirst + (i + 1) % 10) +
+                     "}) CREATE (a)-[:R {w:" + std::to_string(kSentinelEdgeW) + "}]->(b)");
     }
     for (int64_t i = 0; i < 5; ++i) {
       prep.Interpret("MATCH (:P {id:" + std::to_string(kSentinelEdgeDelFirst + i) +
@@ -645,7 +629,6 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   const int64_t phase0_deleted = static_cast<int64_t>(committed.deleted.size());
   const bool full_scale = Scale() >= 0.5;  // scale-dependent minimums are waived below this
 
-  // Start barrier: every worker begins its first op together.
   std::latch start{kBranchWriters + kBranchReaders + kMainWriters + 1};
   std::vector<std::thread> threads;
   for (int i = 0; i < kBranchWriters; ++i) {
@@ -682,8 +665,6 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   ASSERT_EQ(mw_c.conflicts.load(), 0U) << "main writers (disjoint data) must never conflict because of a branch";
   ASSERT_EQ(mw_c.errors.load(), 0U);
   ASSERT_EQ(life_c.errors.load() + life_c.conflicts.load(), 0U) << "branch lifecycle churn must always succeed";
-  // Readers never write: CoW/stub materialization happens only on mutation paths (VertexAccessor::CowIfNeeded,
-  // ResolveWriteTarget), so a reader can neither conflict nor error.
   ASSERT_EQ(br_c.conflicts.load(), 0U) << "branch readers must never conflict";
   ASSERT_EQ(br_c.errors.load(), 0U);
   ASSERT_GE(committed.deleted.size(), static_cast<size_t>(phase0_deleted));
@@ -699,7 +680,6 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
     }
   }
 
-  // ---- final consistency: branch 'b' from a fresh session -------------------------------------------------------
   auto &chk = NewSession();
   chk.Interpret("CHECKOUT BRANCH 'b'");
   ASSERT_EQ(chk.interpreter.current_db_.CurrentVersion(), "b");
@@ -745,8 +725,9 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
     EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.id IN [" + ids + "] RETURN count(*)"), 0)
         << "vertices DETACH DELETEd by a committed branch txn are still visible";
     // Start from SURVIVING endpoints (WITH pins the order): no edge may reach a deleted vertex.
-    EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE NOT n.id IN [" + ids + "] WITH n MATCH (n)-[r:R]-(m) WHERE m.id IN [" +
-                              ids + "] RETURN count(r)"),
+    EXPECT_EQ(Scalar(chk,
+                     "MATCH (n:P) WHERE NOT n.id IN [" + ids + "] WITH n MATCH (n)-[r:R]-(m) WHERE m.id IN [" + ids +
+                         "] RETURN count(r)"),
               0)
         << "a surviving vertex still has an edge to a deleted branch vertex";
   }
@@ -755,7 +736,8 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   EXPECT_EQ(edges_all, Scalar(chk, "MATCH (n) OPTIONAL MATCH (n)-[r:R]->() RETURN count(r)"))
       << "edge count differs between an edge scan and per-vertex expansion";
   {
-    const std::string indexed_q = "MATCH ()-[r:R]->() WHERE r.w >= " + std::to_string(kSentinelEdgeW) + " RETURN count(r)";
+    const std::string indexed_q =
+        "MATCH ()-[r:R]->() WHERE r.w >= " + std::to_string(kSentinelEdgeW) + " RETURN count(r)";
     ASSERT_TRUE(PlanUsesOperator(chk, indexed_q, "ScanAllByEdgeTypeProperty"))
         << "the planner does not use the :R(w) edge-property index on the branch";
     EXPECT_EQ(edges_all, Scalar(chk, indexed_q))
@@ -765,7 +747,6 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   EXPECT_EQ(Scalar(chk, "MATCH (a)-[:R]->(b) WHERE a.id IS NULL OR b.id IS NULL RETURN count(*)"), 0)
       << "a branch edge has a dangling/invalid endpoint";
 
-  // ---- final consistency: main ----------------------------------------------------------------------------------
   auto &mchk = NewSession();
   int64_t created = 0, deleted_main = 0;
   std::map<int64_t, int64_t> expected_v;
@@ -778,15 +759,17 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
       << "main vertex count != bookkeeping of main creates/deletes";
   EXPECT_EQ(Scalar(mchk, "MATCH ()-[r:R]->() RETURN count(r)"), kSeedEdges) << "branch writes changed main's edges";
   EXPECT_EQ(Scalar(mchk, "MATCH (n:L) RETURN count(*)"), 0) << "a branch label leaked to main";
-  EXPECT_EQ(Scalar(mchk, "MATCH (n:P) WHERE n.id < " + std::to_string(kSeedVertices) +
-                             " AND (n.w IS NULL OR n.w <> n.id) RETURN count(*)"),
+  EXPECT_EQ(Scalar(mchk,
+                   "MATCH (n:P) WHERE n.id < " + std::to_string(kSeedVertices) +
+                       " AND (n.w IS NULL OR n.w <> n.id) RETURN count(*)"),
             0)
       << "a branch REMOVE/SET of `w` leaked to main";
   EXPECT_EQ(Scalar(mchk, "MATCH (n) UNWIND labels(n) AS l WITH l WHERE l <> 'P' RETURN count(*)"), 0);
   EXPECT_EQ(Scalar(mchk, "MATCH (n) UNWIND keys(n) AS k WITH k WHERE NOT k IN ['id','v','w'] RETURN count(*)"), 0)
       << "unexpected key on main (marker leak?)";
-  EXPECT_EQ(Scalar(mchk, "MATCH (n:P) WHERE n.v >= 1 AND n.v < " + std::to_string(kMainValueBase) + " AND n.id < " +
-                             std::to_string(kSeedVertices) + " RETURN count(*)"),
+  EXPECT_EQ(Scalar(mchk,
+                   "MATCH (n:P) WHERE n.v >= 1 AND n.v < " + std::to_string(kMainValueBase) + " AND n.id < " +
+                       std::to_string(kSeedVertices) + " RETURN count(*)"),
             0)
       << "a branch value of `v` leaked to main";
   {
@@ -803,16 +786,12 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
     }
   }
 
-  // The lifecycle thread dropped every tmp branch it made.
   for (int i = 0; i < life_iters; ++i) {
     EXPECT_FALSE(db->version_store()->Exists("tmp" + std::to_string(i)))
         << "tmp" << i << " survived DROP BRANCH (or churn aborted early)";
   }
 }
 
-// -------------------------------------------------------------------------------------------------------------------
-// Test 2: many sessions hammer the SAME fork vertices (first-touch races + write-write conflicts).
-// -------------------------------------------------------------------------------------------------------------------
 TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
   constexpr int kSessions = 8;
   constexpr int64_t kHot = 50;
@@ -833,8 +812,8 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
   Counters c;
   std::mutex committed_mutex;
   std::vector<std::set<int64_t>> committed(kHot);
-  for (auto &set : committed) set.insert(0);  // the fork value
-  std::atomic<uint64_t> commit_seq{0};         // diagnostic only: number of successful commits
+  for (auto &set : committed) set.insert(0);
+  std::atomic<uint64_t> commit_seq{0};  // diagnostic only: number of successful commits
   const auto deadline = Deadline();
   const int ops = Scaled(120);
 
@@ -866,7 +845,6 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
         }
         pending.emplace_back(id, value);
         if (explicit_txn) {
-          // Re-read inside the txn: must still be our own write.
           rows.clear();
           if (Exec(s, "MATCH (n:K {id:" + std::to_string(id) + "}) RETURN n.v, n.w", log, c, who, &rows) ==
                   Outcome::kOk &&
@@ -910,11 +888,12 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
             << " rollbacks=" << c.rollbacks << " commits=" << commit_seq << std::endl;
   ASSERT_EQ(log.Count(), 0U) << log.Dump();
   ASSERT_GT(commit_seq.load(), 0U) << "no hammer transaction ever committed";
-  if (Scale() >= 1.0) ASSERT_GT(c.conflicts.load(), 0U) << "8 sessions on 50 vertices never conflicted: workload is vacuous";
+  if (Scale() >= 1.0)
+    ASSERT_GT(c.conflicts.load(), 0U) << "8 sessions on 50 vertices never conflicted: workload is vacuous";
 
-  // Exact last-writer checking is not race-free (commit order is not observable from outside the engine), so assert
-  // that each final value is one that some session actually committed (never a rolled-back/aborted write), and that the
-  // two properties written together by one statement are still equal.
+  // Exact last-writer checking is not race-free (commit order is unobservable), so assert each final value was
+  // committed by some session (never a rolled-back write) and that the two properties written by one statement are
+  // equal.
   auto &chk = NewSession();
   chk.Interpret("CHECKOUT BRANCH 'hot'");
   auto stream = chk.Interpret("MATCH (n:K) RETURN n.id, n.v, n.w ORDER BY n.id");
@@ -943,8 +922,8 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
     EXPECT_EQ(row[2].ValueInt(), kFinalBase + id) << "sequential write lost on vertex " << id;
   }
 
-  // Main must be untouched by all of this.
   auto &mchk = NewSession();
-  EXPECT_EQ(Scalar(mchk, "MATCH (n:K) WHERE n.v <> 0 OR n.w <> 0 RETURN count(*)"), 0) << "hot-branch writes leaked to main";
+  EXPECT_EQ(Scalar(mchk, "MATCH (n:K) WHERE n.v <> 0 OR n.w <> 0 RETURN count(*)"), 0)
+      << "hot-branch writes leaked to main";
   EXPECT_EQ(Scalar(mchk, "MATCH (n:K) RETURN count(*)"), kHot);
 }
