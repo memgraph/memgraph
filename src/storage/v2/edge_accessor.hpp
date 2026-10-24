@@ -101,11 +101,7 @@ class EdgeAccessor final {
 
   Gid Gid() const noexcept;
 
-  // Graph Versioning v1 -- phase 2 (D1) read-side hint for query::EdgeAccessor's branch value-read
-  // fast path (edge_accessor.cpp, query layer): "has any branch ever touched this edge" per
-  // storage::Edge::branched()/SetBranched() (edge.hpp, monotonic/never-cleared). See the .cpp
-  // definition for why this must guard `properties_on_edges` before touching `edge_.ptr` (mirrors
-  // Gid()'s own guard immediately above).
+  // Whether any branch has ever touched this edge (monotonic); false without properties_on_edges.
   bool MaybeBranchedHint() const;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }

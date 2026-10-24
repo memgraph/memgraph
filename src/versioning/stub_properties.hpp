@@ -24,12 +24,10 @@
 #include "storage/v2/view.hpp"
 #include "versioning/branch_engine.hpp"
 
-// Property-removal bookkeeping shared by vertex and edge stubs: a stub stores changed values as plain properties and
-// the ids of fork properties it removed in the reserved list property `__mg_removed`. `Stub` is a
-// storage::VertexAccessor or storage::EdgeAccessor.
+// A stub stores changed values as plain properties and the ids of fork properties it removed in the reserved list
+// property `__mg_removed`. `Stub` is a storage::VertexAccessor or storage::EdgeAccessor.
 namespace memgraph::versioning {
 
-// Appends the integers of a list-valued marker property to `out` as `T` (PropertyId or an integral type).
 template <typename T, typename PV>
 void AppendListed(PV const &value, std::vector<T> &out) {
   ForEachListedInt(value, [&](int64_t v) {
@@ -41,7 +39,6 @@ void AppendListed(PV const &value, std::vector<T> &out) {
   });
 }
 
-// Reads the int-list marker property `key` of `stub`. A missing/non-list value reads as an empty list.
 template <typename T, typename Stub>
 storage::Result<std::vector<T>> ReadIntList(const Stub &stub, storage::PropertyId key, storage::View view) {
   auto value = stub.GetProperty(key, view);
@@ -51,7 +48,7 @@ storage::Result<std::vector<T>> ReadIntList(const Stub &stub, storage::PropertyI
   return out;
 }
 
-// Writes `items` as the int-list marker property `key` of `stub`; an empty list clears the property.
+// An empty `items` clears the property instead of storing an empty list.
 template <typename T, typename Stub>
 storage::Result<bool> WriteIntList(Stub &stub, storage::PropertyId key, const std::vector<T> &items) {
   storage::PropertyValue value;
@@ -72,7 +69,7 @@ storage::Result<bool> WriteIntList(Stub &stub, storage::PropertyId key, const st
   return true;
 }
 
-// Removed pids encoded in a stub's Properties() snapshot; the marker entries are erased so they never leak.
+// Removed pids from a stub's Properties() snapshot; erases the marker entries (also the deleted-edges list) from it.
 inline std::vector<storage::PropertyId> TakeRemoved(BranchContext &ctx,
                                                     std::map<storage::PropertyId, storage::PropertyValue> &stub_props) {
   stub_props.erase(ctx.DeletedEdgesKey());
@@ -96,8 +93,7 @@ storage::Result<bool> WriteRemoved(BranchContext &ctx, Stub &stub, const std::ve
 
 using StubPropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
-// Reconstructed value of `key` when the fork has a non-null `fork_value`: the stub's own value, else null if the stub
-// removed it, else the fork's.
+// Value of `key` given a non-null `fork_value`: the stub's own, else null if the stub removed it, else the fork's.
 template <typename Stub>
 storage::Result<storage::PropertyValue> OverlayOnForkValue(BranchContext &ctx, const Stub &stub, storage::View view,
                                                            storage::PropertyId key, storage::PropertyValue fork_value) {
@@ -109,7 +105,7 @@ storage::Result<storage::PropertyValue> OverlayOnForkValue(BranchContext &ctx, c
   return fork_value;
 }
 
-// Size counterpart of OverlayOnForkValue, for a fork property of non-zero size `fork_size`.
+// Size counterpart of OverlayOnForkValue; `fork_size` is non-zero.
 template <typename Stub>
 storage::Result<uint64_t> OverlaySizeOnFork(BranchContext &ctx, const Stub &stub, storage::View view,
                                             storage::PropertyId key, uint64_t fork_size) {
@@ -121,8 +117,8 @@ storage::Result<uint64_t> OverlaySizeOnFork(BranchContext &ctx, const Stub &stub
   return fork_size;
 }
 
-// Fork properties with the stub's removals dropped and its own values laid over them. `stub_props` is the stub's
-// Properties() snapshot (marker entries are consumed).
+// Fork properties minus the stub's removals, with the stub's own values laid over them. Consumes the markers in
+// `stub_props` (the stub's Properties() snapshot).
 template <typename Fork>
 storage::Result<StubPropertyMap> OverlayProperties(BranchContext &ctx, StubPropertyMap &stub_props, const Fork &fork) {
   auto removed = TakeRemoved(ctx, stub_props);
@@ -133,7 +129,6 @@ storage::Result<StubPropertyMap> OverlayProperties(BranchContext &ctx, StubPrope
   return merged;
 }
 
-// Whether the fork object has a non-null `pid`.
 template <typename Fork>
 auto ForkHas(const Fork &fork) {
   return [&fork](storage::PropertyId pid) {
@@ -142,7 +137,7 @@ auto ForkHas(const Fork &fork) {
   };
 }
 
-// (pid, old, new) per entry of `properties`, with `existing` as the old values.
+// (pid, old, new) per entry of `properties`; `existing` supplies the old values.
 inline std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> UpdateChanges(
     const StubPropertyMap &existing, const StubPropertyMap &properties) {
   std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
@@ -154,13 +149,12 @@ inline std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, stora
   return changes;
 }
 
-// Storage's UpdateProperties leaves the untouched old properties merged into the caller's map (callers count it for
-// UPDATED_PROPERTIES); keep that contract.
+// Storage's UpdateProperties leaves the untouched old properties merged into the caller's map; mirror that.
 inline void MergeOldBack(StubPropertyMap &existing, StubPropertyMap &properties) {
   for (auto &[pid, old_value] : existing) properties.emplace(pid, std::move(old_value));
 }
 
-// After the stub was cleared: every fork property is recorded as removed.
+// Records every fork property as removed, after the stub was cleared.
 template <typename Stub>
 storage::Result<bool> WriteAllForkRemoved(BranchContext &ctx, Stub &stub, const StubPropertyMap &fork_props) {
   if (fork_props.empty()) return true;
@@ -170,9 +164,8 @@ storage::Result<bool> WriteAllForkRemoved(BranchContext &ctx, Stub &stub, const 
   return WriteRemoved(ctx, stub, removed);
 }
 
-// Applies `changes` (Null value = remove) to the stub: values land on the stub, and removing a property the fork
-// object has is recorded in the removed-ids list (re-setting a value drops it from the list again). `removed` is the
-// stub's current list; written back once, only if it changed.
+// Applies `changes` (Null = remove) to the stub; removing a fork property adds it to `removed`, re-setting drops it
+// again. `removed` (the stub's current list) is written back once, only if it changed.
 template <typename Stub, typename ForkHas>
 storage::Result<bool> ApplyPropertyChanges(BranchContext &ctx, Stub &stub, std::vector<storage::PropertyId> removed,
                                            const std::map<storage::PropertyId, storage::PropertyValue> &changes,

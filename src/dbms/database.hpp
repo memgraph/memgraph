@@ -168,7 +168,7 @@ class Database {
   /**
    * @brief Returns the raw VersionStore pointer (branch registry).
    *
-   * Only non-null for IN_MEMORY_TRANSACTIONAL databases (graph versioning's chunk-0 gate); null
+   * Only non-null for IN_MEMORY_TRANSACTIONAL databases; null
    * for ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL.
    *
    * @return versioning::VersionStore*

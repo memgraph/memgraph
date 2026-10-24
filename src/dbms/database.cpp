@@ -13,7 +13,6 @@
 
 #include <memory>
 
-
 #include "spdlog/spdlog.h"
 
 #include "dbms/database_info.hpp"
@@ -166,9 +165,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            &db_embedding_memory_tracker_);
   }
 
-  // Graph versioning (branches) only runs against IN_MEMORY_TRANSACTIONAL storage (chunk-0 gate);
-  // version_store_ stays null for ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL. Safe to downcast:
-  // InMemoryStorage is the only concrete Storage subclass that ever reports IN_MEMORY_TRANSACTIONAL.
+  // Branches need IN_MEMORY_TRANSACTIONAL; InMemoryStorage is the only Storage reporting that mode.
   if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(

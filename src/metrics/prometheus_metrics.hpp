@@ -106,7 +106,7 @@ struct GlobalMetricHandles {
   prometheus::Histogram *database_suspend_latency_seconds;
   prometheus::Histogram *database_resume_latency_seconds;
 
-  // Graph Versioning v1 (global)
+  // Graph versioning (global)
   prometheus::Counter *versioning_branches_created;
   prometheus::Counter *versioning_branches_dropped;
   prometheus::Gauge *versioning_active_branches;
@@ -434,7 +434,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 
-  // Global metric families — Graph Versioning v1
+  // Global metric families — graph versioning
   prometheus::Family<prometheus::Counter> &versioning_branches_created_family_;
   prometheus::Family<prometheus::Counter> &versioning_branches_dropped_family_;
   prometheus::Family<prometheus::Gauge> &versioning_active_branches_family_;

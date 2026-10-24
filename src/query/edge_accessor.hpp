@@ -28,12 +28,7 @@ class VertexAccessor;
 class EdgeAccessor final {
  public:
   storage::EdgeAccessor impl_;
-  // Graph Versioning v1 (lazy diff-context, slice E-2a): non-null iff this accessor was minted
-  // while checked out on a branch -- mirrors query::VertexAccessor::branch_ctx_ (vertex_accessor.hpp,
-  // slice E-1) exactly: a single, non-owning raw pointer (the diff-engine accessor an edge would
-  // need lives on `branch_ctx_` itself, `BranchContext::current_diff_txn()`, not duplicated here) so
-  // EdgeAccessor stays trivially copyable and cheap on the non-branch path (one extra default-null
-  // member, R6).
+  // Non-null iff minted while checked out on a branch; non-owning.
   versioning::BranchContext *branch_ctx_{nullptr};
 
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
@@ -47,43 +42,22 @@ class EdgeAccessor final {
 
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2c) HIGH-2-equivalent FIX: edge property reads
-  // are now self-correcting, mirroring query::VertexAccessor's own HIGH-2 fix (vertex_accessor.hpp)
-  // -- E-2c adds edge mutator COW below, so the same mid-statement stale-copy hazard vertices had
-  // now exists for edges too (`MATCH ()-[r]->() SET r.x=2 RETURN r.x` would otherwise read the
-  // Frame's own, pre-COW copy of `r`). DIFF-SIDE ONLY, unlike VertexAccessor's ResolveVertex-backed
-  // fix: re-resolving via `BranchContext::FindDiffEdge` (diff engine only, no historical_ fallback)
-  // -- ResolveEdge's own doc-comment (branch_engine.hpp) documents its historical_ half as
-  // unreliable for edges, so this deliberately does NOT route through it. A not-yet-COW'd
-  // historical edge's `impl_` needs no re-resolve: it's already whatever ResolveEdges (or
-  // InsertEdge) handed out, and reading it directly is correct as long as it hasn't been COW'd out
-  // from under it -- exactly what FindDiffEdge's presence/absence check distinguishes. Out-of-line
-  // (edge_accessor.cpp): FindDiffEdge is a member function needing BranchContext's complete type,
-  // only forward-declared here.
   auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
 
-  // Vector-indexed property filter forwarding: edge vector indexes are stored in MAIN storage and
-  // are global -- they do not vary per branch checkout. Delegating straight to impl_ is therefore
-  // correct regardless of branch_ctx_. Used by glue/communication.cpp's branch arm to apply the
-  // same omit-on-return filtering the storage arm already does (N8 parity fix).
+  // Edge vector indexes live in main storage and are global, so no per-branch resolution is needed.
   std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
 
-  // Edge mutators on a branch. A fork edge is never written in place (historical_ is read-only): the first write
-  // materializes an empty delta-less stub of it in the diff engine (BranchContext::CowEdge, idempotent) and the write
-  // lands there; fork properties are not copied, a removal of one is recorded in the stub's `__mg_removed` list, and
-  // reads (Properties/GetProperty/GetPropertySize above) overlay the stub on the fork edge. `impl_` is not redirected
-  // to the stub: a fork-edge accessor keeps its identity and finds the stub by gid. Branch-native edges are written
-  // directly. Out-of-line (edge_accessor.cpp): BranchContext is only forward-declared here.
+  // On a branch, the first write to a fork edge materializes a delta-less stub in the diff engine (CowEdge); reads
+  // overlay the stub on the fork edge. `impl_` keeps pointing at the fork edge. Out-of-line (BranchContext incomplete).
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value);
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
-  // NON-const, unlike storage::EdgeAccessor::UpdateProperties (which is `const`), to mirror
-  // query::VertexAccessor::UpdateProperties; every existing call site already passes a non-const pointer/lvalue.
+  // Non-const (unlike storage's UpdateProperties) to match VertexAccessor::UpdateProperties.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
@@ -111,12 +85,8 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2a) IDENTITY HARDENING: mirrors
-  // query::VertexAccessor::operator== exactly (vertex_accessor.hpp's own "IDENTITY HARDENING" doc-
-  // comment) -- `impl_ == e.impl_` (storage::EdgeAccessor::operator==) compares the underlying
-  // EdgeRef AND Transaction* pointers, both of which differ between a not-yet-COW'd historical edge
-  // and its diff-engine COW'd copy (E-2c, CowEdge below). Gated on branch_ctx_ != nullptr so the
-  // non-branch path is byte-identical.
+  // On a branch, storage's operator== (EdgeRef + Transaction*) differs between a fork edge and its COW stub, so
+  // compare gids.
   bool operator==(const EdgeAccessor &e) const noexcept {
     if (branch_ctx_ != nullptr || e.branch_ctx_ != nullptr) {
       return Gid() == e.Gid();

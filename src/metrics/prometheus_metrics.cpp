@@ -541,7 +541,7 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Name("memgraph_database_resume_latency_seconds")
                                           .Help("Latency of a successful database RESUME in seconds")
                                           .Register(registry_)},
-      // Graph Versioning v1 (global)
+      // Graph versioning (global)
       versioning_branches_created_family_{prometheus::BuildCounter()
                                               .Name("memgraph_versioning_branches_created_total")
                                               .Help("Number of versioning branches created")
@@ -2045,7 +2045,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
   AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
 
-  // Graph Versioning v1 (global only)
+  // Graph versioning (global only)
   out.push_back({"VersioningBranchesCreated",
                  "Versioning",
                  "Counter",

@@ -25,7 +25,7 @@
 
 namespace memgraph::versioning {
 
-// The diff engine mirrors no constraints (D12): a branch is checked against main's current constraint set. This is a
+// The diff engine mirrors no constraints: a branch is checked against main's current constraint set. This is a
 // snapshot of it, listing all committed constraints.
 class MainConstraints {
  public:

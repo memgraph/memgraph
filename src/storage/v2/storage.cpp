@@ -146,18 +146,7 @@ Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
                             std::function<Transaction()> build_transaction,
                             const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
-      // A plain READ-type guard via AcquireGuardOrThrow -- the same mode an ordinary read
-      // transaction uses, NOT READ_ONLY. READ_ONLY would block every main writer AND GC for this
-      // accessor's entire lifetime, violating the feature's core guarantee that main stays fully
-      // writable while a branch/historical read is open (spec S2/D2). READ-type coexists with other
-      // shared holders while still blocking UNIQUE acquisition (Clear/RecoverSnapshot/SetStorageMode/
-      // DDL), preserving the MEDIUM-fix generation-vs-lock invariant. Read consistency comes from
-      // SNAPSHOT_ISOLATION at fork_ts (MVCC), not from lock exclusivity.
       guard_(AcquireGuardOrThrow(storage, StorageAccessType::READ, timeout)),
-      // MEDIUM fix: invoked here, strictly after guard_ (member declaration order) already holds
-      // the shared main_lock_ guard. `build_transaction` is InMemoryStorage::HistoricalAccess's
-      // CreateHistoricalTransaction(fork_ts) call, deferred so that the snapshot (active indices/
-      // constraints, engine_lock_ state) is captured under the lock, not before it.
       transaction_(build_transaction()),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ) {}

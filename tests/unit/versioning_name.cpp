@@ -19,8 +19,7 @@
 
 using memgraph::versioning::ValidateBranchName;
 
-// specs/graph-versioning.md §4.1: "A version name ... must be non-empty, cannot be `main`
-// (reserved), cannot start with `.`, and cannot contain `/` or `\`."
+// A branch name must be non-empty, not `main`, not start with `.`, and contain no `/` or `\`.
 
 namespace {
 constexpr std::string_view kEmptyMsg = "must not be empty";
