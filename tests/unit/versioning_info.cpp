@@ -100,8 +100,7 @@ class VersioningInfoTest : public ::testing::Test {
     faker.Interpret("CREATE (:U {k: 1})");
   }
 
-  // Branch changes touching every marker kind: a native vertex + edge + labels, an added label, a removed label, a
-  // deleted fork vertex.
+  // Touches every marker kind: native vertex/edge/labels, added label, removed label, deleted fork vertex.
   void ChangeBranch() {
     faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
     faker.Interpret("CHECKOUT BRANCH 'b'");
@@ -138,14 +137,13 @@ class VersioningInfoTest : public ::testing::Test {
     return rows;
   }
 
-  // One column of a SHOW result as a set.
   std::set<std::string> Column(std::string const &query, size_t col = 0) {
     std::set<std::string> out;
     for (auto const &row : Show(query)) out.insert(row.at(col));
     return out;
   }
 
-  // The (type, label, property) key of every index row, i.e. everything except the approximate count.
+  // Index rows minus the trailing approximate count.
   std::set<std::vector<std::string>> IndexDefinitions() {
     std::set<std::vector<std::string>> out;
     for (auto row : Show("SHOW INDEX INFO")) {
@@ -187,7 +185,6 @@ TEST_F(VersioningInfoTest, ConstraintInfoMarksUniqueAsNotEnforcedOnBranch) {
   ASSERT_EQ(branch_rows.size(), 3U);
   EXPECT_THAT(Column("SHOW CONSTRAINT INFO"),
               ::testing::UnorderedElementsAre("exists", "data_type", "unique (not enforced on branch)"));
-  // Everything but the unique row's type column is identical to main's.
   for (auto &row : branch_rows) {
     if (row[0] == "unique (not enforced on branch)") row[0] = "unique";
   }
@@ -196,7 +193,6 @@ TEST_F(VersioningInfoTest, ConstraintInfoMarksUniqueAsNotEnforcedOnBranch) {
   std::ranges::sort(branch_rows);
   EXPECT_EQ(branch_rows, sorted_main);
 
-  // Back on main, the unmarked listing returns.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_THAT(Column("SHOW CONSTRAINT INFO"), ::testing::UnorderedElementsAre("exists", "data_type", "unique"));
 }
@@ -205,14 +201,13 @@ TEST_F(VersioningInfoTest, NodeLabelsAndEdgeTypesAreMainPlusBranchWithoutMarkers
   BuildMain();
   ChangeBranch();
 
-  // Exact multisets: each name once (main/branch overlap deduped), no `__mg_*` removal/delete markers.
+  // Each name once (main/branch overlap deduped), no `__mg_*` markers.
   EXPECT_THAT(Column("SHOW NODE_LABELS INFO"),
               ::testing::UnorderedElementsAre("A", "B", "U", "BranchOnly", "BranchOnly2", "Added"));
   EXPECT_EQ(Show("SHOW NODE_LABELS INFO").size(), 6U);
   EXPECT_THAT(Column("SHOW EDGE_TYPES INFO"), ::testing::UnorderedElementsAre("R", "BR"));
   EXPECT_EQ(Show("SHOW EDGE_TYPES INFO").size(), 2U);
 
-  // Branch-only names do not leak onto main.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   auto const main_labels = Column("SHOW NODE_LABELS INFO");
   EXPECT_FALSE(main_labels.contains("BranchOnly"));
@@ -235,7 +230,6 @@ TEST_F(VersioningInfoTest, StorageInfoHidesCountsOnBranch) {
   EXPECT_THAT(
       StorageInfoValue("branch_note"),
       ::testing::HasSubstr("are not available on a versioning branch; CHECKOUT BRANCH 'main' for main's counts"));
-  // Memory/disk figures are still reported.
   EXPECT_NE(StorageInfoValue("graph_memory_tracked"), "<missing>");
 
   faker.Interpret("CHECKOUT BRANCH 'main'");

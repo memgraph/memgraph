@@ -21,8 +21,6 @@
 using memgraph::versioning::BranchInfo;
 using memgraph::versioning::VersionStore;
 
-// Fake GC fork-pin: records every acquire/release so tests can assert the VersionStore drives the
-// pin lifecycle correctly, without any real storage::InMemoryStorage.
 class FakePinRegistry {
  public:
   uint64_t Acquire() {
@@ -77,7 +75,6 @@ TEST_F(VersionStoreTest, CreateGetExistsList) {
   EXPECT_EQ(listed[0].first, "feature");
 }
 
-// List() is ordered by branch number (creation order), not by name.
 TEST_F(VersionStoreTest, ListIsOrderedByCreationNotName) {
   auto store = MakeStore();
   ASSERT_TRUE(store->CreateBranch("b", "main", std::nullopt).has_value());
@@ -110,7 +107,7 @@ TEST_F(VersionStoreTest, MonotonicNumberingNeverReusedAcrossDrop) {
 
   auto b = store->CreateBranch("b", "main", std::nullopt);
   ASSERT_TRUE(b.has_value());
-  EXPECT_EQ(b->number, 3);  // never reuses 2, even though 'a' was dropped
+  EXPECT_EQ(b->number, 3);
 }
 
 TEST_F(VersionStoreTest, DuplicateNameRejected) {
@@ -120,7 +117,6 @@ TEST_F(VersionStoreTest, DuplicateNameRejected) {
   auto duplicate = store->CreateBranch("feature", "main", std::nullopt);
   EXPECT_FALSE(duplicate.has_value());
 
-  // Rejected before any pin was taken for the duplicate attempt.
   EXPECT_EQ(pins_.live_.size(), 1);
 }
 
@@ -129,7 +125,7 @@ TEST_F(VersionStoreTest, UnknownParentRejected) {
 
   auto result = store->CreateBranch("feature", "does-not-exist", std::nullopt);
   EXPECT_FALSE(result.has_value());
-  EXPECT_TRUE(pins_.live_.empty());  // no pin leaked for the rejected create
+  EXPECT_TRUE(pins_.live_.empty());
 }
 
 TEST_F(VersionStoreTest, DropUnknownBranchReturnsFalse) {
@@ -149,7 +145,6 @@ TEST_F(VersionStoreTest, PinAcquiredOnCreateAndReleasedOnDrop) {
   auto created = store->CreateBranch("feature", "main", std::nullopt);
   ASSERT_TRUE(created.has_value());
 
-  // The fork_ts returned to the caller is exactly what the pin callback produced.
   ASSERT_EQ(pins_.live_.size(), 1);
   EXPECT_EQ(pins_.live_.front(), created->fork_ts);
   EXPECT_TRUE(pins_.released_.empty());
@@ -160,7 +155,6 @@ TEST_F(VersionStoreTest, PinAcquiredOnCreateAndReleasedOnDrop) {
   EXPECT_EQ(pins_.released_.front(), created->fork_ts);
 }
 
-// Any number of sessions may attach to one branch; the branch cannot be dropped until every one detached.
 TEST_F(VersionStoreTest, CheckoutIsCountedAndBlocksDropUntilEverySessionDetached) {
   auto store = MakeStore();
   auto created = store->CreateBranch("feature", "main", std::nullopt);
@@ -201,8 +195,8 @@ namespace {
 using memgraph::versioning::BranchCore;
 using CoreResult = std::expected<std::shared_ptr<BranchCore>, std::string>;
 
-// A non-null BranchCore* that is never dereferenced (BranchCore is incomplete here); the lifetime is observable
-// through `observer`, which expires once the last owner of the core is released.
+// Non-null BranchCore* that is never dereferenced (incomplete type here); `observer` expires when the last
+// owner of the core is released.
 CoreResult MakeSentinelCore(std::weak_ptr<int> &observer) {
   auto token = std::make_shared<int>(0);
   observer = token;
@@ -210,7 +204,6 @@ CoreResult MakeSentinelCore(std::weak_ptr<int> &observer) {
 }
 }  // namespace
 
-// The shared core registry builds once per branch number, even across detach/re-attach.
 TEST_F(VersionStoreTest, CoreIsBuiltOncePerBranch) {
   auto store = MakeStore();
   auto created = store->CreateBranch("feature", "main", std::nullopt);
@@ -253,7 +246,6 @@ TEST_F(VersionStoreTest, FailedCoreBuildIsNotCached) {
   EXPECT_EQ(builds, 1) << "the failed build must not have been cached";
 }
 
-// Dropping a branch retires exactly its own core.
 TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   auto store = MakeStore();
   auto a = store->CreateBranch("a", "main", std::nullopt);
@@ -281,7 +273,6 @@ TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   ASSERT_TRUE(store->DropBranch("a"));
   EXPECT_TRUE(a_core.expired());
 
-  // A recreated branch gets a fresh number and builds a fresh core.
   auto a2 = store->CreateBranch("a", "main", std::nullopt);
   ASSERT_TRUE(a2.has_value());
   ASSERT_TRUE(store->GetOrBuildCore(a2->number, build_a).has_value());

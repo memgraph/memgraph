@@ -13,44 +13,19 @@
 
 import re
 
-# --- Graph Versioning --versioned-branch arm -----------------------------
-#
-# `CHECKOUT BRANCH` is per-Bolt-connection state on the server. The default
-# path below opens a fresh session (and thus, in practice, a fresh physical
-# connection) for every single query, so a checkout would never survive past
-# the query that issued it. Under --versioned-branch we instead hold one
-# session open for the whole scenario on `context.vbranch_session` (backed by
-# the shared `context.driver`), so a CHECKOUT done during scenario setup is
-# still in effect for the scenario's test query. See environment.py
-# before_scenario/after_scenario for the per-scenario lifecycle and
-# maybe_fork_to_branch() below for the fork point.
-#
-# close_vbranch_session() checks out back to `main` before dropping the
-# branch and closing the session, so the connection returns to the shared
-# pool on main for the next scenario.
+# CHECKOUT BRANCH is per-Bolt-connection state, but the default path opens a fresh session per
+# query, so under --versioned-branch one session is held open for the whole scenario instead.
 
 
 def get_vbranch_session(context):
-    """
-    Return the persistent Bolt session used by the --versioned-branch arm,
-    opening it lazily on first use (so a scenario that errors out before
-    executing any query never pays for a connection). Backed by the shared
-    `context.driver` -- see the module docstring above for why a session
-    held open for the whole scenario is still needed.
-    """
+    """Persistent per-scenario session for --versioned-branch, opened lazily on first use."""
     if getattr(context, "vbranch_session", None) is None:
         context.vbranch_session = context.driver.session()
     return context.vbranch_session
 
 
 def close_vbranch_session(context):
-    """
-    Best-effort teardown of the persistent versioned-branch session: if the
-    scenario forked onto a branch, checkout back to main and drop the branch (both
-    swallowed on error -- this is cleanup, not the scenario under test), then
-    close the session so its connection goes back to the shared pool clean
-    for the next scenario. Safe to call even if no session was ever opened.
-    """
+    """Best-effort cleanup: checkout main, drop the branch, close the session. Safe if never opened."""
     session = getattr(context, "vbranch_session", None)
     if session is None:
         return
@@ -72,15 +47,8 @@ def close_vbranch_session(context):
 
 def maybe_fork_to_branch(context):
     """
-    The "partly versioned" fork point. Called from the `When executing
-    query:` step, BEFORE the test query runs, and at most once per scenario.
-    Everything before this point -- clear_graph's STORAGE MODE/DROP GRAPH
-    admin ops, `Given graph "x"` setup, and `And having executed:` setup --
-    has already committed to `main` on the persistent session (no checkout
-    has happened yet), so it becomes the branch's inherited fork-state. The
-    test query then runs on a fresh branch: reads of the setup data come
-    through the branch/main union, and any writes land in the branch overlay
-    only.
+    Runs once per scenario before the test query: setup already committed to `main` becomes the
+    branch's inherited state, and the test query's writes land in the branch overlay only.
     """
     if not getattr(context.config, "versioned_branch", False):
         return
@@ -92,9 +60,6 @@ def maybe_fork_to_branch(context):
     list(session.run(f"CREATE BRANCH {branch_name} FROM main"))
     list(session.run(f"CHECKOUT BRANCH {branch_name}"))
     context.vbranch_forked = True
-
-
-# -----------------------------------------------------------------------------
 
 
 def query(q, context, params={}):
@@ -138,11 +103,7 @@ def query(q, context, params={}):
     context.last_executed_query = q
 
     if versioned_branch:
-        # Reuse the scenario's persistent session instead of opening+closing
-        # one per call -- CHECKOUT BRANCH state lives on the physical
-        # connection and would not survive a close() here. See
-        # get_vbranch_session()/close_vbranch_session() above; the session is
-        # closed once, in after_scenario (environment.py), not per query.
+        # CHECKOUT state lives on the connection; closed once in after_scenario, not per query.
         session = get_vbranch_session(context)
         try:
             results = session.run(q, params)

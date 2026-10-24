@@ -9,9 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Graph Versioning v2: branches are ephemeral, so a restart drops every branch. These tests build a real
-// dbms::Database, create branches, destroy it, reconstruct a new Database on the same directory and assert that no
-// branch (and no fork pin) survives while main's own data and schema are intact.
+// Branches are in-memory only: after restarting a dbms::Database on the same directory no branch or fork pin
+// survives, while main's data and schema are intact.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -59,8 +58,7 @@ struct Gids {
   memgraph::storage::Gid post_fork;
 };
 
-// Creates a vertex, two branches at the same fork point, then a second vertex after the fork. With
-// `with_stray_branch_dir`, a leftover versioning/ directory is created to mimic one written by an older build.
+// `with_stray_branch_dir` leaves a legacy versioning/ directory behind, as an older build would.
 Gids PopulateWithBranches(bool with_stray_branch_dir) {
   Gids gids;
   auto config = MakeConfig(/*recover_on_startup=*/false);
@@ -120,7 +118,6 @@ TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedOnRestartAndMainIsInta
     EXPECT_TRUE(acc->FindVertex(gids.post_fork, memgraph::storage::View::OLD).has_value());
   }
 
-  // The registry is usable again: a previously used name can be re-created.
   auto branch = db.version_store()->CreateBranch("b1", "main", std::nullopt);
   ASSERT_TRUE(branch.has_value()) << (branch.has_value() ? std::string{} : branch.error());
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
@@ -130,7 +127,6 @@ TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedOnRestartAndMainIsInta
   EXPECT_FALSE(storage->OldestForkPin().has_value());
 }
 
-// A schema op committed on main after a branch's fork point survives the restart that drops the branch.
 TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkSurvivesRestart) {
   memgraph::storage::Gid post_fork_vertex;
   memgraph::storage::LabelId indexed_label{};
@@ -166,8 +162,7 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkSurvivesRestart) {
   EXPECT_TRUE(acc->FindVertex(post_fork_vertex, memgraph::storage::View::OLD).has_value());
 }
 
-// Writes committed ON A BRANCH (new vertex + edge, label + property change on a fork-era vertex) live only in the
-// branch's transient diff engine: after a restart main holds exactly its own data and the diff engine left no files.
+// Branch writes live only in the in-memory diff engine; after restart main holds only its own data.
 TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart) {
   namespace ms = memgraph::storage;
   constexpr auto kForkLabel = "ForkLabel";
@@ -250,7 +245,7 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
   ASSERT_TRUE(x_val.has_value());
   EXPECT_EQ(*x_val, ms::PropertyValue(1)) << "the branch's property change must not reach main";
 
-  // The diff engine is transient: it must not have written any WAL/snapshot file under the main data directory.
+  // The diff engine runs with durability off, so it must leave no regular files under its directory.
   auto const diff_dir = kStorageDirectory / "versioning_diff_engine";
   if (std::filesystem::exists(diff_dir)) {
     for (auto const &entry : std::filesystem::recursive_directory_iterator(diff_dir)) {
