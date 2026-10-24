@@ -34,12 +34,8 @@
 #include "utils/synchronized.hpp"
 #include "versioning/version_store.hpp"
 
-// Graph Versioning v2: the mgp (query-module) surface on a checked-out branch.
-//
-// mgp_execute_query itself needs a DbmsHandler + InterpreterContextHolder singleton (not available in unit tests;
-// see the e2e skeleton in tests/e2e/versioning/), so the attach it performs -- CurrentDB::AttachBranchOf -- is tested
-// directly here: a second session attached to the first one's branch, which is exactly what the nested Interpreter
-// of mgp_execute_query is.
+// mgp_execute_query needs DbmsHandler/InterpreterContextHolder singletons unavailable here, so its attach
+// (CurrentDB::AttachBranchOf) is tested directly via a second session on the first one's branch.
 
 namespace {
 constexpr auto kNoHandler = nullptr;
@@ -105,8 +101,7 @@ class VersioningMgpTest : public ::testing::Test {
   }
 };
 
-// (a) A nested session attached to the caller's branch reads the branch's data, writes land on the branch (not main),
-// and the counted attach is released when the nested session dies.
+// A nested session sees and writes the caller's branch; the counted attach is released when it dies.
 TEST_F(VersioningMgpTest, NestedSessionAttachedToBranchSeesAndWritesBranch) {
   faker.Interpret("CREATE (:V {id: 1})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -131,17 +126,14 @@ TEST_F(VersioningMgpTest, NestedSessionAttachedToBranchSeesAndWritesBranch) {
   }
   EXPECT_EQ(vs->CheckoutCount("b"), 1U);
 
-  // The outer session sees the nested write on the branch ...
   EXPECT_EQ(CountOf(faker, "MATCH (n:FromNested) RETURN count(n)"), 1);
-  // ... and main never does.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_EQ(CountOf(faker, "MATCH (n:FromNested) RETURN count(n)"), 0);
   EXPECT_EQ(CountOf(faker, "MATCH (n:OnlyOnBranch) RETURN count(n)"), 0);
 }
 
-// (b) The query-module DDL entry points (schema.assert's building blocks) are rejected on a branch with
-// MGP_ERROR_IMMUTABLE_OBJECT and leave main's schema untouched. The calls are made directly through the C API: the
-// unit-test interpreter loads no query modules, so `CALL schema.assert` is not reachable here (see the e2e skeleton).
+// DDL entry points are rejected on a branch and leave main untouched; called via the C API because the unit-test
+// interpreter loads no query modules (e2e: tests/e2e/query_modules/versioning_mgp_test.py).
 TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
   faker.Interpret("CREATE (:V {id: 1})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -174,7 +166,6 @@ TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
 
   faker.Interpret("ROLLBACK");
 
-  // Nothing leaked onto main.
   {
     auto main_acc = db->Access();
     auto const indices = main_acc->ListAllIndices();
@@ -186,11 +177,9 @@ TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
     EXPECT_TRUE(constraints.unique.empty());
   }
 
-  // The session is still usable.
   EXPECT_EQ(CountOf(faker, "MATCH (n:V) RETURN count(n)"), 1);
 
-  // On main the rail is quiet: the same entry point, through a main accessor with the access type CreateIndex requires
-  // (READ_ONLY; the interpreter's write transaction would trip CreateIndex's MG_ASSERT), succeeds.
+  // Control: on main, through an accessor with the READ_ONLY access CreateIndex requires, the same call succeeds.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   faker.Interpret("BEGIN");
   ASSERT_TRUE(faker.interpreter.current_db_.execution_db_accessor_.has_value());
@@ -208,8 +197,6 @@ TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
   }
 }
 
-// (c) mgp_vertex_is_deleted reports a branch-deleted fork vertex as deleted (the fork vertex itself is never
-// physically deleted: its diff-engine stub carries a delete marker).
 TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkVertex) {
   faker.Interpret("CREATE (:V {id: 1})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -244,8 +231,6 @@ TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkVertex) {
   faker.Interpret("ROLLBACK");
 }
 
-// (d) mgp_edge_is_deleted reports a branch-deleted fork edge as deleted (IsForkEdgeHidden: the fork edge is never
-// physically deleted either).
 TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkEdge) {
   faker.Interpret("CREATE (:A {id: 1})-[:E]->(:B {id: 2})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -283,8 +268,7 @@ TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkEdge) {
   faker.Interpret("ROLLBACK");
 }
 
-// (e) On a branch the approximate counts come from main@fork (ApproximateVertexCountOf/ApproximateEdgeCountOf), not
-// the diff engine, which holds only touched/created objects (here: 1 created vertex, 0 edges).
+// On a branch the counts come from main@fork, not the diff engine (which holds only touched/created objects).
 TEST_F(VersioningMgpTest, ApproximateCountsOnBranchReportMainAtFork) {
   faker.Interpret("CREATE (a:V {id: 1}), (b:V {id: 2}), (c:V {id: 3})");
   faker.Interpret("MATCH (a:V {id: 1}), (b:V {id: 2}), (c:V {id: 3}) CREATE (a)-[:E]->(b), (b)-[:E]->(c)");

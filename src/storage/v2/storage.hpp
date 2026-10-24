@@ -272,13 +272,7 @@ class Storage {
   friend class VectorIndex;
 
  public:
-  // `shared_name_id_mapper`: Graph Versioning -- when non-null,
-  // this Storage SHARES that NameIdMapper instance instead of constructing its own (see
-  // GetSharedNameIdMapper()'s own doc-comment above for why: versioning::BranchContext::
-  // BuildFromFork passes main's own mapper here so the diff engine and main's historical view
-  // decode label/property ids through the SAME id space). nullptr (the overwhelmingly common
-  // case) is byte-identical to the pre-versioning behavior -- a fresh mapper is constructed as
-  // before.
+  // `shared_name_id_mapper`: non-null makes this Storage share that mapper instead of constructing its own.
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
           metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
@@ -338,16 +332,9 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  // Graph Versioning: lets versioning::BranchContext::
-  // BuildFromFork construct the diff engine's InMemoryStorage SHARING main's own NameIdMapper
-  // instance (see the Storage ctor's shared_name_id_mapper param below), rather than each store
-  // owning a numerically-unrelated mapper of its own. One shared id space means a historical
-  // (not-yet-COW'd) vertex's label/property ids decode correctly through the SAME mapper the
-  // diff-engine's own accessor uses -- no by-name translation needed at COW time. NameIdMapper is
-  // already safe for this: `NameToId`/`IdToName` are used concurrently by main's own multiple
-  // transactions today (SkipListDb-backed, atomic counter_), so a branch's diff engine adding a
-  // brand-new name concurrently with main reading/writing is the same already-supported access
-  // pattern, not a new concurrency hazard.
+  // Lets the branch diff engine (BranchCore::Build) share main's mapper, so label/property ids of historical
+  // vertices decode through one id space with no by-name translation at copy-on-write time.
+  // Concurrent NameToId/IdToName from main and the diff engine is already supported (SkipList + atomic counter_).
   std::shared_ptr<NameIdMapper> GetSharedNameIdMapper() const { return name_id_mapper_; }
 
   StorageMode GetStorageMode() const noexcept;
@@ -457,12 +444,7 @@ class Storage {
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> broken_{false};
 
-  // shared_ptr (not unique_ptr): Graph Versioning lets a branch's
-  // diff engine share THIS instance instead of owning a numerically-unrelated mapper of its own --
-  // see GetSharedNameIdMapper()'s own doc-comment above. All existing `.get()`-based call sites are
-  // unaffected (shared_ptr also has `.get()`, no refcounting on that path); the refcount is only
-  // touched at construction (main's own ctor, or a sharing BuildFromFork call) and at each Storage's
-  // destruction -- not on any hot per-query path.
+  // shared_ptr so a branch diff engine can share this instance; see GetSharedNameIdMapper().
   std::shared_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
 
@@ -570,32 +552,13 @@ class Accessor {
   /// them before acquiring could build a transaction against a mode that has since changed.
   Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
 
-  // R16 (graph versioning): tag for opening a READ-ONLY accessor from an already-built, explicit
-  // historical Transaction (start_timestamp = a past fork_ts) instead of calling
-  // Storage::CreateTransaction, which always issues a *fresh* logical timestamp. See
-  // InMemoryStorage::HistoricalAccess.
+  // Tag for opening a read-only accessor on an explicit historical Transaction (see InMemoryStorage::HistoricalAccess).
   static constexpr struct HistoricalAccess {
   } historical_access;
 
-  // Uses a plain SHARED (READ-type) guard via AcquireGuardOrThrow -- the same lock mode an ordinary
-  // read transaction uses, NOT READ_ONLY mode: a branch/historical read must COEXIST with concurrent
-  // main writers (spec S2/D2 -- main stays fully writable while branches exist), whereas READ_ONLY
-  // would block every writer AND GC for this accessor's entire lifetime. SHARED still blocks UNIQUE
-  // acquisition, so DDL/schema mutation and the MEDIUM-fix invariant below are both preserved.
-  // See the ctor body (storage.cpp) for the full rationale.
-  //
-  // Unlike the other constructors, the transaction is not built by a fixed `storage->
-  // CreateTransaction(...)` call but by an arbitrary caller-supplied callback -- invoked from
-  // THIS constructor's own `transaction_` member initializer, i.e. strictly after
-  // `guard_` above it (member declaration order) already holds the shared main_lock_ guard. This
-  // closes a generation-vs-lock race (MEDIUM, graph versioning chunk 4): building the historical
-  // transaction's snapshot (active indices/constraints, engine_lock_ state) BEFORE acquiring guard_
-  // would let a concurrent main_lock_-UNIQUE op (SetStorageMode / Clear / RecoverSnapshot) rebuild
-  // storage out from under the just-captured snapshot. Every other Accessor ctor gets this property
-  // "for free" because `storage->CreateTransaction(...)` is itself called directly in the
-  // `transaction_` initializer; this ctor restores that same property for a caller
-  // (InMemoryStorage::HistoricalAccess) that can't call the ordinary virtual CreateTransaction
-  // (it needs an explicit past start_timestamp).
+  // Takes a SHARED (READ-type) guard, not READ_ONLY, so branch/historical reads coexist with main writers and GC
+  // while still excluding UNIQUE ops (DDL, Clear, RecoverSnapshot, SetStorageMode).
+  // `build_transaction` runs after `guard_` is held (member order), so its snapshot cannot race those UNIQUE ops.
   Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;

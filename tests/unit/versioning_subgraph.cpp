@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Graph Versioning: SubgraphVertexAccessor adjacency on a checked-out branch (MAGE projections).
-
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -111,8 +109,6 @@ class VersioningSubgraphTest : public ::testing::Test {
     std::filesystem::remove_all(data_directory);
   }
 
-  // Flips on every chunk-0 gate precondition (flag + license); storage mode is already
-  // satisfied by `config` above.
   void SatisfyGate() {
     FLAGS_versioning_enabled = true;
     memgraph::license::global_license_checker.EnableTesting();
@@ -161,9 +157,7 @@ std::vector<std::string> EdgeKeys(DbAccessor &dba, const std::vector<EdgeAccesso
 }
 }  // namespace
 
-// F2: SubgraphVertexAccessor::{In,Out}Edges used the storage-level adjacency on a branch -- one side only (fork-only
-// for untouched vertices, diff-only for COW'd ones), deleted edges not hidden, endpoints read as raw stubs. They must
-// go through the branch-aware query::VertexAccessor adjacency and only then apply the projection's membership filter.
+// On a branch, SubgraphVertexAccessor adjacency must use the branch-aware adjacency, then apply the membership filter.
 TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
   SatisfyGate();
 
@@ -173,7 +167,6 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
   faker.Interpret("CHECKOUT BRANCH 'br'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "br");
 
-  // New edge between two fork vertices, a fork edge deleted, and label/property churn on a fork vertex.
   faker.Interpret("MATCH (b:B), (c:C) CREATE (b)-[:R3]->(c)");
   faker.Interpret("MATCH (:A)-[r:R2]->() DELETE r");
   faker.Interpret("MATCH (a:A) REMOVE a:A SET a:X, a.name = 'a2'");
@@ -181,7 +174,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
   auto *ctx = faker.interpreter.current_db_.branch_context();
   ASSERT_NE(ctx, nullptr);
 
-  // Same sequence CurrentDB::SetupDatabaseTransaction runs: historical (main READ) first, then the diff accessor.
+  // Mirrors CurrentDB::SetupDatabaseTransaction: historical first, then the diff accessor.
   ASSERT_TRUE(ctx->OpenHistorical().has_value());
   auto diff_acc = ctx->diff_engine().Access(memgraph::storage::StorageAccessType::READ);
   ctx->SetCurrentDiffTxn(diff_acc.get());
@@ -202,7 +195,6 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
     }
     ASSERT_TRUE(a && b && c && d && e);
 
-    // Projection of the whole branch view, built from the branch-aware adjacency.
     Graph full{memgraph::utils::NewDeleteResource()};
     for (auto const &v : {*a, *b, *c}) {
       full.InsertVertex(v);
@@ -222,7 +214,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
     auto c_in = sc.InEdges(View::NEW);
     ASSERT_TRUE(a_out && a_in && b_out && b_in && c_out && c_in);
 
-    // R2 (deleted on the branch) is hidden; R3 (branch-created) is present from both of its endpoints.
+    // R2 (deleted on the branch) is hidden; R3 (branch-created) shows from both endpoints.
     EXPECT_EQ(EdgeKeys(dba, a_out->edges), (std::vector<std::string>{"R1"}));
     EXPECT_TRUE(a_in->edges.empty());
     EXPECT_EQ(EdgeKeys(dba, b_in->edges), (std::vector<std::string>{"R1"}));
@@ -230,7 +222,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
     EXPECT_EQ(EdgeKeys(dba, c_in->edges), (std::vector<std::string>{"R3"}));
     EXPECT_TRUE(c_out->edges.empty());
 
-    // Edges stay branch-stamped so endpoints are reconstructed, not read as raw stubs.
+    // Endpoints must be reconstructed from the branch, not read as raw stubs.
     for (auto const &e : a_out->edges) {
       EXPECT_NE(e.branch_ctx_, nullptr);
       auto from = e.From();
@@ -249,7 +241,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
       EXPECT_FALSE(HasMarker(PropertyNames(dba, e.To())));
     }
 
-    // Membership filter still applies on top: a projection holding only R3 hides R1 everywhere.
+    // A projection holding only R3 hides R1 everywhere.
     Graph partial{memgraph::utils::NewDeleteResource()};
     for (auto const &v : {*a, *b, *c}) partial.InsertVertex(v);
     for (auto const &e : b_out->edges) partial.InsertEdge(e);
@@ -258,7 +250,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
     EXPECT_TRUE(pb.InEdges(View::NEW)->edges.empty());
     EXPECT_EQ(EdgeKeys(dba, pb.OutEdges(View::NEW)->edges), (std::vector<std::string>{"R3"}));
 
-    // d -R4-> e is never touched on the branch (untouched fork vertices); the filter must still apply to them.
+    // d -R4-> e is untouched on the branch; the filter must still apply.
     Graph with_r4{memgraph::utils::NewDeleteResource()};
     Graph without_r4{memgraph::utils::NewDeleteResource()};
     for (auto const &v : {*d, *e}) {
@@ -282,7 +274,6 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
   ctx->EndTransaction();
 }
 
-// Off-branch behaviour is unchanged: plain storage adjacency filtered by the projection.
 TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnMainUnchanged) {
   faker.Interpret("CREATE (a:A)-[:R1]->(b:B), (a)-[:R2]->(b)");
   auto acc = db->storage()->Access(memgraph::storage::StorageAccessType::READ);

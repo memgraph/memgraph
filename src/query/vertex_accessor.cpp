@@ -34,12 +34,9 @@ namespace {
 
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
-// Slice 1 stubs: a branch-touched fork vertex lives in the diff engine as an EMPTY stub holding only
-// what changed, so a read is the fork vertex (main@fork_ts) overlaid with the stub. Additions are plain
-// labels/properties on the stub; removals of fork state are reserved-name markers on the stub
-// (BranchContext::RemovalMarker / RemovedPropsKey), and so are deletes (DeletedLabel / DeletedEdgesKey): a stub
-// carrying the delete marker at the read's view is a deleted vertex (DELETED_OBJECT, like main). Native vertices
-// (gid >= 2^62) are complete and never merged.
+// A branch-touched fork vertex is a sparse diff-engine stub; reads overlay it on the fork vertex (main@fork_ts).
+// Removals and deletes are reserved-name markers on the stub, and a delete marker reads as DELETED_OBJECT.
+// Branch-native vertices are complete and never merged.
 storage::Result<storage::VertexKey> MergedLabels(versioning::BranchContext &ctx, const storage::VertexAccessor &stub,
                                                  storage::View view) {
   auto stub_labels = stub.Labels(view);
@@ -83,7 +80,6 @@ storage::Result<bool> MergedHasLabel(versioning::BranchContext &ctx, const stora
   if (!fork) return stub.HasLabel(label, view);
   auto in_fork = fork->HasLabel(label, storage::View::OLD);
   if (!in_fork) return in_fork;
-  // Fork has it: only a removal marker on the stub hides it. Otherwise only the stub can add it.
   if (*in_fork) {
     auto removed = stub.HasLabel(ctx.RemovalMarker(label), view);
     if (!removed) return removed;
@@ -143,9 +139,9 @@ storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, 
                                                   main.PropertyToName(property));
 }
 
-// Checks the property values about to be written (`find` returns the written value or nullptr) against main's type
-// constraints on the vertex's reconstructed labels, BEFORE the stub is mutated. With `require_no_properties` the
-// check is skipped when the vertex already has properties (InitProperties is then a no-op, as on main).
+// Checks values about to be written (`find` returns the value or nullptr) against main's type constraints on the
+// reconstructed labels, BEFORE the stub is mutated. `require_no_properties`: skip if properties exist (InitProperties
+// no-op).
 template <typename FindWritten>
 std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                         FindWritten &&find, bool require_no_properties = false) {
@@ -173,8 +169,7 @@ std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContex
   return std::nullopt;
 }
 
-// Adding `label` validates the vertex's existing properties against that label's constraints (a no-op when the
-// vertex already has the label), BEFORE the stub is mutated.
+// Validates the vertex's existing properties against `label`'s type constraints BEFORE the stub is mutated.
 std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                    storage::LabelId label) {
   auto const types = versioning::MainConstraints{ctx}.Types();
@@ -195,10 +190,8 @@ std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ct
 
 }  // namespace
 
-// Out-of-line because BranchContext is only forward-declared in the header. Reads never COW.
-// Un-branched main vertices are fork-identical (phase-1 invariant); a clear filter bit is a definitive skip, a set
-// bit merges the stub over the fork vertex. A delete records the label and property kinds, so deleted vertices
-// always reach the stub, where the delete marker turns the read into DELETED_OBJECT.
+// Un-branched main vertices are fork-identical, so a clear filter bit skips the merge. A delete records both the
+// label and property kinds, so deleted vertices always reach the stub and fail the read.
 auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(view)) {
   if (branch_ctx_ != nullptr) {
     if (branch_ctx_->IsStub(impl_)) return MergedLabels(*branch_ctx_, impl_, view);
@@ -250,8 +243,7 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
     if (branch_ctx_->IsStub(impl_)) return MergedGetProperty(*branch_ctx_, impl_, view, key);
-    // Fine per-property filter: merges only when THIS property changed on the branch, or the vertex's labels did
-    // (a delete is a label marker; reading a deleted vertex must fail).
+    // Label changes also force the merge: a delete is a label marker and reading a deleted vertex must fail.
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveLabelChange(gid)) {
@@ -281,17 +273,13 @@ storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId ke
   return impl_.GetPropertySize(key, view);
 }
 
-// Pre-condition: branch_ctx_ is non-null (all call sites guard on branch_ctx_ != nullptr).
-// Out-of-line because BranchContext is only forward-declared in the header.
+// Pre-condition: branch_ctx_ != nullptr.
 void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
   auto cowed = branch_ctx_->CowVertex(impl_.Gid());
   if (!cowed) {
     throw QueryRuntimeException(cowed.error().message);
   }
   impl_ = *cowed;
-  // Always fire after COW: even a vertex already COW'd for a different kind needs this call to flag
-  // the new kind. gid is stable across the COW; the filter is a lock-free monotonic bloom, recorded before this
-  // transaction commits, so it is safe against concurrent sessions of the branch.
   branch_ctx_->RecordVertexChange(impl_.Gid(), kind);
 }
 
@@ -377,10 +365,14 @@ storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storag
 storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
   RejectReservedProperties(ctx, properties);
-  if (auto err = CheckTypesOnPropertyWrite(ctx, *this, [&](storage::PropertyId pid) {
-    auto const it = properties.find(pid);
-    return it == properties.end() ? nullptr : &it->second;
-  }, /*require_no_properties=*/true)) {
+  if (auto err = CheckTypesOnPropertyWrite(
+          ctx,
+          *this,
+          [&](storage::PropertyId pid) {
+            auto const it = properties.find(pid);
+            return it == properties.end() ? nullptr : &it->second;
+          },
+          /*require_no_properties=*/true)) {
     return std::unexpected{*err};
   }
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
@@ -394,7 +386,8 @@ storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properti
   if (!existing->empty()) return false;
   auto removed = versioning::ReadRemoved(ctx, impl_);
   if (!removed) return std::unexpected{removed.error()};
-  auto applied = versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, versioning::ForkHas(*fork));
+  auto applied =
+      versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, versioning::ForkHas(*fork));
   if (!applied) return std::unexpected{applied.error()};
   return true;
 }
@@ -404,9 +397,10 @@ VertexAccessor::BranchUpdateProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
   RejectReservedProperties(ctx, properties);
   if (auto err = CheckTypesOnPropertyWrite(ctx, *this, [&](storage::PropertyId pid) {
-    auto const it = properties.find(pid);
-    return it == properties.end() ? nullptr : &it->second;
-  })) return std::unexpected{*err};
+        auto const it = properties.find(pid);
+        return it == properties.end() ? nullptr : &it->second;
+      }))
+    return std::unexpected{*err};
   CowIfNeeded(versioning::BranchChangeKind::kProperty);
   RecordPropertyFieldChanges(properties);
   if (!ctx.IsStub(impl_)) return impl_.UpdateProperties(properties);
@@ -419,7 +413,8 @@ VertexAccessor::BranchUpdateProperties(PropertyMap &properties) {
   if (!removed) return std::unexpected{removed.error()};
 
   auto changes = versioning::UpdateChanges(*existing, properties);
-  auto applied = versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, versioning::ForkHas(*fork));
+  auto applied =
+      versioning::ApplyPropertyChanges(ctx, impl_, std::move(*removed), properties, versioning::ForkHas(*fork));
   if (!applied) return std::unexpected{applied.error()};
   versioning::MergeOldBack(*existing, properties);
   return changes;
@@ -452,8 +447,7 @@ storage::Result<PropertyMap> VertexAccessor::BranchClearProperties() {
   return existing;
 }
 
-// Must be called after CowIfNeeded by property mutators. Records pid so GetProperty(pid) can skip
-// the resolve when only other pids changed on this vertex. gid is stable across the COW.
+// Call after CowIfNeeded.
 void VertexAccessor::RecordPropertyFieldChange(storage::PropertyId pid) {
   branch_ctx_->RecordPropertyFieldChange(impl_.Gid(), pid);
 }
@@ -466,16 +460,13 @@ void VertexAccessor::RecordPropertyFieldChanges(
   }
 }
 
-// Branch mode returns the union of historical_ (fork-state) and diff-engine edges; impl_.InEdges
-// alone sees only one side. ResolveEdges is unfiltered; hops charged before the edge_types filter.
+// ResolveEdges is unfiltered, so hops are charged before the edge_types filter.
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   storage::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    // View::OLD mirrors ResolveEdges' convention for the frozen historical_ snapshot.
-    // DELETE SAFETY: a deleted edge or vertex flags its endpoints' edge bit (DeleteForkEdge/DeleteForkVertex), so
-    // this fast path is skipped for them and ResolveEdges runs instead. A neighbour of a deleted vertex is not
-    // flagged: its fast-path edges are filtered per edge by the other endpoint's delete marker.
+    // Deleting an edge or vertex flags the edge bit (DeleteForkEdge/DeleteForkVertex), sending it to ResolveEdges.
+    // A neighbour of a deleted vertex is not flagged; the fast path filters its edges via IsForkVertexDeleted.
     if (impl_.storage_ != &branch_ctx_->diff_engine() &&
         (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
@@ -498,7 +489,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
     int64_t expanded_count = 0;
     for (auto const &edge : resolved) {
       if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
+        if (hops_limit->IncrementHopsCount() == 0) break;
       }
       ++expanded_count;
       if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
@@ -518,15 +509,13 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
   return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
 }
 
-// Destination filter is client-side by gid (FromVertex for an IN edge); gid is stable across COW
-// so no re-resolve is needed. ResolveEdges is unfiltered; hops charged before the dest/type filters.
+// Destination filter is client-side by gid; hops are charged before the dest/type filters.
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   const VertexAccessor &dest,
                                                                   storage::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    // Phase 2 fast path -- see non-dest InEdges above. NEVER pass `dest` to impl_.InEdges:
-    // a COW'd dest.impl_ lives in a different transaction, tripping storage's DMG_ASSERT.
+    // Never pass `dest` to impl_.InEdges: a COW'd dest.impl_ is in another transaction (storage DMG_ASSERT).
     if (impl_.storage_ != &branch_ctx_->diff_engine() &&
         (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
@@ -551,7 +540,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
     int64_t expanded_count = 0;
     for (auto const &edge : resolved) {
       if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
+        if (hops_limit->IncrementHopsCount() == 0) break;
       }
       ++expanded_count;
       if (edge.FromVertex().Gid() != dest_gid) continue;
@@ -576,12 +565,10 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
   return InEdges(view, {});
 }
 
-// Branch-aware -- see InEdges above (identical rationale, OUT direction).
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
                                                                    const std::vector<storage::EdgeTypeId> &edge_types,
                                                                    storage::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    // Phase 2 fast path -- see InEdges above (identical rationale, OUT direction).
     if (impl_.storage_ != &branch_ctx_->diff_engine() &&
         (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
@@ -604,7 +591,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
     int64_t expanded_count = 0;
     for (auto const &edge : resolved) {
       if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
+        if (hops_limit->IncrementHopsCount() == 0) break;
       }
       ++expanded_count;
       if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
@@ -624,14 +611,11 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
   return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
 }
 
-// Destination filter uses ToVertex().Gid() (TO vertex for ADD_OUT_EDGE) -- mirrors InEdges(dest)
-// above with FromVertex(). ResolveEdges unfiltered; hops charged before dest/type filters.
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
                                                                    std::vector<storage::EdgeTypeId> const &edge_types,
                                                                    VertexAccessor const &dest,
                                                                    storage::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    // Phase 2 fast path -- see InEdges(dest) above. Client-side filter uses ToVertex() (not FromVertex()).
     if (impl_.storage_ != &branch_ctx_->diff_engine() &&
         (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
@@ -656,7 +640,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
     int64_t expanded_count = 0;
     for (auto const &edge : resolved) {
       if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
+        if (hops_limit->IncrementHopsCount() == 0) break;
       }
       ++expanded_count;
       if (edge.ToVertex().Gid() != dest_gid) continue;
@@ -681,8 +665,6 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
   return OutEdges(view, {});
 }
 
-// Branch mode uses a full ResolveEdges call for correctness: impl_.InDegree/OutDegree only sees
-// one engine side. A dedicated branch-aware degree counter is a future optimization.
 storage::Result<size_t> VertexAccessor::InDegree(storage::View view) const {
   if (branch_ctx_ != nullptr) {
     bool vertex_deleted = false;
