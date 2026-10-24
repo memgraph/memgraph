@@ -41,9 +41,9 @@ def _show_schema_info_in(replica, tenant):
 def _assert_schema_info_works(replica, tenant, context):
     rows, error = _show_schema_info_in(replica, tenant)
     assert error is None, (
-        f"SHOW SCHEMA INFO must work on {context}: MAIN was started with --schema-info-enabled, so the "
-        f"per-database enable_schema_info must cross the replication wire into the replica tenant (gh5190); "
-        f"got: {error!r}"
+        f"SHOW SCHEMA INFO must work on {context}: MAIN was started with --schema-info-enabled and the "
+        f"replica was not, so the per-database enable_schema_info must cross the replication wire into the "
+        f"replica tenant (gh5190); got: {error!r}"
     )
     schema = json.loads(rows[0][0])
     assert "nodes" in schema and "edges" in schema

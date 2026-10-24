@@ -992,6 +992,73 @@ TEST(RpcVersioning, SystemRecoveryReq_V3UpgradeDefaultsColdSet) {
   EXPECT_EQ(loaded.cold_databases[0].stats, cold.stats) << "the cold set must survive the V3->V4 upgrade";
 }
 
+// SystemRecoveryReq v4 carries the complete SalientConfig through its explicit per-element loops
+// (replication_handler/system_rpc.cpp), not the frozen five-field pair. Before the fix that shared pair
+// truncated every SalientConfig on this carrier, so both a HOT database_configs entry and a COLD
+// cold_databases entry round-tripped only five of the thirteen fields and silently reset the rest.
+TEST(RpcVersioning, SystemRecoveryReq_V4FullFieldRoundTrip) {
+  memgraph::storage::SalientConfig hot;
+  hot.name = "hot_tenant";
+  hot.uuid = memgraph::utils::UUID{};
+  hot.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  hot.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  hot.items.properties_on_edges = false;
+  hot.items.enable_edges_metadata = true;
+  hot.items.enable_schema_metadata = true;
+  hot.items.enable_schema_info = true;
+  hot.items.enable_label_index_auto_creation = true;
+  hot.items.enable_edge_type_index_auto_creation = true;
+  hot.items.storage_light_edge = true;
+  hot.items.delta_on_identical_property_update = false;
+  hot.items.property_store_compression_enabled = true;
+
+  // The COLD entry's salient carries every field away from its default as well (only the name differs).
+  memgraph::storage::SalientConfig cold_salient = hot;
+  cold_salient.name = "cold_tenant";
+
+  memgraph::storage::ColdTenantRecovery cold{};
+  cold.salient = cold_salient;
+  cold.stats.vertex_count = 11;
+  cold.stats.edge_count = 22;
+  cold.stats.average_degree = 2.5;
+  cold.stats.memory_res = 33;
+  cold.stats.disk_usage = 44;
+  cold.stats.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  cold.stats.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
+  cold.stats.durability_wal_enabled = true;
+  cold.stats.property_store_compression_enabled = true;
+  cold.stats.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  cold.stats.schema_vertex_count = 55;
+
+  memgraph::replication::SystemRecoveryReq const req{memgraph::utils::UUID{},
+                                                     0,
+                                                     std::vector{hot},
+                                                     memgraph::auth::Auth::Config{},
+                                                     std::vector<memgraph::auth::User>{},
+                                                     std::vector<memgraph::auth::Role>{},
+                                                     std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                     std::vector<memgraph::parameters::ParameterInfo>{},
+                                                     std::vector{cold}};
+
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  memgraph::replication::SystemRecoveryReq::Save(req, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::SystemRecoveryReq loaded;
+  memgraph::replication::SystemRecoveryReq::Load(&loaded, &reader);
+
+  ASSERT_EQ(loaded.database_configs.size(), 1U);
+  EXPECT_EQ(loaded.database_configs[0], hot)
+      << "a hot database_configs entry must carry every SalientConfig field, not truncate to the five-field pair";
+  ASSERT_EQ(loaded.cold_databases.size(), 1U);
+  EXPECT_EQ(loaded.cold_databases[0].salient, cold_salient)
+      << "a cold_databases entry must carry every SalientConfig field, not truncate to the five-field pair";
+  EXPECT_EQ(loaded.cold_databases[0].stats, cold.stats) << "the cold stats must round-trip unchanged";
+}
+
 namespace {
 // A receiver that knows only the previous version of a version-bumped carrier has no upgrade path, so
 // LoadWithUpgrade must refuse (throw) rather than parse the new, larger payload under the old layout.
