@@ -55,10 +55,6 @@ def before_all(context):
     # test results
     context.test_results = TestResults()
 
-    # Graph Versioning --versioned-branch arm: monotonic counter used to
-    # build a unique per-scenario branch name (see before_scenario), so a
-    # failed best-effort DROP BRANCH in one scenario can't collide with the
-    # next scenario's CREATE BRANCH.
     if getattr(context.config, "versioned_branch", False):
         context.vbranch_counter = 0
 
@@ -68,18 +64,10 @@ def before_scenario(context, scenario):
     context.exception = None
 
     if getattr(context.config, "versioned_branch", False):
-        # Persistent Bolt session for this scenario only, backed by the
-        # shared `context.driver` (see steps/database.py
-        # get_vbranch_session/close_vbranch_session): opened lazily on first
-        # query, closed in after_scenario below. CHECKOUT BRANCH state lives
-        # on the physical connection, so holding one session open for the
-        # whole scenario keeps a setup-time checkout in effect for the
-        # scenario's test query; close_vbranch_session() checks out back to
-        # main before closing so the connection is clean when it returns to
-        # the pool for the next scenario.
         context.vbranch_session = None
         context.vbranch_forked = False
         context.vbranch_counter += 1
+        # Unique per scenario: a failed best-effort DROP BRANCH must not collide with the next CREATE BRANCH.
         context.vbranch_name = f"_gqlb_{context.vbranch_counter}"
 
 
@@ -103,10 +91,6 @@ def after_scenario(context, scenario):
     context.test_results.add_test(scenario.status)
 
     if getattr(context.config, "versioned_branch", False):
-        # Best-effort: checkout back to main + drop the scenario's branch,
-        # then close the session so the NEXT scenario starts clean (a brand
-        # new Bolt connection always defaults to `main` -- verified live
-        # against a --versioning-enabled memgraph instance).
         database.close_vbranch_session(context)
 
     if context.config.single_scenario or (context.config.single_fail and scenario.status == "failed"):

@@ -133,7 +133,6 @@ TEST_F(VersioningDumpTest, DumpOnBranchReflectsBranchDataAndMainSchema) {
   ASSERT_NO_THROW(lines = Dump());
   const auto all = Join(lines);
 
-  // Data: branch values, no main-only leftovers.
   EXPECT_THAT(all, ::testing::HasSubstr("`age`: 99"));
   EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`age`: 10")));
   EXPECT_THAT(all, ::testing::HasSubstr(":`Extra`"));
@@ -143,17 +142,15 @@ TEST_F(VersioningDumpTest, DumpOnBranchReflectsBranchDataAndMainSchema) {
   EXPECT_THAT(all, ::testing::HasSubstr(":`NEW`"));
   EXPECT_THAT(all, ::testing::HasSubstr("`x`: 5"));
   EXPECT_THAT(all, ::testing::HasSubstr(":`KNOWS`"));
-  EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`id`: 2")));  // removed on the branch
-  EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`id`: 3")));  // vertex deleted on the branch
+  EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`id`: 2")));
+  EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`id`: 3")));
   EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("`name`: \"c\"")));
 
-  // No branch bookkeeping leaks.
   EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("__mg_removed")));
   EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("__mg_deleted")));
   EXPECT_THAT(all, ::testing::Not(::testing::HasSubstr("__mg_rm:")));
 
-  // Schema: main's definitions only. Main has no label-only or global property index, so any such statement
-  // would be a diff-engine overlay artifact.
+  // Main has no label-only or global property index, so such a statement would be a diff-engine overlay artifact.
   EXPECT_TRUE(HasLine(lines, "CREATE INDEX ON :`Person`(`name`);"));
   EXPECT_TRUE(HasLine(lines, "CREATE CONSTRAINT ON (u:`Person`) ASSERT EXISTS (u.`name`);"));
   EXPECT_THAT(all, ::testing::HasSubstr("ASSERT u.`id` IS UNIQUE;"));
@@ -167,7 +164,7 @@ TEST_F(VersioningDumpTest, DumpOnBranchWithVectorIndexedVertex) {
 
   faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'feature'");
-  // Touch the fork vertex so it becomes a stub, and add a branch-native one.
+  // Touching the fork vertex turns it into a stub.
   faker.Interpret("MATCH (e:Emb) SET e.tag = 1");
   faker.Interpret("CREATE (:Emb {vec: [3.0, 4.0], name: 'native'})");
 

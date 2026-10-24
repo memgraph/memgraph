@@ -42,7 +42,7 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
   }
 }
 
-TEST(VersioningGate, ErrorMessagesMatchSpecVerbatim) {
+TEST(VersioningGate, ErrorMessagesAreExact) {
   ASSERT_EQ(GateErrorMessage(GateError::kDisabled),
             "Versioning is disabled. Start Memgraph with --versioning-enabled=true to use branch queries.");
   ASSERT_EQ(GateErrorMessage(GateError::kNoLicense),

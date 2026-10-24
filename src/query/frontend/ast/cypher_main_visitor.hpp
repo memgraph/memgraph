@@ -1324,8 +1324,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
 
   /**
-   * @return Expression* -- a PrimitiveLiteral (symbolicName, or StringLiteral on an uncached AST)
-   * or a ParameterLookup (StringLiteral on a cached AST), mirroring visitLiteral().
+   * @return Expression* -- PrimitiveLiteral, or ParameterLookup for a StringLiteral on a cached AST
    */
   antlrcpp::Any visitBranchName(MemgraphCypher::BranchNameContext *ctx) override;
 
@@ -1521,9 +1520,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   LabelIx AddLabel(const std::string &name);
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
-  // Shared by visitBranchName/visitCreateBranch/visitCheckoutBranch: resolves a StringLiteral
-  // token to an Expression* the same way visitLiteral() resolves a literal's StringLiteral
-  // alternative (ParameterLookup under a cached AST, PrimitiveLiteral otherwise).
+  // Mirrors visitLiteral() for a StringLiteral: ParameterLookup under a cached AST, else PrimitiveLiteral.
   Expression *MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal);
 
   ParsingContext context_;

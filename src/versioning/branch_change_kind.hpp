@@ -15,14 +15,9 @@
 
 namespace memgraph::versioning {
 
-// Graph Versioning v1 -- which KIND of vertex change a mutation records into the branch-side change
-// filters (see branch_change_filter.hpp). Deliberately its own minimal, dependency-free header so
-// the hot, widely-included query/vertex_accessor.hpp can name it (its inline mutators pass it to the
-// out-of-line CowIfNeeded) WITHOUT pulling in <atomic>/<memory> or the full BranchContext type.
-//
-// Edges have no entry here: every edge mutation funnels through one choke point (CowEdge /
-// DbAccessor::InsertEdge) that records `any_edge_change` on both endpoint gids directly -- there is
-// no per-mutator kind to disambiguate the way vertices have (property vs. label).
+// Which vertex change filter a mutation populates (see BranchChangeFilters). Kept dependency-free so
+// query/vertex_accessor.hpp can name it without pulling in <atomic>/<memory> via branch_change_filter.hpp.
+// No edge kind: adjacency changes go through RecordEdgeChange at InsertEdge, DeleteForkEdge, DeleteForkVertex.
 enum class BranchChangeKind : uint8_t {
   kProperty,
   kLabel,
