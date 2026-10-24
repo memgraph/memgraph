@@ -35,17 +35,13 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
+#include <cctype>
 #include <filesystem>
-#include <iostream>
 #include <limits>
 #include <set>
-#include <span>
-#include <stdexcept>
 #include <string>
-#include <thread>
+#include <string_view>
 #include <typeinfo>
-#include <unordered_set>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -76,6 +72,53 @@
 
 namespace {
 constexpr auto kNoHandler = nullptr;
+constexpr int64_t kNullInt = std::numeric_limits<int64_t>::min();
+
+using Rows = std::vector<std::vector<int64_t>>;
+
+// Every row of `query` as integers (Null -> kNullInt).
+Rows IntRows(InterpreterFaker &session, const std::string &query) {
+  auto stream = session.Interpret(query);
+  Rows rows;
+  for (const auto &row : stream.GetResults()) {
+    auto &out = rows.emplace_back();
+    for (const auto &value : row) {
+      out.push_back(value.type() == memgraph::communication::bolt::Value::Type::Null ? kNullInt : value.ValueInt());
+    }
+  }
+  return rows;
+}
+
+std::vector<std::string> SortedNames(const memgraph::communication::bolt::Value &list) {
+  std::vector<std::string> out;
+  for (const auto &elem : list.ValueList()) out.emplace_back(elem.ValueString());
+  std::ranges::sort(out);
+  return out;
+}
+
+// The EXPLAIN output of `query`, one operator per line.
+std::string ExplainText(InterpreterFaker &session, const std::string &query) {
+  auto stream = session.Interpret("EXPLAIN " + query);
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+  return plan;
+}
+
+// True when `plan` contains the operator named exactly `op`, not merely as the prefix of a longer operator name
+// (ScanAllByLabel inside ScanAllByLabelProperties).
+bool PlanHasOperator(std::string_view plan, std::string_view op) {
+  auto const is_identifier_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+  for (auto pos = plan.find(op); pos != std::string_view::npos; pos = plan.find(op, pos + 1)) {
+    auto const end = pos + op.size();
+    if ((pos == 0 || !is_identifier_char(plan[pos - 1])) && (end == plan.size() || !is_identifier_char(plan[end]))) {
+      return true;
+    }
+  }
+  return false;
+}
 }  // namespace
 
 class VersioningInterpreterTest : public ::testing::Test {
@@ -208,6 +251,11 @@ TEST_F(VersioningInterpreterTest, InvalidBranchNameRejected) {
 TEST_F(VersioningInterpreterTest, CreateShowCheckoutDropHappyPath) {
   SatisfyGate();
 
+  // A connection that never checked out a branch writes main exactly as if versioning did not exist.
+  faker.Interpret("CREATE (:A {v:1})");
+  faker.Interpret("MATCH (n:A) SET n.v = 2");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.v"), (Rows{{2}}));
+
   {
     auto stream = faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
     ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "parent"}));
@@ -217,6 +265,11 @@ TEST_F(VersioningInterpreterTest, CreateShowCheckoutDropHappyPath) {
     EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
     EXPECT_EQ(stream.GetResults()[0][3].ValueString(), "main");
   }
+
+  // CREATE BRANCH alone never moves the session: the next write still lands on main.
+  faker.Interpret("CREATE (:B)");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:B) RETURN count(n)"), (Rows{{1}}))
+      << "CREATE BRANCH alone must not engage the write-routing rail";
 
   {
     // New name already exists.
@@ -266,71 +319,24 @@ TEST_F(VersioningInterpreterTest, CreateShowCheckoutDropHappyPath) {
   }
 
   ASSERT_THROW(faker.Interpret("DROP BRANCH 'feature'"), memgraph::query::QueryRuntimeException);
-}
 
-TEST_F(VersioningInterpreterTest, CheckoutCreateAndSwitchClearsOnDrop) {
-  SatisfyGate();
-
-  auto stream = faker.Interpret("CHECKOUT BRANCH 'feature' WITH DESCRIPTION 'desc' FROM 'main'");
-  ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "parent"}));
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][2].ValueString(), "desc");
+  // CHECKOUT ... WITH DESCRIPTION ... FROM creates and switches in one statement.
+  {
+    auto stream = faker.Interpret("CHECKOUT BRANCH 'feature' WITH DESCRIPTION 'desc' FROM 'main'");
+    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "parent"}));
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][2].ValueString(), "desc");
+  }
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "feature");
+  {
+    auto stream = faker.Interpret("SHOW BRANCHES");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[1][2].ValueString(), "desc");
+  }
 
-  // Dropping the branch the session is checked out on clears the session pointer (mirrors MERGE's
-  // own post-merge clearing, spec §4.2).
+  // Dropping the branch the session is checked out on clears the session pointer.
   faker.Interpret("DROP BRANCH 'feature'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-}
-
-// The session target is simply CurrentDB::current_version_ -- the last CHECKOUT wins, exactly like
-// USE DATABASE. CHECKOUT BRANCH '<name>' routes writes to the branch; CHECKOUT BRANCH 'main'
-// routes them straight back to main. A bare data-plane write after an explicit CHECKOUT BRANCH 'main'
-// must SUCCEED.
-TEST_F(VersioningInterpreterTest, EngagedConnectionCannotSilentlyWriteMain) {
-  SatisfyGate();
-
-  // Pre-engage: a normal write to main works -- the rail is off, this connection never checked out
-  // a branch yet.
-  faker.Interpret("CREATE (:Seed {v:1})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-
-  // Branch write: allowed (the session is genuinely ON a branch).
-  faker.Interpret("CREATE (:OnBranch)");
-
-  // Back to main -- un-engages (no longer sticky).
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-
-  // A bare data-plane write to main now SUCCEEDS directly -- this is the fix: CHECKOUT BRANCH 'main'
-  // must make main writable again on the very same connection, with no reconnect required.
-  faker.Interpret("CREATE (:NoLongerBlockedMainWrite {v:2})");
-  {
-    auto stream = faker.Interpret("MATCH (n:Seed) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-  }
-  {
-    auto stream = faker.Interpret("MATCH (n:NoLongerBlockedMainWrite) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "CHECKOUT BRANCH 'main' must re-enable main writes";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-  }
-  {
-    // The earlier branch write must not have leaked onto main.
-    auto stream = faker.Interpret("MATCH (n:OnBranch) RETURN n");
-    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch-only write must not be visible on main";
-  }
-
-  // Re-checking out a branch still makes writes route to the branch, not main.
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  faker.Interpret("CREATE (:AnotherBranchWrite)");
-  {
-    auto stream = faker.Interpret("MATCH (n:AnotherBranchWrite) RETURN n");
-    EXPECT_EQ(stream.GetResults().size(), 1U);
-  }
 }
 
 // Adversarial-review follow-up to EngagedConnectionCannotSilentlyWriteMain, updated for the
@@ -358,31 +364,6 @@ TEST_F(VersioningInterpreterTest, EngagedConnectionProfileWriteOnMainRejected) {
 
   // Sanity: PROFILE of a READ on main is fine too -- unaffected either way.
   faker.Interpret("PROFILE MATCH (n:Seed) RETURN n");
-}
-
-// Counterpart to EngagedConnectionCannotSilentlyWriteMain: a connection that never genuinely checks
-// out a branch (CREATE BRANCH alone never calls SetBranchContext, only CHECKOUT_BRANCH's
-// CheckoutBranchEngine does, interpreter.cpp) must keep writing main exactly as if versioning
-// didn't exist, including right after issuing a (never-checked-out) CREATE BRANCH management query.
-TEST_F(VersioningInterpreterTest, NeverEngagedConnectionWritesMainNormally) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:A {v:1})");
-  faker.Interpret("MATCH (n:A) SET n.v = 2");
-  {
-    auto stream = faker.Interpret("MATCH (n:A) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-  }
-
-  // CREATE BRANCH is management (VersioningQuery), not a CypherQuery, and never calls
-  // SetBranchContext -- it must not engage the rail for this still-never-checked-out connection.
-  faker.Interpret("CREATE BRANCH 'x' FROM 'main'");
-  faker.Interpret("CREATE (:B)");
-  {
-    auto stream = faker.Interpret("MATCH (n:B) RETURN n");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "CREATE BRANCH alone must not engage the write-routing rail";
-  }
 }
 
 // Regression test for the write-routing sticky bug this fix closes, capturing the user's exact
@@ -456,119 +437,11 @@ TEST_F(VersioningInterpreterTest, CheckoutSwitchesBetweenBranchesThenBackToMainL
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
   }
-}
 
-// Dedicated, minimal slice-D regression: a SINGLE write, checkout away, checkout back must show
-// the write immediately -- no MERGE involved, isolating replay-on-checkout from the multi-session
-// gid-disjointness scenario above.
-TEST_F(VersioningInterpreterTest, BranchReCheckoutReplaysPriorWrites) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  faker.Interpret("CREATE (:P {v:1})");
-
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  {
-    auto stream = faker.Interpret("MATCH (p:P) RETURN p.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U)
-        << "was fork-state/empty before slice D -- re-checkout must now replay the branch's own prior write";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-  }
-}
-
-// Bug fix (change-log replay dropped `REMOVE :Label`, data loss on re-checkout): companion
-// regression to BranchReCheckoutReplaysPriorWrites above, but for a label REMOVE instead of a
-// vertex CREATE. `ReplayChangelogIntoDiffEngine` (branch_engine.cpp) pattern-matches every
-// WalDeltaData variant CaptureBranchCommit can ever produce -- WalVertexCreate, WalVertexAddLabel,
-// WalVertexSetProperty, WalEdgeCreate, WalEdgeSetProperty, WalVertexDelete, WalEdgeDelete -- to
-// replay a branch's own prior writes into the freshly-rebuilt diff engine every time BuildFromFork
-// re-derives the BranchContext (e.g. on CHECKOUT away and back). It had NO case for
-// `WalVertexRemoveLabel`, so that variant silently fell through to the generic `[&](auto const &)
-// {}` catch-all no-op: the label removal was captured into the change-log just fine (proven by
-// versioning::MergeBranch, merge.cpp, which DOES have a WalVertexRemoveLabel case and applies the
-// removal to main correctly on MERGE) but was then silently DROPPED on replay -- so after tearing
-// down and rebuilding the BranchContext (CHECKOUT BRANCH 'main' then back to 'b'), the removed
-// label reappeared on the branch, even though the very same session had already observed it gone
-// pre-replay. Now fixed: ReplayChangelogIntoDiffEngine gained a WalVertexRemoveLabel case
-// (mirroring WalVertexAddLabel's) that calls VertexAccessor::RemoveLabel during replay.
-TEST_F(VersioningInterpreterTest, BranchRemoveLabelSurvivesRecheckoutReplay) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:Person:Employee {id: 1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("MATCH (n {id: 1}) REMOVE n:Employee");
-
-  // In-session (no replay yet): this already worked pre-fix -- establishes the removal was
-  // genuinely applied to the branch's live diff-engine state, not merely attempted.
-  {
-    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN labels(n) AS l");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    const auto &label_list = stream.GetResults()[0][0].ValueList();
-    bool has_person = false;
-    bool has_employee = false;
-    for (const auto &label : label_list) {
-      const auto &name = label.ValueString();
-      if (name == "Person") has_person = true;
-      if (name == "Employee") has_employee = true;
-    }
-    EXPECT_TRUE(has_person) << "the untouched :Person label must survive the REMOVE";
-    EXPECT_FALSE(has_employee) << "in-session, before any replay, the REMOVE must already be visible";
-    EXPECT_EQ(label_list.size(), 1U) << "no stray labels beyond :Person";
-  }
-
-  // Force change-log replay: tear down and rebuild the BranchContext via BuildFromFork by
-  // checking out away from 'b' and back onto it.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-
-  // THE REGRESSION: pre-fix, this returned :Person AND :Employee -- the freshly-rebuilt diff
-  // engine replayed the change-log, silently skipped the WalVertexRemoveLabel entry, and the
-  // removed label reappeared.
-  {
-    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN labels(n) AS l");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    const auto &label_list = stream.GetResults()[0][0].ValueList();
-    bool has_person = false;
-    bool has_employee = false;
-    for (const auto &label : label_list) {
-      const auto &name = label.ValueString();
-      if (name == "Person") has_person = true;
-      if (name == "Employee") has_employee = true;
-    }
-    EXPECT_TRUE(has_person) << "the untouched :Person label must still be present after replay";
-    EXPECT_FALSE(has_employee)
-        << "the REMOVE'd :Employee label must NOT reappear after the change-log replay -- this is "
-           "the data-loss bug: ReplayChangelogIntoDiffEngine lacked a WalVertexRemoveLabel case";
-    EXPECT_EQ(label_list.size(), 1U) << "no stray labels beyond :Person after replay";
-  }
-
-  // The branch-local removal must not leak onto main -- R35 isolation, unaffected by this fix.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  {
-    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN labels(n) AS l");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    const auto &label_list = stream.GetResults()[0][0].ValueList();
-    bool has_person = false;
-    bool has_employee = false;
-    for (const auto &label : label_list) {
-      const auto &name = label.ValueString();
-      if (name == "Person") has_person = true;
-      if (name == "Employee") has_employee = true;
-    }
-    EXPECT_TRUE(has_person) << "main's vertex must still carry :Person";
-    EXPECT_TRUE(has_employee) << "main must be untouched by the branch's REMOVE -- isolation must hold both ways";
-    EXPECT_EQ(label_list.size(), 2U) << "main must still have both labels, exactly as originally created";
-  }
+  // Back on a branch after main writes, writes route to the branch again and stay off main.
+  faker.Interpret("CREATE (:AnotherBranchWrite)");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:AnotherBranchWrite) RETURN count(n)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "USING VERSION 'main' MATCH (n:AnotherBranchWrite) RETURN count(n)"), (Rows{{0}}));
 }
 
 // Branch-side change filters (branch_change_filter.hpp): a read of a KIND the branch never changed
@@ -609,44 +482,42 @@ TEST_F(VersioningInterpreterTest, BranchChangeFilterKindIsolation) {
   }
 }
 
-// Branch-side change filters: cross-branch isolation and the fork-pin. The global branched() bit is
-// set by ANY branch and never cleared, so a vertex changed by branch b1 has branched()==true even
-// when read on branch b2 that never touched it. b2's OWN change filters are clear for that gid, so it
-// must read the FORK value via the direct path -- never b1's change (which lives in b1's private diff
-// engine) and never main's post-fork mutation (b2 is pinned at its own fork timestamp).
-TEST_F(VersioningInterpreterTest, BranchChangeFilterCrossBranchIsolation) {
+// Branch-side change filters: cross-branch isolation and the fork-pin. The global branched() bit (vertex) and
+// Edge::branched() bit are set by ANY branch and never cleared, so an entity changed by branch b1 reads as branched
+// when read on branch b2 that never touched it. b2's OWN change filters are clear for it, so it must read the FORK
+// value via the direct path -- never b1's change (which lives in b1's private diff engine) and never main's post-fork
+// mutation (b2 is pinned at its own fork timestamp).
+TEST_F(VersioningInterpreterTest, BranchCrossBranchIsolationReadsOwnFork) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:User {id: 1, age: 10})");
   faker.Interpret("CREATE (:User {id: 2, age: 20})");
+  faker.Interpret("CREATE (:S)-[:E {w:1}]->(:A)");
 
-  // b1 mutates id=1 (sets its global branched() bit) but is otherwise independent.
+  // b1 mutates id=1 and the edge (setting their branched() bits globally) but is otherwise independent.
   faker.Interpret("CREATE BRANCH 'b1' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b1'");
   faker.Interpret("MATCH (n {id: 1}) SET n.age = 111, n:Changed");
+  faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 999");
   faker.Interpret("CHECKOUT BRANCH 'main'");
 
-  // main mutates id=2 AFTER b2 will fork -- do it before forking so b2's fork-state has age=20, then
-  // change it on main to prove b2 stays pinned. (Order: fork b2 first, then mutate main.)
+  // b2 forks AFTER b1's changes (main itself is untouched), then main changes id=2: b2 must stay pinned.
   faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
-  faker.Interpret("MATCH (n {id: 2}) SET n.age = 222");  // main post-fork write; b2 must NOT see it
+  faker.Interpret("MATCH (n {id: 2}) SET n.age = 222");
   faker.Interpret("CHECKOUT BRANCH 'b2'");
 
   {
-    // id=1: changed by b1 (branched() set globally), never touched by b2 -> b2 reads FORK (age=10,
-    // no :Changed). This is the cross-branch fast-exit the filter delivers.
+    // id=1: changed by b1, never touched by b2 -> b2 reads FORK (age=10, no :Changed).
     auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN n.age AS age, ('Changed' IN labels(n)) AS c");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10) << "b2 must not see b1's property change (cross-branch leak)";
     EXPECT_FALSE(stream.GetResults()[0][1].ValueBool()) << "b2 must not see b1's label change";
   }
-  {
-    // id=2: mutated on main AFTER b2 forked -> b2 is fork-pinned, must read age=20 (its fork-state),
-    // not main's post-fork 222. b2 never touched id=2, so this is the direct fork-read path.
-    auto stream = faker.Interpret("MATCH (n {id: 2}) RETURN n.age AS age");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 20) << "b2 must read fork-state, not main's post-fork write (C1)";
-  }
+  EXPECT_EQ(IntRows(faker, "MATCH (n {id: 2}) RETURN n.age"), (Rows{{20}}))
+      << "b2 must read fork-state, not main's post-fork write";
+  EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E]->(:A) RETURN e.w"), (Rows{{1}}))
+      << "b2 must read its OWN fork edge value, not b1's diff-engine change -- a bit-set-but-FindDiffEdge-miss must "
+         "fall back to fork-state, never leak across branches";
 }
 
 // Fine-grained (gid, property_id) filter: a point read GetProperty(pid) gates on the fine filter
@@ -673,18 +544,6 @@ TEST_F(VersioningInterpreterTest, BranchChangeFilterFinePropertySurvivesRechecko
         << "an UNCHANGED property on the same vertex must read fork-state via the fine fast path";
   }
 
-  // Force change-log replay (re-checkout), then read again VIA THE TRAVERSAL.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  {
-    auto stream = faker.Interpret("MATCH (n {id: 1})-[:E]->(v) RETURN v.age AS age, v.keep AS keep");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99)
-        << "post-recheckout the fine property_field filter must be re-seeded from WalVertexSetProperty, "
-           "else the changed property reads stale fork-state through main's copy";
-    EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 7) << "the unchanged property must still read fork-state";
-  }
-
   // Isolation: main is untouched by the branch's property change.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   {
@@ -692,11 +551,6 @@ TEST_F(VersioningInterpreterTest, BranchChangeFilterFinePropertySurvivesRechecko
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 40) << "main must not see the branch's property change";
   }
-}
-
-TEST_F(VersioningInterpreterTest, MergeNonExistentBranchRejected) {
-  SatisfyGate();
-  ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
 }
 
 // Graph Versioning v1, B2 fix: CREATE BRANCH FROM a non-main parent is rejected at the
@@ -757,181 +611,6 @@ TEST_F(VersioningInterpreterTest, VersioningMetricsIncrementOnLifecycle) {
   EXPECT_DOUBLE_EQ(g.versioning_branches_dropped->Value() - dropped0, 2.0)
       << "each DROP BRANCH increments the dropped counter by exactly 1";
 }
-
-namespace {
-// Batch 4 ("MERGE = normal commit") test helpers -----------------------------------------------
-
-// Busy-waits for the database's after-commit-trigger thread pool to drain -- RunTriggersAfterCommit
-// is dispatched via `db->AddTask` (dbms/database.hpp), a single-thread pool, so a test that just
-// issued a triggering MERGE must wait for the async task to actually finish before asserting on its
-// effects. Mirrors tests/unit/utils_thread_pool.cpp's own UnfinishedTasksNum() polling idiom.
-void WaitForAfterCommitTriggers(memgraph::dbms::DatabaseAccess &db) {
-  auto *pool = db->thread_pool();
-  for (int i = 0; i < 500 && pool->UnfinishedTasksNum() != 0; ++i) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  ASSERT_EQ(pool->UnfinishedTasksNum(), 0U) << "after-commit trigger dispatch never completed";
-}
-
-// M5 test double: an authenticated user whose IsAuthorized() denies a configurable set of coarse
-// privileges (everything else -- MULTI_DATABASE_EDIT included -- is granted), so
-// MergePrivilegeGateRequiresWritePrivileges below can prove required_privileges.cpp's action-scoped
-// CREATE/SET/DELETE/REMOVE addition (M5, REMOVE added under M1) is actually enforced, not just
-// computed and ignored.
-class PrivilegeDenyingUser final : public memgraph::query::QueryUserOrRole {
- public:
-  explicit PrivilegeDenyingUser(std::unordered_set<memgraph::query::AuthQuery::Privilege> denied)
-      : memgraph::query::QueryUserOrRole(std::string{"restricted"}, {}), denied_(std::move(denied)) {}
-
-  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                    std::optional<std::string_view> /*db_name*/,
-                    memgraph::query::UserPolicy * /*policy*/) const override {
-    for (auto privilege : privileges) {
-      if (denied_.contains(privilege)) return false;
-    }
-    return true;
-  }
-
-  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
-    return std::make_shared<PrivilegeDenyingUser>(*this);
-  }
-
-  std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
-
-#ifdef MG_ENTERPRISE
-  bool CanImpersonate(const std::string & /*target*/, memgraph::query::UserPolicy * /*policy*/,
-                      std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
-    return true;
-  }
-
-  std::string GetDefaultDB() const override { return std::string{"memgraph"}; }
-#endif
-
- private:
-  std::unordered_set<memgraph::query::AuthQuery::Privilege> denied_;
-};
-
-// FGA test double: a FineGrainedAuthChecker that denies every check touching one configured label,
-// allows everything else (edges, other labels, properties). Mirrors
-// AllowEverythingFineGrainedAuthChecker's shape (query/auth_checker.hpp) except
-// NeedsFineGrainedAuthChecker() is true (so the fail-closed pre-pass in
-// CheckMergeFineGrainedAuth/interpreter.cpp actually runs its per-delta checks instead of being
-// short-circuited as a no-op) and Has(...) on the denied label returns false.
-class DenyLabelFineGrainedAuthChecker final : public memgraph::query::FineGrainedAuthChecker {
- public:
-  explicit DenyLabelFineGrainedAuthChecker(memgraph::storage::LabelId denied_label) : denied_label_(denied_label) {}
-
-  bool Has(const memgraph::query::VertexAccessor &vertex, memgraph::storage::View view,
-           memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
-    auto labels = vertex.Labels(view);
-    if (!labels.has_value()) return true;
-    return std::find(labels->begin(), labels->end(), denied_label_) == labels->end();
-  }
-
-  bool Has(const memgraph::query::EdgeAccessor & /*edge*/,
-           memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
-    return true;
-  }
-
-  bool Has(std::span<memgraph::storage::LabelId const> labels,
-           memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
-    return std::find(labels.begin(), labels.end(), denied_label_) == labels.end();
-  }
-
-  bool Has(const memgraph::storage::EdgeTypeId & /*edge_type*/,
-           memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
-    return true;
-  }
-
-  bool HasGlobalPrivilegeOnVertices(memgraph::query::AuthQuery::FineGrainedPrivilege /*fgp*/) const override {
-    return true;
-  }
-
-  bool HasGlobalPrivilegeOnEdges(memgraph::query::AuthQuery::FineGrainedPrivilege /*fgp*/) const override {
-    return true;
-  }
-
-  bool HasAllGlobalPrivilegesOnVertices() const override { return false; }
-
-  bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
-
-  bool HasUnrestrictedAccessToVertices() const override { return false; }
-
-  bool HasUnrestrictedAccessToEdges() const override { return true; }
-
-  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
-
-  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
-
-  bool NeedsFineGrainedAuthChecker() const override { return true; }
-
-  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> /*labels*/,
-                             memgraph::storage::PropertyId /*property*/,
-                             memgraph::query::AuthQuery::PropertyPermissionType /*type*/) const override {
-    return true;
-  }
-
-  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const & /*edge_type*/,
-                             memgraph::storage::PropertyId /*property*/,
-                             memgraph::query::AuthQuery::PropertyPermissionType /*type*/) const override {
-    return true;
-  }
-
-  void MakeThreadSafe() const override {}
-
-  bool IsThreadSafe() const override { return true; }
-
- private:
-  memgraph::storage::LabelId denied_label_;
-};
-
-class DenyLabelAuthChecker final : public memgraph::query::AuthChecker {
- public:
-  explicit DenyLabelAuthChecker(memgraph::storage::LabelId denied_label) : denied_label_(denied_label) {}
-
-  std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
-      const std::optional<std::string> &name, const std::vector<std::string> & /*rolenames*/) const override {
-    return std::make_shared<memgraph::query::AllowEverythingAuthChecker::User>(name.value_or("fga_tester"));
-  }
-
-  std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override {
-    return std::make_shared<memgraph::query::AllowEverythingAuthChecker::User>();
-  }
-
-  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const memgraph::query::QueryUserOrRole & /*user*/,
-      const memgraph::query::DbAccessor * /*db_accessor*/) const override {
-    return std::make_unique<DenyLabelFineGrainedAuthChecker>(denied_label_);
-  }
-
- private:
-  memgraph::storage::LabelId denied_label_;
-};
-
-// M2 fix regression scaffold: an AuthChecker double whose GetFineGrainedAuthChecker call itself
-// throws -- simulating an unexpected internal failure at exactly the call site (interpreter.cpp's
-// MERGE_BRANCH handler) that used to sit BETWEEN BeginMerge and the (previously too-narrow) inner
-// try/catch that only ever wrapped CheckMergeFineGrainedAuth itself. Proves the M2 fix's widened
-// try/catch now clears the "merging" marker for ANY throw in that whole span, not just
-// CheckMergeFineGrainedAuth's own denial.
-class ThrowingAuthChecker final : public memgraph::query::AuthChecker {
- public:
-  std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
-      const std::optional<std::string> &name, const std::vector<std::string> & /*rolenames*/) const override {
-    return std::make_shared<memgraph::query::AllowEverythingAuthChecker::User>(name.value_or("throwing_tester"));
-  }
-
-  std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override {
-    return std::make_shared<memgraph::query::AllowEverythingAuthChecker::User>();
-  }
-
-  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const memgraph::query::QueryUserOrRole & /*user*/,
-      const memgraph::query::DbAccessor * /*db_accessor*/) const override {
-    throw std::runtime_error("simulated internal failure resolving the fine-grained auth checker");
-  }
-};
-}  // namespace
 
 // HIGH-1 fix: glue/SessionHL.cpp's RuntimeConfig::Configure re-invokes
 // Interpreter::SetCurrentDB(same_db_name, ...) whenever ANY field of the Bolt RUN "extra" map
@@ -999,47 +678,6 @@ TEST_F(VersioningInterpreterTest, ReApplyingSameDatabaseAccessPreservesCheckout)
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
 }
 
-// Graph Versioning v1 (lazy diff-context, slice E-1): end-to-end regression for the unit this
-// file's CHECKOUT_BRANCH handler now wires up -- ordinary Cypher issued while checked out on a
-// branch resolves through that branch's own BranchContext (diff-engine-first, falling back to the
-// historical fork-state base), with the session reading back its own writes. Checking back out
-// onto 'main' must route straight back to main's real storage, untouched by anything the branch
-// session wrote -- R35 (main is never written by branch activity).
-//
-// VERTEX-ONLY (this slice's own scope, superseding the predecessor BranchEngine's full-copy
-// version of this same test): no edges. MATCH (n) here (rather than MATCH (n:A)) purely because
-// this test only ever has one vertex to find either way; see
-// BranchLabelScanUnionAwareWithForkEraIndex below for the dedicated label-indexed-scan
-// regression (DbAccessor::Vertices(view, label) is branch-aware too, as of the HIGH-3(b)
-// adversarial-review fix).
-TEST_F(VersioningInterpreterTest, BranchWriteIsIsolatedAndReadYourWrites) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:A {x:1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-
-  faker.Interpret("MATCH (n) SET n.x = 2");
-
-  // Read-your-writes against the branch's own diff engine.
-  {
-    auto stream = faker.Interpret("MATCH (n) RETURN n.x");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-  }
-
-  // Releases the branch context and routes back to main's real storage.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-
-  {
-    auto stream = faker.Interpret("MATCH (n) RETURN n.x");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-  }
-}
-
 // Graph Versioning v1 (lazy diff-context, slice E-1): the SELECTIVE-COW regression the redesign
 // exists for -- a branch touching ONE of two main vertices must copy-on-write ONLY that one; the
 // untouched vertex must keep resolving through the historical fork-state base, never materialized
@@ -1099,6 +737,7 @@ TEST_F(VersioningInterpreterTest, BranchVertexWriteIsLazyDiffAndIsolated) {
   // Checking back onto main: A must read back its ORIGINAL value (1) -- R35, main is never
   // written by branch activity.
   faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   {
     auto stream = faker.Interpret("MATCH (n) WHERE 'A' IN labels(n) RETURN n.x");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -1106,36 +745,36 @@ TEST_F(VersioningInterpreterTest, BranchVertexWriteIsLazyDiffAndIsolated) {
   }
 }
 
-// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-1 regression (adversarial-review fix):
-// query::VertexAccessor::UpdateProperties (the `SET n += {...}` operator, plan/operator.cpp's
-// SetPropertiesOnRecord) was missing the COW guard SetProperty/AddLabel already had -- on a branch
-// it wrote straight through the READ-ONLY historical accessor, tripping transaction.hpp's
-// `is_historical_` MG_ASSERT. This must not crash, and the write must still be isolated from main
-// (R35).
-TEST_F(VersioningInterpreterTest, BranchUpdatePropertiesIsCowedAndIsolated) {
+// Whole-map property writes on a fork vertex: `SET n += {...}` (query::VertexAccessor::UpdateProperties, which lacked
+// the COW guard SetProperty/AddLabel had and wrote straight through the READ-ONLY historical accessor, tripping the
+// `is_historical_` MG_ASSERT) and `SET n = {...}` (which keeps only the new properties). Both must be isolated from
+// main.
+TEST_F(VersioningInterpreterTest, BranchWholeMapPropertyWriteOnForkVertex) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE (:P {id: 1, p: 7, q: 8})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  // Must not crash -- HIGH-1's whole point (previously an MG_ASSERT abort against the historical,
-  // read-only accessor).
-  faker.Interpret("MATCH (n) SET n += {y: 2}");
+  faker.Interpret("MATCH (n:A) SET n += {y: 2}");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.y"), (Rows{{2}}));
 
+  faker.Interpret("MATCH (n:P) SET n = {x: 1}");
   {
-    auto stream = faker.Interpret("MATCH (n) RETURN n.y");
+    auto stream = faker.Interpret("MATCH (n:P) RETURN keys(n), n.x, n.p IS NULL, n.id IS NULL");
     ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    const auto &row = stream.GetResults()[0];
+    EXPECT_EQ(SortedNames(row[0]), (std::vector<std::string>{"x"}));
+    EXPECT_EQ(row[1].ValueInt(), 1);
+    EXPECT_TRUE(row[2].ValueBool());
+    EXPECT_TRUE(row[3].ValueBool());
   }
 
-  // Main was never touched -- R35.
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto stream = faker.Interpret("MATCH (n) RETURN n.y");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
-  }
+  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.y"), (Rows{{kNullInt}})) << "main must not see the branch's SET +=";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:P) RETURN n.id, n.p, n.q, n.x"), (Rows{{1, 7, 8, kNullInt}}))
+      << "main must not see the branch's SET =";
 }
 
 // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-2 regression (adversarial-review fix):
@@ -1156,57 +795,6 @@ TEST_F(VersioningInterpreterTest, BranchSingleStatementSetThenReturnSeesNewValue
   auto stream = faker.Interpret("MATCH (n) SET n.x = 2 RETURN n.x");
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "must see the post-SET value, not the stale historical one";
-}
-
-// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) regression (adversarial-review fix)
-// -- REWORKED for chunk 8 (R14): this test used to create the label index directly against the
-// branch's own diff engine (`CREATE INDEX ON :A` issued AFTER `CHECKOUT BRANCH 'b'`, exploiting the
-// same query::DbAccessor/accessor_ redirection as everything else, see db_accessor.hpp's
-// CreateIndex) to force the planner into a real ScanAllByLabel and exercise
-// DbAccessor::Vertices(view, label)'s union-aware fallback. Chunk 8 now REJECTS schema-plane DDL
-// (including `CREATE INDEX`) while a versioning branch is checked out -- see the `is_schema_ddl`
-// guard in `interpreter.cpp`'s `Prepare` -- so that branch-side `CREATE INDEX` would now throw
-// instead of building the index, invalidating the old recipe outright.
-//
-// The index is created on MAIN instead, BEFORE the fork -- a fork-era index is a legitimate part of
-// the historical base a branch reads through, and chunk 8 does not (and must not) reject schema DDL
-// issued while checked out on main. Because chunk 8 also forbids a SECOND, branch-side index, the
-// branch's own diff engine never acquires a label index of its own, so the planner may now fall back
-// to a plain ScanAll for `MATCH (n:A)` rather than an indexed ScanAllByLabel. That is fine: this test
-// asserts the RESULT (union-aware -- both the COW'd vertex and the still-historical one are
-// returned), which holds regardless of which operator the planner picks.
-// `DbAccessor::Vertices`'s union-materialize path (`MaterializeFilteredBranchScan`) remains the
-// correctness guarantee for the day fork-era-catalog reconciliation (deferred) makes an indexed
-// branch scan planner-reachable again.
-TEST_F(VersioningInterpreterTest, BranchLabelScanUnionAwareWithForkEraIndex) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:A {x:1}), (:A {x:5})");
-  // Index on MAIN, pre-fork -- schema DDL on main is unaffected by the branch guard.
-  faker.Interpret("CREATE INDEX ON :A");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  // Touches (COWs) only the x=1 vertex -- the x=5 one stays purely historical. No branch-side
-  // index exists -- chunk 8 forbids creating one here.
-  faker.Interpret("MATCH (n:A) WHERE n.x = 1 SET n.x = 2");
-
-  auto stream = faker.Interpret("MATCH (n:A) RETURN n.x");
-  ASSERT_EQ(stream.GetResults().size(), 2U) << "must find BOTH the COW'd vertex and the still-historical one";
-  bool found_cowed = false;
-  bool found_historical = false;
-  for (auto &row : stream.GetResults()) {
-    const auto value = row[0].ValueInt();
-    if (value == 2) {
-      found_cowed = true;
-    } else if (value == 5) {
-      found_historical = true;
-    }
-  }
-  EXPECT_TRUE(found_cowed) << "the COW'd vertex must still be found regardless of the scan operator chosen";
-  EXPECT_TRUE(found_historical)
-      << "the still-historical vertex (absent from any branch-side index) must not be silently missed";
 }
 
 // Graph Versioning v1, slice E-2a (branch edge create + basic single-hop expansion): covers two
@@ -1331,207 +919,94 @@ TEST_F(VersioningInterpreterTest, BranchFindEdgeByIdResolvesForkAndBranchNativeE
   }
 }
 
-// Graph Versioning v1, slice E-2d (edge-type+property indexed scan) -- REWORKED for chunk 8 (R14):
-// this test used to create the edge-type-and-property index ON THE BRANCH itself (mirroring
-// `tests/unit/interpreter.cpp`'s own `EdgePropertyInListIndexedEquivalence` recipe) to reliably force
-// the planner into an indexed scan. Chunk 8 now REJECTS `CREATE EDGE INDEX` (and every other
-// schema-plane DDL) while a versioning branch is checked out -- see the `is_schema_ddl` guard in
-// `interpreter.cpp`'s `Prepare` -- so that branch-side `CREATE EDGE INDEX` would now throw instead of
-// building the index, invalidating the old recipe outright.
-//
-// The index is created on MAIN instead, BEFORE the fork -- a fork-era index is a legitimate part of
-// the historical base a branch reads through, and chunk 8 does not (and must not) reject schema DDL
-// issued while checked out on main. Because chunk 8 also forbids a SECOND, branch-side index, the
-// branch's own diff engine never acquires an edge index of its own, so the planner may now fall back
-// to a plain Expand for the branch-native edges rather than an indexed scan. That is fine: this test
-// asserts the RESULT (union-aware -- the historical fork-era edge and the branch-native match are both
-// returned, the non-match excluded), which holds regardless of which operator the planner picks.
-// `DbAccessor::Edges`'s union-materialize path (`MaterializeFilteredBranchEdgeScan`) remains the
-// correctness guarantee for the day fork-era-catalog reconciliation (deferred) makes an indexed branch
-// scan planner-reachable again.
-TEST_F(VersioningInterpreterTest, BranchEdgeScanUnionAwareWithForkEraEdgeIndex) {
+// Graph Versioning v2: indexes, constraints, descriptions, triggers, streams and storage-global operations belong to
+// main, so each is rejected with a QueryRuntimeException while checked out on a branch (before it ever reaches
+// storage). The session stays usable afterwards, SHOW INDEX INFO on the branch still equals main's and the planner
+// still uses the mirrored index, and the identical statements succeed on main -- the guard is branch-scoped. RECOVER
+// SNAPSHOT is covered by the identical guard but needs a snapshot file on disk, so it is not exercised here.
+TEST_F(VersioningInterpreterTest, StatementsRejectedOnBranch) {
   SatisfyGate();
 
-  // Fork edge, prop=1, created on MAIN before the branch even exists.
-  faker.Interpret("CREATE (:X {name:'x'})-[:R {prop:1}]->(:Y {name:'y'})");
-  // Index on MAIN, pre-fork -- schema DDL on main is unaffected by the branch guard.
-  faker.Interpret("CREATE EDGE INDEX ON :R(prop)");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  // Branch-native edges: one matching (prop=1), one that must be excluded (prop=2). No branch-side
-  // index exists -- chunk 8 forbids creating one here.
-  faker.Interpret("CREATE (:X)-[:R {prop:1}]->(:Y)");
-  faker.Interpret("CREATE (:X)-[:R {prop:2}]->(:Y)");
-
-  auto stream = faker.Interpret("MATCH ()-[e:R]->() WHERE e.prop = 1 RETURN e.prop");
-  ASSERT_EQ(stream.GetResults().size(), 2U)
-      << "branch edge scan must be union-aware: the historical fork edge (prop=1) plus the "
-         "branch-native prop=1 edge, excluding prop=2 -- regardless of whether the planner picks an "
-         "indexed scan or Expand, both are union-aware on a branch";
-  for (auto &row : stream.GetResults()) {
-    EXPECT_EQ(row[0].ValueInt(), 1);
-  }
-
-  // Isolation: main still has exactly ONE :R edge -- the branch's native edges never leaked across.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  auto s2 = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
-  ASSERT_EQ(s2.GetResults().size(), 1U) << "branch-native edges must not leak to main";
-}
-
-// Graph Versioning v1, chunk 8 (R14): the schema-plane DDL rejection guard itself. Every
-// index/constraint/ANALYZE-GRAPH-shaped DDL must throw QueryRuntimeException while checked out on a
-// branch (BEFORE it ever reaches storage), a data-plane write and an ordinary read must still work
-// afterward on that SAME session (the throw must not leave the interpreter wedged), and the identical
-// DDL must succeed once checked back out onto main -- the guard is branch-scoped, not global.
-//
-// Widened (adversarial-review follow-up, see the guard's own comment in interpreter.cpp's Prepare):
-// the same rejection also covers storage-global operations -- TTL and STORAGE MODE are asserted here
-// with simple, path-free syntax; RECOVER SNAPSHOT is deliberately NOT exercised in this test (it
-// needs a real snapshot file on disk) but is covered by the identical guard/exception path.
-TEST_F(VersioningInterpreterTest, BranchSchemaDdlRejected) {
-  SatisfyGate();
-
+  faker.Interpret("CREATE INDEX ON :Person(age)");
+  faker.Interpret("CREATE INDEX ON :Person");
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
+  faker.Interpret("CREATE (:Person {age:10})");
   faker.Interpret("CREATE (:L {p:1})-[:R {p:1}]->(:M)");
+
+  auto index_rows = [&]() {
+    auto s = faker.Interpret("SHOW INDEX INFO");
+    std::vector<std::string> rows;
+    for (const auto &row : s.GetResults()) {
+      std::string r;
+      for (size_t i = 0; i + 1 < row.size(); ++i) {  // skip the trailing count column
+        r += row[i].IsString() ? std::string(row[i].ValueString()) : std::string("-");
+        r += '|';
+      }
+      rows.push_back(std::move(r));
+    }
+    std::sort(rows.begin(), rows.end());
+    return rows;
+  };
+  const auto main_rows = index_rows();
+  ASSERT_GE(main_rows.size(), 3U);
+
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  // Every schema-plane DDL is rejected on a branch:
-  ASSERT_THROW(faker.Interpret("CREATE INDEX ON :L(p)"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("CREATE EDGE INDEX ON :R(p)"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("CREATE CONSTRAINT ON (n:L) ASSERT EXISTS (n.p)"),
-               memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("ANALYZE GRAPH"), memgraph::query::QueryRuntimeException);
+  struct Rejected {
+    const char *query;
+    // Substring the error must contain; empty for none.
+    const char *message;
+  };
 
-  // Storage-global operations are rejected too (same guard, widened set):
-  ASSERT_THROW(faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("ENABLE TTL"), memgraph::query::QueryRuntimeException);
-
-  // Session still usable after the rejections -- an ordinary data read works.
-  {
-    auto s = faker.Interpret("MATCH (n:L) RETURN n.p");
-    ASSERT_EQ(s.GetResults().size(), 1U);
-    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 1);
+  static constexpr Rejected rejected[] = {
+      {"CREATE INDEX ON :L(p)", ""},
+      {"CREATE EDGE INDEX ON :R(p)", ""},
+      {"DROP INDEX ON :Person(age)", ""},
+      {"DROP INDEX ON :Person", ""},
+      {"DROP EDGE INDEX ON :KNOWS", ""},
+      {"DROP ALL INDEXES", ""},
+      {"CREATE CONSTRAINT ON (n:L) ASSERT EXISTS (n.p)", ""},
+      {"ANALYZE GRAPH", ""},
+      {"STORAGE MODE IN_MEMORY_ANALYTICAL", ""},
+      {"ENABLE TTL", ""},
+      {"CREATE TRIGGER my_trigger AFTER COMMIT EXECUTE RETURN 1", ""},
+      // Must be parse+semantic-valid (TOPICS/TRANSFORM are required) so it reaches the on-branch guard in Prepare
+      // instead of failing semantic validation first.
+      {"CREATE KAFKA STREAM my_stream TOPICS my_topic TRANSFORM my_module.my_transform", ""},
+      {"SET DESCRIPTION ON LABEL :Person \"d\"", "DESCRIPTION"},
+      {"DELETE DESCRIPTION ON LABEL :Person", "DESCRIPTION"},
+      {"SHOW DESCRIPTIONS", "DESCRIPTION"},
+  };
+  for (const auto &r : rejected) {
+    SCOPED_TRACE(r.query);
+    try {
+      faker.Interpret(r.query);
+      ADD_FAILURE() << "must be rejected on a branch";
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr(r.message));
+    }
   }
 
-  // Data-plane write still allowed on the branch.
+  // The session is not wedged: reads and data-plane writes still work.
+  EXPECT_EQ(IntRows(faker, "MATCH (n:L) RETURN n.p"), (Rows{{1}}));
   faker.Interpret("CREATE (:L {p:2})");
 
-  // The SAME DDL succeeds on main -- the guard is branch-scoped.
+  EXPECT_EQ(index_rows(), main_rows);
+  EXPECT_TRUE(
+      PlanHasOperator(ExplainText(faker, "MATCH (n:Person) WHERE n.age > 0 RETURN n"), "ScanAllByLabelProperties"));
+
+  // The same statements succeed on main.
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CREATE INDEX ON :L(p)");  // must NOT throw
-  {
-    auto s = faker.Interpret("SHOW INDEX INFO");
-    EXPECT_GE(s.GetResults().size(), 1U);
-  }
-}
-
-// Graph Versioning v1, Fix #7: TriggerQuery/StreamQuery mutate main's global, durable trigger/
-// stream registries (TriggerStore/Streams live on the Database, not the diff engine) -- the same
-// class of storage-global side effect BranchSchemaDdlRejected above already covers for TTL/
-// STORAGE MODE/indexes. Before this fix, TtlQuery was in the on-branch blocklist but
-// TriggerQuery/StreamQuery were not, so a branch session could silently mutate main's trigger/
-// stream registries. Mirrors BranchSchemaDdlRejected's own shape (ASSERT_THROW on the branch, then
-// the identical query succeeds on main, proving the guard is branch-scoped not global).
-TEST_F(VersioningInterpreterTest, BranchTriggerAndStreamDdlRejected) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  ASSERT_THROW(faker.Interpret("CREATE TRIGGER my_trigger AFTER COMMIT EXECUTE RETURN 1"),
-               memgraph::query::QueryRuntimeException);
-  // Must be parse+semantic-valid (TOPICS/TRANSFORM are required) so it reaches the on-branch guard
-  // in Prepare rather than failing semantic validation first; the guard rejects it by query type
-  // before the stream handler ever loads the transform.
-  ASSERT_THROW(faker.Interpret("CREATE KAFKA STREAM my_stream TOPICS my_topic TRANSFORM my_module.my_transform"),
-               memgraph::query::QueryRuntimeException);
-
-  // Session still usable after the rejections.
-  faker.Interpret("CREATE (:OnBranch {x:1})");
-
-  // The SAME DDL succeeds on main -- the guard is branch-scoped.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CREATE TRIGGER my_trigger AFTER COMMIT EXECUTE RETURN 1");  // must NOT throw
+  EXPECT_EQ(index_rows(), main_rows);
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  EXPECT_EQ(index_rows().size(), main_rows.size() + 1);
+  faker.Interpret("CREATE TRIGGER my_trigger AFTER COMMIT EXECUTE RETURN 1");
   {
     auto s = faker.Interpret("SHOW TRIGGERS");
     EXPECT_EQ(s.GetResults().size(), 1U);
   }
-}
-
-// Graph Versioning v1, slice E-2c (branch edge-property SET/REMOVE): both exercise
-// BranchContext::CowEdgeIfNeeded on the same still-historical edge. The SET variant embeds a
-// RETURN for a single-statement read-your-write check (HIGH-2 analogue); REMOVE does not (it is
-// SetProperty(key, null) internally -- same CowEdgeIfNeeded path). Both must be isolated from
-// main (R35). Parametrized over mutation kind and expected post-mutation branch value.
-// (Collapses BranchEdgePropertyModifyIsCowedAndIsolated + BranchEdgePropertyRemoveIsCowedAndIsolated.)
-TEST_F(VersioningInterpreterTest, BranchEdgePropertyMutationIsCowedAndIsolated) {
-  SatisfyGate();
-
-  struct Case {
-    const char *name;
-    // When non-null: mutation query includes RETURN for a read-your-write assertion.
-    const char *mutation_with_return;
-    int ryw_expected_int;
-    // When non-null: mutation query with no RETURN.
-    const char *mutation_no_return;
-    bool expect_null;
-    int expected_int;  // valid when !expect_null
-  };
-
-  static const Case cases[] = {
-      // Original: BranchEdgePropertyModifyIsCowedAndIsolated
-      {"SET", "MATCH (:S)-[e:E]->(:A) SET e.w = 2 RETURN e.w", 2, nullptr, false, 2},
-      // Original: BranchEdgePropertyRemoveIsCowedAndIsolated
-      {"REMOVE", nullptr, 0, "MATCH (:S)-[e:E]->(:A) REMOVE e.w", true, 0},
-  };
-
-  int iter = 0;
-  for (const auto &c : cases) {
-    SCOPED_TRACE(c.name);
-    if (iter++ > 0) {
-      // SET iteration ended on main with branch 'b' still alive; clear for REMOVE.
-      faker.Interpret("MATCH (n) DETACH DELETE n");
-      faker.Interpret("DROP BRANCH 'b'");
-    }
-
-    faker.Interpret("CREATE (:S)-[:E {w:1}]->(:A)");
-    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-    faker.Interpret("CHECKOUT BRANCH 'b'");
-    ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-
-    if (c.mutation_with_return) {
-      // (1)+(2): must not crash (HIGH-1-equivalent), and the RETURN in the SAME statement must
-      // already see the post-mutation value.
-      auto stream = faker.Interpret(c.mutation_with_return);
-      ASSERT_EQ(stream.GetResults().size(), 1U);
-      EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), c.ryw_expected_int)
-          << "must see the post-SET value, not the stale historical one";
-    } else {
-      faker.Interpret(c.mutation_no_return);
-    }
-
-    // Persists in a later, separate statement within the same branch session.
-    {
-      auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
-      ASSERT_EQ(stream.GetResults().size(), 1U);
-      if (c.expect_null) {
-        EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null)
-            << "e.w must be removed on the branch";
-      } else {
-        EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), c.expected_int);
-      }
-    }
-
-    // R35: main must be untouched by the branch's mutation.
-    faker.Interpret("CHECKOUT BRANCH 'main'");
-    {
-      auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
-      ASSERT_EQ(stream.GetResults().size(), 1U);
-      EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1) << "main must be untouched by the branch's " << c.name;
-    }
-  }
+  EXPECT_NO_THROW(faker.Interpret("SET DESCRIPTION ON LABEL :Person \"d\""));
 }
 
 // Graph Versioning v1, perf/versioning-branch-read D1: edge VALUE-read fast path
@@ -1590,93 +1065,6 @@ TEST_F(VersioningInterpreterTest, BranchEdgeBitFastPathSkipsResolveForUnchangedE
   }
 }
 
-// D1 correctness case (4): the coarse "any-branch" bit is monotonic and never cleared, so branch X
-// setting main's Edge::branched() bit must NOT leak X's diff-engine value to a DIFFERENT branch Y
-// that never touched the edge -- Y's own FindDiffEdge lookup misses (its diff engine is private), so
-// it must fall through to its OWN fork-state read. Mirrors BranchChangeFilterCrossBranchIsolation's
-// vertex-level coverage above, but for the edge-bit gate specifically.
-TEST_F(VersioningInterpreterTest, BranchEdgeBitFastPathCrossBranchIsolation) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:S)-[:E {w:1}]->(:A)");
-
-  // b1 touches the edge -- sets main's Edge::branched() bit GLOBALLY (monotonic, never cleared).
-  faker.Interpret("CREATE BRANCH 'b1' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b1'");
-  faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 999");
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-
-  // b2 forks AFTER b1's change (main itself is untouched, R35), so b2's fork-state is still w=1.
-  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b2'");
-
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1)
-        << "b2 must read its OWN fork value, not b1's diff-engine change -- the bit is a coarse "
-           "any-branch hint, and a bit-set-but-FindDiffEdge-miss must fall back to fork-state, never "
-           "leak across branches";
-  }
-}
-
-// D1 restart-correctness case (7): BranchContext::MarkMainEdgeBranched re-seeds main's own
-// Edge::branched() bit during BuildFromFork's change-log replay (branch_engine.cpp) -- without it, a
-// freshly-rebuilt diff engine (post re-checkout, or equivalently post-restart) would start with the
-// bit CLEARED again on main's Edge object (the diff engine that originally set it is gone), so the
-// fast path would incorrectly treat a genuinely-changed edge as untouched and read stale fork-state.
-// Mirrors BranchChangeFilterFinePropertySurvivesRecheckout's vertex-level coverage above.
-TEST_F(VersioningInterpreterTest, BranchEdgeBitFastPathSurvivesRecheckoutReplay) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (s:S)-[:E1 {w:1}]->(:A), (s)-[:E2 {w:2}]->(:B)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  faker.Interpret("MATCH (:S)-[e:E1]->(:A) SET e.w = 99");
-
-  // In-session (no replay yet): the change is already visible, the sibling edge stays fork-correct.
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E1]->(:A) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99);
-  }
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E2]->(:B) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-  }
-
-  // Force change-log replay: tear down and rebuild the BranchContext via BuildFromFork by checking
-  // out away from 'b' and back onto it -- the diff engine (and with it, whatever it once set) is
-  // gone; only the re-seed during replay can restore correct resolution.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E1]->(:A) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99)
-        << "post-recheckout, MarkMainEdgeBranched must have re-seeded main's Edge::branched() bit so "
-           "the changed edge resolves via FindDiffEdge again -- a missing re-seed would incorrectly "
-           "take the fast path and read stale fork-state (1)";
-  }
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E2]->(:B) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2)
-        << "the untouched sibling edge must still read fork-state correctly after replay";
-  }
-
-  // R35: main is untouched throughout.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E1]->(:A) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1) << "main must be untouched by the branch's SET";
-  }
-}
-
 // D1 correctness case (8): the branched() bit lives on the EDGE object, not the vertex -- a
 // self-loop (from==to) and two parallel edges (same endpoints, distinct gid) must each resolve
 // independently. The parallel-edge half is the sharper case: P1 and P2 share BOTH endpoints, so
@@ -1726,39 +1114,6 @@ TEST_F(VersioningInterpreterTest, BranchEdgeBitFastPathSelfLoopAndParallelEdgesP
   }
 }
 
-// D1 delete-safety hardening (case 5, NEW-view half): a branch-deleted edge went through CowEdge
-// (which unconditionally sets main's Edge::branched() bit, branch_engine.cpp) BEFORE the delete, so
-// it must never take the `!MaybeBranchedHint()` fast path -- it must still fall through to
-// FindDiffEdge (a miss, since the diff copy is itself deleted-and-thus-invisible at View::NEW) and
-// then the existing S2 tombstone guard, exactly as BranchDeleteEdgeThenReadPropertyOnNewViewRaises
-// above already covers for a never-touched fork edge. This variant additionally SETs the edge first
-// (so it is already diff-resident, exercising the diff-resident short-circuit's OWN delete-safety --
-// step (0) must not skip the delete either) before deleting it in a LATER statement.
-TEST_F(VersioningInterpreterTest, BranchEdgeBitFastPathDeleteAfterModifyStillRaisesOnNewView) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:S)-[:E {w:1}]->(:A)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 42");
-  ASSERT_THROW(faker.Interpret("MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w AS w"),
-               memgraph::query::QueryRuntimeException)
-      << "reading a property of an already-modified-then-deleted edge in the SAME query must still "
-         "raise DELETED_OBJECT, exactly as for a never-touched fork edge -- D1's diff-resident "
-         "short-circuit and branched()-bit gate must both defer to the existing tombstone guard";
-
-  {
-    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
-    ASSERT_EQ(stream.GetResults().size(), 1U)
-        << "the DELETE statement threw (DELETED_OBJECT), so its autocommit transaction aborted and "
-           "rolled back -- the edge survives, matching main's ACID semantics (H1: a pending tombstone "
-           "is discarded on abort, not left hiding live data)";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 42)
-        << "the edge retains the last committed value from 'SET e.w = 42'; the aborted DELETE never took effect";
-  }
-}
-
 // Graph Versioning v1, slice E-4, increment 2: a branch-NATIVE vertex (created and deleted entirely
 // within the SAME checkout session -- no fork counterpart at all) must be hidden from the branch's
 // own read path immediately after its own DELETE, and MERGE must have nothing to apply for it: pass
@@ -1787,118 +1142,111 @@ TEST_F(VersioningInterpreterTest, BranchDeleteBranchNativeVertexHiddenAndMainNev
   EXPECT_EQ(stream.GetResults().size(), 0U) << "main must never have seen the created-then-deleted vertex";
 }
 
-// MULTI-COMMIT fix regression (2026-07-12): direct proof that a checkout SESSION making SEVERAL
-// separate query-commits (not just the CREATE-then-DELETE pair above) has EVERY one of them
-// captured and replayed onto main in the right order, not just the first. Before the fix, a single
-// BranchLog spanning the whole session accumulated all three commits' deltas into ONE file --
-// `storage::durability::ReadWalInfo`'s per-transaction scan (wal.cpp) stops counting the instant it
-// sees a SECOND transaction's differing timestamp, so `CollectBranchChangelog` would have silently
-// recovered ONLY the first commit (CREATE :M1) -- MERGE would then leave main with just :M1, never
-// :M2, and :M1 would never get its `v:2` property update either. Three separate `faker.Interpret`
-// calls below are three separate autocommitted transactions (three separate per-commit BranchLog
-// files, per `BranchContext::CreateCommitLog`) -- proving all three round-trip and apply in order.
-TEST_F(VersioningInterpreterTest, BranchMultipleCommitsAllVisibleAfterReattach) {
+// A branch's own writes live in the diff engine and are rebuilt from the per-commit change-log every time a session
+// attaches, so every kind of write must read back identically after CHECKOUT away and back, and main must stay
+// untouched. The separate autocommitted statements are separate captured commits: a later commit (the SET of :M1) is
+// only correct if every earlier one (its CREATE) was captured and replayed in order. Replay must also re-seed the
+// change filters: the fine property filter (reached through an edge traversal, main's copy of the vertex) and main's
+// Edge::branched() bit, else the changed value reads stale fork-state.
+TEST_F(VersioningInterpreterTest, BranchStateSurvivesDetachReattach) {
   SatisfyGate();
 
+  faker.Interpret("CREATE (:Person:Employee {id: 1})");
+  faker.Interpret("CREATE (:User {id: 1})-[:E]->(:User {id: 2, age: 40, keep: 7})");
+  faker.Interpret("CREATE (s:S)-[:E1 {w: 1}]->(:A), (s)-[:E2 {w: 2}]->(:B)");
+  faker.Interpret("CREATE (:RP {id: 1, p: 7, q: 8})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  // Commit 1: create :M1.
   faker.Interpret("CREATE (:M1 {v:1})");
-  // Commit 2: create :M2 (a second, independent branch-native vertex).
   faker.Interpret("CREATE (:M2 {v:1})");
-  // Commit 3: modify :M1 -- only correct if commit 1's vertex is visible to this later commit,
-  // proving the diff engine (not just the eventual merged main) sees every earlier commit too.
   faker.Interpret("MATCH (n:M1) SET n.v = 2");
+  faker.Interpret("MATCH (n:Person {id: 1}) REMOVE n:Employee");
+  faker.Interpret("MATCH (v:User {id: 2}) SET v.age = 99");
+  faker.Interpret("MATCH (:S)-[e:E1]->(:A) SET e.w = 99");
+  faker.Interpret("MATCH (n:RP) REMOVE n.p");
+  faker.Interpret("MATCH (n:RP) SET n.q = null");
 
-  // Detach and re-attach: the branch's shared diff engine outlives any one checkout.
+  auto const check_branch = [&] {
+    EXPECT_EQ(IntRows(faker, "MATCH (n:M1) RETURN n.v"), (Rows{{2}}))
+        << "the create and the later SET must both be visible";
+    EXPECT_EQ(IntRows(faker, "MATCH (n:M2) RETURN n.v"), (Rows{{1}}));
+    {
+      auto stream = faker.Interpret("MATCH (n:Person {id: 1}) RETURN labels(n)");
+      ASSERT_EQ(stream.GetResults().size(), 1U);
+      EXPECT_EQ(SortedNames(stream.GetResults()[0][0]), (std::vector<std::string>{"Person"}))
+          << "the REMOVE'd :Employee must stay gone and the untouched :Person must stay";
+    }
+    EXPECT_EQ(IntRows(faker, "MATCH (:User {id: 1})-[:E]->(v) RETURN v.age, v.keep"), (Rows{{99, 7}}))
+        << "the changed property resolves through the traversal, the unchanged one reads fork-state";
+    EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E1]->(:A) RETURN e.w"), (Rows{{99}})) << "the changed edge";
+    EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E2]->(:B) RETURN e.w"), (Rows{{2}})) << "the untouched sibling edge";
+    {
+      auto stream = faker.Interpret("MATCH (n:RP) RETURN n.p IS NULL, n.q IS NULL, keys(n), n.id");
+      ASSERT_EQ(stream.GetResults().size(), 1U);
+      const auto &row = stream.GetResults()[0];
+      EXPECT_TRUE(row[0].ValueBool());
+      EXPECT_TRUE(row[1].ValueBool());
+      EXPECT_EQ(SortedNames(row[2]), (std::vector<std::string>{"id"}));
+      EXPECT_EQ(row[3].ValueInt(), 1);
+    }
+  };
+
+  check_branch();
+
   faker.Interpret("CHECKOUT BRANCH 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  check_branch();
 
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:M1) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:M2) RETURN count(n)"), (Rows{{0}}));
   {
-    auto stream = faker.Interpret("MATCH (n:M1) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 1 (create) must be visible";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "commit 3 (the SET) must be visible too";
+    auto stream = faker.Interpret("MATCH (n:Person {id: 1}) RETURN labels(n)");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(SortedNames(stream.GetResults()[0][0]), (std::vector<std::string>{"Employee", "Person"}))
+        << "main must keep both labels";
   }
-  {
-    auto stream = faker.Interpret("MATCH (n:M2) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 2 (create) must be visible";
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-  }
+  EXPECT_EQ(IntRows(faker, "MATCH (v:User {id: 2}) RETURN v.age"), (Rows{{40}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E1]->(:A) RETURN e.w"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:RP) RETURN n.p, n.q"), (Rows{{7, 8}}));
 }
 
-// Graph Versioning v1, Fix #2 (durable-capture, HIGH -- data loss): `USING PERIODIC COMMIT` /
-// `CALL {} IN TRANSACTIONS` flush the diff-engine transaction mid-query via
-// `query::DbAccessor::PeriodicCommit` (db_accessor.hpp), a DIFFERENT code path than
-// `Interpreter::Commit()`'s own end-of-query commit boundary. Before this fix, `PeriodicCommit`
-// forwarded straight to the storage layer with no branch-capture call at all, so every
-// periodically-committed batch on a branch was flushed from the diff engine but never written to
-// the BranchLog -- silently lost on re-checkout/MERGE/restart (in-session reads still looked fine,
-// masking it). This test drives 100 rows through a periodic-commit-every-10 boundary (10 separate
-// `PeriodicCommit` calls, each of which must now capture via the shared
-// `BranchContext::CaptureCommitIfBranch` helper -- see db_accessor.hpp's `PeriodicCommit` and
-// interpreter.cpp's `Interpreter::Commit`), then forces a re-checkout (which rebuilds
-// `BranchContext` from the persisted changelog via `ReplayChangelogIntoDiffEngine`) and a MERGE --
-// WITHOUT the fix, only whatever happened to still be in the live diff engine before this test's
-// re-checkout would survive (at best the batches present at the moment of re-checkout; in the
-// pre-fix code, NONE of them, since nothing was ever captured).
-TEST_F(VersioningInterpreterTest, BranchPeriodicCommitSurvivesRecheckout) {
+// `USING PERIODIC COMMIT` and `CALL {} IN TRANSACTIONS` flush the diff-engine transaction mid-query through
+// query::DbAccessor::PeriodicCommit, a different path from Interpreter::Commit's end-of-query boundary (and two
+// different cursors reaching it). Every flushed batch must be captured into the branch's change-log, else it is
+// silently lost on re-checkout/restart while in-session reads still look fine.
+TEST_F(VersioningInterpreterTest, BranchPeriodicCommitWritesToBranch) {
   SatisfyGate();
+
+  struct Case {
+    const char *label;
+    const char *query;
+    int64_t rows;
+  };
+
+  static constexpr Case cases[] = {
+      {"Batch", "USING PERIODIC COMMIT 10 UNWIND range(1, 100) AS x CREATE (:Batch {id: x})", 100},
+      {"Batch2", "UNWIND range(1, 20) AS x CALL { WITH x CREATE (:Batch2 {id: x}) } IN TRANSACTIONS OF 5 ROWS", 20},
+  };
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  faker.Interpret("USING PERIODIC COMMIT 10 UNWIND range(1, 100) AS x CREATE (:Batch {id: x})");
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.label);
+    const auto count = "MATCH (n:" + std::string{c.label} + ") RETURN count(n)";
 
-  {
-    auto s = faker.Interpret("MATCH (n:Batch) RETURN count(n)");
-    ASSERT_EQ(s.GetResults().size(), 1U);
-    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 100) << "all periodically-committed rows must be visible in-session";
+    faker.Interpret(c.query);
+    EXPECT_EQ(IntRows(faker, count), (Rows{{c.rows}})) << "all periodically committed rows must be visible in-session";
+
+    faker.Interpret("CHECKOUT BRANCH 'main'");
+    EXPECT_EQ(IntRows(faker, count), (Rows{{0}})) << "main never sees the branch's batches";
+
+    faker.Interpret("CHECKOUT BRANCH 'b'");
+    EXPECT_EQ(IntRows(faker, count), (Rows{{c.rows}})) << "the batches must survive a re-checkout replay";
   }
-
-  // Re-checkout the SAME branch: BranchContext is torn down and rebuilt from the branch's
-  // persisted changelog (BuildFromFork -> ReplayChangelogIntoDiffEngine). If periodic commits were
-  // never captured to the BranchLog, this is exactly where the data would be lost.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  {
-    auto s = faker.Interpret("MATCH (n:Batch) RETURN count(n)");
-    ASSERT_EQ(s.GetResults().size(), 1U);
-    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 100)
-        << "periodic-commit batches must survive a re-checkout replay -- Fix #2 (durable-capture at "
-           "the periodic-commit boundary)";
-  }
-
-  // Main never sees any of the branch's batches.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto s = faker.Interpret("MATCH (n:Batch) RETURN count(n)");
-    ASSERT_EQ(s.GetResults().size(), 1U);
-    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 0);
-  }
-}
-
-// Graph Versioning v1, Fix #2 follow-up: `CALL {} IN TRANSACTIONS` is a SEPARATE cursor
-// (PeriodicSubquery, operator.cpp) from `USING PERIODIC COMMIT`'s (PeriodicCommitCursor), but both
-// ultimately call the SAME `query::DbAccessor::PeriodicCommit` -- confirm the capture fix covers
-// this call site too, not just the USING-PERIODIC-COMMIT one exercised above.
-TEST_F(VersioningInterpreterTest, BranchCallInTransactionsCapturedAndSurvivesRecheckout) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("UNWIND range(1, 20) AS x CALL { WITH x CREATE (:Batch2 {id: x}) } IN TRANSACTIONS OF 5 ROWS");
-
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto s = faker.Interpret("MATCH (n:Batch2) RETURN count(n)");
-  ASSERT_EQ(s.GetResults().size(), 1U);
-  EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 20)
-      << "CALL {} IN TRANSACTIONS batches must survive a re-checkout replay too (same PeriodicCommit "
-         "call site as USING PERIODIC COMMIT)";
 }
 
 // Graph Versioning v1, chunk 9b (R17): locks in the BRANCHES-EXIST guard on STORAGE MODE, RECOVER
@@ -1988,92 +1336,29 @@ TEST_F(VersioningInterpreterTest, UsingVersionMainReadsMainWhileOnBranch) {
   }
 }
 
-// Write-side counterpart: `USING VERSION 'main' CREATE ...` while checked out on a branch commits
-// straight to main's real storage, not the branch's diff engine -- R35-style isolation, just
-// deliberately aimed at main by an explicit per-query directive instead of a plain session-routed
-// write.
-TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchGoesToMain) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-
-  faker.Interpret("USING VERSION 'main' CREATE (:WroteToMain {v:9})");
-
-  // Not visible on the branch (session-routed read stays on 'b').
-  {
-    auto stream = faker.Interpret("MATCH (n:WroteToMain) RETURN n");
-    EXPECT_EQ(stream.GetResults().size(), 0U) << "a USING VERSION 'main' write must not land on the branch";
-  }
-
-  // Visible on main.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto stream = faker.Interpret("MATCH (n:WroteToMain) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 9);
-  }
-}
-
-// Graph Versioning v1, chunk 7d (D10) interaction, updated for the current-version model: after an
-// explicit CHECKOUT BRANCH 'main' the session is un-engaged and writable again (see
-// EngagedConnectionCannotSilentlyWriteMain above), so `USING VERSION 'main'` is no longer needed as
-// an escape hatch in this scenario -- it becomes a harmless, redundant no-op that must keep working
-// (naming a target explicitly must never behave differently from, or break, plain routing once both
-// resolve to the same place). This is a regression guard on the `!has_explicit_version` plumbing
-// itself (interpreter.cpp's rail exemption): the fix to SetCurrentVersion must not have broken
-// USING VERSION's resolution path for the 'main' target while genuinely on main. The still-real
-// escape-hatch scenario -- USING VERSION 'main' writing straight to main while the session is
-// actually checked out on a branch -- is covered separately by
-// UsingVersionMainWriteWhileOnBranchIsNotCapturedIntoBranchLog below.
-TEST_F(VersioningInterpreterTest, UsingVersionMainIsEscapeHatchOnEngagedMain) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  faker.Interpret("CHECKOUT BRANCH 'main'");  // un-engages; back on main, writable again
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-
-  // Plain write: succeeds directly (no rail to bypass anymore).
-  faker.Interpret("CREATE (:PlainWrite {v:6})");
-
-  // USING VERSION 'main': still allowed, still commits to main -- redundant but not broken.
-  faker.Interpret("USING VERSION 'main' CREATE (:Allowed {v:7})");
-  {
-    auto stream = faker.Interpret("MATCH (n:Allowed) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 7);
-  }
-  {
-    auto stream = faker.Interpret("MATCH (n:PlainWrite) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 6);
-  }
-}
-
-// `USING VERSION '<the session's own currently-checked-out branch>'` is a no-op: it names exactly
-// where ordinary session routing already sends the query, so the write lands on the branch (not
-// main) and stays isolated from main exactly as an unqualified branch write would.
-TEST_F(VersioningInterpreterTest, UsingVersionSessionBranchIsNoOp) {
+// `USING VERSION '<name>'` naming where ordinary routing already sends the query is a harmless no-op that must keep
+// working: the session's own checked-out branch (the write lands on the branch, isolated from main exactly as an
+// unqualified branch write), and 'main' on a session that is on main (after an explicit CHECKOUT BRANCH 'main' it is
+// un-engaged and writable, so the override is redundant but not broken). The still-real escape hatch -- 'main' while
+// checked out on a branch -- is UsingVersionMainWriteWhileOnBranchLandsOnMainOnly.
+TEST_F(VersioningInterpreterTest, UsingVersionTargetsSessionOrMain) {
   SatisfyGate();
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
   faker.Interpret("USING VERSION 'b' CREATE (:OnB {v:5})");
-  {
-    auto stream = faker.Interpret("MATCH (n:OnB) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
-  }
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN n.v"), (Rows{{5}}));
 
-  // Isolation: not on main.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  {
-    auto stream = faker.Interpret("MATCH (n:OnB) RETURN n");
-    EXPECT_EQ(stream.GetResults().size(), 0U) << "USING VERSION naming the session's own branch must not leak to main";
-  }
+  faker.Interpret("CHECKOUT BRANCH 'main'");  // un-engages; back on main, writable again
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}))
+      << "USING VERSION naming the session's own branch must not leak to main";
+
+  faker.Interpret("CREATE (:PlainWrite {v:6})");
+  faker.Interpret("USING VERSION 'main' CREATE (:Allowed {v:7})");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Allowed) RETURN n.v"), (Rows{{7}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:PlainWrite) RETURN n.v"), (Rows{{6}}));
 }
 
 // Step 2 boundary: naming any branch OTHER than 'main' or the session's own currently-checked-out
@@ -2250,55 +1535,29 @@ TEST_F(VersioningInterpreterTest, UsingVersionMainDoesNotPolluteBranchPlanCache)
   }
 }
 
-// Bug fix (double-delete-on-a-branch crash): on a checked-out branch, `MATCH (:A)-[r:R]->(:B) DETACH
-// DELETE r DELETE r` used to ABORT the process (MG_ASSERT "The edge must be inserted here!",
-// storage.cpp) -- two separate Delete operators each call query::DbAccessor::DetachDelete once; the
-// first tombstones r, but the second's `r` EdgeAccessor still points at the same gid, and
-// BranchContext::CowEdge's idempotency check (a diff-engine miss at View::NEW) cannot tell "already
-// deleted" apart from "never COW'd", so it fell through to CreateEdgeEx at a gid the diff engine's
-// skiplist still physically occupied. On `main`, re-deleting an already-deleted edge in the same
-// query is a no-op (single delete's worth of side effects) -- the branch must match, not crash.
-TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedEdgeIsNoOpNotCrash) {
+// Bug fix (double-delete-on-a-branch crash): two Delete operators in one query each call DbAccessor::DetachDelete once;
+// the first tombstones the entity, the second's accessor still points at the same gid, and CowEdge/CowVertex's
+// idempotency check (a diff-engine miss at View::NEW) cannot tell "already deleted" from "never COW'd", so it used to
+// fall through to CreateEdgeEx/CreateVertexEx at a gid the diff engine still physically held and abort the process
+// (MG_ASSERT). On `main` re-deleting an already-deleted entity in the same query is a no-op; the branch must match.
+// No RETURN clause: the point is that the call returns at all, state is checked by the follow-up reads.
+TEST_F(VersioningInterpreterTest, BranchDoubleDeleteIsNoOpNotCrash) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:A)-[:R]->(:B)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  // Two DELETE clauses targeting the SAME named edge `r` -- must not crash, and must behave as a
-  // single delete (the edge is gone, endpoints survive). No RETURN clause, so the interesting
-  // assertion is simply that this call returns at all (does not abort the process) -- state is
-  // checked via the follow-up MATCH queries below, mirroring every other delete test in this file.
-  faker.Interpret("MATCH (:A)-[r:R]->(:B) DETACH DELETE r DELETE r");
-
-  {
-    auto edges = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
-    EXPECT_EQ(edges.GetResults().size(), 0U) << "the double-deleted edge must be gone, exactly as a single delete";
-  }
-  {
-    auto vertices = faker.Interpret("MATCH (n) RETURN n");
-    EXPECT_EQ(vertices.GetResults().size(), 2U) << "both endpoints (:A and :B) must survive -- edge-only delete";
-  }
-}
-
-// Bug fix (double-delete-on-a-branch crash), vertex analogue: `CowVertex` has the identical latent
-// idempotency-check gap as `CowEdge` (FindVertex miss at View::NEW cannot distinguish "already
-// tombstoned" from "never COW'd") -- `MATCH (n) DETACH DELETE n DELETE n` on a branch used to hit the
-// same MG_ASSERT("gid collided") crash via CreateVertexEx. Must be a no-op on the second DELETE, same
-// as on `main`.
-TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedVertexIsNoOpNotCrash) {
-  SatisfyGate();
-
   faker.Interpret("CREATE (:Iso {tag:1})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  // No RETURN clause -- the interesting assertion is simply that this call returns at all (does not
-  // abort the process); state is checked via the follow-up MATCH query below.
-  faker.Interpret("MATCH (n:Iso) DETACH DELETE n DELETE n");
+  faker.Interpret("MATCH (:A)-[r:R]->(:B) DETACH DELETE r DELETE r");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[e:R]->() RETURN count(e)"), (Rows{{0}}))
+      << "the double-deleted edge must be gone, exactly as a single delete";
+  EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n:A OR n:B RETURN count(n)"), (Rows{{2}}))
+      << "both endpoints (:A and :B) must survive -- edge-only delete";
 
-  auto vertices = faker.Interpret("MATCH (n:Iso) RETURN n");
-  EXPECT_EQ(vertices.GetResults().size(), 0U) << "the double-deleted vertex must be gone, exactly as a single delete";
+  faker.Interpret("MATCH (n:Iso) DETACH DELETE n DELETE n");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Iso) RETURN count(n)"), (Rows{{0}}))
+      << "the double-deleted vertex must be gone, exactly as a single delete";
 }
 
 // D12: the diff engine mirrors no constraints, so a branch commit validates main's existence constraints on the
@@ -2340,11 +1599,7 @@ TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstrain
   expect_fail("CREATE (:P {age: 1})", "Unable to commit due to existence constraint violation on :P(id)");
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
 
-  // (d) Type violation on a fork vertex (raised at the statement, as on main).
-  expect_fail("MATCH (n:P {id: 1}) SET n.age = 'x'", "IS TYPED INTEGER violation on P(age)");
-  EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
-
-  // (e) Valid changes commit.
+  // (d) Valid changes commit.
   faker.Interpret("MATCH (n:P {id: 1}) SET n.age = 11, n.extra = 'e'");
   faker.Interpret("MATCH (q:Q) SET q:P, q.id = 5");
   faker.Interpret("CREATE (:P {id: 9, age: 3})");
@@ -2357,7 +1612,7 @@ TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstrain
   faker.Interpret("MATCH (n:P {id: 2}) REMOVE n.id DELETE n");
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 3);
 
-  // (f) Explicit transaction: the violation is detected at COMMIT.
+  // (e) Explicit transaction: the violation is detected at COMMIT.
   faker.Interpret("BEGIN");
   faker.Interpret("MATCH (n:P {id: 9}) REMOVE n.id");
   expect_fail("COMMIT", "Unable to commit due to existence constraint violation on :P(id)");
@@ -2371,7 +1626,7 @@ TEST_F(VersioningInterpreterTest, BranchCommitValidatesExistenceAndTypeConstrain
   faker.Interpret("USING PERIODIC COMMIT 2 UNWIND range(1, 5) AS x CREATE (:P {id: 100 + x, age: x})");
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 8);
 
-  // (g) Main is unaffected throughout.
+  // (f) Main is unaffected throughout.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
   EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
@@ -2591,25 +1846,6 @@ TEST_F(VersioningInterpreterTest, BranchDeleteSingleForkEdgeIsGoneInBothDirectio
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "main must be untouched";
 }
 
-// A fork edge whose property was already written on the branch (so a diff-engine copy exists) is hidden in both copies.
-TEST_F(VersioningInterpreterTest, BranchDeleteForkEdgeAfterPropertyWriteHidesBothCopies) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (a:A), (b:B), (a)-[:R {w:1}]->(b), (a)-[:R {w:2}]->(b)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("MATCH ()-[r:R {w:1}]->() SET r.w = 10");
-  faker.Interpret("MATCH ()-[r:R {w:10}]->() DELETE r");
-
-  auto stream = faker.Interpret("MATCH (:A)-[r:R]->(:B) RETURN r.w AS w");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-  auto scan = faker.Interpret("MATCH ()-[r:R]->() RETURN count(r) AS c");
-  ASSERT_EQ(scan.GetResults().size(), 1U);
-  EXPECT_EQ(scan.GetResults()[0][0].ValueInt(), 1);
-}
-
 // Deletes are ordinary diff-engine writes: an explicit transaction that deletes a fork vertex and a fork edge and then
 // rolls back leaves everything visible again, with no side state to undo.
 TEST_F(VersioningInterpreterTest, BranchDeleteThenRollbackRestoresEverything) {
@@ -2646,56 +1882,76 @@ TEST_F(VersioningInterpreterTest, BranchDeleteThenRollbackRestoresEverything) {
   }
 }
 
-// Bug fix S2 (stale read of an entity deleted earlier in the SAME query on a branch): the branch
-// read methods (VertexAccessor::GetProperty/Labels/etc.) call BranchContext::ResolveVertex(gid,
-// view), which returns nullopt for a tombstoned gid and used to fall through unconditionally to
-// `impl_` -- the STALE historical/fork copy, still alive in memory -- silently returning the
-// pre-delete value instead of erroring. On `main`, `MATCH (n) DETACH DELETE n RETURN n.prop AS
-// prop` raises ("Delete node and return property throws an error", gql_behave delete.feature) --
-// by the time the result is serialized, the vertex really has been deleted, so reading it errors.
-// The branch must match: the fix gates the tombstone check on `view == storage::View::NEW` (the
-// query's current-command state, where the object genuinely is gone), returning
-// Error::DELETED_OBJECT instead of falling through to the stale `impl_` value.
-TEST_F(VersioningInterpreterTest, BranchDeleteThenReadPropertyOnNewViewRaises) {
+namespace {
+struct DeletedReadCase {
+  const char *name;
+  const char *seed;
+  // Committed on the branch before `query`; empty for none.
+  std::string_view pre_write;
+  const char *query;
+  // Run after the failed statement; empty for none. Must return one integer row equal to `probe_expected`.
+  std::string_view probe;
+  int64_t probe_expected;
+};
+
+constexpr DeletedReadCase kDeletedReadCases[] = {
+    {"VertexProperty", "CREATE (:P {prop: 1})", "", "MATCH (n:P) DETACH DELETE n RETURN n.prop AS prop", "", 0},
+    {"VertexLabels", "CREATE (:P:Q)", "", "MATCH (n:P) DETACH DELETE n RETURN labels(n)", "", 0},
+    {"EdgeProperty", "CREATE (:S)-[:E {w: 1}]->(:A)", "", "MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w AS w", "", 0},
+    {"SetThenReturn",
+     "CREATE (:P {prop: 1})",
+     "",
+     "MATCH (n:P) DETACH DELETE n SET n.prop = 2 RETURN n.prop AS prop",
+     "",
+     0},
+    {"RemoveThenReturn",
+     "CREATE (:P {prop: 1})",
+     "",
+     "MATCH (n:P) DETACH DELETE n REMOVE n.prop RETURN n.prop AS prop",
+     "",
+     0},
+    {"SetLabelThenReturn", "CREATE (:P {prop: 1})", "", "MATCH (n:P) DETACH DELETE n SET n:X RETURN labels(n)", "", 0},
+    // The edge is already diff-resident (modified) when it is deleted: the diff-resident short-circuit and the
+    // branched()-bit gate must both defer to the tombstone guard, and the aborted DELETE must leave the edge alone.
+    {"EdgeModifiedThenDeleted",
+     "CREATE (:S)-[:E {w:1}]->(:A)",
+     "MATCH (:S)-[e:E]->(:A) SET e.w = 42",
+     "MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w AS w",
+     "MATCH (:S)-[e:E]->(:A) RETURN e.w",
+     42},
+};
+
+class VersioningDeletedReadTest : public VersioningInterpreterTest,
+                                  public ::testing::WithParamInterface<DeletedReadCase> {};
+}  // namespace
+
+// Reading, in the same query, an entity deleted earlier in it raises exactly as on main (gql_behave delete.feature):
+// the branch read methods consult the tombstone at View::NEW instead of falling through to the stale fork copy, whether
+// the read follows the DELETE directly or a SET/REMOVE after it (the no-RETURN forms stay a silent no-op, see
+// BranchDeleteThenWritePropertyIsNoOpNotError).
+TEST_P(VersioningDeletedReadTest, BranchReadOfEntityDeletedInSameQueryRaises) {
+  const auto &c = GetParam();
   SatisfyGate();
 
-  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret(c.seed);
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
+  if (!c.pre_write.empty()) faker.Interpret(std::string{c.pre_write});
 
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n RETURN n.prop AS prop"),
-               memgraph::query::QueryRuntimeException)
-      << "reading a property of a vertex deleted earlier in the SAME query must raise, exactly as on main -- "
-         "the pre-fix bug silently returned the stale prop=1 instead";
+  ASSERT_THROW(faker.Interpret(c.query), memgraph::query::QueryRuntimeException)
+      << "reading an entity deleted earlier in the SAME query must raise, exactly as on main -- the pre-fix bug "
+         "silently returned the stale fork value";
+
+  if (!c.probe.empty()) {
+    EXPECT_EQ(IntRows(faker, std::string{c.probe}), (Rows{{c.probe_expected}}))
+        << "the statement threw, so its transaction aborted and the pending tombstone must be discarded";
+  }
 }
 
-// Label-read analogue of BranchDeleteThenReadPropertyOnNewViewRaises above -- exercises
-// VertexAccessor::Labels' own view-gated guard (a separate call site from GetProperty's).
-TEST_F(VersioningInterpreterTest, BranchDeleteThenReadLabelsOnNewViewRaises) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:P:Q)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n RETURN labels(n)"), memgraph::query::QueryRuntimeException)
-      << "reading labels of a vertex deleted earlier in the SAME query must raise, exactly as on main";
-}
-
-// Edge analogue of BranchDeleteThenReadPropertyOnNewViewRaises -- exercises EdgeAccessor::
-// GetProperty's own view-gated guard (FindDiffEdge miss + IsEdgeTombstoned at View::NEW).
-TEST_F(VersioningInterpreterTest, BranchDeleteEdgeThenReadPropertyOnNewViewRaises) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:S)-[:E {w: 1}]->(:A)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  ASSERT_THROW(faker.Interpret("MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w AS w"),
-               memgraph::query::QueryRuntimeException)
-      << "reading a property of an edge deleted earlier in the SAME query must raise, exactly as on main -- "
-         "the pre-fix bug silently returned the stale w=1 instead";
-}
+INSTANTIATE_TEST_SUITE_P(Reads, VersioningDeletedReadTest, ::testing::ValuesIn(kDeletedReadCases),
+                         [](const ::testing::TestParamInfo<DeletedReadCase> &info) {
+                           return std::string{info.param.name};
+                         });
 
 // Write-path regression guard: SET/REMOVE following a DETACH DELETE in the SAME query (no RETURN)
 // must remain a silent no-op -- exactly as on main (gql_behave delete.feature, "the result should
@@ -2741,47 +1997,6 @@ TEST_F(VersioningInterpreterTest, BranchDeleteThenWritePropertyIsNoOpNotError) {
   }
 }
 
-// S2b family: sibling of S2 (commit 7a012aa8b). S2 made branch read methods return
-// storage::Error::DELETED_OBJECT when a query reads an entity it deleted earlier in the same
-// query, gated on view == storage::View::NEW. That guard also closes DELETE ... SET/REMOVE/SET-LABEL
-// ... RETURN queries: the trailing RETURN reads the just-deleted entity at View::NEW and must raise,
-// exactly as on main -- unlike the plain write-with-no-RETURN no-op cases above. Parametrized over
-// the write operation (SET property / REMOVE property / SET label) following the delete.
-// (Collapses BranchDeleteThenSetThenReturnRaises + BranchDeleteThenRemoveThenReturnRaises +
-// BranchDeleteThenSetLabelThenReturnRaises.)
-TEST_F(VersioningInterpreterTest, BranchDeleteThenWriteThenReturnRaises) {
-  SatisfyGate();
-
-  static constexpr const char *queries[] = {
-      // Original: BranchDeleteThenSetThenReturnRaises
-      "MATCH (n:P) DETACH DELETE n SET n.prop = 2 RETURN n.prop AS prop",
-      // Original: BranchDeleteThenRemoveThenReturnRaises
-      "MATCH (n:P) DETACH DELETE n REMOVE n.prop RETURN n.prop AS prop",
-      // Original: BranchDeleteThenSetLabelThenReturnRaises
-      "MATCH (n:P) DETACH DELETE n SET n:X RETURN labels(n)",
-  };
-
-  int iter = 0;
-  for (const char *query : queries) {
-    SCOPED_TRACE(query);
-    if (iter++ > 0) {
-      // Previous throw aborted its transaction; we are still on branch 'b'. Return to main and
-      // prepare a fresh :P for the next case.
-      faker.Interpret("CHECKOUT BRANCH 'main'");
-      faker.Interpret("MATCH (n) DETACH DELETE n");
-      faker.Interpret("DROP BRANCH 'b'");
-    }
-
-    faker.Interpret("CREATE (:P {prop: 1})");
-    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-    faker.Interpret("CHECKOUT BRANCH 'b'");
-
-    ASSERT_THROW(faker.Interpret(query), memgraph::query::QueryRuntimeException)
-        << "S2b: reading (via RETURN) an entity deleted earlier in the same query must raise, "
-           "matching main -- the pre-S2-fix bug returned a stale value";
-  }
-}
-
 // -----------------------------------------------------------------------------------------------
 // Graph Versioning v1, Slice 2 (branch-aware label-property index scan) regression tests.
 //
@@ -2799,105 +2014,6 @@ TEST_F(VersioningInterpreterTest, BranchDeleteThenWriteThenReturnRaises) {
 // (CREATE INDEX + ORDER BY exercise the real planner and the real merge) -- they do not reach into
 // BranchContext/DbAccessor internals directly.
 // -----------------------------------------------------------------------------------------------
-
-// Branch-aware label-property index scan (Slice 2, Part B): ORDER BY ASC vs DESC. Identical
-// setup and mutations; parametrized over the ORDER direction and expected age vector.
-// The :Person(age) index is created once and reused for the DESC case; Person vertices and
-// branch 'b' are cleared between iterations via CHECKOUT + DELETE + DROP so each case
-// starts from a clean state.
-// (Collapses BranchIndexScanOrderByAscReflectsBranchMutations + BranchIndexScanOrderByDescReflectsBranchMutations.)
-TEST_F(VersioningInterpreterTest, BranchIndexScanOrderByReflectsBranchMutations) {
-  SatisfyGate();
-
-  struct Case {
-    const char *name;
-    const char *order_clause;
-    std::vector<int64_t> expected_ages;
-    const char *order_msg;
-  };
-
-  const Case cases[] = {
-      {
-          "ASC",
-          "ORDER BY n.age",
-          {10, 25, 30, 50, 99},
-          "expected union ASC-ordered by age: A=10, F=25, C=30, E=50, B COW'd to 99 -- D tombstoned; "
-          "a gid/creation-ordered result would indicate the merge returns rows in the wrong order",
-      },
-      {
-          "DESC",
-          "ORDER BY n.age DESC",
-          {99, 50, 30, 25, 10},
-          "same union but DESC: IndexOrder::DESC must flip the explicit re-sort comparator too, not "
-          "just the ASC one -- a stale ASC-only comparator would produce the ascending order here",
-      },
-  };
-
-  int iter = 0;
-  for (const auto &c : cases) {
-    SCOPED_TRACE(c.name);
-    if (iter++ > 0) {
-      // ASC iteration left us on branch 'b'; clear vertices and branch before DESC case.
-      faker.Interpret("CHECKOUT BRANCH 'main'");
-      faker.Interpret("DROP BRANCH 'b'");
-      faker.Interpret("MATCH (n) DETACH DELETE n");
-      // The :Person(age) index persists across iterations -- no need to recreate.
-    } else {
-      faker.Interpret("CREATE INDEX ON :Person(age)");
-    }
-
-    // Creation order deliberately does NOT match age order, so a gid-ordered (unsorted) result
-    // would be trivially distinguishable from a property-ordered one.
-    faker.Interpret("CREATE (:Person {age: 50, name: 'E'})");
-    faker.Interpret("CREATE (:Person {age: 20, name: 'B'})");
-    faker.Interpret("CREATE (:Person {age: 40, name: 'D'})");
-    faker.Interpret("CREATE (:Person {age: 10, name: 'A'})");
-    faker.Interpret("CREATE (:Person {age: 30, name: 'C'})");
-
-    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-    faker.Interpret("CHECKOUT BRANCH 'b'");
-
-    faker.Interpret("MATCH (n:Person {name: 'B'}) SET n.age = 99");   // COW: moves B out of its old slot
-    faker.Interpret("MATCH (n:Person {name: 'D'}) DETACH DELETE n");  // tombstone: D must vanish
-    faker.Interpret("CREATE (:Person {age: 25, name: 'F'})");         // branch-native: F is diff-engine-only
-
-    const auto query = std::string("MATCH (n:Person) WHERE n.age > 0 RETURN n.age AS age ") + c.order_clause;
-    auto stream = faker.Interpret(query);
-    const auto &rows = stream.GetResults();
-    std::vector<int64_t> ages;
-    ages.reserve(rows.size());
-    for (const auto &row : rows) {
-      ages.push_back(row[0].ValueInt());
-    }
-    EXPECT_EQ(ages, c.expected_ages) << c.order_msg;
-  }
-}
-
-TEST_F(VersioningInterpreterTest, BranchIndexScanEqualKeyDifferentVerticesBothReturned) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :Person(age)");
-
-  faker.Interpret("CREATE (:Person {age: 30, name: 'C'})");
-  faker.Interpret("CREATE (:Person {age: 30, name: 'C2'})");
-  faker.Interpret("CREATE (:Person {age: 10, name: 'A'})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("MATCH (n:Person) WHERE n.age = 30 RETURN n.name AS name ORDER BY n.name");
-  const auto &rows = stream.GetResults();
-  ASSERT_EQ(rows.size(), 2U) << "an equal-key tie between two distinct historical vertices must not drop a row";
-  std::vector<std::string> names;
-  names.reserve(rows.size());
-  for (const auto &row : rows) {
-    names.push_back(row[0].ValueString());
-  }
-
-  EXPECT_EQ(names, (std::vector<std::string>{"C", "C2"}))
-      << "both same-age vertices (C, C2) must survive the merge -- a keying bug that collapses "
-         "equal property values onto one slot would silently lose one of them";
-}
 
 // Locks the multi-index mirror fix: MirrorMainIndexDefinitionsIntoDiffEngine gives each mirrored
 // index its OWN fresh ReadOnlyAccess (branch_engine.cpp's `commit_one` helper) precisely because
@@ -2962,30 +2078,91 @@ TEST_F(VersioningInterpreterTest, BranchEdgeTypeIndexScanReflectsBranchMutations
          "distractor edge must never appear.";
 }
 
-TEST_F(VersioningInterpreterTest, BranchEdgeTypeIndexSelectedInPlanOnBranch) {
+namespace {
+struct MirroredIndexCase {
+  const char *name;
+  const char *ddl;
+  const char *seed;
+  const char *query;
+  const char *op;
+  // The index scan already yields ASC order, so the planner must elide the explicit Sort.
+  bool orderby_elided;
+};
+
+constexpr MirroredIndexCase kMirroredIndexCases[] = {
+    {"EdgeType",
+     "CREATE EDGE INDEX ON :KNOWS",
+     "CREATE (:N {n:'a'})-[:KNOWS]->(:N {n:'b'})",
+     "MATCH ()-[r:KNOWS]->() RETURN r",
+     "ScanAllByEdgeType",
+     false},
+    {"EdgeTypeProperty",
+     "CREATE EDGE INDEX ON :KNOWS(w)",
+     "CREATE (:N {n:'a'})-[:KNOWS {w: 1}]->(:N {n:'b'})",
+     "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w",
+     "ScanAllByEdgeTypeProperty",
+     true},
+    {"GlobalEdgeProperty",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     "CREATE (:N {n:'a'})-[:KNOWS {w: 1}]->(:N {n:'b'})",
+     "MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w",
+     "ScanAllByEdgeProperty",
+     true},
+    {"GlobalVertexProperty",
+     "CREATE GLOBAL INDEX ON :(w)",
+     "CREATE (:V {w: 1}), (:V {w: 2})",
+     "MATCH (n) WHERE n.w > 0 RETURN n.w ORDER BY n.w",
+     "ScanAllByVertexProperty",
+     true},
+    {"LabelOnly",
+     "CREATE INDEX ON :L",
+     "CREATE (:L {n:'a'}), (:L {n:'b'})",
+     "MATCH (n:L) RETURN n",
+     "ScanAllByLabel",
+     false},
+    {"CompositeLabelProperty",
+     "CREATE INDEX ON :P(a, b)",
+     "CREATE (:P {a:1, b:1}), (:P {a:2, b:2})",
+     "MATCH (n:P) WHERE n.a > 0 RETURN n ORDER BY n.a, n.b",
+     "ScanAllByLabelProperties",
+     false},
+    {"NestedLabelProperty",
+     "CREATE INDEX ON :P(a.b)",
+     "CREATE (:P {a:{b:1}}), (:P {a:{b:1}})",
+     "MATCH (n:P) WHERE n.a.b > 0 RETURN n ORDER BY n.a.b",
+     "ScanAllByLabelProperties",
+     false},
+};
+
+class VersioningMirroredIndexPlanTest : public VersioningInterpreterTest,
+                                        public ::testing::WithParamInterface<MirroredIndexCase> {};
+}  // namespace
+
+// MirrorMainIndexDefinitionsIntoDiffEngine registers every index main held at the fork on the branch's diff engine,
+// one registration per index (no up-front emptiness guard, which once made a main holding only an edge index mirror
+// nothing), so the planner selects the real index operator on a checked-out branch instead of ScanAll + Filter.
+TEST_P(VersioningMirroredIndexPlanTest, BranchMirroredIndexIsSelectedInPlan) {
+  const auto &c = GetParam();
   SatisfyGate();
 
-  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
-  faker.Interpret("CREATE (:N {n:'a'})-[:KNOWS]->(:N {n:'b'})");
-
+  faker.Interpret(c.ddl);
+  faker.Interpret(c.seed);
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  auto stream = faker.Interpret("EXPLAIN MATCH ()-[r:KNOWS]->() RETURN r");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
+  const auto plan = ExplainText(faker, c.query);
+  EXPECT_TRUE(PlanHasOperator(plan, c.op)) << "branch plan did not select " << c.op << "; full plan:\n" << plan;
+  if (c.orderby_elided) {
+    EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("OrderBy")))
+        << "branch plan should elide the explicit Sort once the index scan already produces ASC order; full plan:\n"
+        << plan;
   }
-
-  // Locks both that MirrorMainIndexDefinitionsIntoDiffEngine registers the edge-type index on the
-  // branch's diff engine AND that its early-return guard accounts for edge_type indexes -- a bug
-  // where main had ONLY an edge-type index (no label/label-property index) made the mirror bail out
-  // early and left the branch planning ScanAll+Expand instead of the mirrored ScanAllByEdgeType.
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByEdgeType"))
-      << "branch plan did not select the mirrored edge-type index; full plan:\n"
-      << plan;
 }
+
+INSTANTIATE_TEST_SUITE_P(Indexes, VersioningMirroredIndexPlanTest, ::testing::ValuesIn(kMirroredIndexCases),
+                         [](const ::testing::TestParamInfo<MirroredIndexCase> &info) {
+                           return std::string{info.param.name};
+                         });
 
 TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanOrderedReflectsBranchMutations) {
   SatisfyGate();
@@ -3026,35 +2203,6 @@ TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanOrderedReflects
          "skip / COW dedup) is wrong, and the LIKES distractor edge (w=99) must never appear. Note "
          "the planner elides the explicit ORDER BY (Sort) when it selects the property index, so "
          "order correctness here rides entirely on the merge itself.";
-}
-
-TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexSelectedInPlanOnBranch) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE EDGE INDEX ON :KNOWS(w)");
-  faker.Interpret("CREATE (:N {n:'a'})-[:KNOWS {w: 1}]->(:N {n:'b'})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("EXPLAIN MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
-  }
-
-  // Locks that the edge-type+property index is mirrored via its own diff-engine registration (a
-  // per-index loop over main's index definitions), NOT a fragile up-front emptiness guard -- a prior
-  // guard bug made a main holding ONLY an edge-property index bail out before mirroring anything,
-  // leaving the branch to full-scan instead of selecting the mirrored index.
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByEdgeTypeProperty"))
-      << "branch plan did not select the mirrored edge-type+property index; full plan:\n"
-      << plan;
-  EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("OrderBy")))
-      << "branch plan should elide the explicit Sort once the property index scan already produces "
-         "ASC order; full plan:\n"
-      << plan;
 }
 
 TEST_F(VersioningInterpreterTest, BranchGlobalEdgePropertyIndexScanOrderedReflectsBranchMutations) {
@@ -3099,111 +2247,6 @@ TEST_F(VersioningInterpreterTest, BranchGlobalEdgePropertyIndexScanOrderedReflec
          "order correctness here rides entirely on the merge itself.";
 }
 
-TEST_F(VersioningInterpreterTest, BranchGlobalEdgePropertyIndexSelectedInPlanOnBranch) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
-  faker.Interpret("CREATE (:N {n:'a'})-[:KNOWS {w: 1}]->(:N {n:'b'})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("EXPLAIN MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
-  }
-
-  // Locks that the GLOBAL edge-property index is mirrored via its own diff-engine registration, and
-  // that the planner selects it for an untyped edge pattern.
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByEdgeProperty"))
-      << "branch plan did not select the mirrored global edge-property index; full plan:\n"
-      << plan;
-  EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("OrderBy")))
-      << "branch plan should elide the explicit Sort once the property index scan already produces "
-         "ASC order; full plan:\n"
-      << plan;
-}
-
-// -----------------------------------------------------------------------------------------------
-// Graph Versioning v1, Slice 3b (branch-aware GLOBAL VERTEX PROPERTY index scan) tests.
-//
-// Mirrors the global edge-property block above but for vertices: `CREATE GLOBAL INDEX ON :(prop)`
-// creates a label-agnostic vertex-property index, exposing the `ScanAllByVertexProperty` operator.
-// These tests lock the branch-side observable union + planner selection behaviour end-to-end
-// through the real interpreter -- they drive the implementation in db_accessor.hpp
-// (Vertices(view, property, lower_bound, ...) branch-aware overload) and branch_engine.cpp
-// (MirrorMainIndexDefinitionsIntoDiffEngine, global-vertex-property registration path).
-// -----------------------------------------------------------------------------------------------
-
-TEST_F(VersioningInterpreterTest, BranchGlobalVertexPropertyIndexScanOrderedReflectsBranchMutations) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE GLOBAL INDEX ON :(w)");
-
-  // Creation order deliberately does NOT match w order, so a gid-ordered (unsorted) result would
-  // be trivially distinguishable from a correct property-ordered one.
-  faker.Interpret("CREATE (:V {n:'a', w: 50})");
-  faker.Interpret("CREATE (:V {n:'b', w: 20})");
-  faker.Interpret("CREATE (:V {n:'c', w: 40})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  // Branch mutations: COW one fork vertex, tombstone another, create a branch-native vertex.
-  faker.Interpret("MATCH (n:V {n:'b'}) SET n.w = 99");     // COW: moves b out of its old w=20 slot
-  faker.Interpret("MATCH (n:V {n:'c'}) DETACH DELETE n");  // tombstone: c(w=40) must be absent
-  faker.Interpret("CREATE (:V {n:'d', w: 25})");           // branch-native: w=25
-
-  auto stream = faker.Interpret("MATCH (n) WHERE n.w > 0 RETURN n.w AS w ORDER BY n.w");
-  const auto &rows = stream.GetResults();
-  std::vector<int64_t> ws;
-  ws.reserve(rows.size());
-  for (const auto &row : rows) {
-    ws.push_back(row[0].ValueInt());
-  }
-
-  EXPECT_EQ(ws, (std::vector<int64_t>{25, 50, 99}))
-      << "expected the union of main@fork's historical global vertex-property(w) index "
-         "(a=50, b=20, c=40) with the branch's own diff-engine mutations "
-         "(b COW'd 20->99, c tombstoned away, d created branch-native at 25), correctly ASC-ordered "
-         "by w and spanning a label-agnostic scan -- fork survivor {50} plus branch survivors {99, 25} "
-         "sorted is {25, 50, 99}; a gid/creation-ordered, unsorted, or stale-value result would "
-         "indicate the branch GLOBAL vertex-property merge (sort / tombstone skip / COW dedup / "
-         "no-label-filter) is wrong. Note the planner elides the explicit ORDER BY (Sort) when it "
-         "selects the property index, so order correctness here rides entirely on the merge itself.";
-}
-
-TEST_F(VersioningInterpreterTest, BranchVertexPropertyIndexSelectedInPlanOnBranch) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE GLOBAL INDEX ON :(w)");
-  faker.Interpret("CREATE (:V {w: 1})");
-  faker.Interpret("CREATE (:V {w: 2})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("EXPLAIN MATCH (n) WHERE n.w > 0 RETURN n.w ORDER BY n.w");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
-  }
-
-  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the global vertex-property index
-  // on the branch's diff engine and that the planner selects ScanAllByVertexProperty for an
-  // unlabelled vertex pattern, eliding the explicit Sort because the index already yields ASC order.
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByVertexProperty"))
-      << "branch plan did not select the mirrored global vertex-property index; full plan:\n"
-      << plan;
-  EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("OrderBy")))
-      << "branch plan should elide the explicit Sort once the global vertex-property index scan "
-         "already produces ASC order; full plan:\n"
-      << plan;
-}
-
 TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutations) {
   SatisfyGate();
 
@@ -3212,6 +2255,7 @@ TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutation
   faker.Interpret("CREATE (:L {n:'a'})");
   faker.Interpret("CREATE (:L {n:'b'})");
   faker.Interpret("CREATE (:L {n:'c'})");
+  faker.Interpret("CREATE (:L {n:'e', t:1})");
   faker.Interpret("CREATE (:Other {n:'x'})");
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
@@ -3223,6 +2267,7 @@ TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutation
   faker.Interpret("MATCH (n:L {n:'b'}) REMOVE n:L");
   faker.Interpret("MATCH (n:Other {n:'x'}) SET n:L");
   faker.Interpret("CREATE (:L {n:'d'})");
+  faker.Interpret("MATCH (n:L {n:'e'}) SET n.t = 2");  // stubbed fork vertex that keeps :L
 
   // The ORDER BY here is just to make the vector comparison deterministic -- the label scan itself
   // carries no property order (label-only indexes have no property order).
@@ -3234,7 +2279,7 @@ TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutation
     names.push_back(row[0].ValueString());
   }
 
-  EXPECT_EQ(names, (std::vector<std::string>{"c", "d", "x"}))
+  EXPECT_EQ(names, (std::vector<std::string>{"c", "d", "e", "x"}))
       << "locks the label-only set-union merge (diff-engine label index union main@fork's label "
          "index, skipping tombstoned/COW'd) including the COW label add/remove cases: 'a' was "
          "deleted on the branch and must be gone; 'b' lost the :L label via COW and must be excluded "
@@ -3242,17 +2287,10 @@ TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutation
          "COW-membership skip must catch it; 'x' gained the :L label via COW on a previously "
          "non-L fork vertex and must be included via the diff-engine's own label index; 'd' is "
          "branch-native and must be included; 'c' was never touched on the branch and must still "
-         "surface from main@fork's index untouched.";
+         "surface from main@fork's index untouched; 'e' is a stubbed fork vertex that keeps :L and must "
+         "appear once, at its branch value.";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:L) WHERE n.t IS NOT NULL RETURN n.t"), (Rows{{2}}));
 }
-
-namespace {
-std::vector<std::string> SortedNames(const memgraph::communication::bolt::Value &list) {
-  std::vector<std::string> out;
-  for (const auto &elem : list.ValueList()) out.emplace_back(elem.ValueString());
-  std::ranges::sort(out);
-  return out;
-}
-}  // namespace
 
 // A fork vertex touched on a branch is a sparse stub; removals of fork state are recorded as markers
 // on the stub. The tests below cover each removal kind and that no marker is ever observable.
@@ -3274,10 +2312,6 @@ TEST_F(VersioningInterpreterTest, BranchRemovePropertyOnForkVertexIsVisibleAndSu
     EXPECT_EQ(SortedNames(row[2]), (std::vector<std::string>{"id"}));
     EXPECT_EQ(row[3].ValueInt(), 1);
   };
-  check_branch();
-
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
   check_branch();
 
   faker.Interpret("CHECKOUT BRANCH 'main'");
@@ -3324,41 +2358,6 @@ TEST_F(VersioningInterpreterTest, BranchRemoveThenReAddLabelLeaksNoMarker) {
   }
 }
 
-TEST_F(VersioningInterpreterTest, BranchReplacePropertiesOnForkVertexKeepsOnlyNewOnes) {
-  SatisfyGate();
-  faker.Interpret("CREATE (:P {id: 1, p: 7, q: 8})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("MATCH (n:P) SET n = {x: 1}");
-
-  auto stream = faker.Interpret("MATCH (n:P) RETURN keys(n), n.x, n.p IS NULL, n.id IS NULL");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  const auto &row = stream.GetResults()[0];
-  EXPECT_EQ(SortedNames(row[0]), (std::vector<std::string>{"x"}));
-  EXPECT_EQ(row[1].ValueInt(), 1);
-  EXPECT_TRUE(row[2].ValueBool());
-  EXPECT_TRUE(row[3].ValueBool());
-}
-
-TEST_F(VersioningInterpreterTest, BranchLabelScanHonoursRemovedAndAddedLabelsOnForkVertices) {
-  SatisfyGate();
-  faker.Interpret("CREATE INDEX ON :L");
-  faker.Interpret("CREATE (:L {n:'a'})");
-  faker.Interpret("CREATE (:L {n:'b'})");
-  faker.Interpret("CREATE (:Other {n:'x'})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("MATCH (n:L {n:'a'}) REMOVE n:L");
-  faker.Interpret("MATCH (n:Other) SET n:L");
-
-  auto stream = faker.Interpret("MATCH (n:L) RETURN n.n ORDER BY n.n");
-  std::vector<std::string> names;
-  for (const auto &row : stream.GetResults()) names.emplace_back(row[0].ValueString());
-  EXPECT_EQ(names, (std::vector<std::string>{"b", "x"}));
-}
-
 TEST_F(VersioningInterpreterTest, BranchStubMarkersAreNeverVisibleAndReservedNamesAreRejected) {
   SatisfyGate();
   faker.Interpret("CREATE (:P:L {id: 1, p: 7})");
@@ -3378,101 +2377,9 @@ TEST_F(VersioningInterpreterTest, BranchStubMarkersAreNeverVisibleAndReservedNam
   }
 
   ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:__mg_rm_x"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n.__mg_removed = 1"), memgraph::query::QueryRuntimeException);
-}
-
-TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexSelectedInPlanOnBranch) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :L");
-  faker.Interpret("CREATE (:L {n:'a'})");
-  faker.Interpret("CREATE (:L {n:'b'})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("EXPLAIN MATCH (n:L) RETURN n");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
-  }
-
-  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the label-only index on the
-  // branch's diff engine and that the planner selects the mirrored ScanAllByLabel instead of
-  // falling back to a plain ScanAll+Filter. Label-only indexes carry no property order, so there is
-  // no accompanying OrderBy-elision assertion here (unlike the label-property index tests above).
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabel"))
-      << "branch plan did not select the mirrored label-only index; full plan:\n"
-      << plan;
-}
-
-// Locks the composite (multi single-level property) label-property index mirror + the branch
-// read path's LEXICOGRAPHIC tuple-key merge (diff ∪ main@fork, tombstone/COW skip). Unlike the
-// single-property index above, the planner keeps an explicit OrderBy for a composite index (the
-// Sort is NOT elided), so ordering correctness here rides on that explicit OrderBy -- what this
-// test actually locks down is that the composite INDEX SELECTION and the merged SET (with a
-// COW-reposition inside a composite key, a delete, and a native create) are correct.
-TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyIndexReflectsBranchMutations) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :P(a, b)");
-
-  // Creation order deliberately does NOT match (a,b) lexicographic order.
-  faker.Interpret("CREATE (:P {n:'v1', a:2, b:1})");
-  faker.Interpret("CREATE (:P {n:'v2', a:1, b:9})");
-  faker.Interpret("CREATE (:P {n:'v3', a:1, b:2})");
-  faker.Interpret("CREATE (:P {n:'v4', a:3, b:0})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  faker.Interpret("MATCH (n:P {n:'v2'}) SET n.b = 0");      // COW: repositions (1,9) -> (1,0)
-  faker.Interpret("MATCH (n:P {n:'v4'}) DETACH DELETE n");  // tombstone: (3,0) must vanish
-  faker.Interpret("CREATE (:P {n:'v5', a:2, b:5})");        // branch-native: (2,5)
-
-  auto stream = faker.Interpret("MATCH (n:P) WHERE n.a > 0 RETURN n.a AS a, n.b AS b ORDER BY n.a, n.b");
-  const auto &rows = stream.GetResults();
-  std::vector<std::pair<int64_t, int64_t>> ab;
-  ab.reserve(rows.size());
-  for (const auto &row : rows) {
-    ab.emplace_back(row[0].ValueInt(), row[1].ValueInt());
-  }
-
-  EXPECT_EQ(ab, (std::vector<std::pair<int64_t, int64_t>>{{1, 0}, {1, 2}, {2, 1}, {2, 5}}))
-      << "expected the union of main@fork's historical composite index (v1=(2,1), v3=(1,2) -- v4's "
-         "(3,0) tombstoned away) with the branch's own diff-engine composite index (v2 COW'd from "
-         "(1,9) to (1,0), v5 created at (2,5)), correctly ordered by the explicit (a, b) OrderBy -- "
-         "a keying bug that treats 'a' and 'b' as independent single-property slots instead of one "
-         "composite tuple key would either collapse the COW'd v2 onto the wrong slot or fail to "
-         "distinguish it from v1/v3.";
-}
-
-TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyIndexSelectedInPlanOnBranch) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :P(a, b)");
-  faker.Interpret("CREATE (:P {a:1, b:1})");
-  faker.Interpret("CREATE (:P {a:2, b:2})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("EXPLAIN MATCH (n:P) WHERE n.a > 0 RETURN n ORDER BY n.a, n.b");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
-  }
-
-  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the composite label-property
-  // index on the branch's diff engine and that the planner selects the mirrored
-  // ScanAllByLabelProperties instead of falling back to a plain ScanAll+Filter. Unlike the
-  // single-property index test above, composite indexes keep the explicit OrderBy (the Sort is
-  // NOT elided), so there is no accompanying OrderBy-elision assertion here.
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"))
-      << "branch plan did not select the mirrored composite label-property index; full plan:\n"
-      << plan;
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:`__mg_rm:x`"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:`__mg_deleted`"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n.`__mg_removed` = 1"), memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(VersioningInterpreterTest, BranchNestedLabelPropertyIndexReflectsBranchMutations) {
@@ -3507,31 +2414,6 @@ TEST_F(VersioningInterpreterTest, BranchNestedLabelPropertyIndexReflectsBranchMu
          "ordered by n.a.b -- a bug in the nested-path key extraction (ReadNestedPropertyValue) "
          "through the branch merge, or in propagating a nested-map COW, would either drop a row, "
          "keep a stale b-value, or fail to order by the extracted leaf.";
-}
-
-TEST_F(VersioningInterpreterTest, BranchNestedLabelPropertyIndexSelectedInPlanOnBranch) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :P(a.b)");
-  faker.Interpret("CREATE (:P {a:{b:1}})");
-  faker.Interpret("CREATE (:P {a:{b:1}})");
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  auto stream = faker.Interpret("EXPLAIN MATCH (n:P) WHERE n.a.b > 0 RETURN n ORDER BY n.a.b");
-  std::string plan;
-  for (const auto &row : stream.GetResults()) {
-    plan += row[0].ValueString();
-    plan += '\n';
-  }
-
-  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the nested-path label-property
-  // index on the branch's diff engine and that the planner selects the mirrored
-  // ScanAllByLabelProperties instead of falling back to a plain ScanAll+Filter.
-  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"))
-      << "branch plan did not select the mirrored nested-path label-property index; full plan:\n"
-      << plan;
 }
 
 TEST_F(VersioningInterpreterTest, BranchHopsLimitEnforcedOnExpand) {
@@ -3665,54 +2547,6 @@ TEST_F(VersioningInterpreterTest, BranchSingleSourceShortestPathAcrossCowdVertex
          "SingleSourceShortestPathCursor::processed_, corrupting or truncating the reconstructed path.";
 }
 
-// Graph Versioning v2: indexes belong to main, so every DROP INDEX variant is rejected on a branch
-// (same as CREATE INDEX), and SHOW INDEX INFO on the branch still equals main's.
-TEST_F(VersioningInterpreterTest, BranchDropIndexRejectedAndShowIndexInfoEqualsMain) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE INDEX ON :Person(age)");
-  faker.Interpret("CREATE INDEX ON :Person");
-  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
-  faker.Interpret("CREATE (:Person {age:10})");
-
-  auto index_rows = [&]() {
-    auto s = faker.Interpret("SHOW INDEX INFO");
-    std::vector<std::string> rows;
-    for (const auto &row : s.GetResults()) {
-      std::string r;
-      for (size_t i = 0; i + 1 < row.size(); ++i) {  // skip the trailing count column
-        r += row[i].IsString() ? std::string(row[i].ValueString()) : std::string("-");
-        r += '|';
-      }
-      rows.push_back(std::move(r));
-    }
-    std::sort(rows.begin(), rows.end());
-    return rows;
-  };
-  const auto main_rows = index_rows();
-  ASSERT_GE(main_rows.size(), 3U);
-
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  EXPECT_THROW(faker.Interpret("DROP INDEX ON :Person(age)"), memgraph::query::QueryRuntimeException);
-  EXPECT_THROW(faker.Interpret("DROP INDEX ON :Person"), memgraph::query::QueryRuntimeException);
-  EXPECT_THROW(faker.Interpret("DROP EDGE INDEX ON :KNOWS"), memgraph::query::QueryRuntimeException);
-  EXPECT_THROW(faker.Interpret("DROP ALL INDEXES"), memgraph::query::QueryRuntimeException);
-
-  EXPECT_EQ(index_rows(), main_rows);
-
-  {
-    auto s = faker.Interpret("EXPLAIN MATCH (n:Person) WHERE n.age > 0 RETURN n");
-    std::string plan;
-    for (const auto &row : s.GetResults()) plan += row[0].ValueString();
-    EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"));
-  }
-
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_EQ(index_rows(), main_rows);
-}
-
 // Graph Versioning v1, bug #6 fix regression (enum crash): an enum defined on MAIN before a fork
 // must be usable from a checked-out branch, both by a branch-native CREATE and by a SET that COWs
 // a still-historical fork vertex. Before the fix, `BranchContext::BuildFromFork` gave the diff
@@ -3728,12 +2562,9 @@ TEST_F(VersioningInterpreterTest, BranchEnumMirroredFromMainSupportsNativeCreate
   SatisfyGate();
 
   faker.Interpret("CREATE ENUM Status VALUES { Good, Bad };");
-  // Fork vertex deliberately has NO enum property yet: `BranchContext::CowVertex` unconditionally
-  // rejects COW'ing a vertex whose PRE-EXISTING (pre-COW) properties already contain an Enum (a
-  // separate, already-covered restriction, not what this test targets) -- so the fork vertex must
-  // start enum-free for the later branch-side SET (which ADDS a brand-new enum property) to reach
-  // the code path under test instead of bailing out on that unrelated guard.
+  // 'fork' has no enum property yet (the branch-side SET adds one); 'forkenum' already holds one.
   faker.Interpret("CREATE (:X {tag: 'fork'})");
+  faker.Interpret("CREATE (:X {tag: 'forkenum', status: Status::Good})");
 
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
@@ -3747,8 +2578,11 @@ TEST_F(VersioningInterpreterTest, BranchEnumMirroredFromMainSupportsNativeCreate
   // way against the diff engine's mirrored EnumStore.
   faker.Interpret("MATCH (n:X {tag: 'fork'}) SET n.status = Status::Bad");
 
+  // Stub the fork vertex that already holds an enum by writing an unrelated property.
+  faker.Interpret("MATCH (n:X {tag: 'forkenum'}) SET n.other = 1");
+
   auto stream = faker.Interpret("MATCH (n:X) RETURN n.tag, n.status ORDER BY n.tag");
-  ASSERT_EQ(stream.GetResults().size(), 2U);
+  ASSERT_EQ(stream.GetResults().size(), 3U);
 
   auto get_enum_value_str = [](const memgraph::communication::bolt::Value &val) -> std::string {
     if (!val.IsMap()) {
@@ -3761,17 +2595,28 @@ TEST_F(VersioningInterpreterTest, BranchEnumMirroredFromMainSupportsNativeCreate
     return map.at("__value").ValueString();
   };
 
-  // ORDER BY n.tag ASC: "fork" < "native" lexicographically.
+  // ORDER BY n.tag ASC: "fork" < "forkenum" < "native" lexicographically.
   const auto &fork_row = stream.GetResults()[0];
   EXPECT_EQ(fork_row[0].ValueString(), "fork");
   EXPECT_EQ(get_enum_value_str(fork_row[1]), "Status::Bad")
       << "SET on a COW'd fork vertex must write and read back the exact enum value, not garble it";
 
-  const auto &native_row = stream.GetResults()[1];
+  const auto &forkenum_row = stream.GetResults()[1];
+  EXPECT_EQ(forkenum_row[0].ValueString(), "forkenum");
+  EXPECT_EQ(get_enum_value_str(forkenum_row[1]), "Status::Good")
+      << "a stubbed fork vertex must keep reading its pre-existing enum property exactly";
+
+  const auto &native_row = stream.GetResults()[2];
   EXPECT_EQ(native_row[0].ValueString(), "native");
   EXPECT_EQ(get_enum_value_str(native_row[1]), "Status::Good")
       << "a branch-native CREATE with an inline enum literal must read back the exact enum value, "
          "not crash or garble it";
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  auto main_stream = faker.Interpret("MATCH (n:X {tag: 'forkenum'}) RETURN n.status, n.other");
+  ASSERT_EQ(main_stream.GetResults().size(), 1U);
+  EXPECT_EQ(get_enum_value_str(main_stream.GetResults()[0][0]), "Status::Good") << "main keeps the enum exactly";
+  EXPECT_EQ(main_stream.GetResults()[0][1].type(), memgraph::communication::bolt::Value::Type::Null);
 }
 
 // Branch label+property index scans overlay a touched-set on the fork index (design R5): a stubbed fork vertex is
@@ -3791,6 +2636,7 @@ TEST_F(VersioningInterpreterTest, BranchLabelPropertyPointLookupOverlay) {
 
   faker.Interpret("CREATE INDEX ON :L(p)");
   faker.Interpret("CREATE (:L {p: 1, tag: 'untouched'})");
+  faker.Interpret("CREATE (:L {p: 1, tag: 'untouched2'})");
   faker.Interpret("CREATE (:L {p: 2, tag: 'changed'})");
   faker.Interpret("CREATE (:L {p: 3, tag: 'unlabeled'})");
   faker.Interpret("CREATE (:M {p: 4, tag: 'gained'})");
@@ -3807,10 +2653,12 @@ TEST_F(VersioningInterpreterTest, BranchLabelPropertyPointLookupOverlay) {
   faker.Interpret("CREATE (:L {p: 6, tag: 'native'})");
 
   auto lookup = [&](int64_t p) {
-    return BranchScanStrings(faker, "MATCH (n:L {p: " + std::to_string(p) + "}) RETURN n.tag");
+    auto tags = BranchScanStrings(faker, "MATCH (n:L {p: " + std::to_string(p) + "}) RETURN n.tag");
+    std::ranges::sort(tags);
+    return tags;
   };
   using V = std::vector<std::string>;
-  EXPECT_EQ(lookup(1), V{"untouched"});
+  EXPECT_EQ(lookup(1), (V{"untouched", "untouched2"})) << "two untouched vertices with an equal key must both be found";
   EXPECT_EQ(lookup(2), V{}) << "the branch changed p away from 2: the fork index entry must not match";
   EXPECT_EQ(lookup(20), V{"changed"}) << "the branch-set value must be found although the stub is in no fork entry";
   EXPECT_EQ(lookup(3), V{}) << "a removed label must drop the fork index hit";
@@ -3835,6 +2683,7 @@ TEST_F(VersioningInterpreterTest, BranchLabelPropertyRangeOverlayIsOrderedAcross
   faker.Interpret("CREATE (:P {v: 30, name: 'C'})");
   faker.Interpret("CREATE (:P {v: 40, name: 'D'})");
   faker.Interpret("CREATE (:P {v: 50, name: 'E'})");
+  faker.Interpret("CREATE (:P {v: 15, name: 'G'})");
   faker.Interpret("CREATE (:Q {v: 25, name: 'F'})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
@@ -3843,6 +2692,7 @@ TEST_F(VersioningInterpreterTest, BranchLabelPropertyRangeOverlayIsOrderedAcross
   faker.Interpret("MATCH (n:P {name: 'D'}) SET n.note = 'x'");  // stubbed, key unchanged
   faker.Interpret("MATCH (n:P {name: 'E'}) REMOVE n:P");        // leaves the scan
   faker.Interpret("MATCH (n:Q {name: 'F'}) SET n:P");           // gains the label, v from the fork
+  faker.Interpret("MATCH (n:P {name: 'G'}) DETACH DELETE n");   // in-range fork vertex deleted
   faker.Interpret("CREATE (:P {v: 35, name: 'N1'}), (:P {v: 5, name: 'N2'})");
 
   using V = std::vector<std::string>;
@@ -3860,12 +2710,14 @@ TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyPrefixOverlay) {
   faker.Interpret("CREATE (:L {a: 1, b: 2, t: 'x2'})");
   faker.Interpret("CREATE (:L {a: 2, b: 5, t: 'x3'})");
   faker.Interpret("CREATE (:L {a: 1, b: 9, t: 'x4'})");
+  faker.Interpret("CREATE (:L {a: 1, b: 4, t: 'x5'})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  faker.Interpret("MATCH (n:L {t: 'x2'}) SET n.b = 0");  // still a = 1, moves earlier in (a, b) order
-  faker.Interpret("MATCH (n:L {t: 'x3'}) SET n.a = 1");  // newly matches a = 1
-  faker.Interpret("MATCH (n:L {t: 'x4'}) SET n.a = 7");  // no longer matches a = 1
+  faker.Interpret("MATCH (n:L {t: 'x2'}) SET n.b = 0");      // still a = 1, moves earlier in (a, b) order
+  faker.Interpret("MATCH (n:L {t: 'x3'}) SET n.a = 1");      // newly matches a = 1
+  faker.Interpret("MATCH (n:L {t: 'x4'}) SET n.a = 7");      // no longer matches a = 1
+  faker.Interpret("MATCH (n:L {t: 'x5'}) DETACH DELETE n");  // tombstoned
   faker.Interpret("CREATE (:L {a: 1, b: 3, t: 'n1'})");
 
   using V = std::vector<std::string>;
@@ -3873,6 +2725,8 @@ TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyPrefixOverlay) {
             (V{"x2", "x1", "n1", "x3"}));
   EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:L) WHERE n.a = 1 AND n.b = 5 RETURN n.t"), (V{"x3"}));
   EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:L) WHERE n.a = 7 RETURN n.t"), (V{"x4"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:L) WHERE n.a > 0 RETURN n.t ORDER BY n.a, n.b"),
+            (V{"x2", "x1", "n1", "x3", "x4"}));
 }
 
 TEST_F(VersioningInterpreterTest, BranchGlobalPropertyOverlay) {
@@ -3892,31 +2746,6 @@ TEST_F(VersioningInterpreterTest, BranchGlobalPropertyOverlay) {
   EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w > 0 RETURN n.t ORDER BY n.w"), (V{"a", "e", "b"}));
   EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w = 2 RETURN n.t"), (V{"e"}));
   EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w = 10 RETURN n.t"), (V{"b"}));
-}
-
-// Timing is only logged: the point of the overlay is that a lookup is O(log V + touched), not O(V).
-TEST_F(VersioningInterpreterTest, BranchPointLookupDoesNotScanTheWholeGraph) {
-  SatisfyGate();
-
-  constexpr int64_t kVertices = 20000;
-  constexpr int64_t kLookups = 2000;
-  faker.Interpret("CREATE INDEX ON :U(id)");
-  faker.Interpret("UNWIND range(0, " + std::to_string(kVertices - 1) + ") AS i CREATE (:U {id: i})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  faker.Interpret("MATCH (n:U) WHERE n.id < 100 SET n.touched = true");
-
-  auto const start = std::chrono::steady_clock::now();
-  for (int64_t i = 0; i < kLookups; ++i) {
-    auto const id = (i * 7919) % kVertices;
-    auto stream = faker.Interpret("MATCH (n:U {id: " + std::to_string(id) + "}) RETURN n.id");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "id " << id;
-    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), id);
-  }
-  auto const elapsed_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-  std::cout << "[branch point lookup] " << kLookups << " lookups on " << kVertices << " vertices: " << elapsed_ms
-            << " ms\n";
 }
 
 // Graph Versioning v1, perf/versioning-branch-read D1 -- THE BLOCKER GUARD: `properties_on_edges =
@@ -4021,23 +2850,6 @@ TEST_F(VersioningInterpreterReferenceEdgeTest, BranchReferenceEdgePropertyReadDo
 // ---------------------------------------------------------------------------------------------
 
 namespace {
-constexpr int64_t kNullInt = std::numeric_limits<int64_t>::min();
-
-// Every row of `query` as integers (Null -> kNullInt).
-std::vector<std::vector<int64_t>> IntRows(InterpreterFaker &session, const std::string &query) {
-  auto stream = session.Interpret(query);
-  std::vector<std::vector<int64_t>> rows;
-  for (const auto &row : stream.GetResults()) {
-    auto &out = rows.emplace_back();
-    for (const auto &value : row) {
-      out.push_back(value.type() == memgraph::communication::bolt::Value::Type::Null ? kNullInt : value.ValueInt());
-    }
-  }
-  return rows;
-}
-
-using Rows = std::vector<std::vector<int64_t>>;
-
 // Runs two overlapping explicit transactions: `a` executes `a_write`, then `b` executes `b_write` on the same vertex
 // before `a` finishes. Returns the (mangled) type name of the exception `b`'s write raised, "" if it succeeded. Both
 // transactions are rolled back, so the data is left as it was.
@@ -4084,6 +2896,7 @@ class VersioningMultiSessionTest : public VersioningInterpreterTest {
 
 TEST_F(VersioningInterpreterTest, MergeBranchIsRejectedAsUnsupported) {
   SatisfyGate();
+  ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
   faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
   try {
     faker.Interpret("MERGE BRANCH 'feature'");
@@ -4129,48 +2942,63 @@ TEST_F(VersioningMultiSessionTest, OpenTransactionKeepsItsSnapshotWhileAnotherSe
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 11}, {2, 20}})) << "a new transaction sees A's commit";
 }
 
-// (c) Two overlapping transactions writing the same, already-stubbed fork vertex: the second writer gets exactly the
-// error main raises for the same interleaving, and nothing crashes.
-TEST_F(VersioningMultiSessionTest, OverlappingWritesToTheSameStubbedVertexConflictLikeMain) {
-  SetUpTwoSessionsOnBranch();
-  // Materialize the stub in a committed transaction first.
-  faker.Interpret("MATCH (n:K {id:1}) SET n.z = 0");
+// (c) Two overlapping transactions writing the same fork vertex or fork edge -- whether its stub already exists or is
+// first created by the race -- conflict exactly as they do on main (the second writer gets the error main raises for
+// the same interleaving) and nothing crashes. A stub the rolled-back writers left behind is semantically invisible, and
+// a retried write succeeds.
+TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
+  SatisfyGate();
+  faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
+  faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:2}]->(:B {id:2})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
 
-  const auto branch_outcome =
-      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:1}) SET n.v = 11", "MATCH (n:K {id:1}) SET n.v = 12");
+  struct Case {
+    const char *name;
+    // Committed on the branch first, so the entity's stub already exists; empty means the race creates the stub.
+    const char *stub_write;
+    const char *a_write;
+    const char *b_write;
+  };
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker2.Interpret("CHECKOUT BRANCH 'main'");
-  const auto main_outcome =
-      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:1}) SET n.v = 11", "MATCH (n:K {id:1}) SET n.v = 12");
+  static constexpr Case cases[] = {
+      {"VertexFirstTouch", "", "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61"},
+      {"VertexStubbed",
+       "MATCH (n:K {id:1}) SET n.z = 0",
+       "MATCH (n:K {id:1}) SET n.v = 11",
+       "MATCH (n:K {id:1}) SET n.v = 12"},
+      {"EdgeFirstTouch", "", "MATCH ()-[r:R]->() SET r.w = 10", "MATCH ()-[r:R]->() SET r.x = 20"},
+      {"EdgeStubbed",
+       "MATCH ()-[r:R]->() SET r.y = 0",
+       "MATCH ()-[r:R]->() SET r.w = 10",
+       "MATCH ()-[r:R]->() SET r.x = 20"},
+  };
 
-  EXPECT_NE(main_outcome.find("TransactionSerializationException"), std::string::npos)
-      << "sanity: main raises a serialization error for this interleaving, got '" << main_outcome << "'";
-  EXPECT_EQ(branch_outcome, main_outcome);
+  auto const checkout_both = [&](const char *version) {
+    faker.Interpret(std::string{"CHECKOUT BRANCH '"} + version + "'");
+    faker2.Interpret(std::string{"CHECKOUT BRANCH '"} + version + "'");
+  };
 
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}})) << "both transactions were rolled back";
-}
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.name);
+    checkout_both("b");
+    if (*c.stub_write != '\0') faker.Interpret(c.stub_write);
+    const auto branch_outcome = OverlappingWriteOutcome(faker, faker2, c.a_write, c.b_write);
 
-// (d) First-touch race: both sessions touch the same never-touched fork vertex (different properties) in overlapping
-// transactions. The stub is get-or-created concurrently; the outcome must still be main's, with no crash.
-TEST_F(VersioningMultiSessionTest, FirstTouchOfTheSameForkVertexRacesLikeMain) {
-  SetUpTwoSessionsOnBranch();
+    checkout_both("main");
+    const auto main_outcome = OverlappingWriteOutcome(faker, faker2, c.a_write, c.b_write);
 
-  const auto branch_outcome =
-      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61");
+    EXPECT_NE(main_outcome.find("TransactionSerializationException"), std::string::npos)
+        << "sanity: main raises a serialization error for this interleaving, got '" << main_outcome << "'";
+    EXPECT_EQ(branch_outcome, main_outcome);
+  }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker2.Interpret("CHECKOUT BRANCH 'main'");
-  const auto main_outcome =
-      OverlappingWriteOutcome(faker, faker2, "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61");
+  checkout_both("b");
+  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}})) << "every transaction was rolled back";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.w"), (Rows{{6}})) << "a leftover stub is invisible";
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 2}}));
 
-  EXPECT_EQ(branch_outcome, main_outcome);
-
-  // The stub the rolled-back writers left behind is semantically invisible.
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}}));
-  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.w"), (Rows{{6}}));
+  EXPECT_NO_THROW(faker2.Interpret("MATCH ()-[r:R]->() SET r.x = 21"));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 21}}));
 }
 
 // (e) A's uncommitted DELETE is invisible to B until A commits; B's already-open transaction never sees it.
@@ -4278,7 +3106,8 @@ TEST_F(VersioningInterpreterTest, BranchForkEdgeSetPropertyIsVisibleBothWaysAndI
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  faker.Interpret("MATCH (:A)-[r:R]->(:B) SET r.w = 2");
+  EXPECT_EQ(IntRows(faker, "MATCH (:A)-[r:R]->(:B) SET r.w = 2 RETURN r.w"), (Rows{{2}}))
+      << "a single-statement read must see the post-SET value, not the stale fork one";
 
   EXPECT_EQ(IntRows(faker, "MATCH (:A)-[r:R]->(:B) RETURN r.w, r.x"), (Rows{{2, 7}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B)<-[r:R]-(:A) RETURN r.w, r.x"), (Rows{{2, 7}}));
@@ -4315,7 +3144,8 @@ TEST_F(VersioningInterpreterTest, BranchForkEdgeRemoveAndReplacePropertiesOverla
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R3]->() RETURN r.w, r.x, r.y"), (Rows{{kNullInt, 7, 5}}));
   faker.Interpret("MATCH ()-[r:R3]->() SET r.w = 9");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R3]->() RETURN r.w, r.x, r.y"), (Rows{{9, 7, 5}}));
-  EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R3]->() RETURN properties(r)"), (std::set<std::string>{"w", "x", "y"}));
+  EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R3]->() RETURN properties(r)"),
+            (std::set<std::string>{"w", "x", "y"}));
 
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() RETURN r.w, r.x ORDER BY type(r)"), (Rows{{1, 7}, {1, 7}, {1, 7}}));
@@ -4340,68 +3170,35 @@ TEST_F(VersioningInterpreterTest, BranchForkEdgeWriteAfterRollbackSucceeds) {
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}}));
 }
 
-// (d) Two sessions writing different properties of the same fork edge in overlapping transactions conflict exactly
-// as they do on main, whether the stub already exists or is first created by the race, and nothing crashes.
-TEST_F(VersioningMultiSessionTest, OverlappingWritesToTheSameForkEdgeConflictLikeMain) {
-  SatisfyGate();
-  faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:2}]->(:B {id:2})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  faker2.Interpret("CHECKOUT BRANCH 'b'");
-
-  const std::string a_write = "MATCH ()-[r:R]->() SET r.w = 10";
-  const std::string b_write = "MATCH ()-[r:R]->() SET r.x = 20";
-
-  const auto first_touch_outcome = OverlappingWriteOutcome(faker, faker2, a_write, b_write);
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 2}})) << "both were rolled back";
-
-  faker.Interpret("MATCH ()-[r:R]->() SET r.y = 0");  // stub now exists, committed
-  const auto stubbed_outcome = OverlappingWriteOutcome(faker, faker2, a_write, b_write);
-
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker2.Interpret("CHECKOUT BRANCH 'main'");
-  const auto main_outcome = OverlappingWriteOutcome(faker, faker2, a_write, b_write);
-
-  EXPECT_NE(main_outcome.find("TransactionSerializationException"), std::string::npos)
-      << "sanity: main raises a serialization error for this interleaving, got '" << main_outcome << "'";
-  EXPECT_EQ(first_touch_outcome, main_outcome);
-  EXPECT_EQ(stubbed_outcome, main_outcome);
-
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 2}}));
-  EXPECT_NO_THROW(faker2.Interpret("CHECKOUT BRANCH 'b'"));
-  EXPECT_NO_THROW(faker2.Interpret("MATCH ()-[r:R]->() SET r.x = 21"));
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 21}}));
-}
-
 // (e) Deleting a stub-backed fork edge removes it everywhere on the branch (both directions, scans, index scans) and
-// leaves main alone; DETACH DELETE of an endpoint hides a stubbed incident edge the same way.
+// leaves main alone, while a parallel sibling edge between the same endpoints survives; DETACH DELETE of an endpoint
+// hides a stubbed incident edge the same way.
 TEST_F(VersioningInterpreterTest, BranchDeleteStubBackedForkEdgeIsGoneEverywhere) {
   SatisfyGate();
   faker.Interpret("CREATE EDGE INDEX ON :R(w)");
   faker.Interpret(
-      "CREATE (:A {id:1})-[:R {w:1}]->(:B {id:2}), (:A {id:3})-[:R {w:5}]->(:B {id:4}), "
-      "(:A {id:5})-[:R {w:6}]->(:B {id:6})");
+      "CREATE (a:A {id:1}), (b:B {id:2}), (a)-[:R {w:1}]->(b), (a)-[:R {w:4}]->(b), "
+      "(:A {id:3})-[:R {w:5}]->(:B {id:4}), (:A {id:5})-[:R {w:6}]->(:B {id:6})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  faker.Interpret("MATCH (:A {id:1})-[r:R]->() SET r.w = 2");
-  faker.Interpret("MATCH (:A {id:1})-[r:R]->() DELETE r");
-  EXPECT_EQ(IntRows(faker, "MATCH (:A {id:1})-[r]->() RETURN count(r)"), (Rows{{0}}));
-  EXPECT_EQ(IntRows(faker, "MATCH (:B {id:2})<-[r]-() RETURN count(r)"), (Rows{{0}}));
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{2}}));
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{5}, {6}}));
+  faker.Interpret("MATCH (:A {id:1})-[r:R {w:1}]->() SET r.w = 2");
+  faker.Interpret("MATCH (:A {id:1})-[r:R {w:2}]->() DELETE r");
+  EXPECT_EQ(IntRows(faker, "MATCH (:A {id:1})-[r]->() RETURN r.w"), (Rows{{4}})) << "only the parallel sibling is left";
+  EXPECT_EQ(IntRows(faker, "MATCH (:B {id:2})<-[r]-() RETURN r.w"), (Rows{{4}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{3}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{4}, {5}, {6}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{0}}));
 
   faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 8");
   faker.Interpret("MATCH (a:A {id:3}) DETACH DELETE a");
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}}));
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{2}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{4}, {6}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 8 RETURN count(r)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B {id:4})<-[r]-() RETURN count(r)"), (Rows{{0}}));
 
   faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w ORDER BY r.w"), (Rows{{1}, {5}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w ORDER BY r.w"), (Rows{{1}, {4}, {5}, {6}}));
 }
 
 // (f) Edge-type+property and global edge-property index scans on a branch see a stubbed fork edge at its branch value
@@ -4432,25 +3229,6 @@ TEST_F(VersioningInterpreterTest, BranchEdgePropertyIndexScansOverlayForkEdgeStu
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w"), (Rows{{2}, {5}, {9}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{1}}));
-}
-
-// D14: description queries are keyed on main's schema and stored in main; on a branch they are rejected.
-TEST_F(VersioningInterpreterTest, DescriptionQueriesRejectedOnBranch) {
-  SatisfyGate();
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-  for (const char *q : {"SET DESCRIPTION ON LABEL :Person \"d\"",
-                        "DELETE DESCRIPTION ON LABEL :Person",
-                        "SHOW DESCRIPTIONS"}) {
-    try {
-      faker.Interpret(q);
-      FAIL() << q << " must be rejected on a branch";
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      EXPECT_THAT(e.what(), ::testing::HasSubstr("DESCRIPTION")) << q;
-    }
-  }
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_NO_THROW(faker.Interpret("SET DESCRIPTION ON LABEL :Person \"d\""));
 }
 
 #ifdef MG_ENTERPRISE
