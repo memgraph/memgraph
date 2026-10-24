@@ -268,37 +268,19 @@ struct CurrentDB {
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
-  // A session that is destroyed (disconnect / Interpreter teardown) while checked out on a branch must
-  // still detach, or the branch's attach count leaks and it can never be dropped until process restart. The
-  // implicit destructor would free `branch_context_` (unique_ptr) but never call ReleaseCheckout,
-  // so we do it here. Safe re: db_acc_ lifetime -- the destructor BODY runs before any member is
-  // destroyed, so db_acc_ (hence the Database's version_store_ that branch_context_version_store_
-  // points into) is still fully alive. (Copy ops are user-deleted above so no implicit move ever
-  // existed; CurrentDB is constructed exactly once, in Interpreter's ctor, and never moved/copied.)
+  // Must detach on destruction, or the branch's attach count leaks and the branch can never be dropped.
   ~CurrentDB() { ClearBranchContext(); }
 
-  // force_main_override: Graph Versioning v1 (USING VERSION per-query override, Step 1) -- when
-  // true, routes THIS transaction at main even though the session is checked out on a branch
-  // (current_version_/branch_context_ untouched); see the on_branch computation in the .cpp.
+  // force_main_override: route THIS transaction at main although the session is checked out on a branch.
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
                                 bool force_main_override = false);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
-    // Graph Versioning v1 (chunk 7a, HIGH-1 fix): a branch pointer is scoped to the database it
-    // was checked out on (VersionStore lives on Database), so a genuine USE/db-change must still
-    // clear it -- but SetCurrentDB is NOT only called on a genuine db switch: the Bolt glue's
-    // RuntimeConfig::Configure re-invokes it with the SAME database whenever ANY field of the RUN
-    // "extra" map differs from the previous query ("mode"/"tx_timeout"/"tx_metadata" -- see
-    // glue/SessionHL.cpp's ToQueryExtras), which ordinary routing-aware drivers vary between
-    // successive autocommit queries. Unconditionally resetting here silently reverted a
-    // CHECKOUT BRANCH to main on the very next query under a real driver. Only reset when `new_db`
-    // is actually a DIFFERENT database -- compared by identity (Gatekeeper<Database>::Accessor's
-    // operator== compares the underlying Database, utils/gatekeeper.hpp), not name, so it is
-    // correct even across a DROP+recreate of a same-named database.
-    // Move the outgoing Accessor out of db_acc_ under the lock, then let it destruct AFTER the lock
-    // is released (see db_acc_mutex_ for why: its dtor can block on a foreign GKInternals::mutex_).
+    // Called with the SAME db whenever a RUN "extra" field changes (RuntimeConfig::Configure), so only reset
+    // the branch on a genuinely different database (compared by identity, not name).
+    // Outgoing Accessor is destructed after the lock is released (see db_acc_mutex_).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     bool same_db{false};
     {
@@ -307,14 +289,11 @@ struct CurrentDB {
       old_db = std::exchange(db_acc_, std::move(new_db));
       in_explicit_db_ = in_explicit_db;
     }
-    // old_db still holds the old accessor alive. ClearBranchContext dereferences
-    // branch_context_version_store_ (a raw pointer into the old Database's version_store_);
-    // must run before old_db destructs. Only needed on a genuine db switch.
+    // Must run before old_db destructs: ClearBranchContext dereferences a raw pointer into the old Database.
     if (!same_db) {
       ClearBranchContext();
       current_version_.reset();
     }
-    // old_db destructs here, outside the lock.
   }
 
   void ResetDB() {
@@ -326,10 +305,7 @@ struct CurrentDB {
       std::lock_guard lock{db_acc_mutex_};
       old_db.swap(db_acc_);
     }
-    // Release the branch context BEFORE dropping old_db: ClearBranchContext dereferences
-    // branch_context_version_store_ (a raw pointer into the Database's version_store_); dropping
-    // the last db_acc_ first could let a background reaper destroy that Database concurrently,
-    // before ClearBranchContext runs (cross-thread UAF).
+    // Before dropping old_db: a background reaper could otherwise destroy the Database under ClearBranchContext.
     ClearBranchContext();
     current_version_.reset();
     old_db.reset();  // release db access before the accessors below, as before
@@ -379,22 +355,11 @@ struct CurrentDB {
     return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
   }
 
-  // Graph Versioning (branches) v1, CHUNK 7a: the session's active branch, if any -- per-connection
-  // state (spec §4.1 "per-connection session version"). std::nullopt means the session is on
-  // `main` (the default/unversioned base graph). This is simply the session target: the last
-  // CHECKOUT wins, exactly like USE DATABASE -- CHECKOUT BRANCH '<name>' sets it; CHECKOUT BRANCH
-  // 'main' clears it (SetCurrentVersion(std::nullopt)), and a later CHECKOUT BRANCH '<name2>' can
-  // freely move it again on the same connection. Trivially default-constructed (nullopt) so a
-  // session that never touches versioning pays zero cost (R6) beyond one empty
-  // std::optional<std::string> per CurrentDB.
+  // The session's active branch; std::nullopt means `main`. Last CHECKOUT wins.
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
 
-  // CHUNK 7b(2): clearing the version (switching back to 'main', or being cleared out from under
-  // the session by MERGE/DROP) is exactly when any held branch context/checkout must be released
-  // too -- see ClearBranchContext's own doc-comment. Setting a NON-null version does NOT release
-  // anything: a direct branch-to-branch CHECKOUT must release the OLD context (via an explicit
-  // SetCurrentVersion(std::nullopt) call) BEFORE building+installing the new one via
-  // SetBranchContext, or the just-installed context would be torn down again by this same call.
+  // Clearing the version releases any held branch context. A branch-to-branch CHECKOUT must clear first, then
+  // SetBranchContext, or the new context would be torn down by this call.
   void SetCurrentVersion(std::optional<std::string> version) {
     if (!version) {
       ClearBranchContext();
@@ -402,38 +367,24 @@ struct CurrentDB {
     current_version_ = std::move(version);
   }
 
-  // Installs this session's BranchContext (over the branch's shared BranchCore) that CHECKOUT BRANCH built for
-  // `name`, plus the (non-owned) VersionStore + name needed to detach later. Caller contract:
-  // `version_store->TryAcquireCheckout(name)` must already have succeeded, and any PREVIOUSLY held context must
-  // already have been released (via SetCurrentVersion(std::nullopt)) -- this setter does not do that itself.
+  // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was already released.
   void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
                         std::string name) {
     branch_context_ = std::move(context);
     branch_context_version_store_ = version_store;
     branch_context_name_ = std::move(name);
-    // Graph Versioning v1 (branch-local plan cache): a fresh, empty, per-checkout cache -- never
-    // shared with main's (see branch_plan_cache_ doc-comment below) -- so this checkout starts with
-    // no stale plans from whatever branch/checkout previously used this CurrentDB slot. Sized the
-    // same as main's own plan_cache_ (dbms/database.cpp), via the same flag.
+    // Fresh per-checkout cache, never shared with main's.
     branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
   }
 
-  // Attaches this (fresh, nested) session to the branch `outer` is on: takes its own counted checkout and a
-  // BranchContext over the SAME shared core, so its transactions open on the shared diff engine. Used by
-  // mgp_execute_query. Throws QueryRuntimeException (nothing held) if the checkout is refused. Released by
-  // ClearBranchContext / ~CurrentDB like any checkout, so destruction on an exception path still detaches.
-  // `outer` is only read here, and the outer session's own attach keeps the branch (and core) alive meanwhile.
+  // Attaches this fresh nested session (mgp_execute_query) to the branch `outer` is on, with its own counted
+  // checkout. Throws QueryRuntimeException (nothing held) if the checkout is refused.
   void AttachBranchOf(versioning::VersionStore *version_store, versioning::BranchContext const &outer);
 
-  // The session's branch context, if CurrentVersion() names a checked-out branch; nullptr on `main`.
-  // Consulted by SetupDatabaseTransaction (interpreter.cpp) to route ordinary Cypher.
+  // nullptr on `main`.
   versioning::BranchContext *branch_context() { return branch_context_.get(); }
 
-  // Graph Versioning v1 (branch-local plan cache): the private plan cache for this checkout, if
-  // CurrentVersion() names a checked-out branch; nullptr on `main`. Holds ONLY plans built against
-  // this branch's own DbAccessor (its diff engine's always-empty index, not main's populated one),
-  // so it can never be cross-contaminated with main's cache -- see the plan-cache selection sites
-  // in interpreter.cpp (CypherQuery/EXPLAIN/PROFILE) for the full hazard writeup.
+  // Per-checkout plan cache; nullptr on `main`. Kept separate so branch plans never mix with main's.
   query::PlanCacheLRU *branch_plan_cache() { return branch_plan_cache_.get(); }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
@@ -458,32 +409,20 @@ struct CurrentDB {
   // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
   // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
-  // Graph Versioning (branches) v1, CHUNK 7a -- see CurrentVersion()/SetCurrentVersion() above.
   std::optional<std::string> current_version_;
-  // Graph Versioning v1 (lazy diff-context, slice E-1) -- see SetBranchContext()/branch_context()
-  // above.
   std::unique_ptr<versioning::BranchContext> branch_context_;
-  // Graph Versioning v1 (branch-local plan cache) -- see SetBranchContext()/branch_plan_cache()
-  // above. Owned per-checkout (created in SetBranchContext, torn down in ClearBranchContext) so it
-  // never outlives -- and never mixes plans across -- a single branch checkout. Non-null iff
-  // branch_context_ is non-null; always nullptr on `main`.
+  // Non-null iff branch_context_ is non-null.
   std::unique_ptr<query::PlanCacheLRU> branch_plan_cache_;
 
  private:
-  // Not owned: the Database (hence its VersionStore) outlives any session's CurrentDB. Only ever
-  // non-null while branch_context_ is held, so ReleaseCheckout is always called against the SAME
-  // VersionStore that granted the attach, even if db_acc_ has since been reassigned.
+  // Not owned; non-null only while branch_context_ is held, so ReleaseCheckout hits the VersionStore that
+  // granted the attach even if db_acc_ was reassigned.
   versioning::VersionStore *branch_context_version_store_{nullptr};
   std::string branch_context_name_;
 
-  // Detaches this session from its branch (versioning::VersionStore::ReleaseCheckout) and tears down its context
-  // (which releases any open per-transaction historical accessor). Safe to call
-  // unconditionally -- a no-op when no context is held. Every place the session's branch pointer
-  // can change or disappear (SetCurrentVersion(std::nullopt), a genuine SetCurrentDB switch,
-  // ResetDB) routes through here so a session's exclusive checkout is never leaked past the point
-  // its own CurrentVersion() stops naming that branch.
-  // Defined out-of-line in interpreter.cpp: the body calls versioning::VersionStore::ReleaseCheckout,
-  // and VersionStore is only forward-declared in this header.
+  // Detaches from the branch (ReleaseCheckout) and tears down the context. No-op when none is held.
+  // Every path that changes the branch pointer routes through here so a checkout is never leaked.
+  // Out-of-line: VersionStore is only forward-declared here.
   void ClearBranchContext();
 };
 
@@ -905,7 +844,6 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
-  // force_main_override: see CurrentDB::SetupDatabaseTransaction's doc-comment above.
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
                                 bool force_main_override = false);

@@ -9,10 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Graph Versioning v2: BranchContext unit tests against a real InMemoryStorage main plus RegisterForkPin (no
-// interpreter wiring; see versioning_interpreter.cpp for end-to-end coverage). The diff engine shares main's
-// NameIdMapper, so one label/property id is valid on both sides. Edge read-gate tests use storage-level primitives
-// only: this file does not link mg-query.
+// BranchContext tests against a real InMemoryStorage main plus RegisterForkPin; no interpreter wiring (this file does
+// not link mg-query). The diff engine shares main's NameIdMapper, so one label/property id is valid on both sides.
 
 #include <algorithm>
 #include <cstdint>
@@ -63,16 +61,12 @@ class VersioningBranchEngineTest : public testing::Test {
 
   virtual bool LightEdge() const { return false; }
 
-  // Registers a fork pin at the CURRENT tip and remembers it for TearDown's release.
   uint64_t ForkNow() {
     fork_ts_ = mem_storage_->RegisterForkPin();
     return *fork_ts_;
   }
 
-  // Publishes `diff_acc` as the context's current transaction and opens the per-transaction historical accessor.
-  void Begin(ms::Storage::Accessor *diff_acc) {
-    ASSERT_TRUE(branch_context_->BeginTransaction(diff_acc).has_value());
-  }
+  void Begin(ms::Storage::Accessor *diff_acc) { ASSERT_TRUE(branch_context_->BeginTransaction(diff_acc).has_value()); }
 
   std::unique_ptr<ms::Storage> storage_;
   ms::InMemoryStorage *mem_storage_{};
@@ -80,9 +74,7 @@ class VersioningBranchEngineTest : public testing::Test {
   std::unique_ptr<mv::BranchContext> branch_context_;
 };
 
-// BuildFromFork opens an EMPTY diff engine over a live historical base (O(1), nothing copied). CowVertex then
-// materializes an empty stub for ONLY the touched vertex: fork values stay in the fork vertex, untouched vertices
-// never appear in the diff engine, and a second COW returns the same (already-mutated) stub.
+// CowVertex materializes an empty stub for ONLY the touched vertex; untouched vertices never appear in the diff engine.
 TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedVertex) {
   const auto label_a = storage_->NameToLabel("A");
   const auto label_b = storage_->NameToLabel("B");
@@ -118,7 +110,6 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
   Begin(diff_acc.get());
 
-  // Precondition: nothing was copied, while the historical base sees the fork state.
   ASSERT_EQ(count_diff_vertices(*diff_acc), 0u);
   auto hist_vertex = branch_context_->historical().FindVertex(a_gid, ms::View::OLD);
   ASSERT_TRUE(hist_vertex.has_value());
@@ -128,7 +119,6 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   ASSERT_TRUE(cowed.has_value());
   EXPECT_EQ(cowed->Gid(), a_gid);
 
-  // The stub is EMPTY; fork state is overlaid on read by the query layer.
   EXPECT_FALSE(cowed->HasLabel(label_a, ms::View::NEW).value_or(true));
   auto x_val = cowed->GetProperty(prop_x, ms::View::NEW);
   ASSERT_TRUE(x_val.has_value());
@@ -144,7 +134,6 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   EXPECT_EQ(count_diff_vertices(*diff_acc), 1u);
   EXPECT_FALSE(diff_acc->FindVertex(b_gid, ms::View::NEW).has_value()) << "untouched vertex must not be copied";
 
-  // Idempotent: a second COW returns the same (already-mutated) stub.
   ASSERT_TRUE(cowed->SetProperty(prop_x, ms::PropertyValue(42)).has_value());
   auto second = branch_context_->CowVertex(a_gid);
   ASSERT_TRUE(second.has_value());
@@ -154,13 +143,12 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   EXPECT_EQ(*x_again, ms::PropertyValue(42)) << "second CowVertex must resolve to the SAME (already-mutated) stub";
   EXPECT_EQ(count_diff_vertices(*diff_acc), 1u) << "idempotent COW must not create a duplicate";
 
-  // A gid present in neither the diff engine nor the fork is an error, and creates nothing.
+  // Unknown gid: an error, and nothing is created.
   auto missing = branch_context_->CowVertex(ms::Gid::FromUint(1'000'000));
   ASSERT_FALSE(missing.has_value());
   EXPECT_NE(missing.error().message.find("not found"), std::string::npos) << missing.error().message;
   EXPECT_EQ(count_diff_vertices(*diff_acc), 1u);
 
-  // A stub marked deleted is refused instead of being handed back for mutation.
   auto deleted_a = branch_context_->DeleteForkVertex(a_gid);
   ASSERT_TRUE(deleted_a.has_value() && deleted_a->has_value());
   auto refused = branch_context_->CowVertex(a_gid);
@@ -170,9 +158,8 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-// ResolveVertex is diff-first with historical fallback; the gid-ordered union scan yields each of a COW'd vertex (diff
-// wins the tie), an untouched fork vertex and a branch-native create exactly once; native gids lie outside the fork
-// range (vertex and edge).
+// ResolveVertex is diff-first with historical fallback; the gid-ordered union scan yields a COW'd vertex (diff wins),
+// an untouched fork vertex and branch-native creates exactly once.
 TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNatives) {
   const auto prop_x = storage_->NameToProperty("x");
   const auto edge_type = storage_->NameToEdgeType("E");
@@ -200,7 +187,6 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   ASSERT_TRUE(cowed_a.has_value());
   ASSERT_TRUE(cowed_a->SetProperty(prop_x, ms::PropertyValue(2)).has_value());
 
-  // Branch-native vertices and an edge between them; the first create happens BEFORE any other native write.
   auto c = diff_acc->CreateVertex();
   auto d = diff_acc->CreateVertex();
   const auto c_gid = c.Gid();
@@ -210,7 +196,6 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   EXPECT_FALSE(branch_context_->IsForkGid(c_gid)) << "a native vertex must not reuse a fork-range gid";
   EXPECT_FALSE(branch_context_->IsForkGid(native_edge->Gid())) << "a native edge must not reuse a fork-range gid";
 
-  // ResolveVertex: diff copy wins for A, historical fallback for B.
   auto resolved_a = branch_context_->ResolveVertex(a_gid, ms::View::NEW);
   ASSERT_TRUE(resolved_a.has_value());
   auto a_val = resolved_a->GetProperty(prop_x, ms::View::NEW);
@@ -222,7 +207,6 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   ASSERT_TRUE(b_val.has_value());
   EXPECT_EQ(*b_val, ms::PropertyValue(9));
 
-  // Union scan: one shared mapper, so prop_x reads correctly whichever side yielded the vertex.
   std::map<uint64_t, int64_t> seen;
   size_t yielded = 0;
   std::vector<uint64_t> order;
@@ -243,7 +227,7 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-// A fork_ts that was never registered via RegisterForkPin must be reported as a BuildError, not build a bogus context.
+// A fork_ts never registered via RegisterForkPin is a BuildError.
 TEST_F(VersioningBranchEngineTest, BuildFromForkRejectsUnpinnedTs) {
   {
     auto acc = storage_->Access(ms::WRITE);
@@ -251,23 +235,20 @@ TEST_F(VersioningBranchEngineTest, BuildFromForkRejectsUnpinnedTs) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  // A pin exists, but on a different timestamp: only exact membership counts.
+  // A pin exists, but on a different timestamp.
   const auto pinned_ts = ForkNow();
   const uint64_t never_pinned_ts = pinned_ts + 1000;
-  auto result =
-      mv::BranchContext::BuildFromFork(*mem_storage_, never_pinned_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, never_pinned_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_FALSE(result.has_value());
-  EXPECT_NE(result.error().message.find(std::to_string(never_pinned_ts)), std::string::npos)
-      << result.error().message;
+  EXPECT_NE(result.error().message.find(std::to_string(never_pinned_ts)), std::string::npos) << result.error().message;
   EXPECT_EQ(mem_storage_->OldestForkPin(), std::optional<uint64_t>{pinned_ts}) << "a failed build must leak no pin";
 
   auto built = mv::BranchContext::BuildFromFork(*mem_storage_, pinned_ts, memgraph::tests::MakeMainCommitArgs());
   EXPECT_TRUE(built.has_value()) << "the pinned timestamp itself still builds";
 }
 
-// A fork-vertex delete is an ordinary diff-engine marker write: hidden at View::NEW but not View::OLD within the
-// deleting command, a repeated delete is a no-op, abort leaves no marker (visible again in resolve and scan), and a
-// committed delete stays hidden to later transactions (resolve fails, scan skips).
+// A fork-vertex delete is a diff-engine marker write: hidden at View::NEW but not View::OLD within the deleting
+// command; abort leaves no marker; a committed delete stays hidden to later transactions.
 TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
   const auto prop_x = storage_->NameToProperty("x");
   ms::Gid a_gid, b_gid;
@@ -285,7 +266,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
-  // Aborted delete.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
     Begin(diff_acc.get());
@@ -306,7 +286,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
     diff_acc->Abort();
   }
 
-  // Visible again after the abort; then delete again and commit.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
     Begin(diff_acc.get());
@@ -327,7 +306,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
     ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  // Committed delete is visible to a later transaction.
   auto read_acc = branch_context_->diff_engine().Access(ms::READ);
   Begin(read_acc.get());
   EXPECT_TRUE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW))
@@ -339,10 +317,9 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
   EXPECT_EQ(scanned, std::vector<ms::Gid>{b_gid}) << "the union scan must skip the deleted fork vertex";
 }
 
-// Fork-edge delete: after an earlier COW+SET, the delete empties FindDiffEdge at View::NEW, hides the fork edge at
-// View::NEW but not View::OLD within the deleting command, sets main's branched bit, and is hidden at both views in
-// a later transaction. Exercised with the storage-level primitives query::EdgeAccessor's read gate is built from
-// (this file does not link mg-query). A self-loop is recorded once and excluded from both OUT and IN resolution.
+// Fork-edge delete after an earlier COW+SET: hidden at View::NEW but not View::OLD within the deleting command, sets
+// main's branched bit, hidden at both views later. A self-loop is recorded once and excluded from OUT and IN
+// resolution.
 TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   const auto prop_w = storage_->NameToProperty("w");
   const auto edge_type = storage_->NameToEdgeType("E");
@@ -359,7 +336,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
     ASSERT_TRUE(edge.has_value());
     edge_gid = edge->Gid();
     ASSERT_TRUE(edge->SetProperty(prop_w, ms::PropertyValue(1)).has_value());
-    // Two edges out of one source: deleted in descending gid order below.
     auto m = acc->CreateVertex();
     m_gid = m.Gid();
     auto p1 = acc->CreateVertex();
@@ -377,7 +353,7 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
-  // Held for the whole test: an independent binding to the fork edges that never goes through CowEdge.
+  // Fork edges bound independently of CowEdge.
   auto independent_hist = mem_storage_->HistoricalAccess(fork_ts);
   ASSERT_TRUE(independent_hist.has_value());
   auto hist_s = (*independent_hist)->FindVertex(s_gid, ms::View::OLD);
@@ -403,7 +379,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   ASSERT_TRUE(m_edges[0].Gid() > m_edges[1].Gid());
   EXPECT_FALSE(fork_loop.MaybeBranchedHint()) << "an untouched fork edge is not branched";
 
-  // Earlier statement: COW, SET, commit.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
     Begin(diff_acc.get());
@@ -414,7 +389,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   }
   EXPECT_TRUE(fork_edge.MaybeBranchedHint()) << "CowEdge must set main's own Edge::branched() bit";
 
-  // Later statement deletes both edges.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
     Begin(diff_acc.get());
@@ -458,7 +432,6 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
     EXPECT_TRUE(branch_context_->IsForkEdgeHidden(fork_edge, view));
     for (const auto &e : m_edges) EXPECT_TRUE(branch_context_->IsForkEdgeHidden(e, view));
   }
-  // A non-loop edge is excluded from the FROM stub's OUT list and the TO stub's IN list alike.
   EXPECT_TRUE(branch_context_->ResolveEdges(s_gid, ms::EdgeDirection::OUT, ms::View::NEW).empty());
   EXPECT_TRUE(branch_context_->ResolveEdges(a_gid, ms::EdgeDirection::IN, ms::View::NEW).empty());
   EXPECT_TRUE(branch_context_->ResolveEdges(m_gid, ms::EdgeDirection::OUT, ms::View::NEW).empty());
@@ -467,9 +440,8 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   EXPECT_TRUE(branch_context_->ResolveEdges(u_gid, ms::EdgeDirection::IN, ms::View::NEW).empty());
 }
 
-// CowEdge materializes an EMPTY, delta-less stub (no fork property is copied), linked between the endpoint stubs. It
-// is idempotent, adds no second edge to the branch's adjacency (the fork edge is what ResolveEdges emits), and a
-// rolled-back write to it leaves the stub in place so the next write just reuses it.
+// CowEdge materializes an empty, delta-less stub linked between the endpoint stubs; it is idempotent, never emitted by
+// ResolveEdges (the fork edge is), and survives a rolled-back write.
 TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollbackAndIsIdempotent) {
   const auto prop_w = storage_->NameToProperty("w");
   const auto prop_x = storage_->NameToProperty("x");
@@ -503,7 +475,6 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     return out->edges[0];
   };
 
-  // A write that rolls back.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
     Begin(diff_acc.get());
@@ -521,7 +492,6 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     diff_acc->Abort();
   }
 
-  // The stub is still there, still empty, and writable again.
   {
     auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
     Begin(diff_acc.get());
@@ -532,7 +502,7 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     ASSERT_TRUE(stub.has_value());
     ASSERT_TRUE(stub->SetProperty(prop_w, ms::PropertyValue(3)).has_value());
 
-    // Fork identity wins in adjacency: exactly one edge, the historical one; the stub is not emitted.
+    // Fork identity wins in adjacency.
     auto resolved = branch_context_->ResolveEdges(s_gid, ms::EdgeDirection::OUT, ms::View::NEW);
     ASSERT_EQ(resolved.size(), 1u);
     EXPECT_NE(resolved[0].storage_, &branch_context_->diff_engine());
@@ -540,7 +510,7 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     ASSERT_EQ(resolved_in.size(), 1u);
     EXPECT_NE(resolved_in[0].storage_, &branch_context_->diff_engine());
 
-    // Linked into BOTH diff-engine endpoint stubs, exactly once (still not emitted by ResolveEdges above).
+    // Linked into both diff-engine endpoint stubs exactly once.
     auto diff_from = diff_acc->FindVertex(s_gid, ms::View::NEW);
     ASSERT_TRUE(diff_from.has_value());
     auto diff_out = diff_from->OutEdges(ms::View::NEW);
@@ -559,7 +529,6 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  // Both fork identity and the stub resolve the same fork edge.
   auto read_acc = branch_context_->diff_engine().Access(ms::READ);
   Begin(read_acc.get());
   auto stub = branch_context_->FindDiffEdge(edge_gid, ms::View::NEW);
@@ -577,7 +546,7 @@ class VersioningBranchLightEdgeTest : public VersioningBranchEngineTest {
   bool LightEdge() const override { return true; }
 };
 
-// Light-edge storage: CowEdge still materializes an empty, idempotent stub that survives an abort.
+// Same as the non-light-edge test, on light-edge storage.
 TEST_F(VersioningBranchLightEdgeTest, CowEdgeMaterializesEmptyStubThatSurvivesRollback) {
   const auto prop_w = storage_->NameToProperty("w");
   const auto edge_type = storage_->NameToEdgeType("E");
@@ -640,9 +609,8 @@ TEST_F(VersioningBranchLightEdgeTest, CowEdgeMaterializesEmptyStubThatSurvivesRo
   }
 }
 
-// Graph Versioning v2 (S3-c): the diff engine runs its own GC with main's GC config and charges its memory to main's
-// tenant (arena pool, embedding tracker, unreleased-delta gauge). Main here is built the way Database builds it:
-// with a per-DB arena pool, and the calling thread inside that pool's DbArenaScope.
+// The diff engine runs its own GC with main's GC config and charges memory to main's tenant (arena pool, embedding
+// tracker, unreleased-delta gauge). Main is built as Database builds it, inside the pool's DbArenaScope.
 class VersioningBranchGcTest : public testing::Test {
  protected:
   virtual ms::Config MainConfig() const {
@@ -700,7 +668,7 @@ class VersioningBranchGcTest : public testing::Test {
 
   int64_t Deltas() const { return static_cast<int64_t>(delta_gauge_.Value()); }
 
-  // Explicit GC passes on the diff engine (unlinking and freeing can take separate passes).
+  // Unlinking and freeing can take separate passes.
   void Collect() {
     for (int i = 0; i < 3; ++i) Diff().FreeMemory({}, false);
   }
@@ -779,7 +747,7 @@ TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
   {
     auto acc = Diff().Access(ms::WRITE);
     ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
-    // The stub is materialized INSIDE the transaction that aborts: it is delta-less, so the abort cannot undo it.
+    // The stub is delta-less, so the abort cannot undo it.
     auto v = ctx_->CowVertex(v_gid_);
     ASSERT_TRUE(v.has_value());
     for (int64_t i = 0; i < kWrites; ++i) {
@@ -802,8 +770,8 @@ TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
   EXPECT_TRUE(acc->FindVertex(v_gid_, ms::View::NEW).has_value()) << "the stub is never collected";
 }
 
-// A deleted edge stub is a normal MVCC delete, so GC frees it. The delete is recorded on the endpoint stubs, so the fork
-// edge stays hidden and CowEdge refuses it; the storage layer can still materialize a fresh stub under the same gid.
+// GC frees a deleted edge stub; the fork edge stays hidden (the delete lives on the endpoint stubs) and CowEdge refuses
+// it, while the storage layer can still materialize a fresh stub under the same gid.
 TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRematerialized) {
   auto fork_edge_of = [&] {
     auto from = ctx_->historical().FindVertex(v_gid_, ms::View::OLD);
@@ -813,7 +781,7 @@ TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRemate
     EXPECT_EQ(out->edges.size(), 1u);
     return out->edges[0];
   };
-  // An older open transaction defeats fast-discard, so both commits keep their deltas until GC runs.
+  // The older open transaction defeats fast-discard.
   auto pin_reader = Diff().Access(ms::READ);
   {
     auto acc = Diff().Access(ms::WRITE);
@@ -864,8 +832,8 @@ TEST_F(VersioningBranchGcTest, BranchWritesAreChargedToMainsMemoryTracker) {
 #endif
   Collect();
   const auto before = db_tracker_.Amount();
-  // A fresh thread starts outside any arena scope; it enters the pool the DIFF ENGINE was wired with, so a null or
-  // foreign pool in Build leaves main's tracker flat.
+  // A fresh thread starts outside any arena scope; entering the diff engine's pool means a null or foreign pool in
+  // Build would leave main's tracker flat.
   std::thread writer([&] {
     const memgraph::memory::DbArenaScope scope{Diff().DbArenaPool()};
     auto acc = Diff().Access(ms::WRITE);

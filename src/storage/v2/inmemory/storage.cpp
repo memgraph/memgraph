@@ -701,7 +701,6 @@ EdgeAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubEdge(Gid edge_gid
   MG_ASSERT(config_.properties_on_edges, "A stub edge needs an Edge object, i.e. properties_on_edges.");
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // Phase 1, no locks held: the endpoint stubs (the vertex skip list never reclaims them in a diff engine).
   auto *from_vertex = mem_storage->MaterializeStubVertex(from_gid);
   auto *to_vertex = from_gid == to_gid ? from_vertex : mem_storage->MaterializeStubVertex(to_gid);
   atomic_fetch_max_explicit(&mem_storage->edge_id_, edge_gid.AsUint() + 1, std::memory_order_acq_rel);
@@ -720,7 +719,7 @@ EdgeAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubEdge(Gid edge_gid
     guard_from.lock();
   }
 
-  // Phase 2, under both endpoint locks: whoever links first wins; later callers find the edge and return it.
+  // Under both endpoint locks: whoever links first wins; later callers return the existing edge.
   Edge *edge_ptr = nullptr;
   if (config_.storage_light_edge) {
     for (auto const &[type, to, ref] : from_vertex->out_edges) {
@@ -732,8 +731,7 @@ EdgeAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubEdge(Gid edge_gid
     auto [it, inserted] = edge_acc->insert(Edge(edge_gid, nullptr));
     MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
     edge_ptr = &*it;
-    // Linked under the same locks by the inserting caller, so a present edge is always fully linked or being
-    // unlinked by a live transaction's delete (whose deltas restore the adjacency on abort).
+    // The inserter links under these same locks, so a present edge is fully linked (or mid-delete by a live txn).
     if (!inserted) return EdgeAccessor(EdgeRef(edge_ptr), edge_type, from_vertex, to_vertex, storage_, &transaction_);
   }
 
@@ -1088,14 +1086,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-  // A live fork pin at fork_ts needs (must be able to undo) this committing delta iff
-  // commit_ts >= fork_ts -- MVCC visibility (mvcc.hpp: a reader at start_ts S sees a delta with
-  // commit_ts C as already-applied iff C < S, so it must undo it iff C >= S). Hence fast-discard
-  // is safe only when the OLDEST live fork pin is strictly GREATER than this commit's timestamp
-  // (P > C), i.e. no reader-at-fork needs to travel back through these deltas. The equality case
-  // P == C is routinely reachable because RegisterForkPin captures timestamp_ WITHOUT incrementing,
-  // so the boundary must be '>' not '>=' or a pinned delta is silently freed. Empty multiset (no
-  // branches) -> true -> identical behavior to before this guard existed (E1 no-op).
+  // A reader at fork pin P undoes deltas with commit_ts >= P, so the oldest pin must be strictly > commit_ts;
+  // P == C is reachable because RegisterForkPin does not increment timestamp_.
   bool const no_fork_pin_needs_these_deltas = [&] {
     auto guard = std::lock_guard{mem_storage->version_fork_pin_lock_};
     return mem_storage->version_fork_pins_.empty() || *mem_storage->version_fork_pins_.begin() > *commit_timestamp_;
@@ -1144,26 +1136,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
-    // R37: a historical read accessor's start_timestamp is a shared fork_ts (see
-    // Transaction::is_historical_ in transaction.hpp) -- never finalize it here. In practice a
-    // historical accessor is read-only and always takes this empty-delta branch if Commit() is
-    // ever called on it, so this guard is the one that actually matters for it.
     if (!transaction_.is_historical_) {
       mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
     } else {
-      // Release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess) -- NOT the branch's
-      // pin, which is owned separately and released by DROP BRANCH's own ReleaseForkPin call.
       mem_storage->ReleaseForkPin(transaction_.start_timestamp);
-      // IMPORTANT: unlike the non-historical branch above, this path must also terminate the
-      // transaction HERE. Nothing else in this fast path sets `is_transaction_active_ = false`
-      // (for a normal accessor that's fine -- MarkFinished is idempotent, so the destructor's
-      // later `if (is_transaction_active_) Abort()` harmlessly calling MarkFinished again is a
-      // pre-existing, accepted pattern). ReleaseForkPin is NOT idempotent (MG_ASSERTs if the pin
-      // isn't there): without this line, a later Abort() (via the destructor, since
-      // is_transaction_active_ would otherwise still read true) would try to release the SAME
-      // self-pin a second time and crash. Setting it false here makes this path -- like Abort()'s
-      // own unconditional `is_transaction_active_ = false` at its end -- truly terminal, so
-      // whichever of the two guards fires does so exactly once.
+      // Terminal here: ReleaseForkPin is not idempotent and the destructor would otherwise Abort() and release again.
       is_transaction_active_ = false;
     }
     return {};
@@ -1397,10 +1374,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
   // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
   // requires that nothing at or above that boundary is unlinked while it waits.
-  // R37: as in the empty-delta fast path above, never finalize a historical accessor's shared
-  // fork_ts here. Unreachable in practice -- a historical accessor is read-only and never
-  // accumulates deltas/md_deltas, so it cannot reach this non-empty-delta commit path -- guarded
-  // for defense-in-depth (see Transaction::is_historical_ in transaction.hpp).
   if (!transaction_.is_historical_) {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   }
@@ -1886,26 +1859,10 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
 
   transaction_.abort_callbacks_.RunAll();
 
-  // R37: a historical read accessor's start_timestamp is the shared fork_ts (see
-  // Transaction::is_historical_ in transaction.hpp). This is the path a historical accessor
-  // actually takes on destruction/Abort() (it never has deltas to undo above), so this guard is
-  // load-bearing: without it, every transient per-query historical read would finalize fork_ts in
-  // the commit log out from under the still-live fork pin, letting commit_log_->OldestActive()
-  // (and thus GC, once no other pin/txn covers it) advance past a boundary the pin is supposed to
-  // protect -- and would double-mark the id once whichever real transaction the tick is eventually
-  // (legitimately) dispensed to also finishes.
   if (!transaction_.is_historical_) {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
-    // Release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess) -- NOT the branch's
-    // pin (released separately by DROP BRANCH's own ReleaseForkPin call). This is the path a well-behaved historical accessor actually takes on
-    // destruction (RAII -> ~InMemoryAccessor -> Abort(), since it never has deltas to undo above).
-    // Exactly-once with the empty-delta commit fast path's mirror-image release: that path (if
-    // ever taken instead, e.g. Commit() mistakenly called on a historical accessor) sets
-    // `is_transaction_active_ = false` itself, so this line is unreachable from a SECOND call --
-    // the top-of-Abort() MG_ASSERT(is_transaction_active_) would fire first, and the destructor's
-    // own `if (is_transaction_active_)` guard skips calling Abort() at all once that path already
-    // ran.
+    // Releases the self-pin; the empty-delta commit path clears is_transaction_active_, so this runs once.
     mem_storage->ReleaseForkPin(transaction_.start_timestamp);
   }
   is_transaction_active_ = false;
@@ -3056,9 +3013,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 uint64_t InMemoryStorage::RegisterForkPin() {
-  // Capture the fork boundary and register the pin atomically under engine_lock_ so that GC
-  // (which reads commit_log_->OldestActive() outside this lock) cannot advance its horizon past
-  // `fork_ts` in the window between capture and registration.
+  // Capture and pin under engine_lock_: GC reads OldestActive() without it and must not pass fork_ts in between.
   auto engine_guard = std::lock_guard{engine_lock_};
   const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
   auto pin_guard = std::lock_guard{version_fork_pin_lock_};
@@ -3070,7 +3025,7 @@ void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
   auto pin_guard = std::lock_guard{version_fork_pin_lock_};
   auto it = version_fork_pins_.find(fork_ts);
   MG_ASSERT(it != version_fork_pins_.end(), "ReleaseForkPin called for an unregistered fork_ts");
-  version_fork_pins_.erase(it);  // erase ONE (iterator), not all equal keys
+  version_fork_pins_.erase(it);
 }
 
 std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
@@ -3080,15 +3035,7 @@ std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
 }
 
 Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
-  // Mirrors CreateTransaction (above) except `start_timestamp` is the caller-supplied `fork_ts` (a
-  // PAST boundary) rather than a fresh `timestamp_++` tick, and `timestamp_` itself is never
-  // touched -- a historical read must not advance the storage's logical clock.
-  //
-  // MEDIUM: this runs from inside Accessor(HistoricalAccess, ...)'s own `transaction_` initializer
-  // (via the `build_transaction` callback), i.e. AFTER storage_guard_ (shared main_lock_) is
-  // already held -- so reading `storage_mode_` here, and the active indices/constraints snapshot
-  // below, is coherent with respect to a concurrent main_lock_-UNIQUE op, exactly like every other
-  // accessor's CreateTransaction call.
+  // start_timestamp is the supplied past fork_ts; timestamp_ is never advanced.
   uint64_t transaction_id = 0;
   uint64_t last_durable_ts = 0;
   uint64_t last_durable_num_committed_txns = 0;
@@ -3098,13 +3045,8 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
-    // Current (not fork-era) index/constraint snapshot -- see HistoricalAccess's doc-comment (A.7):
-    // scans re-check MVCC visibility at start_timestamp=fork_ts regardless of which index snapshot
-    // serves the candidate set, so this is correct for the data-plane read; index-as-of-fork
-    // reconciliation is a later chunk's concern.
+    // Current (not fork-era) index snapshot: scans re-check MVCC visibility at fork_ts, so results stay correct.
     point_index_context = indices_.point_index_.CreatePointIndexContext();
-    // Load ldt and num_committed_txns from the same atomic -- mirrors CreateTransaction's rationale
-    // (see comment there): a snapshot taken from this txn writes a mutually consistent pair.
     auto commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
     last_durable_ts = commit_ts_info.ldt_;
     last_durable_num_committed_txns = commit_ts_info.num_committed_txns_;
@@ -3115,10 +3057,7 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   auto async_index_helper = AsyncIndexHelper{config_, *active_indices, fork_ts};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  // HIGH-2: unconditionally SNAPSHOT_ISOLATION -- never the database's configured ambient
-  // isolation_level_ (mirrors CreateSnapshot's own forced-SNAPSHOT_ISOLATION accessor above). A
-  // branch reconstruction read under READ_COMMITTED/READ_UNCOMMITTED must still see exactly the
-  // fork_ts snapshot, never newer/uncommitted main state.
+  // Always SNAPSHOT_ISOLATION, ignoring the configured level, so the read sees exactly the fork_ts snapshot.
   Transaction transaction{transaction_id,
                           fork_ts,
                           IsolationLevel::SNAPSHOT_ISOLATION,
@@ -3131,8 +3070,6 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
                           last_durable_ts,
                           last_durable_num_committed_txns,
                           metric_handles_.unreleased_delta_objects};
-  // R37: never let this transaction's finalize path release fork_ts in the commit log -- see
-  // Transaction::is_historical_'s doc-comment (transaction.hpp) for the full rationale.
   transaction.is_historical_ = true;
   return transaction;
 }
@@ -3140,24 +3077,15 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
 std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
 InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
   {
-    // HIGH-1 (UAF) + open-time TOCTOU: check-and-self-pin atomically under ONE
-    // version_fork_pin_lock_ critical section. If we checked `contains` and then released the
-    // lock before inserting our own pin, a concurrent ReleaseForkPin (DROP BRANCH) could fully
-    // unpin fork_ts in between -- we'd observe "pinned" but end up building an accessor over a
-    // fork_ts nothing protects anymore. The insert is inlined here rather than going through a
-    // separate helper, which would re-acquire the lock and reopen this exact window.
+    // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
     auto pin_guard = std::lock_guard{version_fork_pin_lock_};
     if (!version_fork_pins_.contains(fork_ts)) {
       return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
     }
-    // Self-pin: retained for as long as THIS accessor lives, independent of whatever pin the
-    // branch itself holds. Released exactly once on this transaction's own finalize (Abort / the
-    // empty-delta commit fast path -- see the `is_historical_` guards there).
+    // Self-pin lives as long as this accessor; released in Abort / the empty-delta commit path.
     version_fork_pins_.insert(fork_ts);
   }
-  // If anything below fails to hand back a live accessor, the self-pin above must be undone here
-  // -- no Abort() will ever run to release it otherwise (that only happens once a real
-  // Transaction/Accessor exists and is later finalized).
+  // Undo the self-pin if no accessor is returned: no Abort() will run to release it.
   bool self_pin_transferred = false;
   utils::OnScopeExit release_self_pin_on_failure{[&] {
     if (!self_pin_transferred) ReleaseForkPin(fork_ts);
@@ -3394,7 +3322,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     }
   }
 
-  // Version-branch fork points pin main's history back to the oldest live fork (R13/C1).
+  // Clamp the GC horizon to the oldest live fork pin.
   {
     auto guard = std::lock_guard{version_fork_pin_lock_};
     if (!version_fork_pins_.empty()) {

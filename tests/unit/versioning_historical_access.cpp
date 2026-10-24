@@ -9,9 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// InMemoryStorage::HistoricalAccess(fork_ts) opens a read-only accessor pinned at a past, retained
-// fork_ts so MVCC time-travel reconstructs main as of that point. These tests cover reconstruction,
-// pin lifetime/GC retention, and index scans through such an accessor.
+// InMemoryStorage::HistoricalAccess(fork_ts): reconstruction, pin lifetime/GC retention and index
+// scans through a read-only accessor pinned at a retained fork_ts.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -39,7 +38,6 @@ namespace ms = memgraph::storage;
 
 namespace {
 
-// GC disabled so nothing runs in the background while the test asserts on state.
 class VersioningHistoricalAccessTest : public testing::Test {
  protected:
   void SetUp() override {
@@ -53,9 +51,8 @@ class VersioningHistoricalAccessTest : public testing::Test {
   std::unique_ptr<ms::Storage> storage;
 };
 
-// A historical accessor sees main exactly as of fork_ts (no later edits, no later vertices) while a
-// present-day accessor keeps seeing live state. HistoricalAccess must force SNAPSHOT_ISOLATION:
-// under READ_COMMITTED/READ_UNCOMMITTED an inherited ambient level would expose the post-fork commit.
+// HistoricalAccess must force SNAPSHOT_ISOLATION: under an inherited READ_COMMITTED/READ_UNCOMMITTED
+// ambient level the post-fork commit would be visible.
 TEST(VersioningHistoricalAccess, ReconstructsMainAsOfForkUnderAnyAmbientIsolation) {
   for (auto ambient_level : {ms::IsolationLevel::SNAPSHOT_ISOLATION,
                              ms::IsolationLevel::READ_COMMITTED,
@@ -80,7 +77,6 @@ TEST(VersioningHistoricalAccess, ReconstructsMainAsOfForkUnderAnyAmbientIsolatio
 
     const uint64_t fork_ts = mem_storage->RegisterForkPin();
 
-    // Post-fork: bump the property and add an unrelated vertex; neither may be visible historically.
     {
       auto acc = storage->Access(ms::WRITE);
       auto v = acc->FindVertex(v_gid, ms::View::OLD);
@@ -185,11 +181,8 @@ class VersioningHistoricalAccessGcTest : public testing::Test {
   std::string db_name_;
 };
 
-// Transient HistoricalAccess readers must not finalize the shared fork_ts in the commit log; only
-// ReleaseForkPin may. RegisterForkPin peeks `timestamp_` without incrementing it, so the next real
-// transaction (`real_reader`) deterministically gets start_timestamp == fork_ts. If a historical
-// Abort() wrongly marked fork_ts finished, GC would reclaim deltas real_reader still needs once the
-// branch pin is released.
+// Transient historical readers must not mark the shared fork_ts finished in the commit log. Since
+// RegisterForkPin does not increment timestamp_, `real_reader` starts at fork_ts and would lose its deltas to GC.
 TEST_F(VersioningHistoricalAccessGcTest, TransientReadsDoNotReleaseSharedForkTimestamp) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
 
@@ -227,7 +220,6 @@ TEST_F(VersioningHistoricalAccessGcTest, TransientReadsDoNotReleaseSharedForkTim
   // From here only commit_log_ state gates retention; the pin can no longer mask the regression.
   mem_storage->ReleaseForkPin(fork_ts);
 
-  // No-arg FreeMemory takes main_lock_ shared, compatible with real_reader's hold.
   for (int i = 0; i < 6; ++i) {
     storage->FreeMemory();
   }
@@ -236,7 +228,6 @@ TEST_F(VersioningHistoricalAccessGcTest, TransientReadsDoNotReleaseSharedForkTim
       << "real_reader (start_timestamp == fork_ts, still open) needs this history regardless of "
          "the fork pin; the transient historical reads above must not have finalized it";
 
-  // Wrongly unlinked deltas would show up as wrong results (visible L0..L4), not a crash.
   {
     auto v = real_reader->FindVertex(v_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
@@ -255,8 +246,7 @@ TEST_F(VersioningHistoricalAccessGcTest, TransientReadsDoNotReleaseSharedForkTim
 }
 
 // Dropping the branch (ReleaseForkPin) while a historical reader is open must not let GC reclaim
-// the history it needs: the reader's self-pin holds the floor. GC runs on the test thread; it takes
-// main_lock_ shared, which coexists with the reader's READ-type hold.
+// the history it needs: the reader's self-pin holds the floor.
 TEST_F(VersioningHistoricalAccessGcTest, DropDuringOpenReadDoesNotReclaim) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
 
@@ -286,8 +276,7 @@ TEST_F(VersioningHistoricalAccessGcTest, DropDuringOpenReadDoesNotReclaim) {
     ASSERT_TRUE(v.has_value());
   }
 
-  // Simulate DROP BRANCH: only the reader's self-pin can now protect this history (commit_log_
-  // has already advanced past fork_ts because the first post-fork commit shared that tick).
+  // Simulate DROP BRANCH: only the reader's self-pin protects this history now.
   mem_storage->ReleaseForkPin(fork_ts);
   EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{fork_ts}) << "reader must self-pin fork_ts";
 
@@ -308,7 +297,6 @@ TEST_F(VersioningHistoricalAccessGcTest, DropDuringOpenReadDoesNotReclaim) {
   }
   EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{fork_ts});
 
-  // Closing releases the self-pin exactly once; GC can then reclaim everything.
   historical->reset();
   EXPECT_EQ(mem_storage->OldestForkPin(), std::nullopt);
   for (int i = 0; i < 6; ++i) {
@@ -316,8 +304,7 @@ TEST_F(VersioningHistoricalAccessGcTest, DropDuringOpenReadDoesNotReclaim) {
   }
   EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
 
-  // Defensive path: Commit() on a historical reader takes the empty-delta branch, releases the
-  // self-pin and terminates the transaction, so the later destruction must not release it twice.
+  // Commit() on a historical reader releases the self-pin; destruction must not release it twice.
   const uint64_t fork_ts2 = mem_storage->RegisterForkPin();
   {
     auto reader = mem_storage->HistoricalAccess(fork_ts2);
@@ -378,8 +365,8 @@ TEST_F(VersioningHistoricalAccessGcTest, HistoricalReadExcludesWriterThatStraddl
   mem_storage->ReleaseForkPin(fork_ts);
 }
 
-// Two pins at different timestamps: the GC floor must be the OLDEST pin (a newest-pin floor would unlink A's history). After releasing the older
-// pin, the newer pin's history stays reconstructible and the older timestamp is rejected.
+// The GC floor must be the OLDEST pin (a newest-pin floor would unlink A's history). After releasing
+// it, B's history stays reconstructible and A's timestamp is rejected.
 TEST_F(VersioningHistoricalAccessGcTest, GcFloorIsOldestPinAndAdvancesWhenOlderPinReleased) {
   namespace st = memgraph::storage;
   auto *mem_storage = static_cast<st::InMemoryStorage *>(storage.get());
@@ -442,15 +429,14 @@ TEST_F(VersioningHistoricalAccessGcTest, GcFloorIsOldestPinAndAdvancesWhenOlderP
   EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
 }
 
-// Label-property index scan through a historical accessor returns fork-state vertices in index
-// order. Pre-fork ages are created out of order (gid order != age order); post-fork edit (20->999),
-// create (5) and delete (40) must not leak, and the deleted vertex must still appear. DESC scanning
-// needs a separately created DESC index, hence a fresh storage per order.
+// Pre-fork ages are created out of order (gid order != age order); the post-fork edit (20->999),
+// create (5) and delete (40) must not leak. A fresh storage per order because DESC needs its own index.
 TEST(VersioningHistoricalAccess, HistoricalLabelPropertyIndexScanReturnsForkStateInIndexOrder) {
   struct Case {
     ms::IndexOrder order;
     std::vector<int64_t> expected;
   };
+
   const Case cases[] = {{ms::IndexOrder::ASC, {10, 20, 30, 40, 50}}, {ms::IndexOrder::DESC, {50, 40, 30, 20, 10}}};
 
   for (const auto &[order, expected] : cases) {
@@ -534,15 +520,13 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
   const auto knows_type = storage->NameToEdgeType("KNOWS");
   const auto likes_type = storage->NameToEdgeType("LIKES");
 
-  // Edge-type index on :KNOWS.
   {
     auto index_acc = storage->ReadOnlyAccess();
     ASSERT_TRUE(index_acc->CreateIndex(knows_type).has_value());
     ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  // Pre-fork: A, B, C vertices; A-[:KNOWS]->B, B-[:KNOWS]->C (the 2 fork-time KNOWS edges), and
-  // A-[:LIKES]->C (a distractor of a different edge type, must never appear in a KNOWS scan).
+  // A-[:LIKES]->C is a distractor that must never appear in a KNOWS scan.
   ms::Gid a_gid;
   ms::Gid b_gid;
   ms::Gid c_gid;
@@ -567,9 +551,7 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
 
   const uint64_t fork_ts = mem_storage->RegisterForkPin();
 
-  // Post-fork committed mutations on MAIN: a NEW KNOWS edge (A->C), and a DELETE of the pre-fork
-  // A-[:KNOWS]->B edge. Neither may leak into the fork_ts scan below; the deleted edge specifically
-  // MUST still appear, since it existed at fork_ts.
+  // Post-fork: a new KNOWS edge A->C must not appear; the deleted A->B must still appear.
   {
     auto acc = storage->Access(ms::WRITE);
 
