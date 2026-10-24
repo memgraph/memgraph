@@ -109,15 +109,8 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
   }
 }
 
-// Graph Versioning v1 (S9 fix): on a checked-out branch, a COW-modified vertex's `impl_` still
-// points at whichever storage object it was minted against (see vertex_accessor.hpp's HIGH-2
-// doc-comment) -- delegating unconditionally to the storage-accessor overload below reads that
-// object straight out of MAIN storage and silently drops the branch overlay (`branch_ctx_`),
-// serving stale/empty properties for a `RETURN`ed whole node. Branch-native creates are unaffected
-// (their `impl_` already IS the diff object), so this only matters once `branch_ctx_` is set: in
-// that case rebuild the bolt::Vertex by hand through the branch-aware query-accessor
-// Labels()/Properties() (which resolve through the diff engine), mirroring the storage overload's
-// own construction (~line 275) field-for-field. The non-branch path is untouched.
+// On a branch, `impl_` may still point at MAIN storage; delegating would drop the branch overlay,
+// so rebuild through the branch-aware Labels()/Properties().
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker) {
@@ -134,9 +127,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAcc
   }
   auto maybe_properties = vertex.Properties(view);
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
-  // N8 parity fix: apply the same vector-index property omit-on-return filter the storage arm
-  // (~line 348) does. Vector indexes are global to main storage; VectorIndexedProperties()
-  // forwards straight to impl_ regardless of branch_ctx_ (see query/vertex_accessor.hpp).
+  // Vector indexes are global to main storage; VectorIndexedProperties() ignores branch_ctx_.
   const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
                                      ? vertex.VectorIndexedProperties(*maybe_labels)
                                      : std::vector<storage::PropertyId>{};
@@ -156,11 +147,6 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAcc
       .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
 }
 
-// Graph Versioning v1 (S9 fix): symmetric to the query::VertexAccessor overload above -- a
-// COW-modified edge's `impl_` on a checked-out branch would otherwise be read straight from MAIN
-// storage via unconditional delegation, dropping `branch_ctx_`'s diff overlay. Only matters once
-// branch_ctx_ is set; rebuilds the bolt::Edge through the branch-aware Properties()/To()/From()
-// query-accessor methods, mirroring the storage overload's own construction (~line 302).
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker) {
@@ -173,9 +159,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
-  // N8 parity fix: apply the same vector-index property omit-on-return filter the storage arm
-  // (~line 377) does. Edge vector indexes are global to main storage; VectorIndexedProperties()
-  // forwards straight to impl_ regardless of branch_ctx_ (see query/edge_accessor.hpp).
+  // Vector indexes are global to main storage; VectorIndexedProperties() ignores branch_ctx_.
   const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
                                      ? edge.VectorIndexedProperties()
                                      : std::vector<storage::PropertyId>{};

@@ -10,9 +10,9 @@
 // licenses/APL.txt.
 
 #include "query/db_accessor.hpp"
+#include <algorithm>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
-#include <algorithm>
 #include <vector>
 #include "query/graph.hpp"
 #include "query/virtual_graph.hpp"
@@ -21,14 +21,14 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "versioning/main_constraints.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction_constants.hpp"
+#include "versioning/main_constraints.hpp"
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
@@ -191,11 +191,8 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
 }
 
 namespace {
-// On a checked-out branch the storage-level adjacency is one-sided (fork-only for untouched
-// vertices, diff-only for COW'd ones) and exposes raw stubs, so the branch-aware
-// query::VertexAccessor::{In,Out}Edges (merges fork+diff, hides deleted edges, stamps branch_ctx_) is
-// used and only the subgraph membership filter is applied on top. Membership is by gid on a branch
-// (EdgeAccessor::operator==/hash), so a stamped edge matches the one stored in the projection.
+// Storage-level adjacency on a branch is one-sided and exposes raw stubs, so the branch-aware query-level
+// {In,Out}Edges is used and only membership is filtered; membership is by gid, so stamped edges match.
 storage::Result<EdgeVertexAccessorResult> FilterBranchEdgesBySubgraph(storage::Result<EdgeVertexAccessorResult> res,
                                                                       const Graph &graph) {
   if (!res) return res;
@@ -261,11 +258,7 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
                                                                    const storage::TextSearchConfig &config) const {
-  // L5 fix: text indices are never mirrored into a branch's diff engine, so delegating
-  // unconditionally to `accessor_` here would surface the diff engine's own "index does not exist"
-  // error even though the index DOES exist on main -- misleading on a checked-out branch. Fail
-  // loudly and unambiguously before ever reaching the diff engine (see `branch_ctx_`'s own
-  // doc-comment, db_accessor.hpp, for why a checked-out branch's `accessor_` is the diff engine).
+  // Text indices are not mirrored into the diff engine, which would report a misleading "index does not exist".
   if (branch_ctx_ != nullptr) {
     throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
   }
@@ -274,7 +267,6 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                            const std::string &aggregation_query) const {
-  // See TextIndexSearch's own comment above -- same branch guard, same reason.
   if (branch_ctx_ != nullptr) {
     throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
   }
@@ -283,7 +275,6 @@ std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const 
 
 std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                                const std::string &aggregation_query) {
-  // See TextIndexSearch's own comment above -- same branch guard, same reason.
   if (branch_ctx_ != nullptr) {
     throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
   }
@@ -293,7 +284,6 @@ std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, co
 std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
     const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
     const storage::TextSearchConfig &config) const {
-  // See TextIndexSearch's own comment above -- same branch guard, same reason.
   if (branch_ctx_ != nullptr) {
     throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
   }
@@ -306,9 +296,7 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-  // See TextIndexSearch's own comment above (L5 fix) -- vector indices are likewise never mirrored
-  // into a branch's diff engine, so guard before delegating rather than let the diff engine's own
-  // "index does not exist" surface misleadingly.
+  // Vector indices are likewise not mirrored into the diff engine.
   if (branch_ctx_ != nullptr) {
     throw storage::VectorSearchException("Vector search is not supported on a checked-out branch.");
   }
@@ -317,7 +305,6 @@ std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::Vec
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-  // See VectorIndexSearchOnNodes's own comment above -- same branch guard, same reason.
   if (branch_ctx_ != nullptr) {
     throw storage::VectorSearchException("Vector search is not supported on a checked-out branch.");
   }
@@ -336,10 +323,7 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
-  // Point indices are never mirrored into a branch's diff engine; delegating unconditionally to
-  // `accessor_` here would silently return diff-engine-only results, missing all historical vertices
-  // that satisfy the distance predicate. Reconstruction over the historical union is deferred to a
-  // later slice -- guard loudly rather than mislead.
+  // Point indices are not mirrored into the diff engine; delegating would silently miss historical vertices.
   if (branch_ctx_ != nullptr) {
     throw NotYetImplemented("point index scans are not yet supported on a checked-out version/branch");
   }
@@ -354,7 +338,6 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
-  // See the distance overload above -- same branch guard, same reason.
   if (branch_ctx_ != nullptr) {
     throw NotYetImplemented("point index scans are not yet supported on a checked-out version/branch");
   }
@@ -365,12 +348,13 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                                 top_right.ToPropertyValue(accessor_->GetNameIdMapper()),
                                                 condition));
 }
+
 std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchConstraints() {
   if (branch_ctx_ == nullptr) return {};
   auto &ctx = *branch_ctx_;
 
-  // The diff engine mirrors no constraints (D12): main's current set is checked against each touched vertex's
-  // reconstructed view. Unique constraints are not enforced on a branch.
+  // The diff engine mirrors no constraints: main's current set is checked against each touched vertex's reconstructed
+  // view. Unique constraints are not enforced on a branch.
   versioning::MainConstraints const main_constraints{ctx};
   auto const existence = main_constraints.Existence();
   auto const types = main_constraints.Types();
