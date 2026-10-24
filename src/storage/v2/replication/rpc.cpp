@@ -280,6 +280,9 @@ void SaveSalientConfigComplete(const memgraph::storage::SalientConfig &self, mem
 void LoadSalientConfigComplete(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
   memgraph::storage::SalientConfigForEachField(
       *self, [reader](const char * /*key*/, auto &value) { memgraph::slk::Load(&value, reader); });
+  if (std::to_underlying(self->property_store_compression_level) > std::to_underlying(utils::CompressionLevel::HIGH)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
 }
 
 }  // namespace slk
