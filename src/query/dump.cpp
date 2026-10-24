@@ -290,8 +290,8 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   // vertex on a branch). Only a still-undecoded value is fetched here; on a branch the diff engine has no vector
   // indexes, so asking its accessor would throw.
   for (auto &prop_value : *maybe_props | std::views::values | std::views::filter([](const auto &pv) {
-                            return pv.IsVectorIndexId() && pv.ValueVectorIndexList().empty();
-                          })) {
+         return pv.IsVectorIndexId() && pv.ValueVectorIndexList().empty();
+       })) {
     auto index_name = dba->GetStorageAccessor()->GetNameIdMapper()->IdToName(prop_value.ValueVectorIndexIds()[0]);
     auto vector = dba->GetStorageAccessor()->GetVectorFromVectorIndex(vertex.impl_.vertex_, index_name);
     prop_value.ValueVectorIndexList() = std::move(vector);

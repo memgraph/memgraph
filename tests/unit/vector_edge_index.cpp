@@ -199,8 +199,8 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeBranchArmOmitsVectorIndexedPropertyWhenFla
   const auto fork_ts = mem_storage->RegisterForkPin();
   memgraph::utils::OnScopeExit release_pin{[&] { mem_storage->ReleaseForkPin(fork_ts); }};
 
-  auto branch_result = memgraph::versioning::BranchContext::BuildFromFork(
-      *mem_storage, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto branch_result =
+      memgraph::versioning::BranchContext::BuildFromFork(*mem_storage, fork_ts, memgraph::tests::MakeMainCommitArgs());
   ASSERT_TRUE(branch_result.has_value());
   auto branch_ctx = std::move(*branch_result);
 

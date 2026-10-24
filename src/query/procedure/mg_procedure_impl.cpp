@@ -5177,31 +5177,27 @@ int64_t ApproximateEdgeCountOf(memgraph::query::DbAccessor *impl) {
 
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    *result =
-        std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return ApproximateVertexCountOf(impl); },
-                       [](memgraph::query::SubgraphDbAccessor *impl) {
-                         return ApproximateVertexCountOf(impl->GetAccessor());
-                       },
-                       [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
-                         return static_cast<int64_t>(impl->getGraph()->nodes().size());
-                       }},
-                   graph->CheckedImpl());
+    *result = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return ApproximateVertexCountOf(impl); },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return ApproximateVertexCountOf(impl->GetAccessor()); },
+            [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
+              return static_cast<int64_t>(impl->getGraph()->nodes().size());
+            }},
+        graph->CheckedImpl());
   });
 }
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    *result =
-        std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return ApproximateEdgeCountOf(impl); },
-                       [](memgraph::query::SubgraphDbAccessor *impl) {
-                         return ApproximateEdgeCountOf(impl->GetAccessor());
-                       },
-                       [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
-                         return static_cast<int64_t>(impl->getGraph()->edges().size());
-                       }},
-                   graph->CheckedImpl());
+    *result = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return ApproximateEdgeCountOf(impl); },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return ApproximateEdgeCountOf(impl->GetAccessor()); },
+            [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
+              return static_cast<int64_t>(impl->getGraph()->edges().size());
+            }},
+        graph->CheckedImpl());
   });
 }
 
