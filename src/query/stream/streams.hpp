@@ -33,6 +33,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 class StreamsTest;
 
@@ -72,6 +73,7 @@ struct StreamStatus {
   StreamInfoType<T> info;
   std::optional<std::string> owner;
   std::vector<std::string> owner_roles;
+  std::optional<utils::UUID> owner_uuid;
 };
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
@@ -191,6 +193,7 @@ class Streams final {
     std::string transformation_name;
     std::optional<std::string> owner;
     std::vector<std::string> owner_roles;
+    std::optional<utils::UUID> owner_uuid;
     std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
   };
 
