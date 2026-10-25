@@ -109,15 +109,16 @@ struct InterpreterContext {
 
   std::vector<std::vector<TypedValue>> TerminateTransactions(
       const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
-      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+      QueryUserOrRole *caller_login, QueryUserOrRole *user_or_role,
+      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
   /// Terminates every transaction the caller is authorized to kill, across all databases.
   /// `self` is the issuing interpreter and is skipped: terminating it would make its own
   /// commit throw, so the caller would never see which transactions it killed. Returns one
   /// row per terminated transaction, ordered by ascending transaction id.
   static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
-      const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
-      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+      const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *caller_login,
+      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
   // Close is deferred: the destructor chain re-enters InterpreterContext::interpreters. Call this inside
   // interpreters.WithLock(...) and close `to_close` only after that lock is released, or self-deadlock.
@@ -129,7 +130,8 @@ struct InterpreterContext {
   // admin can therefore reach sessions that hold no database at all.
   static TerminateSessionsResult TerminateSessions(
       const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
-      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
+      QueryUserOrRole *caller_login, QueryUserOrRole *user_or_role,
+      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
       std::string_view caller_session_uuid);
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,

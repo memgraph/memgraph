@@ -6680,10 +6680,11 @@ std::vector<ActiveUserInfo> GetActiveUsersInfo(InterpreterContext *interpreter_c
     std::vector<ActiveUserInfo> info;
     info.reserve(interpreters_.size());
     for (const auto &interpreter : interpreters_) {
-      // Not an atomic snapshot: db and user come from separate locked reads, so they may skew -- ok here.
+      auto const session_info = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+      if (!session_info) continue;
+      // Not an atomic snapshot: session info and db come from separate reads, so they may skew -- ok here.
       auto db_view = interpreter->current_db_.foreign_db_view();
-      auto session_info = interpreter->GetSessionInfoSnapshot();
-      info.push_back({std::move(session_info), std::move(db_view.name), db_view.marked_for_deletion});
+      info.push_back({*session_info, std::move(db_view.name), db_view.marked_for_deletion});
     }
 
     return info;
@@ -7420,8 +7421,9 @@ auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start,
 }
 
 template <typename Func>
-auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                      Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
+auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *caller_login,
+                      QueryUserOrRole *user_or_role, Func &&privilege_checker,
+                      const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
     -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
@@ -7432,23 +7434,25 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (!transaction_id.has_value()) continue;
-    // Foreign thread: user_or_role_ is owning-thread state; a raw read here races SetUser/ResetUser.
-    // foreign_user_view_ is the published snapshot, loaded once and used for both the identity gate and
-    // the username column so the two cannot disagree.
-    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
+    // Loaded once so the ownership gate and the username column cannot disagree. Ownership is by login user, not
+    // the impersonated one.
+    auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
     // Route through foreign_db_view(): this is a foreign thread. The verifier CAS above does NOT order
     // against SetCurrentDB (the Pull path never consults transaction_status_), so an unlocked db_acc_ read
     // could tear against a concurrent USE DATABASE. foreign_db_view() takes db_acc_mutex_ and returns the
     // same name string CurrentDB::name() would ("" when the session holds no database).
     auto db_name = interpreter->current_db_.foreign_db_view().name;
-    if (!SameUser(user_snapshot, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
+    if (!SameUser(session_snapshot ? session_snapshot->user : nullptr, caller_login) &&
+        !privilege_checker(user_or_role, db_name)) {
+      continue;
+    }
     auto const runtime_status = verifier->status();
     if (!status_filter.empty()) {
       auto const sf = ToStatusFilter(runtime_status);
       if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
     }
     const auto &typed_queries = interpreter->GetQueries();
-    results.push_back({TypedValue((user_snapshot && user_snapshot->username()) ? *user_snapshot->username() : ""),
+    results.push_back({TypedValue(session_snapshot ? session_snapshot->username : std::string{}),
                        TypedValue(std::to_string(transaction_id.value())),
                        TypedValue(typed_queries),
                        TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
@@ -7471,19 +7475,18 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
 }
 
 template <typename Func>
-auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                  Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
+auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *caller_login,
+                  QueryUserOrRole *user_or_role, Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (const Interpreter *interpreter : interpreters) {
     auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
     if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
-    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
     // Empty db means the session holds no database (db-less); db_for_check falls back to kDefaultDB for the
     // privilege check only — the display value remains empty to reflect the true session state.
     auto db = interpreter->current_db_.foreign_db_view().name;
     auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
-    if (SameUser(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
+    if (SameUser(session_snapshot->user, caller_login) || privilege_checker(user_or_role, db_for_check)) {
       results.push_back({TypedValue(session_snapshot->uuid),
                          TypedValue(session_snapshot->username),
                          TypedValue(db),
@@ -7566,7 +7569,8 @@ uint64_t ParseTransactionId(TypedValue const &value) {
 }  // namespace
 
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
-                                     std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
+                                     std::shared_ptr<QueryUserOrRole> user_or_role,
+                                     std::shared_ptr<QueryUserOrRole> login_user, const Parameters &parameters,
                                      InterpreterContext *interpreter_context, Interpreter const *self) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
     return user_or_role &&
@@ -7577,10 +7581,11 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
-      auto show_transactions = [user_or_role = std::move(user_or_role),
+      auto show_transactions = [login_user = std::move(login_user),
+                                user_or_role = std::move(user_or_role),
                                 privilege_checker = std::move(privilege_checker),
                                 status_filter = transaction_query->status_filter_](const auto &interpreters) {
-        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
+        return ShowTransactions(interpreters, login_user.get(), user_or_role.get(), privilege_checker, status_filter);
       };
       callback.header = {
           "username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms", "database"};
@@ -7627,11 +7632,12 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
         }
         callback.fn = [interpreter_context,
                        self,
+                       login_user = std::move(login_user),
                        user_or_role = std::move(user_or_role),
                        privilege_checker = std::move(privilege_checker)]() mutable {
           return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
             return InterpreterContext::TerminateAllTransactions(
-                interpreters, self, user_or_role.get(), std::move(privilege_checker));
+                interpreters, self, login_user.get(), user_or_role.get(), std::move(privilege_checker));
           });
         };
         break;
@@ -7641,11 +7647,15 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       std::ranges::transform(id_values, std::back_inserter(maybe_kill_transaction_ids), ParseTransactionId);
       callback.fn = [interpreter_context,
                      maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
+                     login_user = std::move(login_user),
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker)]() mutable {
         return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
-          return interpreter_context->TerminateTransactions(
-              interpreters, std::move(maybe_kill_transaction_ids), user_or_role.get(), std::move(privilege_checker));
+          return interpreter_context->TerminateTransactions(interpreters,
+                                                            std::move(maybe_kill_transaction_ids),
+                                                            login_user.get(),
+                                                            user_or_role.get(),
+                                                            std::move(privilege_checker));
         });
       };
       break;
@@ -7656,11 +7666,16 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user_or_role,
+                                           std::shared_ptr<QueryUserOrRole> login_user,
                                            InterpreterContext *interpreter_context, Interpreter const *self) {
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback = HandleTransactionQueueQuery(
-      transaction_queue_query, std::move(user_or_role), parsed_query.parameters, interpreter_context, self);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query,
+                                              std::move(user_or_role),
+                                              std::move(login_user),
+                                              parsed_query.parameters,
+                                              interpreter_context,
+                                              self);
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -7681,8 +7696,8 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared
 }
 
 Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUserOrRole> user_or_role,
-                            const Parameters &parameters, InterpreterContext *interpreter_context,
-                            std::string caller_session_uuid) {
+                            std::shared_ptr<QueryUserOrRole> login_user, const Parameters &parameters,
+                            InterpreterContext *interpreter_context, std::string caller_session_uuid) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
     return user_or_role &&
            user_or_role->IsAuthorized(
@@ -7707,12 +7722,13 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
       callback.header = {"session_id", "killed"};
       callback.fn = [interpreter_context,
                      session_ids = std::move(session_ids),
+                     login_user = std::move(login_user),
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker),
                      caller_session_uuid = std::move(caller_session_uuid)]() mutable {
         auto result = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
           return InterpreterContext::TerminateSessions(
-              interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
+              interpreters, session_ids, login_user.get(), user_or_role.get(), privilege_checker, caller_session_uuid);
         });
         // Closing a connection runs that session's destructor chain, which re-enters
         // InterpreterContext::interpreters -- so it must happen only after the lock above is released.
@@ -7726,9 +7742,10 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
       break;
     }
     case SessionQuery::Action::SHOW: {
-      auto show_sessions = [user_or_role = std::move(user_or_role),
+      auto show_sessions = [login_user = std::move(login_user),
+                            user_or_role = std::move(user_or_role),
                             privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
-        return ShowSessions(interpreters, user_or_role.get(), privilege_checker);
+        return ShowSessions(interpreters, login_user.get(), user_or_role.get(), privilege_checker);
       };
       callback.header = {"session_id", "username", "database", "login_timestamp"};
       callback.fn = [interpreter_context, show_sessions = std::move(show_sessions)] {
@@ -7742,11 +7759,13 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
 }
 
 PreparedQuery PrepareSessionQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user_or_role,
-                                  InterpreterContext *interpreter_context, std::string caller_session_uuid) {
+                                  std::shared_ptr<QueryUserOrRole> login_user, InterpreterContext *interpreter_context,
+                                  std::string caller_session_uuid) {
   auto *session_query = utils::Downcast<SessionQuery>(parsed_query.query);
   MG_ASSERT(session_query);
   auto callback = HandleSessionQuery(session_query,
                                      std::move(user_or_role),
+                                     std::move(login_user),
                                      parsed_query.parameters,
                                      interpreter_context,
                                      std::move(caller_session_uuid));
@@ -8850,6 +8869,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                         interpreter_context->TerminateTransactions(
                             interpreters,
                             InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+                            interpreter->session_info_.user.get(),
                             interpreter->user_or_role_.get(),
                             privilege_checker);
                       });
@@ -11082,13 +11102,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw TransactionQueueInMulticommandTxException();
       }
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), user_or_role_, interpreter_context_, this);
+      prepared_query = PrepareTransactionQueueQuery(
+          std::move(parsed_query), user_or_role_, session_info_.user, interpreter_context_, this);
     } else if (utils::Downcast<SessionQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw SessionQueryInMulticommandTxException();
       }
-      prepared_query =
-          PrepareSessionQuery(std::move(parsed_query), user_or_role_, interpreter_context_, session_info_.uuid);
+      prepared_query = PrepareSessionQuery(
+          std::move(parsed_query), user_or_role_, session_info_.user, interpreter_context_, session_info_.uuid);
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw MultiDatabaseQueryInMulticommandTxException();
@@ -12032,7 +12053,6 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   }
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
-  foreign_user_view_.store(user_or_role_, std::memory_order_release);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
 }
@@ -12040,24 +12060,25 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
-  foreign_user_view_.store(user_or_role_, std::memory_order_release);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
 }
 #endif
 
-void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
+void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp,
+                                 std::shared_ptr<QueryUserOrRole> user) {
   session_log_ctx_.SetSessionUuid(uuid);
-  const std::scoped_lock lock{session_info_mutex_};
-  session_info_ = {
-      .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
+  session_info_ = {.uuid = std::move(uuid),
+                   .username = std::move(username),
+                   .login_timestamp = std::move(login_timestamp),
+                   .user = std::move(user)};
   foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_), std::memory_order_release);
 }
 
 void Interpreter::ResetUser() {
   user_or_role_.reset();
-  foreign_user_view_.store(nullptr, std::memory_order_release);
-  // LOGOFF: drop the published session snapshot too, so SHOW/TERMINATE SESSIONS don't see a logged-off session.
+  // LOGOFF: clear the published snapshot so SHOW SESSIONS / SHOW ACTIVE USERS skip this logged-off session.
+  session_info_ = {};
   foreign_session_view_.store(nullptr, std::memory_order_release);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
