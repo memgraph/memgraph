@@ -271,7 +271,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
 TEST_F(LicenseTest, DetailedLicenseInfo_NothingProvided) {
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.status, "You have not provided any license!");
+  ASSERT_EQ(detailed_license_info.status, "You have not provided any license.");
 }
 
 TEST_F(LicenseTest, DetailedLicenseInfo_ExpiredReportsDate) {
