@@ -2,7 +2,7 @@
 # Resolved from src/auth/reference_modules/requirements.txt for python 3.12 on: x86_64-manylinux_2_34 aarch64-manylinux_2_34
 --index-url https://pypi.org/simple
 
-certifi==2026.7.22
+certifi==2026.10.23
     # via requests
 cffi==2.1.1
     # via cryptography
@@ -27,7 +27,7 @@ lxml==6.1.0
     #   xmlsec
 pyasn1==0.6.4
     # via ldap3
-pycparser==3.0
+pycparser==3.12
     # via cffi
 pyjwt==2.15.1
     # via -r src/auth/reference_modules/requirements.txt

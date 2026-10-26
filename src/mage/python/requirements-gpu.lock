@@ -7,7 +7,7 @@ adlfs==2024.12.0
     # via gqlalchemy
 aiohappyeyeballs==2.7.1
     # via aiohttp
-aiohttp==3.14.3
+aiohttp==3.14.5
     # via
     #   adlfs
     #   litellm
@@ -43,7 +43,7 @@ botocore==1.36.26
     # via
     #   boto3
     #   s3transfer
-certifi==2026.7.22
+certifi==2026.10.23
     # via
     #   elastic-transport
     #   httpcore
@@ -83,7 +83,7 @@ elasticsearch==8.17.0
     # via -r src/mage/python/requirements-gpu.txt
 fastuuid==0.14.0
     # via litellm
-filelock==3.29.0
+filelock==4.2.4
     # via
     #   -r src/mage/python/requirements-gpu.txt
     #   huggingface-hub
@@ -103,7 +103,7 @@ gqlalchemy==1.8.0
     # via -r src/mage/python/requirements-gpu.txt
 h11==0.16.0
     # via httpcore
-hf-xet==1.6.0
+hf-xet==1.7.0
     # via huggingface-hub
 httpcore==1.0.9
     # via httpx
@@ -134,7 +134,7 @@ jinja2==3.1.6
     # via
     #   litellm
     #   torch
-jiter==0.17.0
+jiter==0.18.0
     # via openai
 jmespath==1.1.0
     # via
@@ -165,7 +165,7 @@ msal==1.39.0
     #   msal-extensions
 msal-extensions==1.3.1
     # via azure-identity
-multidict==6.9.1
+multidict==7.2.1
     # via
     #   aiohttp
     #   yarl
@@ -255,14 +255,14 @@ psycopg2-binary==2.9.10
     # via -r src/mage/python/requirements-gpu.txt
 pyarrow==24.0.0
     # via -r src/mage/python/requirements-gpu.txt
-pycparser==3.0
+pycparser==3.12
     # via cffi
-pydantic==2.13.5
+pydantic==2.14.1
     # via
     #   gqlalchemy
     #   litellm
     #   openai
-pydantic-core==2.46.5
+pydantic-core==2.50.1
     # via pydantic
 pygments==2.21.0
     # via rich
@@ -341,7 +341,7 @@ sniffio==1.3.1
     # via openai
 sympy==1.14.0
     # via torch
-texttable==1.7.0
+texttable==1.7.2
     # via igraph
 threadpoolctl==3.7.0
     # via scikit-learn
@@ -370,7 +370,7 @@ transformers==5.13.0
     #   sentence-transformers
 triton==3.5.0
     # via torch
-typer==0.27.2
+typer==0.27.3
     # via transformers
 typing-extensions==4.16.0
     # via
@@ -402,5 +402,5 @@ urllib3==2.8.0
     #   requests
 yarl==1.25.1
     # via aiohttp
-zipp==4.1.1
+zipp==4.1.2
     # via importlib-metadata
