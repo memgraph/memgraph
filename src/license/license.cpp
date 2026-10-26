@@ -216,20 +216,33 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       licence_rejected |= rejected;
     };
     if (key.empty() && org.empty()) return;
-    if (key.empty() || org.empty()) {
-      reject("Both license key and organization name are required.", false);
+    if (key.empty()) {
+      reject("The organization name is set, but the license key is not.", false);
+      return;
+    }
+    if (org.empty()) {
+      reject("The license key is set, but the organization name is not.", false);
       return;
     }
     const auto maybe_license = GetLicense(key);
     if (!maybe_license) {
-      reject(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
+      reject("The license key is not a valid key.");
       return;
     }
     const auto check = IsValidLicenseInternal(*maybe_license, org);
     if (!check) {
-      reject(fmt::format("{} The license is valid until {}.",
-                         LicenseCheckErrorToString(check.error(), "Enterprise features"),
-                         ValidUntilToString(maybe_license->valid_until)));
+      switch (check.error()) {
+        case LicenseCheckError::INVALID_ORGANIZATION_NAME:
+          reject(fmt::format("The organization name '{}' does not match the license key, which is for '{}'.",
+                             org,
+                             maybe_license->organization_name));
+          break;
+        case LicenseCheckError::EXPIRED_LICENSE:
+          reject(fmt::format("The license expired on {}.", ValidUntilToString(maybe_license->valid_until)));
+          break;
+        default:
+          reject(LicenseCheckErrorToString(check.error(), "Enterprise features"));
+      }
       return;
     }
     valid_candidates.push_back({*maybe_license, std::string{key}, std::string{org}, priority});
