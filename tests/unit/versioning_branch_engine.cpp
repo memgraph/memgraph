@@ -329,6 +329,55 @@ TEST_F(VersioningBranchEngineTest, NativeGidsComeFromMainCountersAndNeverCollide
   (*second)->EndTransaction();
 }
 
+// A fork-vertex delete must conflict with a branch edge attached by a transaction that committed after the deleter's
+// snapshot, even when a newer, older-than-snapshot edge delta sits on top of it in the anchor's chain.
+TEST_F(VersioningBranchEngineTest, DeleteForkVertexConflictsWithEdgeBuriedUnderOlderCommittedHead) {
+  const auto edge_type = storage_->NameToEdgeType("E");
+  ms::Gid v_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    v_gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  const auto fork_ts = ForkNow();
+  auto built = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
+  ASSERT_TRUE(built.has_value());
+  branch_context_ = std::move(*built);
+  mv::BranchContext &deleter = *branch_context_;
+  mv::BranchContext creator_early{deleter.core()};
+  mv::BranchContext creator_late{deleter.core()};
+
+  auto attach_edge = [&](mv::BranchContext &ctx) {
+    auto anchor = ctx.CowVertex(v_gid);
+    ASSERT_TRUE(anchor.has_value());
+    auto native = ctx.CreateNativeVertex();
+    ASSERT_TRUE(ctx.CreateNativeEdge(&*anchor, &native, edge_type).has_value());
+  };
+
+  auto t2 = deleter.diff_engine().Access(ms::WRITE);
+  ASSERT_TRUE(creator_early.BeginTransaction(t2.get()).has_value());
+  attach_edge(creator_early);
+
+  auto t3 = deleter.diff_engine().Access(ms::WRITE);
+  ASSERT_TRUE(creator_late.BeginTransaction(t3.get()).has_value());
+  attach_edge(creator_late);
+  ASSERT_TRUE(creator_late.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  creator_late.EndTransaction();
+
+  auto t1 = deleter.diff_engine().Access(ms::WRITE);
+  Begin(t1.get());
+
+  ASSERT_TRUE(creator_early.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  creator_early.EndTransaction();
+
+  auto deleted = deleter.OverlayMarkDeleted(v_gid);
+  ASSERT_FALSE(deleted.has_value()) << "the delete must not pass over an edge committed after its snapshot";
+  EXPECT_EQ(deleted.error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(t1->TransactionHasSerializationError());
+  t1->Abort();
+  deleter.EndTransaction();
+}
+
 // A fork_ts never registered via RegisterForkPin is a BuildError.
 TEST_F(VersioningBranchEngineTest, BuildFromForkRejectsUnpinnedTs) {
   {

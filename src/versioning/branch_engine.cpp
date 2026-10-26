@@ -954,7 +954,19 @@ bool BranchContext::CanDeleteAnchor(storage::Gid gid) {
   storage::Vertex *const anchor = core_->stub_index().FindStub(gid.AsUint());
   if (anchor == nullptr) return true;
   std::shared_lock guard{anchor->lock};
-  return storage::PrepareForWrite(current_diff_txn_->GetTransaction(), anchor);
+  auto *const txn = current_diff_txn_->GetTransaction();
+  if (!storage::PrepareForWrite(txn, anchor)) return false;
+  // Non-sequential edge deltas can leave a committed older head over a delta this snapshot cannot see, so the head
+  // alone is not enough. The chain is intact while this transaction is active.
+  for (const storage::Delta *delta = anchor->delta(); delta != nullptr;
+       delta = delta->next.load(std::memory_order_acquire)) {
+    const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+    if (ts != txn->transaction_id && ts >= txn->start_timestamp) {
+      txn->has_serialization_error = true;
+      return false;
+    }
+  }
+  return true;
 }
 
 bool BranchContext::CanAttachEdgeTo(storage::Gid gid) {
