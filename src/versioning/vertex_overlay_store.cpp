@@ -34,10 +34,9 @@ OverlayVersion *OverlayVersion::Create(OverlayState &&state, OverlayStamp *stamp
   size_t const added = deleted ? 0 : state.added_labels.size();
   size_t const removed = deleted ? 0 : state.removed_labels.size();
   size_t const pids = deleted ? 0 : state.removed_pids.size();
-  size_t const edges = deleted ? 0 : state.deleted_edge_gids.size();
-  bool const extended = added > UINT8_MAX || removed > UINT8_MAX || pids > UINT8_MAX || edges > 0;
+  bool const extended = added > UINT8_MAX || removed > UINT8_MAX || pids > UINT8_MAX;
 
-  Layout const layout = ComputeLayout(extended, added, removed, pids, edges);
+  Layout const layout = ComputeLayout(extended, added, removed, pids);
   void *mem = memory::DbAllocateBytes(layout.total, memory::tls_db_arena_state.arena, alignof(OverlayVersion));
 
   std::array<uint8_t, 3> counts{};
@@ -48,12 +47,8 @@ OverlayVersion *OverlayVersion::Create(OverlayState &&state, OverlayStamp *stamp
 
   std::byte *base = version->base();
   if (extended) {
-    uint32_t const ext[4] = {static_cast<uint32_t>(added),
-                             static_cast<uint32_t>(removed),
-                             static_cast<uint32_t>(pids),
-                             static_cast<uint32_t>(edges)};
+    uint32_t const ext[3] = {static_cast<uint32_t>(added), static_cast<uint32_t>(removed), static_cast<uint32_t>(pids)};
     std::memcpy(base + kTailStart, ext, sizeof(ext));
-    if (edges > 0) std::memcpy(base + layout.edges, state.deleted_edge_gids.data(), edges * sizeof(uint64_t));
   }
   if (!deleted) {
     CopyArray(base, layout.added, state.added_labels);
@@ -78,11 +73,9 @@ OverlayState OverlayVersion::ToState() const {
   auto const added = added_labels();
   auto const removed = removed_labels();
   auto const pids = removed_pids();
-  auto const edges = deleted_edge_gids();
   state.added_labels.assign(added.begin(), added.end());
   state.removed_labels.assign(removed.begin(), removed.end());
   state.removed_pids.assign(pids.begin(), pids.end());
-  state.deleted_edge_gids.assign(edges.begin(), edges.end());
   state.properties = storage::PropertyStore::CreateFromBuffer(props_.StringBuffer());
   return state;
 }
@@ -131,6 +124,15 @@ const OverlayVersion *VertexOverlayStore::Read(uint64_t gid, const OverlayTransa
     head = it->second;
   }
   return Visible(head, txn, view);
+}
+
+bool VertexOverlayStore::CanWrite(uint64_t gid, const OverlayTransaction &txn) const {
+  const Shard &shard = ShardFor(gid);
+  std::shared_lock guard{shard.lock};
+  auto const it = shard.map.find(gid);
+  if (it == shard.map.end()) return true;
+  const OverlayVersion *const head = it->second;
+  return head->stamp_ == txn.stamp_ || head->stamp_->ts() < txn.start_ts_;
 }
 
 void VertexOverlayStore::Commit(OverlayTransaction &txn, uint64_t commit_ts) {

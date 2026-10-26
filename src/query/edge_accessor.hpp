@@ -51,8 +51,8 @@ class EdgeAccessor final {
   // Edge vector indexes live in main storage and are global, so no per-branch resolution is needed.
   std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
 
-  // On a branch, the first write to a fork edge materializes a delta-less stub in the diff engine (CowEdge); reads
-  // overlay the stub on the fork edge. `impl_` keeps pointing at the fork edge. Out-of-line (BranchContext incomplete).
+  // On a branch, a write to a fork edge is an overlay version keyed by its gid (BranchContext::EdgeOverlay*); reads
+  // merge it over the fork edge. `impl_` keeps pointing at the fork edge. Out-of-line (BranchContext incomplete).
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value);
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
@@ -85,8 +85,8 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  // On a branch, storage's operator== (EdgeRef + Transaction*) differs between a fork edge and its COW stub, so
-  // compare gids.
+  // On a branch, storage's operator== (EdgeRef + Transaction*) differs between a fork edge and a branch-native edge's
+  // diff-engine copy, so compare gids.
   bool operator==(const EdgeAccessor &e) const noexcept {
     if (branch_ctx_ != nullptr || e.branch_ctx_ != nullptr) {
       return Gid() == e.Gid();

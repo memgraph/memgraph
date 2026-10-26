@@ -2475,8 +2475,8 @@ TEST_F(VersioningMultiSessionTest, OpenTransactionKeepsItsSnapshotWhileAnotherSe
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 11}, {2, 20}})) << "a new transaction sees A's commit";
 }
 
-// Overlapping transactions writing the same fork vertex or edge (stub existing or created by the race) must conflict as
-// on main without crashing; leftover stubs are invisible and a retried write succeeds.
+// Overlapping transactions writing the same fork vertex or edge (overlay version existing or created by the race) must
+// conflict as on main without crashing; leftovers are invisible and a retried write succeeds.
 TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
   faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
   faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:2}]->(:B {id:2})");
@@ -2484,7 +2484,7 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
 
   struct Case {
     const char *name;
-    // Committed on the branch first, so the entity's stub already exists; empty means the race creates the stub.
+    // Committed on the branch first, so the entity's overlay version already exists; empty means the race creates it.
     const char *stub_write;
     const char *a_write;
     const char *b_write;
@@ -2501,6 +2501,10 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
        "MATCH ()-[r:R]->() SET r.y = 0",
        "MATCH ()-[r:R]->() SET r.w = 10",
        "MATCH ()-[r:R]->() SET r.x = 20"},
+      {"EdgeDeleteThenEdgeSet", "", "MATCH ()-[r:R]->() DELETE r", "MATCH ()-[r:R]->() SET r.x = 20"},
+      {"EdgeSetThenEdgeDelete", "", "MATCH ()-[r:R]->() SET r.w = 10", "MATCH ()-[r:R]->() DELETE r"},
+      {"EdgeDeleteThenEdgeDelete", "", "MATCH ()-[r:R]->() DELETE r", "MATCH ()-[r:R]->() DELETE r"},
+      {"EdgeDeleteThenEndpointDetachDelete", "", "MATCH ()-[r:R]->() DELETE r", "MATCH (n:A) DETACH DELETE n"},
   };
 
   auto const checkout_both = [&](const char *version) {
@@ -2524,7 +2528,8 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
 
   checkout_both("b");
   EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}})) << "every transaction was rolled back";
-  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.w"), (Rows{{6}})) << "a leftover stub is invisible";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.w"), (Rows{{6}})) << "a rolled-back write leaves nothing";
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}})) << "every edge delete was rolled back";
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 2}}));
 
   EXPECT_NO_THROW(faker2.Interpret("MATCH ()-[r:R]->() SET r.x = 21"));
@@ -2778,6 +2783,54 @@ TEST_F(VersioningGatedTest, BranchAccessorReportsMainDatabaseNameForFineGrainedA
   EXPECT_FALSE(denied_checker.Has(std::array{b}, read));
 }
 #endif
+
+// An edge that GAINS the indexed property on the branch is found by the scan (main's index cannot hold it) and only
+// while the write stands: a rollback, an overwrite and a delete each take it out again; main never sees it.
+TEST_F(VersioningGatedTest, BranchEdgePropertyIndexScanFollowsGainedPropertyThroughRollbackAndDelete) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:4}]->(:B {id:2}), (:A {id:3})-[:R {z:1}]->(:B {id:4}), "
+      "(:A {id:5})-[:Q {z:1}]->(:B {id:6})");
+  Fork();
+
+  auto const typed = [&](int64_t value) {
+    return IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = " + std::to_string(value) + " RETURN count(r)");
+  };
+  auto const all_typed = [&] { return IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"); };
+  auto const all_global = [&] {
+    return IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w");
+  };
+  ExpectPlanUses(faker, "MATCH ()-[r:R]->() WHERE r.w = 3 RETURN count(r)", "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w", "ScanAllByEdgeProperty");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (:A {id:5})-[r:Q]->() SET r.w = 6");
+  EXPECT_EQ(typed(3), (Rows{{1}}));
+  EXPECT_EQ(all_typed(), (Rows{{3}, {4}}));
+  EXPECT_EQ(all_global(), (Rows{{3}, {4}, {6}}));
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(typed(3), (Rows{{0}}));
+  EXPECT_EQ(all_typed(), (Rows{{4}}));
+  EXPECT_EQ(all_global(), (Rows{{4}}));
+
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (:A {id:5})-[r:Q]->() SET r.w = 6");
+  EXPECT_EQ(all_typed(), (Rows{{3}, {4}}));
+  EXPECT_EQ(all_global(), (Rows{{3}, {4}, {6}}));
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 8");
+  EXPECT_EQ(all_typed(), (Rows{{4}, {8}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 4 AND r.w < 8 RETURN r.w"), (Rows{{4}}));
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() DELETE r");
+  EXPECT_EQ(all_typed(), (Rows{{4}}));
+  EXPECT_EQ(all_global(), (Rows{{4}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w"), (Rows{{4}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{2}}));
+}
 
 // An index dropped on main after the fork must not change what the branch returns, in order, for index-planned scans.
 TEST_F(VersioningGatedTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingIndex) {

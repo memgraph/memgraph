@@ -19,11 +19,12 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info_types.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/view.hpp"
 #include "versioning/vertex_overlay_store.hpp"
 
-// The pure merge of a branch's changes to one fork vertex (an OverlayVersion) over the fork vertex's own state.
-// The version is read in place; it must not outlive the branch transaction that pinned it.
+// The pure merge of a branch's changes to one fork vertex or edge (an OverlayVersion) over the fork object's own state.
+// The property merges take the fork object as a storage vertex or edge accessor. The version is read in place; it must
+// not outlive the branch transaction that pinned it.
 namespace memgraph::versioning {
 
 inline storage::VertexKey MergeLabels(const OverlayVersion &version, storage::VertexKey fork_labels) {
@@ -46,8 +47,9 @@ inline std::optional<bool> OverlayDecidesLabel(const OverlayVersion &version, st
   return std::nullopt;
 }
 
-inline storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> MergeProperties(
-    const OverlayVersion &version, const storage::VertexAccessor &fork) {
+template <typename Fork>
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> MergeProperties(const OverlayVersion &version,
+                                                                                       const Fork &fork) {
   auto merged = fork.Properties(storage::View::OLD);
   if (!merged) return merged;
   for (auto const pid : version.removed_pids()) merged->erase(pid);
@@ -55,9 +57,9 @@ inline storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> Me
   return merged;
 }
 
-inline storage::Result<storage::PropertyValue> MergeGetProperty(const OverlayVersion &version,
-                                                                const storage::VertexAccessor &fork,
-                                                                storage::PropertyId key) {
+template <typename Fork>
+storage::Result<storage::PropertyValue> MergeGetProperty(const OverlayVersion &version, const Fork &fork,
+                                                         storage::PropertyId key) {
   // A property the overlay holds is never null: a null write is stored as a removal.
   if (auto own = version.properties().GetProperty(key); !own.IsNull()) return own;
   if (std::ranges::binary_search(version.removed_pids(), key)) return storage::PropertyValue{};

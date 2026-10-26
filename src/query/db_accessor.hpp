@@ -53,6 +53,7 @@ enum class text_search_mode;
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -802,62 +803,62 @@ class DbAccessor final {
     return result;
   }
 
-  // Merges the diff engine's edge-property scan with main@fork's, both ascending by `property` (the planner elides
-  // OrderBy on this scan, so output must be ascending). A fork candidate is dropped if hidden by a delete or if its
-  // stub changed `property`.
-  auto MergeBranchEdgePropertyScan(storage::View view, storage::PropertyId property, storage::EdgesIterable diff_stream,
-                                   storage::EdgesIterable hist_stream) -> std::shared_ptr<std::vector<EdgeAccessor>> {
+  // Edge-property scan on a branch, ascending by `property` (the planner elides OrderBy on this scan). Three runs are
+  // merged: the diff engine's index (branch-native edges only), main@fork's index minus the fork edges the branch hid
+  // or may have written `property` on, and those touched edges re-read through their overlay (`edge_type`, when the
+  // scan has one, and `in_range` re-checked on the merged value). Cost is O(log E + fork matches + touched).
+  template <typename InRange>
+  auto MergeBranchEdgePropertyScan(storage::View view, storage::PropertyId property,
+                                   std::optional<storage::EdgeTypeId> edge_type, storage::EdgesIterable diff_stream,
+                                   storage::EdgesIterable hist_stream, InRange &&in_range)
+      -> std::shared_ptr<std::vector<EdgeAccessor>> {
     using KeyedEdge = std::pair<storage::PropertyValue, EdgeAccessor>;
+    auto const by_value = [](KeyedEdge const &a, KeyedEdge const &b) { return a.first < b.first; };
 
-    auto diff_it = diff_stream.begin();
-    auto diff_end = diff_stream.end();
-    auto hist_it = hist_stream.begin();
-    auto hist_end = hist_stream.end();
+    // One snapshot up front: any txn visible to this scan recorded its edges before this point.
+    auto const touched = branch_ctx_->EdgePropertyTouchedSnapshot(property);
 
-    // Only a stub can be hidden by a delete the diff engine's own MVCC does not show (deleted endpoint, or fork edge
-    // listed as deleted).
-    auto advance_diff = [&]() -> std::optional<KeyedEdge> {
-      while (diff_it != diff_end) {
-        EdgeAccessor e(*diff_it, branch_ctx_);
-        ++diff_it;
-        if (branch_ctx_->IsStub(e.impl_) && branch_ctx_->IsForkEdgeHidden(e.impl_, view)) continue;
-        auto prop_res = e.impl_.GetProperty(property, view);
-        if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
-        return std::make_optional<KeyedEdge>(std::move(*prop_res), e);
-      }
-      return std::nullopt;
-    };
+    std::vector<KeyedEdge> native;
+    for (auto raw : diff_stream) {
+      auto prop = raw.GetProperty(property, view);
+      if (!prop.has_value()) continue;  // defensive: an index candidate should always have it
+      native.emplace_back(std::move(*prop), EdgeAccessor(raw, branch_ctx_));
+    }
 
-    auto advance_hist = [&]() -> std::optional<KeyedEdge> {
-      while (hist_it != hist_end) {
-        EdgeAccessor mc(*hist_it, branch_ctx_);
-        ++hist_it;
-        if (branch_ctx_->IsForkEdgeHidden(mc.impl_, view)) continue;
-        if (mc.impl_.MaybeBranchedHint()) {
-          auto stub = branch_ctx_->FindDiffEdge(mc.Gid(), mc.impl_.from_vertex_->gid, view);
-          if (stub && branch_ctx_->StubEdgeTouches(*stub, property, view)) continue;
-        }
-        auto prop_res = mc.impl_.GetProperty(property, storage::View::OLD);
-        if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
-        return std::make_optional<KeyedEdge>(std::move(*prop_res), mc);
-      }
-      return std::nullopt;
-    };
+    std::vector<KeyedEdge> untouched;
+    for (auto raw : hist_stream) {
+      if (touched->contains(raw.Gid().AsUint()) || branch_ctx_->IsForkEdgeHidden(raw, view)) continue;
+      auto prop = raw.GetProperty(property, storage::View::OLD);
+      if (!prop.has_value()) continue;  // defensive: an index candidate should always have it
+      untouched.emplace_back(std::move(*prop), EdgeAccessor(raw, branch_ctx_));
+    }
+
+    std::vector<KeyedEdge> changed;
+    for (auto const &[edge_gid, from_gid] : *touched) {
+      auto fork = branch_ctx_->FindForkEdge(storage::Gid::FromUint(edge_gid), storage::Gid::FromUint(from_gid));
+      if (!fork || (edge_type && fork->EdgeType() != *edge_type) || branch_ctx_->IsForkEdgeHidden(*fork, view))
+        continue;
+      EdgeAccessor candidate(*fork, branch_ctx_);
+      auto prop = candidate.GetProperty(view, property);
+      if (!prop.has_value() || prop->IsNull() || !in_range(*prop)) continue;
+      changed.emplace_back(std::move(*prop), std::move(candidate));
+    }
+    std::ranges::sort(changed, [&](KeyedEdge const &a, KeyedEdge const &b) {
+      if (by_value(a, b)) return true;
+      if (by_value(b, a)) return false;
+      return a.second.Gid().AsUint() < b.second.Gid().AsUint();
+    });
+
+    std::vector<KeyedEdge> fork_side;
+    fork_side.reserve(untouched.size() + changed.size());
+    std::ranges::merge(untouched, changed, std::back_inserter(fork_side), by_value);
+    std::vector<KeyedEdge> merged;
+    merged.reserve(native.size() + fork_side.size());
+    std::ranges::merge(native, fork_side, std::back_inserter(merged), by_value);
 
     auto result = std::make_shared<std::vector<EdgeAccessor>>();
-
-    auto diff_cur = advance_diff();
-    auto hist_cur = advance_hist();
-    while (diff_cur.has_value() || hist_cur.has_value()) {
-      const bool take_diff = diff_cur.has_value() && (!hist_cur.has_value() || !(hist_cur->first < diff_cur->first));
-      if (take_diff) {
-        result->push_back(diff_cur->second);
-        diff_cur = advance_diff();
-      } else {
-        result->push_back(hist_cur->second);
-        hist_cur = advance_hist();
-      }
-    }
+    result->reserve(merged.size());
+    for (auto &entry : merged) result->push_back(std::move(entry.second));
     return result;
   }
 
@@ -872,9 +873,9 @@ class DbAccessor final {
     return has_uncounted(storage::EdgeDirection::OUT) || has_uncounted(storage::EdgeDirection::IN);
   }
 
-  // DELETE on a branch: diff-engine objects are deleted normally; a fork vertex gets the overlay's delete flag and a
-  // fork edge is listed in its endpoints' overlay (OverlayMarkDeleted/DeleteForkEdge). DETACH DELETE of a fork vertex
-  // thus writes only the flag; just its incident diff-engine edges are deleted for real.
+  // DELETE on a branch: diff-engine objects are deleted normally; a fork vertex or fork edge gets the overlay's delete
+  // flag (OverlayMarkDeleted/DeleteForkEdge). DETACH DELETE of a fork vertex thus writes only the flag; just its
+  // incident diff-engine edges are deleted for real.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
@@ -940,6 +941,7 @@ class DbAccessor final {
           if (raw.storage_ == &ctx.diff_engine()) {
             diff_edges.push_back(std::move(incident));
           } else {
+            if (!ctx.CanDeleteForkEdge(raw.Gid())) return std::unexpected{storage::Error::SERIALIZATION_ERROR};
             deleted_edges.push_back(std::move(incident));
           }
         }
@@ -998,15 +1000,12 @@ class DbAccessor final {
     return std::nullopt;
   }
 
-  // On a branch `accessor_` is the diff engine only: look up diff-first, else fall back to a full union scan, O(V+E).
+  // On a branch `accessor_` is the diff engine only (branch-native edges): look up diff-first, else fall back to a full
+  // union scan, O(V+E).
   // Prefer the 3-argument overload when the FROM vertex is known.
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
-      if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) {
-        if (!branch_ctx_->IsStub(*diff_edge) || !branch_ctx_->IsForkEdgeHidden(*diff_edge, view)) {
-          return EdgeAccessor(*diff_edge, branch_ctx_);
-        }
-      }
+      if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) return EdgeAccessor(*diff_edge, branch_ctx_);
       std::optional<EdgeAccessor> found;
       ForEachBranchEdge(view, [&](auto &e) {
         if (e.Gid() != gid) return false;
@@ -1302,8 +1301,10 @@ class DbAccessor final {
       }
       return EdgesIterable(MergeBranchEdgePropertyScan(view,
                                                        property,
+                                                       edge_type,
                                                        accessor_->Edges(edge_type, property, view),
-                                                       historical.Edges(edge_type, property, storage::View::OLD)));
+                                                       historical.Edges(edge_type, property, storage::View::OLD),
+                                                       [](storage::PropertyValue const &) { return true; }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
@@ -1323,8 +1324,10 @@ class DbAccessor final {
       return EdgesIterable(
           MergeBranchEdgePropertyScan(view,
                                       property,
+                                      edge_type,
                                       accessor_->Edges(edge_type, property, value, view),
-                                      historical.Edges(edge_type, property, value, storage::View::OLD)));
+                                      historical.Edges(edge_type, property, value, storage::View::OLD),
+                                      [&value](storage::PropertyValue const &v) { return v == value; }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
   }
@@ -1343,11 +1346,14 @@ class DbAccessor final {
               return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
             }));
       }
+      auto const range = storage::PropertyValueRange::Bounded(lower, upper);
       return EdgesIterable(
           MergeBranchEdgePropertyScan(view,
                                       property,
+                                      edge_type,
                                       accessor_->Edges(edge_type, property, lower, upper, view),
-                                      historical.Edges(edge_type, property, lower, upper, storage::View::OLD)));
+                                      historical.Edges(edge_type, property, lower, upper, storage::View::OLD),
+                                      [&range](storage::PropertyValue const &v) { return range.IsValueInRange(v); }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
   }
@@ -1361,8 +1367,12 @@ class DbAccessor final {
           return prop.has_value() && !prop->IsNull();
         }));
       }
-      return EdgesIterable(MergeBranchEdgePropertyScan(
-          view, property, accessor_->Edges(property, view), historical.Edges(property, storage::View::OLD)));
+      return EdgesIterable(MergeBranchEdgePropertyScan(view,
+                                                       property,
+                                                       std::nullopt,
+                                                       accessor_->Edges(property, view),
+                                                       historical.Edges(property, storage::View::OLD),
+                                                       [](storage::PropertyValue const &) { return true; }));
     }
     return EdgesIterable(accessor_->Edges(property, view));
   }
@@ -1376,10 +1386,13 @@ class DbAccessor final {
           return prop.has_value() && *prop == value;
         }));
       }
-      return EdgesIterable(MergeBranchEdgePropertyScan(view,
-                                                       property,
-                                                       accessor_->Edges(property, value, view),
-                                                       historical.Edges(property, value, storage::View::OLD)));
+      return EdgesIterable(
+          MergeBranchEdgePropertyScan(view,
+                                      property,
+                                      std::nullopt,
+                                      accessor_->Edges(property, value, view),
+                                      historical.Edges(property, value, storage::View::OLD),
+                                      [&value](storage::PropertyValue const &v) { return v == value; }));
     }
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
@@ -1397,10 +1410,14 @@ class DbAccessor final {
               return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
             }));
       }
-      return EdgesIterable(MergeBranchEdgePropertyScan(view,
-                                                       property,
-                                                       accessor_->Edges(property, lower, upper, view),
-                                                       historical.Edges(property, lower, upper, storage::View::OLD)));
+      auto const range = storage::PropertyValueRange::Bounded(lower, upper);
+      return EdgesIterable(
+          MergeBranchEdgePropertyScan(view,
+                                      property,
+                                      std::nullopt,
+                                      accessor_->Edges(property, lower, upper, view),
+                                      historical.Edges(property, lower, upper, storage::View::OLD),
+                                      [&range](storage::PropertyValue const &v) { return range.IsValueInRange(v); }));
     }
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }
@@ -1437,8 +1454,7 @@ class DbAccessor final {
       auto maybe_edge = branch_ctx_->CreateNativeEdge(&*from_diff, &*to_diff, edge_type);
       if (!maybe_edge) return std::unexpected{maybe_edge.error()};
 
-      // InsertEdge creates the edge natively and never goes through CowEdge, so both endpoints' adjacency change is
-      // recorded here, after the write.
+      // Both endpoints' adjacency change is recorded here, after the write.
       branch_ctx_->RecordEdgeChange(from->Gid());
       branch_ctx_->RecordEdgeChange(to->Gid());
       return EdgeAccessor(*maybe_edge, branch_ctx_);

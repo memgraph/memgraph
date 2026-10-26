@@ -777,13 +777,6 @@ class InMemoryStorage final : public Storage {
 
     void DowngradeToReadIfValid();
 
-    /// Get-or-create an empty, delta-less edge `edge_gid` from `from_vertex` to `to_vertex` (versioning branch stub;
-    /// both endpoints are caller-owned stubs or vertices of this storage). An already-present edge is returned as-is,
-    /// so concurrent and repeated calls are safe. Requires properties_on_edges. Bumps `edge_id_` past `edge_gid`.
-    /// @throw std::bad_alloc
-    EdgeAccessor MaterializeStubEdge(storage::Gid edge_gid, Vertex *from_vertex, Vertex *to_vertex,
-                                     EdgeTypeId edge_type);
-
     /// Finds the out-edge `edge_gid` in `from_vertex`'s adjacency, for a `from_vertex` that is not in `vertices_`
     /// (a versioning stub). Requires properties_on_edges.
     std::optional<EdgeAccessor> FindEdgeFrom(Gid edge_gid, Vertex *from_vertex, View view);

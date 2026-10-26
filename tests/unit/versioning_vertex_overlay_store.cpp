@@ -310,9 +310,6 @@ TEST(VersioningVertexOverlayStore, VersionsRoundTripEveryPart) {
     state.RemoveLabel(Label(7));
     state.SetProperty(Prop(1), ms::PropertyValue(int64_t{42}));
     state.RemoveProperty(Prop(2));
-    state.AddDeletedEdge(20);
-    state.AddDeletedEdge(3);
-    state.AddDeletedEdge(20);
     return true;
   });
   ASSERT_TRUE(written.has_value());
@@ -325,9 +322,7 @@ TEST(VersioningVertexOverlayStore, VersionsRoundTripEveryPart) {
   EXPECT_EQ(version->properties().GetProperty(Prop(1)).ValueInt(), 42);
   ASSERT_EQ(version->removed_pids().size(), 1U);
   EXPECT_EQ(version->removed_pids()[0], Prop(2));
-  EXPECT_EQ(std::vector<uint64_t>(version->deleted_edge_gids().begin(), version->deleted_edge_gids().end()),
-            (std::vector<uint64_t>{3, 20}));
-  EXPECT_EQ(version->AllocatedBytes(), OverlayVersion::AllocBytes(true, 299, 1, 1, 2));
+  EXPECT_EQ(version->AllocatedBytes(), OverlayVersion::AllocBytes(true, 299, 1, 1));
 
   txn->AdvanceCommand();
   ASSERT_TRUE(env.store
@@ -342,7 +337,6 @@ TEST(VersioningVertexOverlayStore, VersionsRoundTripEveryPart) {
   ASSERT_NE(version, nullptr);
   EXPECT_TRUE(version->deleted());
   EXPECT_TRUE(version->added_labels().empty());
-  EXPECT_TRUE(version->deleted_edge_gids().empty());
   EXPECT_EQ(version->properties().GetProperty(Prop(1)).IsNull(), true);
 }
 
@@ -385,6 +379,49 @@ TEST(VersioningVertexOverlayStore, ReportsVersionSizes) {
   EXPECT_LE(usable(1), 48U);
   EXPECT_LE(usable(2), 48U);
   EXPECT_LE(usable(3), 48U);
+}
+
+// A fork edge is keyed by EdgeKey: it is its own conflict domain next to the vertex with the same gid, and one
+// transaction commits or aborts both together.
+TEST(VersioningVertexOverlayStore, EdgeKeysAreSeparateConflictDomainsUnderOneTransaction) {
+  using memgraph::versioning::EdgeKey;
+  using memgraph::versioning::IsEdgeKey;
+  Env env;
+  auto const set_prop = [&](uint64_t key, OverlayTransaction &txn, int64_t value) {
+    return env.store.Write(key, txn, [&](OverlayState &state) {
+      state.SetProperty(Prop(1), ms::PropertyValue(value));
+      return true;
+    });
+  };
+  EXPECT_TRUE(IsEdgeKey(EdgeKey(5)));
+  EXPECT_FALSE(IsEdgeKey(5));
+
+  auto a = env.Begin();
+  auto b = env.Begin();
+  ASSERT_TRUE(set_prop(EdgeKey(5), *a, 1).has_value());
+  ASSERT_TRUE(env.AddLabel(*a, 5, 1).has_value());
+  EXPECT_TRUE(set_prop(5, *b, 2).error() == ms::Error::SERIALIZATION_ERROR);
+  EXPECT_FALSE(env.store.CanWrite(EdgeKey(5), *b));
+  EXPECT_TRUE(env.store.CanWrite(EdgeKey(6), *b));
+  EXPECT_EQ(set_prop(EdgeKey(5), *b, 3).error(), ms::Error::SERIALIZATION_ERROR);
+
+  env.Abort(*a);
+  EXPECT_EQ(env.store.size(), 0U) << "one abort rolls back the vertex and the edge version";
+  EXPECT_TRUE(env.store.CanWrite(EdgeKey(5), *b));
+
+  ASSERT_TRUE(set_prop(EdgeKey(5), *b, 3).has_value());
+  ASSERT_TRUE(env.AddLabel(*b, 5, 2).has_value());
+  EXPECT_EQ(b->write_count(), 2U);
+  auto early = env.Begin();
+  env.Commit(*b);
+  auto reader = env.Begin();
+  ASSERT_NE(env.store.Read(EdgeKey(5), *reader, View::NEW), nullptr);
+  EXPECT_EQ(env.store.Read(EdgeKey(5), *reader, View::NEW)->properties().GetProperty(Prop(1)).ValueInt(), 3);
+  EXPECT_TRUE(env.store.Read(5, *reader, View::NEW)->properties().GetProperty(Prop(1)).IsNull());
+  EXPECT_FALSE(env.store.CanWrite(EdgeKey(5), *early)) << "committed after `early` started";
+  EXPECT_TRUE(env.store.CanWrite(EdgeKey(5), *reader));
+  env.Release(*early);
+  env.Release(*reader);
 }
 
 // Writers set two properties to one value in a single write; every version a reader finds must hold equal values, an

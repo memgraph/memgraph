@@ -48,7 +48,7 @@ namespace memgraph::versioning {
 // degrading toward all-resolve, never toward incorrectness.
 class BranchChangeFilters {
  public:
-  // 32 KiB per filter, 160 KiB per branch. ~8k keys at ~1% false-positive, ~20k at ~10%. Power of two (mask).
+  // 32 KiB per filter, 224 KiB per branch. ~8k keys at ~1% false-positive, ~20k at ~10%. Power of two (mask).
   static constexpr size_t kFilterWords = 4096;
   static_assert((kFilterWords & (kFilterWords - 1)) == 0, "kFilterWords must be a power of two");
 
@@ -57,7 +57,9 @@ class BranchChangeFilters {
         label_(kFilterWords),
         edge_(kFilterWords),
         property_field_(kFilterWords),
-        deleted_(kFilterWords) {}
+        deleted_(kFilterWords),
+        fork_edge_property_(kFilterWords),
+        fork_edge_deleted_(kFilterWords) {}
 
   BranchChangeFilters(const BranchChangeFilters &) = delete;
   BranchChangeFilters &operator=(const BranchChangeFilters &) = delete;
@@ -85,15 +87,46 @@ class BranchChangeFilters {
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { edge_.Insert(endpoint_gid); }
 
   // Records that this branch marked fork vertex `gid` deleted. Call before the marker write.
-  void RecordVertexDeleted(storage::Gid gid) noexcept { deleted_.Insert(gid); }
+  void RecordVertexDeleted(storage::Gid gid) noexcept {
+    any_vertex_deleted_.store(true, std::memory_order_release);
+    deleted_.Insert(gid);
+  }
 
   [[nodiscard]] bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return deleted_.MayContain(gid); }
+
+  // False until the branch first marks any vertex deleted: lets a per-edge check skip even loading the neighbour.
+  [[nodiscard]] bool MayHaveAnyVertexDeleted() const noexcept {
+    return any_vertex_deleted_.load(std::memory_order_acquire);
+  }
 
   [[nodiscard]] bool MayHaveLabelChange(storage::Gid gid) const noexcept { return label_.MayContain(gid); }
 
   [[nodiscard]] bool MayHavePropertyChange(storage::Gid gid) const noexcept { return property_.MayContain(gid); }
 
   [[nodiscard]] bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return edge_.MayContain(gid); }
+
+  // Fork-edge overlay writes are keyed by the EDGE's gid, a different gid space from the vertex-keyed filters above, so
+  // they have filters of their own. A property write records the edge and the pid; a delete records the edge. The
+  // pid gate keeps a never-written pid free of the (saturating) per-edge probe.
+  void RecordForkEdgeProperty(storage::Gid edge_gid, storage::PropertyId pid) noexcept {
+    edge_pid_gate_[PidWord(pid)].fetch_or(PidBit(pid), std::memory_order_release);
+    fork_edge_property_.Insert(edge_gid);
+  }
+
+  void RecordForkEdgeDeleted(storage::Gid edge_gid) noexcept { fork_edge_deleted_.Insert(edge_gid); }
+
+  [[nodiscard]] bool MayHaveForkEdgePropertyChange(storage::Gid edge_gid) const noexcept {
+    return fork_edge_property_.MayContain(edge_gid);
+  }
+
+  [[nodiscard]] bool MayHaveForkEdgePropertyFieldChange(storage::Gid edge_gid, storage::PropertyId pid) const noexcept {
+    if ((edge_pid_gate_[PidWord(pid)].load(std::memory_order_acquire) & PidBit(pid)) == 0) return false;
+    return fork_edge_property_.MayContain(edge_gid);
+  }
+
+  [[nodiscard]] bool MayHaveForkEdgeDeleted(storage::Gid edge_gid) const noexcept {
+    return fork_edge_deleted_.MayContain(edge_gid);
+  }
 
  private:
   // Monotonic (insert-only) lock-free approximate-membership filter keyed by gid. Register-blocked
@@ -153,11 +186,15 @@ class BranchChangeFilters {
   [[nodiscard]] static uint64_t PidBit(storage::PropertyId pid) noexcept { return 1ULL << (pid.AsUint() & 63U); }
 
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> pid_gate_{};
+  std::array<std::atomic<uint64_t>, kPidGateBits / 64> edge_pid_gate_{};
+  std::atomic<bool> any_vertex_deleted_{false};
   MonotonicGidFilter property_;
   MonotonicGidFilter label_;
   MonotonicGidFilter edge_;
   MonotonicGidFilter property_field_;
   MonotonicGidFilter deleted_;
+  MonotonicGidFilter fork_edge_property_;
+  MonotonicGidFilter fork_edge_deleted_;
 };
 
 }  // namespace memgraph::versioning

@@ -40,13 +40,21 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
 
-// Versioned per-vertex changes of a branch over its fork vertices, with a small MVCC of their own that follows the
-// storage engine's visibility and conflict rules (storage/v2/mvcc.hpp) without reusing its deltas.
+// Versioned per-object changes of a branch over its fork vertices and fork edges, with a small MVCC of their own that
+// follows the storage engine's visibility and conflict rules (storage/v2/mvcc.hpp) without reusing its deltas.
 //
-// Per fork gid the store keeps a newest-first chain of OverlayVersion. A version is the FULL overlay state after a
-// write (not a diff), so a read finds the one visible version and never replays. No visible version means the fork
-// vertex's own state applies.
+// Per key the store keeps a newest-first chain of OverlayVersion. A version is the FULL overlay state after a write
+// (not a diff), so a read finds the one visible version and never replays. No visible version means the fork object's
+// own state applies. A vertex is keyed by its gid, an edge by EdgeKey(gid): one store, one transaction stamp and one
+// commit/abort/GC path cover both, and each object kind is its own conflict domain.
 namespace memgraph::versioning {
+
+// Keyspace of fork edges: gids are counters that never reach bit 63, so the bit separates them from vertex gids.
+inline constexpr uint64_t kEdgeKeyBit = uint64_t{1} << 63;
+
+constexpr uint64_t EdgeKey(uint64_t edge_gid) noexcept { return edge_gid | kEdgeKeyBit; }
+
+constexpr bool IsEdgeKey(uint64_t key) noexcept { return (key & kEdgeKeyBit) != 0; }
 
 // Shared by all versions of one transaction: the transaction id until commit, the commit timestamp afterwards. One
 // release store makes every version of the transaction visible at once. Reference counted by its versions and by the
@@ -81,7 +89,6 @@ struct OverlayState {
   std::vector<storage::LabelId> removed_labels;   // sorted
   storage::PropertyStore properties;              // changed values only
   std::vector<storage::PropertyId> removed_pids;  // sorted
-  std::vector<uint64_t> deleted_edge_gids;        // sorted
 
   void AddLabel(storage::LabelId label) {
     Erase(removed_labels, label);
@@ -108,16 +115,13 @@ struct OverlayState {
     Insert(removed_pids, pid);
   }
 
-  void AddDeletedEdge(uint64_t gid) { Insert(deleted_edge_gids, gid); }
-
-  // A deleted vertex carries no other changes.
+  // A deleted object carries no other changes.
   void MarkDeleted() {
     deleted = true;
     added_labels.clear();
     removed_labels.clear();
     properties.ClearProperties();
     removed_pids.clear();
-    deleted_edge_gids.clear();
   }
 
  private:
@@ -134,14 +138,14 @@ struct OverlayState {
   }
 };
 
-// One immutable, packed version. The label, pid and edge arrays trail the header in the same allocation; after
-// publication only `older` and the stamp's timestamp change.
+// One immutable, packed version. The label and pid arrays trail the header in the same allocation; after publication
+// only `older` and the stamp's timestamp change.
 //
 // Layout: 36 B of header fields (padded to 40 B by the alignment), then at offset 36
 //  - normal form: added labels, removed labels, removed pids (4 B each; each count fits the header's u8);
-//  - extended form (any count above 255, or any deleted edge): four u32 counts, deleted-edge gids (8-aligned), then
-//    the same three arrays.
-// A single label or pid is 40 B of allocation, three fit in 48 B.
+//  - extended form (any count above 255): three u32 counts, then the same three arrays.
+// A single label or pid is 40 B of allocation, three fit in 48 B. An edge version has only properties and removed
+// pids.
 class OverlayVersion {
  public:
   static constexpr uint8_t kDeleted = 1;
@@ -155,8 +159,8 @@ class OverlayVersion {
   static void Destroy(OverlayVersion *version) noexcept;
 
   // Bytes of the allocation holding a version with these counts.
-  static constexpr size_t AllocBytes(bool extended, size_t added, size_t removed, size_t pids, size_t edges) noexcept {
-    return ComputeLayout(extended, added, removed, pids, edges).total;
+  static constexpr size_t AllocBytes(bool extended, size_t added, size_t removed, size_t pids) noexcept {
+    return ComputeLayout(extended, added, removed, pids).total;
   }
 
   const OverlayStamp *stamp() const noexcept { return stamp_; }
@@ -181,10 +185,6 @@ class OverlayVersion {
     return Array<storage::PropertyId>(Lay().pids, Count(2));
   }
 
-  std::span<const uint64_t> deleted_edge_gids() const noexcept {
-    return Array<uint64_t>(Lay().edges, extended() ? ExtCounts()[3] : 0);
-  }
-
   size_t AllocatedBytes() const noexcept { return Lay().total; }
 
   // @throw std::bad_alloc
@@ -194,7 +194,6 @@ class OverlayVersion {
   friend class VertexOverlayStore;
 
   struct Layout {
-    size_t edges{0};
     size_t added{0};
     size_t removed{0};
     size_t pids{0};
@@ -202,17 +201,12 @@ class OverlayVersion {
   };
 
   static constexpr size_t kTailStart = 8 + 8 + 12 + 4 + 4;
-  static constexpr size_t kExtHeaderBytes = 4 * sizeof(uint32_t);
+  static constexpr size_t kExtHeaderBytes = 3 * sizeof(uint32_t);
 
-  static constexpr Layout ComputeLayout(bool extended, size_t added, size_t removed, size_t pids,
-                                        size_t edges) noexcept {
+  static constexpr Layout ComputeLayout(bool extended, size_t added, size_t removed, size_t pids) noexcept {
     Layout layout;
     size_t off = kTailStart;
-    if (extended) {
-      off = (off + kExtHeaderBytes + 7) & ~size_t{7};
-      layout.edges = off;
-      off += edges * sizeof(uint64_t);
-    }
+    if (extended) off += kExtHeaderBytes;
     layout.added = off;
     off += added * sizeof(storage::LabelId);
     layout.removed = off;
@@ -242,9 +236,7 @@ class OverlayVersion {
 
   size_t Count(size_t i) const noexcept { return extended() ? ExtCounts()[i] : counts_[i]; }
 
-  Layout Lay() const noexcept {
-    return ComputeLayout(extended(), Count(0), Count(1), Count(2), extended() ? ExtCounts()[3] : 0);
-  }
+  Layout Lay() const noexcept { return ComputeLayout(extended(), Count(0), Count(1), Count(2)); }
 
   template <typename T>
   std::span<const T> Array(size_t offset, size_t n) const noexcept {
@@ -342,6 +334,9 @@ class VertexOverlayStore {
   // The version of `gid` that `txn` sees, or null when the fork vertex's own state applies. The pointer is valid until
   // `txn` ends. Under READ_UNCOMMITTED the newest version is returned whatever its owner.
   const OverlayVersion *Read(uint64_t gid, const OverlayTransaction &txn, storage::View view) const;
+
+  // Whether a Write of `gid` by `txn` would pass the conflict check (Write's rule); nothing is written.
+  bool CanWrite(uint64_t gid, const OverlayTransaction &txn) const;
 
   // Lookup, conflict check, read-modify and publish under one shard lock. `mutate(OverlayState &)` receives the
   // newest state (the transaction's own, or the committed head that is visible to it) and returns whether it changed
