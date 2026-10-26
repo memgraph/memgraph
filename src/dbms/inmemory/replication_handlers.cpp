@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "memory/db_arena_fwd.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/progress_heartbeat.hpp"
 #include "rpc/protocol.hpp"
@@ -239,6 +240,15 @@ void InMemoryReplicationHandlers::Register(
   auto &server = *data.server;
   auto const &current_main_uuid = data.uuid_;
   auto &heartbeat = server.progress_heartbeat_;
+  server.database_commit_timestamps_ = [dbms_handler] {
+    replication_coordination_glue::DatabaseCommitTimestamps timestamps;
+    dbms_handler->ForEach([&timestamps](dbms::DatabaseAccess db_acc) {
+      auto const *storage = db_acc->storage();
+      timestamps.emplace_back(storage->uuid(),
+                              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+    });
+    return timestamps;
+  };
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&current_main_uuid, dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
