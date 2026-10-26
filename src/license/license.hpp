@@ -150,6 +150,8 @@ struct LicenseChecker {
   mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
   // Why each provided licence was rejected at the last revalidation, as "[SOURCE] reason".
   mutable utils::Synchronized<std::vector<std::string>, utils::SpinLock> license_failures_;
+  // Days since the epoch (UTC) on which the expiry warning was last logged.
+  std::atomic<int64_t> last_expiry_warning_day_{0};
   bool enterprise_enabled_{false};
   std::atomic<LicenseState> state_{};
   static_assert(std::atomic<LicenseState>::is_always_lock_free);

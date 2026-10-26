@@ -11,10 +11,16 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "license/license.hpp"
 #include "slk/serialization.hpp"
@@ -267,6 +273,64 @@ TEST_F(LicenseTest, DetailedLicenseInfo_NothingProvided) {
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
   ASSERT_EQ(detailed_license_info.status, "You have not provided any license!");
+}
+
+TEST_F(LicenseTest, DetailedLicenseInfo_ExpiredReportsDate) {
+  const std::string organization_name{"Memgraph"};
+  constexpr int64_t kSecondDayOfEpoch = 24 * 60 * 60;
+  memgraph::license::License license{
+      organization_name, kSecondDayOfEpoch, 0, memgraph::license::LicenseType::ENTERPRISE};
+  license_checker->SetCliLicense(memgraph::license::Encode(license), organization_name, *settings);
+  auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_FALSE(detailed_license_info.is_valid);
+  EXPECT_TRUE(detailed_license_info.status.contains("The license is valid until 1970-01-02."))
+      << detailed_license_info.status;
+}
+
+class LicenseExpiryWarningTest : public LicenseTest {
+ protected:
+  void SetUp() override {
+    LicenseTest::SetUp();
+    spdlog::default_logger()->sinks().push_back(sink);
+  }
+
+  void TearDown() override {
+    spdlog::default_logger()->sinks().pop_back();
+    LicenseTest::TearDown();
+  }
+
+  void SetCliLicenseExpiringInDays(int64_t const days) {
+    const auto now_sec =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    memgraph::license::License license{
+        organization_name, now_sec + days * 24 * 60 * 60, 0, memgraph::license::LicenseType::ENTERPRISE};
+    license_checker->SetCliLicense(memgraph::license::Encode(license), organization_name, *settings);
+  }
+
+  size_t Warnings() const {
+    auto const text = log.str();
+    size_t count = 0;
+    for (auto pos = text.find(kWarning); pos != std::string::npos; pos = text.find(kWarning, pos + 1)) ++count;
+    return count;
+  }
+
+  static constexpr std::string_view kWarning = "Enterprise features stop working";
+  const std::string organization_name{"Memgraph"};
+  std::ostringstream log;
+  std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
+};
+
+TEST_F(LicenseExpiryWarningTest, NotLoggedForDistantExpiry) {
+  SetCliLicenseExpiringInDays(60);
+  EXPECT_EQ(Warnings(), 0);
+}
+
+TEST_F(LicenseExpiryWarningTest, LoggedOncePerDay) {
+  SetCliLicenseExpiringInDays(10);
+  EXPECT_EQ(Warnings(), 1);
+
+  settings->SetValue("organization.name", organization_name);
+  EXPECT_EQ(Warnings(), 1);
 }
 
 // ===========================================================================

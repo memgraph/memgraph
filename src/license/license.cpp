@@ -48,6 +48,8 @@ namespace {
 inline constexpr std::string_view license_key_prefix = "mglk-";
 
 inline constexpr int64_t kExpirationGraceSeconds = std::chrono::hours{24} / std::chrono::seconds{1};
+inline constexpr int64_t kExpiryWarningSeconds = std::chrono::days{30} / std::chrono::seconds{1};
+inline constexpr int64_t kSecondsPerDay = std::chrono::days{1} / std::chrono::seconds{1};
 
 bool IsLicenseExpired(int64_t valid_until, int64_t now_seconds) {
   return valid_until != 0 && now_seconds - kExpirationGraceSeconds > valid_until;
@@ -87,6 +89,17 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
   }
 
   return {};
+}
+
+std::string ValidUntilToString(int64_t const valid_until) {
+  if (valid_until == 0) return "FOREVER";
+  const auto time = static_cast<std::time_t>(valid_until);
+  std::tm *tm = std::gmtime(&time);
+  std::array<char, 30> buffer;
+  if (tm != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm) > 0) {
+    return std::string(buffer.data());
+  }
+  return "error";
 }
 }  // namespace
 
@@ -214,7 +227,9 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     }
     const auto check = IsValidLicenseInternal(*maybe_license, org);
     if (!check) {
-      reject(LicenseCheckErrorToString(check.error(), "Enterprise features"));
+      reject(fmt::format("{} The license is valid until {}.",
+                         LicenseCheckErrorToString(check.error(), "Enterprise features"),
+                         ValidUntilToString(maybe_license->valid_until)));
       return;
     }
     valid_candidates.push_back({*maybe_license, std::string{key}, std::string{org}, priority});
@@ -271,6 +286,14 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   }
 
   state_.store(LicenseState{.valid = true, .type = winner.license.type}, std::memory_order_release);
+
+  const auto now =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  if (winner.license.valid_until != 0 && winner.license.valid_until - now < kExpiryWarningSeconds &&
+      last_expiry_warning_day_.exchange(now / kSecondsPerDay) != now / kSecondsPerDay) {
+    spdlog::warn("The license is valid until {}. Enterprise features stop working 24 hours after that.",
+                 ValidUntilToString(winner.license.valid_until));
+  }
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
@@ -424,20 +447,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   info.memory_limit = maybe_license->memory_limit;
   info.license_type = LicenseTypeToString(maybe_license->type);
 
-  // convert the epoch of validity to date string
-  const int64_t valid_until = maybe_license->valid_until;
-  if (valid_until != 0) {
-    const auto time = static_cast<std::time_t>(valid_until);
-    std::tm *tm = std::gmtime(&time);
-    std::array<char, 30> buffer;
-    if (tm != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm) > 0) {
-      info.valid_until = std::string(buffer.data());
-    } else {
-      info.valid_until = "error";
-    }
-  } else {
-    info.valid_until = "FOREVER";
-  }
+  info.valid_until = ValidUntilToString(maybe_license->valid_until);
 
   // Use the same validation logic as enterprise feature checks to ensure is_valid is consistent.
   // NOTE: this overload does not re-acquire previous_license_info_ lock, so no deadlock.
