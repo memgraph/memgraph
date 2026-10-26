@@ -11,6 +11,7 @@ target_sources(mg-versioning
         gate.hpp
         main_constraints.hpp
         name.hpp
+        stub_index.hpp
         stub_properties.hpp
         version_store.hpp
 

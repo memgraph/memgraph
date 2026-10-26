@@ -32,6 +32,7 @@
 #include "utils/logging.hpp"
 #include "versioning/branch_change_filter.hpp"
 #include "versioning/branch_change_kind.hpp"
+#include "versioning/stub_index.hpp"
 
 namespace memgraph::versioning {
 
@@ -139,6 +140,8 @@ class BranchCore {
 
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveEdgeChange(gid); }
 
+  StubIndex &stub_index() { return stub_index_; }
+
  private:
   BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts, std::unique_ptr<storage::InMemoryStorage> diff_engine,
              uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
@@ -161,6 +164,9 @@ class BranchCore {
   std::unordered_map<storage::PropertyId, bool> reserved_property_;
 
   BranchChangeFilters change_filters_;
+
+  // Declared last: destroyed before the diff engine whose Vertex objects it points into.
+  StubIndex stub_index_;
 };
 
 // One session's view of a branch: a shared BranchCore plus per-transaction state. Reads resolve diff-engine-first,
@@ -273,8 +279,11 @@ class BranchContext {
   // Creates a branch-native edge at a gid taken from main's counter; endpoints must already be diff-engine vertices.
   storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor *from, storage::VertexAccessor *to,
                                                           storage::EdgeTypeId edge_type);
-  // Fork-state vertex (historical_, View::OLD).
+  // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when recorded, else historical_.
   std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
+  // The current diff txn's vertex for `gid` (stub or native), via the stub index when recorded, else the diff engine's
+  // skiplist; equivalent to current_diff_txn()->FindVertex(gid, view).
+  std::optional<storage::VertexAccessor> FindStub(storage::Gid gid, storage::View view);
   // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
   std::optional<storage::VertexAccessor> FindStubOrDiffVertex(storage::Gid gid, storage::View view);
 
@@ -392,9 +401,8 @@ class BranchContext {
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
  private:
-  // Sets the monotonic `branched()` hint bit on main's Vertex for `gid` under its lock; callers hold no diff-engine
-  // lock.
-  void MarkMainObjectBranched(storage::Gid gid);
+  // Sets the monotonic `branched()` hint bit on `main_vertex` under its lock; callers hold no diff-engine lock.
+  void MarkMainObjectBranched(storage::Vertex *main_vertex);
 
   // Sets the `branched()` bit on a main@fork edge (its Edge* is main's live object); no-op without properties_on_edges.
   void MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge);

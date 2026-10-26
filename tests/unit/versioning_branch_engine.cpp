@@ -946,4 +946,83 @@ TEST_F(VersioningBranchPeriodicGcTest, PeriodicGcThreadFreesDeltasWithoutExplici
   EXPECT_LE(Deltas() - baseline_, 4);
 }
 
+// The stub index records exactly the touched fork gids, with the same Vertex* the skiplists return, under concurrent
+// CowVertex from several sessions (own context + diff txn each) and after their rollback.
+TEST_F(VersioningBranchEngineTest, StubIndexAgreesWithSkiplistsUnderConcurrentCowAndRollback) {
+  constexpr size_t kVertices = 300;  // spans several 64-gid pages
+  constexpr size_t kThreads = 4;
+
+  std::vector<ms::Gid> gids;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    for (size_t i = 0; i < kVertices; ++i) gids.push_back(acc->CreateVertex().Gid());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const auto fork_ts = ForkNow();
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
+  ASSERT_TRUE(result.has_value());
+  branch_context_ = std::move(*result);
+  auto core = branch_context_->core();
+
+  // Even indexes are COWed by every thread (contended); a touched odd index by one thread; the rest stay untouched.
+  std::vector<bool> is_touched(kVertices, false);
+  for (size_t i = 0; i < kVertices; ++i) is_touched[i] = i % 2 == 0 || i % 3 != 0;
+
+  std::vector<std::thread> threads;
+  for (size_t t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      auto ctx = std::make_unique<mv::BranchContext>(core);
+      auto diff_acc = core->diff_engine().Access(ms::WRITE);
+      ASSERT_TRUE(ctx->BeginTransaction(diff_acc.get()).has_value());
+      for (size_t i = 0; i < kVertices; ++i) {
+        if (!is_touched[i]) continue;
+        if (i % 2 == 1 && (i / 2) % kThreads != t) continue;
+        auto cowed = ctx->CowVertex(gids[i]);
+        EXPECT_TRUE(cowed.has_value());
+      }
+      ctx->EndTransaction();
+      diff_acc->Abort();  // stubs are not transactional: they must survive this
+    });
+  }
+  for (auto &th : threads) th.join();
+
+  auto diff_acc = branch_context_->diff_engine().Access(ms::READ);
+  Begin(diff_acc.get());
+
+  size_t diff_count = 0;
+  for (auto v : diff_acc->Vertices(ms::View::NEW)) {
+    (void)v;
+    ++diff_count;
+  }
+  size_t expected_count = 0;
+  for (size_t i = 0; i < kVertices; ++i) expected_count += is_touched[i] ? 1 : 0;
+  EXPECT_EQ(diff_count, expected_count) << "exactly one stub per touched gid";
+
+  auto &index = core->stub_index();
+  for (size_t i = 0; i < kVertices; ++i) {
+    const auto gid = gids[i];
+    auto diff_vertex = diff_acc->FindVertex(gid, ms::View::NEW);
+    auto hist_vertex = branch_context_->historical().FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(hist_vertex.has_value());
+    if (!is_touched[i]) {
+      EXPECT_FALSE(diff_vertex.has_value());
+      EXPECT_EQ(index.FindStub(gid.AsUint()), nullptr);
+      EXPECT_EQ(index.FindFork(gid.AsUint()), nullptr);
+      EXPECT_FALSE(branch_context_->FindStub(gid, ms::View::NEW).has_value());
+      EXPECT_EQ(branch_context_->FindForkVertex(gid)->vertex_, hist_vertex->vertex_) << "miss falls back";
+      continue;
+    }
+    ASSERT_TRUE(diff_vertex.has_value()) << "a rolled-back COW must leave the stub";
+    EXPECT_EQ(index.FindStub(gid.AsUint()), diff_vertex->vertex_);
+    EXPECT_EQ(index.FindFork(gid.AsUint()), hist_vertex->vertex_);
+    auto via_index = branch_context_->FindStub(gid, ms::View::NEW);
+    ASSERT_TRUE(via_index.has_value());
+    EXPECT_TRUE(*via_index == *diff_vertex);
+    auto fork_via_index = branch_context_->FindForkVertex(gid);
+    ASSERT_TRUE(fork_via_index.has_value());
+    EXPECT_TRUE(*fork_via_index == *hist_vertex);
+  }
+}
+
 }  // namespace
