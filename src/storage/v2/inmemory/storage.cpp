@@ -5126,7 +5126,7 @@ void InMemoryStorage::CreateSnapshotHandler(
     // Skip broken databases: they are empty and writing a snapshot would overwrite
     // the operator's untouched corrupt durability files. Skipped silently to avoid
     // per-tick log spam (CreateSnapshot also guards defensively).
-    if (!token.stop_requested() && !IsBroken()) {
+    if (!token.stop_requested() && !IsBroken() && flags::run_time::SnapshotScheduleLicensed()) {
       this->create_snapshot_handler("periodic");
     }
   });
