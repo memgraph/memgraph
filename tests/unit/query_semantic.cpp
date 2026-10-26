@@ -1524,6 +1524,39 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallLeavesUnreturnedImportsOut) {
   EXPECT_EQ(conditional->output_symbols_[0].name(), "x");
 }
 
+// A diagnostic raised inside a WHEN branch of an expression body names the construct the user wrote.
+TYPED_TEST(TestSymbolGenerator, ConditionalSubqueryExpressionNamesItsFold) {
+  // MATCH (n) RETURN COUNT { WHEN true THEN MATCH n = (m) RETURN 1 AS x } AS c
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(COUNT_SUBQUERY(QUERY(WHEN_BRANCHES(
+                 {LITERAL(true), SINGLE_QUERY(MATCH(NAMED_PATTERN("n", NODE("m"))), RETURN(LITERAL(1), AS("x")))}))),
+             AS("c"))));
+  try {
+    MakeSymbolTable(query);
+    FAIL() << "expected a SemanticException";
+  } catch (const SemanticException &e) {
+    EXPECT_STREQ(e.what(), "Cannot name a pattern 'n' in COUNT, because that variable is already declared outside it.");
+  }
+}
+
+// So does one raised in a later UNION leg of an expression body.
+TYPED_TEST(TestSymbolGenerator, SubqueryExpressionUnionLegNamesItsFold) {
+  // MATCH (n) RETURN COUNT { RETURN 1 AS x UNION MATCH n = (m) RETURN 1 AS x } AS c
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(
+          COUNT_SUBQUERY(QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("x"))),
+                               UNION(SINGLE_QUERY(MATCH(NAMED_PATTERN("n", NODE("m"))), RETURN(LITERAL(1), AS("x")))))),
+          AS("c"))));
+  try {
+    MakeSymbolTable(query);
+    FAIL() << "expected a SemanticException";
+  } catch (const SemanticException &e) {
+    EXPECT_STREQ(e.what(), "Cannot name a pattern 'n' in COUNT, because that variable is already declared outside it.");
+  }
+}
+
 // `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
 // makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
