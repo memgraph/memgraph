@@ -23,6 +23,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include <fmt/format.h>
 #include <gmock/gmock.h>
 #include "gtest/gtest.h"
 
@@ -2490,6 +2491,8 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
     const char *b_write;
   };
 
+  static constexpr const char *kCreateEdge = "MATCH (a:K {id:1}), (b:K {id:2}) CREATE (a)-[:N]->(b)";
+
   static constexpr Case cases[] = {
       {"VertexFirstTouch", "", "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61"},
       {"VertexStubbed",
@@ -2505,6 +2508,13 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
       {"EdgeSetThenEdgeDelete", "", "MATCH ()-[r:R]->() SET r.w = 10", "MATCH ()-[r:R]->() DELETE r"},
       {"EdgeDeleteThenEdgeDelete", "", "MATCH ()-[r:R]->() DELETE r", "MATCH ()-[r:R]->() DELETE r"},
       {"EdgeDeleteThenEndpointDetachDelete", "", "MATCH ()-[r:R]->() DELETE r", "MATCH (n:A) DETACH DELETE n"},
+      // A branch-created edge lives on anchors, a different conflict domain from the fork vertex's delete flag.
+      {"EdgeCreateThenEndpointDetachDelete", "", kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n"},
+      {"EndpointDetachDeleteThenEdgeCreate", "", "MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge},
+      {"EdgeCreateThenEndpointDelete", "", kCreateEdge, "MATCH (n:K {id:2}) DELETE n"},
+      {"EndpointDeleteThenEdgeCreate", "", "MATCH (n:K {id:2}) DELETE n", kCreateEdge},
+      {"EdgeCreateThenEndpointDetachDeleteAnchored", kCreateEdge, kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n"},
+      {"EndpointDetachDeleteThenEdgeCreateAnchored", kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge},
   };
 
   auto const checkout_both = [&](const char *version) {
@@ -2534,6 +2544,50 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
 
   EXPECT_NO_THROW(faker2.Interpret("MATCH ()-[r:R]->() SET r.x = 21"));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 21}}));
+}
+
+// A transaction that began before another committed a delete of a fork vertex (or a branch-created edge on it) must
+// conflict with the late write; a write to an unrelated vertex must not. Each case runs on a fresh branch of main.
+TEST_F(VersioningMultiSessionTest, ForkVertexDeleteAndEdgeCreateConflictAcrossCommit) {
+  faker.Interpret("CREATE (:K {id:1}), (:K {id:2}), (:K {id:3})");
+
+  constexpr const char *kCreateEdge = "MATCH (a:K {id:1}), (b:K {id:2}) CREATE (a)-[:N]->(b)";
+
+  struct Case {
+    const char *committed;  // autocommitted by A after B began
+    const char *late;       // run by B
+    bool conflicts;
+  };
+
+  static constexpr Case cases[] = {
+      {"MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge, true},
+      {"MATCH (n:K {id:2}) DELETE n", kCreateEdge, true},
+      {kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n", true},
+      {kCreateEdge, "MATCH (n:K {id:2}) DELETE n", true},
+      {"MATCH (n:K {id:3}) DETACH DELETE n", kCreateEdge, false},
+      {kCreateEdge, "MATCH (n:K {id:3}) DETACH DELETE n", false},
+  };
+
+  int index = 0;
+  for (const auto &c : cases) {
+    SCOPED_TRACE(index);
+    auto const name = fmt::format("c{}", index++);
+    faker.Interpret(fmt::format("CREATE BRANCH '{}' FROM 'main'", name));
+    faker.Interpret(fmt::format("CHECKOUT BRANCH '{}'", name));
+    faker2.Interpret(fmt::format("CHECKOUT BRANCH '{}'", name));
+
+    faker2.Interpret("BEGIN");
+    faker2.Interpret("MATCH (n:K) RETURN count(n)");  // B's snapshot predates A's commit
+    faker.Interpret(c.committed);
+    bool conflicted = false;
+    try {
+      faker2.Interpret(c.late);
+    } catch (const memgraph::query::TransactionSerializationException &) {
+      conflicted = true;
+    }
+    faker2.Interpret("ROLLBACK");
+    EXPECT_EQ(conflicted, c.conflicts);
+  }
 }
 
 // A's uncommitted DELETE is invisible to B until A commits; B's already-open transaction never sees it.

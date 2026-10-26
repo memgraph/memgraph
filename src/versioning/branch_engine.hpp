@@ -380,8 +380,6 @@ class BranchContext {
   // False if the vertex was already deleted on the branch. Edges are NOT touched: incident fork edges are hidden by the
   // delete flag, diff-engine edges are the caller's to delete.
   storage::Result<bool> OverlayMarkDeleted(storage::Gid gid);
-  // Claims the fork vertex's overlay with a no-op version, so a concurrent delete of it conflicts with the caller.
-  storage::Result<bool> OverlayTouch(storage::Gid gid);
 
   // The fork accessor for a stub accessor (`v` itself for anything else). Only for results that surface a stub, e.g.
   // the endpoints of a branch-native edge or hits of the diff engine's indexes.
@@ -419,7 +417,9 @@ class BranchContext {
 
   // Creates a branch-native vertex in the diff engine at a gid taken from main's counter.
   storage::VertexAccessor CreateNativeVertex();
-  // Creates a branch-native edge at a gid taken from main's counter; endpoints must already be diff-engine vertices.
+  // Creates a branch-native edge at a gid taken from main's counter; endpoints must already be diff-engine vertices
+  // (anchors for fork endpoints). SERIALIZATION_ERROR, poisoning the txn, if a fork endpoint is deleted by a
+  // transaction not visible to this one; the mirror check is OverlayMarkDeleted's.
   storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor *from, storage::VertexAccessor *to,
                                                           storage::EdgeTypeId edge_type);
   // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when an anchor recorded it.
@@ -593,6 +593,15 @@ class BranchContext {
 
   // Advances the overlay command id to the diff transaction's.
   void SyncOverlayCommand() noexcept;
+
+  // After this txn marked fork vertex `gid` deleted: false (poisoning the txn) if its anchor carries a delta that
+  // this txn cannot write over, i.e. a branch-created edge from a transaction that is in flight or committed after
+  // this one started.
+  bool CanDeleteAnchor(storage::Gid gid);
+
+  // After a branch-created edge was written on the anchors: false (poisoning the txn) if fork endpoint `gid` has an
+  // overlay head this txn cannot write over (a delete flag or write from an in-flight or later-committed txn).
+  bool CanAttachEdgeTo(storage::Gid gid);
 
   void StartOverlayTransaction();
 

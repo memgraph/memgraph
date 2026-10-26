@@ -22,6 +22,7 @@
 
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
@@ -629,7 +630,14 @@ storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::
                                                                        storage::EdgeTypeId edge_type) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::CreateNativeEdge: no current diff transaction set.");
   const auto gid = storage::Gid::FromUint(core_->main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
-  return static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->CreateEdgeEx(from, to, edge_type, gid);
+  auto edge = static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->CreateEdgeEx(from, to, edge_type, gid);
+  if (!edge) return edge;
+  // The edge is on the anchors, a different conflict domain from the overlay's delete flag. Checked after the write
+  // so a concurrent delete of a fork endpoint fails one side (see CanDeleteAnchor); the poisoned txn aborts.
+  if (!CanAttachEdgeTo(from->Gid()) || !CanAttachEdgeTo(to->Gid())) {
+    return std::unexpected{storage::Error::SERIALIZATION_ERROR};
+  }
+  return edge;
 }
 
 bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
@@ -929,15 +937,32 @@ storage::Result<bool> BranchContext::OverlayMarkDeleted(storage::Gid gid) {
   RecordVertexChange(gid, BranchChangeKind::kLabel);
   RecordVertexChange(gid, BranchChangeKind::kProperty);
   RecordEdgeChange(gid);
-  return WriteOverlay(gid.AsUint(), [](OverlayState &state) {
+  auto written = WriteOverlay(gid.AsUint(), [](OverlayState &state) {
     if (state.deleted) return false;
     state.MarkDeleted();
     return true;
   });
+  // The flag is published; now look for a branch-created edge attached to the vertex (see CreateNativeEdge).
+  if (written && *written && !CanDeleteAnchor(gid)) return std::unexpected{storage::Error::SERIALIZATION_ERROR};
+  return written;
 }
 
-storage::Result<bool> BranchContext::OverlayTouch(storage::Gid gid) {
-  return WriteOverlay(gid.AsUint(), [](OverlayState &) { return true; });
+// Pairs with the overlay check in CreateNativeEdge: whichever of "edge attached to the anchor" and "delete flag
+// published" happens second sees the other. The lookup must take the stub shard's lock (a cursor could answer a miss
+// lock-free), which orders the flag before any later insert of the anchor; an anchor found is ordered by its own lock.
+bool BranchContext::CanDeleteAnchor(storage::Gid gid) {
+  storage::Vertex *const anchor = core_->stub_index().FindStub(gid.AsUint());
+  if (anchor == nullptr) return true;
+  std::shared_lock guard{anchor->lock};
+  return storage::PrepareForWrite(current_diff_txn_->GetTransaction(), anchor);
+}
+
+bool BranchContext::CanAttachEdgeTo(storage::Gid gid) {
+  if (!IsForkVertexGid(gid) || !MayHaveVertexDeleted(gid)) return true;  // the delete records itself first
+  SyncOverlayCommand();
+  if (core_->overlay_store().CanWrite(gid.AsUint(), *overlay_txn_)) return true;
+  current_diff_txn_->GetTransaction()->has_serialization_error = true;
+  return false;
 }
 
 storage::VertexAccessor BranchContext::ForkIdentity(const storage::VertexAccessor &v) {

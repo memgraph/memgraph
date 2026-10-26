@@ -1441,13 +1441,7 @@ class DbAccessor final {
       auto to_diff = branch_ctx_->CowVertex(to->Gid());
       if (!to_diff) throw QueryRuntimeException(to_diff.error().message);
 
-      // Fork endpoints stay fork accessors; the diff engine only needs their stubs as the edge's anchors. The anchors
-      // are in a different conflict domain from the overlay, so the overlay is touched too: a concurrent delete of
-      // either fork endpoint then conflicts with this edge.
-      for (auto const gid : {from->Gid(), to->Gid()}) {
-        if (!branch_ctx_->IsForkVertexGid(gid)) continue;
-        if (auto touched = branch_ctx_->OverlayTouch(gid); !touched) return std::unexpected{touched.error()};
-      }
+      // Fork endpoints stay fork accessors; the diff engine only needs their stubs as the edge's anchors.
       if (!branch_ctx_->IsForkVertexGid(from->Gid())) from->impl_ = *from_diff;
       if (!branch_ctx_->IsForkVertexGid(to->Gid())) to->impl_ = *to_diff;
 
