@@ -149,6 +149,9 @@ class VerticesIterable final {
    public:
     explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
 
+    Iterator(storage::VerticesIterable::Iterator it, versioning::BranchContext *ctx)
+        : it_(std::move(it)), branch_ctx_(ctx) {}
+
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
@@ -161,17 +164,18 @@ class VerticesIterable final {
 
     VertexAccessor operator*() const {
       return std::visit(
-          memgraph::utils::Overloaded{[](const storage::VerticesIterable::Iterator &it) { return VertexAccessor(*it); },
-                                      [](const std::unordered_set<VertexAccessor,
-                                                                  std::hash<VertexAccessor>,
-                                                                  std::equal_to<void>,
-                                                                  utils::Allocator<VertexAccessor>>::iterator &it) {
-                                        return VertexAccessor(*it);
-                                      },
-                                      [this](const versioning::BranchContext::UnionVerticesIterable::Iterator &it) {
-                                        return VertexAccessor(*it, branch_ctx_);
-                                      },
-                                      [](const std::vector<VertexAccessor>::iterator &it) { return *it; }},
+          memgraph::utils::Overloaded{
+              [this](const storage::VerticesIterable::Iterator &it) { return VertexAccessor(*it, branch_ctx_); },
+              [](const std::unordered_set<VertexAccessor,
+                                          std::hash<VertexAccessor>,
+                                          std::equal_to<void>,
+                                          utils::Allocator<VertexAccessor>>::iterator &it) {
+                return VertexAccessor(*it);
+              },
+              [this](const versioning::BranchContext::UnionVerticesIterable::Iterator &it) {
+                return VertexAccessor(*it, branch_ctx_);
+              },
+              [](const std::vector<VertexAccessor>::iterator &it) { return *it; }},
           it_);
     }
 
@@ -187,6 +191,10 @@ class VerticesIterable final {
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
 
+  // Lazy fork-stream scan on a branch: each yielded accessor is stamped with `ctx`.
+  VerticesIterable(storage::VerticesIterable iterable, versioning::BranchContext *ctx)
+      : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
+
   explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                                utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
@@ -198,27 +206,28 @@ class VerticesIterable final {
       : iterable_(std::move(materialized)) {}
 
   Iterator begin() {
-    return std::visit(
-        memgraph::utils::Overloaded{[](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
-                                    [](std::unordered_set<VertexAccessor,
-                                                          std::hash<VertexAccessor>,
-                                                          std::equal_to<void>,
-                                                          utils::Allocator<VertexAccessor>> *iterable_) {
-                                      return Iterator(iterable_->begin());
-                                    },
-                                    [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
-                                      return Iterator(iterable_.begin(), branch_ctx_);
-                                    },
-                                    [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
-                                      return Iterator(materialized->begin(), materialized);
-                                    }},
-        iterable_);
+    return std::visit(memgraph::utils::Overloaded{[this](storage::VerticesIterable &iterable_) {
+                                                    return Iterator(iterable_.begin(), branch_ctx_);
+                                                  },
+                                                  [](std::unordered_set<VertexAccessor,
+                                                                        std::hash<VertexAccessor>,
+                                                                        std::equal_to<void>,
+                                                                        utils::Allocator<VertexAccessor>> *iterable_) {
+                                                    return Iterator(iterable_->begin());
+                                                  },
+                                                  [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
+                                                    return Iterator(iterable_.begin(), branch_ctx_);
+                                                  },
+                                                  [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
+                                                    return Iterator(materialized->begin(), materialized);
+                                                  }},
+                      iterable_);
   }
 
   Iterator end() {
     return std::visit(
         memgraph::utils::Overloaded{
-            [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.end()); },
+            [this](storage::VerticesIterable &iterable_) { return Iterator(iterable_.end(), branch_ctx_); },
             [](std::unordered_set<VertexAccessor,
                                   std::hash<VertexAccessor>,
                                   std::equal_to<void>,
@@ -1058,10 +1067,19 @@ class DbAccessor final {
             view, [label, view](VertexAccessor &v) { return VertexHasLabel(v, view, label); }));
       }
 
-      auto result = std::make_shared<std::vector<VertexAccessor>>();
-      result->reserve(historical.ApproximateVertexCount(label));
       // One snapshot up front: any txn visible to this scan recorded its gids before this point.
       auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
+
+      // Nothing touched and no branch-native hits: the fork stream is the answer, yielded lazily.
+      if (label_touched->empty()) {
+        auto diff = accessor_->Vertices(label, view);
+        if (diff.begin() == diff.end()) {
+          return VerticesIterable(historical.Vertices(label, storage::View::OLD), branch_ctx_);
+        }
+      }
+
+      auto result = std::make_shared<std::vector<VertexAccessor>>();
+      result->reserve(historical.ApproximateVertexCount(label));
 
       // (a) Fork stream: a candidate the branch changed is re-checked on the reconstructed vertex (removed label or
       // delete flag drops it).

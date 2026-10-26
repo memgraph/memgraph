@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -37,7 +38,8 @@ namespace memgraph::versioning {
 //
 // For the fine filter: EVERY property mutation must record (gid, pid) for each affected pid --
 // SetProperty (one), Init/UpdateProperties (the map's keys), ClearProperties (the cleared map's keys).
-// A miss is a stale read.
+// A miss is a stale read. A pid-level bitset gates the fine filter first: the bloom saturates past ~20k
+// touched keys, and a never-written pid must stay free of the per-(gid, pid) probe.
 //
 // There is deliberately no `any_change` catch-all: every value/adjacency read on a branch MUST gate
 // on a dedicated kind filter that ALL of that kind's mutation sites populate.
@@ -69,10 +71,12 @@ class BranchChangeFilters {
 
   // Keyed by a mix of (gid, pid); populated at every property mutation site alongside `property_`.
   void RecordPropertyField(storage::Gid gid, storage::PropertyId pid) noexcept {
+    pid_gate_[PidWord(pid)].fetch_or(PidBit(pid), std::memory_order_release);
     property_field_.Insert(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
 
   [[nodiscard]] bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
+    if ((pid_gate_[PidWord(pid)].load(std::memory_order_acquire) & PidBit(pid)) == 0) return false;
     return property_field_.MayContain(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
 
@@ -141,6 +145,14 @@ class BranchChangeFilters {
     return gid.AsUint() ^ (static_cast<uint64_t>(pid.AsUint()) * 0xD1B54A32D192ED03ULL);
   }
 
+  // 256-bit pid gate; pid aliasing (pid & 255) only yields false positives.
+  static constexpr size_t kPidGateBits = 256;
+
+  [[nodiscard]] static size_t PidWord(storage::PropertyId pid) noexcept { return (pid.AsUint() % kPidGateBits) >> 6U; }
+
+  [[nodiscard]] static uint64_t PidBit(storage::PropertyId pid) noexcept { return 1ULL << (pid.AsUint() & 63U); }
+
+  std::array<std::atomic<uint64_t>, kPidGateBits / 64> pid_gate_{};
   MonotonicGidFilter property_;
   MonotonicGidFilter label_;
   MonotonicGidFilter edge_;

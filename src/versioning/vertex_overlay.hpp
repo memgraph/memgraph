@@ -12,77 +12,56 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdint>
 #include <map>
-#include <vector>
+#include <optional>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "versioning/vertex_overlay_store.hpp"
 
-// A branch's changes to one fork vertex, as BranchContext::ReadVertexOverlay hands them out, and the pure merge of
-// those changes over the fork vertex's own state. Nothing here knows how the changes are stored.
+// The pure merge of a branch's changes to one fork vertex (an OverlayVersion) over the fork vertex's own state.
+// The version is read in place; it must not outlive the branch transaction that pinned it.
 namespace memgraph::versioning {
 
-// Parts of the overlay a read decodes; the delete flag is always produced.
-struct OverlayRead {
-  bool labels{false};
-  bool properties{false};
-  bool deleted_edges{false};
-};
-
-inline constexpr OverlayRead kOverlayReadAll{.labels = true, .properties = true, .deleted_edges = true};
-
-// Parts that were not requested stay empty. When `deleted` is set the other parts are empty too.
-struct VertexOverlayView {
-  using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
-
-  bool deleted{false};
-  std::vector<storage::LabelId> added_labels;
-  std::vector<storage::LabelId> removed_labels;
-  PropertyMap properties;  // changed values only
-  std::vector<storage::PropertyId> removed_pids;
-  std::vector<uint64_t> deleted_edge_gids;  // ascending
-};
-
-inline storage::VertexKey MergeLabels(const VertexOverlayView &overlay, storage::VertexKey fork_labels) {
-  std::vector<storage::LabelId> merged;
-  for (auto const label : fork_labels) {
-    if (!std::ranges::contains(overlay.removed_labels, label)) merged.push_back(label);
+inline storage::VertexKey MergeLabels(const OverlayVersion &version, storage::VertexKey fork_labels) {
+  auto const removed = version.removed_labels();
+  if (!removed.empty()) {
+    auto const gone = [&](storage::LabelId label) { return std::ranges::binary_search(removed, label); };
+    fork_labels.erase(std::remove_if(fork_labels.begin(), fork_labels.end(), gone), fork_labels.end());
   }
-  for (auto const label : overlay.added_labels) {
-    if (!std::ranges::contains(merged, label)) merged.push_back(label);
+  for (auto const label : version.added_labels()) {
+    if (!std::ranges::contains(fork_labels, label)) fork_labels.push_back(label);
   }
-  fork_labels.clear();
-  for (auto const label : merged) fork_labels.push_back(label);
   return fork_labels;
 }
 
-inline bool MergeHasLabel(const VertexOverlayView &overlay, bool in_fork, storage::LabelId label) {
-  if (in_fork) return !std::ranges::contains(overlay.removed_labels, label);
-  return std::ranges::contains(overlay.added_labels, label);
+// The overlay's added and removed labels are disjoint, so it decides a label itself when it holds it in either set;
+// otherwise the answer is the fork vertex's.
+inline std::optional<bool> OverlayDecidesLabel(const OverlayVersion &version, storage::LabelId label) {
+  if (std::ranges::binary_search(version.added_labels(), label)) return true;
+  if (std::ranges::binary_search(version.removed_labels(), label)) return false;
+  return std::nullopt;
 }
 
-// Moves `overlay.properties` out.
-inline storage::Result<VertexOverlayView::PropertyMap> MergeProperties(VertexOverlayView &overlay,
-                                                                       const storage::VertexAccessor &fork) {
+inline storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> MergeProperties(
+    const OverlayVersion &version, const storage::VertexAccessor &fork) {
   auto merged = fork.Properties(storage::View::OLD);
   if (!merged) return merged;
-  for (auto const pid : overlay.removed_pids) merged->erase(pid);
-  for (auto &[key, value] : overlay.properties) merged->insert_or_assign(key, std::move(value));
+  for (auto const pid : version.removed_pids()) merged->erase(pid);
+  for (auto &[key, value] : version.properties().Properties()) merged->insert_or_assign(key, std::move(value));
   return merged;
 }
 
-inline storage::Result<storage::PropertyValue> MergeGetProperty(const VertexOverlayView &overlay,
+inline storage::Result<storage::PropertyValue> MergeGetProperty(const OverlayVersion &version,
                                                                 const storage::VertexAccessor &fork,
                                                                 storage::PropertyId key) {
-  auto in_fork = fork.GetProperty(key, storage::View::OLD);
-  if (!in_fork) return in_fork;
-  if (auto const it = overlay.properties.find(key); it != overlay.properties.end()) return it->second;
-  if (in_fork->IsNull() || std::ranges::contains(overlay.removed_pids, key)) return storage::PropertyValue{};
-  return in_fork;
+  // A property the overlay holds is never null: a null write is stored as a removal.
+  if (auto own = version.properties().GetProperty(key); !own.IsNull()) return own;
+  if (std::ranges::binary_search(version.removed_pids(), key)) return storage::PropertyValue{};
+  return fork.GetProperty(key, storage::View::OLD);
 }
 
 }  // namespace memgraph::versioning

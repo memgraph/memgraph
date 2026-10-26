@@ -33,61 +33,56 @@ namespace {
 
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
-// A fork vertex the branch touched reads as its overlay (BranchContext::ReadVertexOverlay) merged over the fork vertex
-// itself, `impl` (main@fork_ts). A delete reads as DELETED_OBJECT. Branch-native vertices are complete and never
-// merged. Callers have already filtered on `branched()` and the change filters.
+// A fork vertex the branch touched reads as its overlay version (BranchContext::ReadOverlayVersion) merged over the
+// fork vertex itself, `impl` (main@fork_ts). A delete reads as DELETED_OBJECT. Branch-native vertices are complete and
+// never merged. Callers have already filtered on `branched()` and the change filters. The version is used only within
+// each function and never escapes.
 storage::Result<storage::VertexKey> MergedLabels(versioning::BranchContext &ctx, const storage::VertexAccessor &impl,
                                                  storage::View view) {
-  auto overlay = ctx.ReadVertexOverlay(impl.Gid(), view, {.labels = true});
-  if (!overlay) return std::unexpected{overlay.error()};
-  if (!*overlay) return impl.Labels(view);
-  if ((*overlay)->deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
+  auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
+  if (version == nullptr) return impl.Labels(view);
+  if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
   auto fork_labels = impl.Labels(storage::View::OLD);
   if (!fork_labels) return fork_labels;
-  return versioning::MergeLabels(**overlay, std::move(*fork_labels));
+  return versioning::MergeLabels(*version, std::move(*fork_labels));
 }
 
 storage::Result<bool> MergedHasLabel(versioning::BranchContext &ctx, const storage::VertexAccessor &impl,
                                      storage::View view, storage::LabelId label) {
-  auto overlay = ctx.ReadVertexOverlay(impl.Gid(), view, {.labels = true});
-  if (!overlay) return std::unexpected{overlay.error()};
-  if (!*overlay) return impl.HasLabel(label, view);
-  if ((*overlay)->deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-  auto in_fork = impl.HasLabel(label, storage::View::OLD);
-  if (!in_fork) return in_fork;
-  return versioning::MergeHasLabel(**overlay, *in_fork, label);
+  auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
+  if (version == nullptr) return impl.HasLabel(label, view);
+  if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
+  if (auto const decided = versioning::OverlayDecidesLabel(*version, label)) return *decided;
+  return impl.HasLabel(label, storage::View::OLD);
 }
 
 storage::Result<PropertyMap> MergedProperties(versioning::BranchContext &ctx, const storage::VertexAccessor &impl,
                                               storage::View view) {
-  auto overlay = ctx.ReadVertexOverlay(impl.Gid(), view, {.properties = true});
-  if (!overlay) return std::unexpected{overlay.error()};
-  if (!*overlay) return impl.Properties(view);
-  if ((*overlay)->deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-  return versioning::MergeProperties(**overlay, impl);
+  auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
+  if (version == nullptr) return impl.Properties(view);
+  if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
+  return versioning::MergeProperties(*version, impl);
 }
 
 storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchContext &ctx,
                                                           const storage::VertexAccessor &impl, storage::View view,
                                                           storage::PropertyId key) {
-  auto overlay = ctx.ReadVertexOverlay(impl.Gid(), view, {.properties = true});
-  if (!overlay) return std::unexpected{overlay.error()};
-  if (!*overlay) return impl.GetProperty(key, view);
-  if ((*overlay)->deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-  return versioning::MergeGetProperty(**overlay, impl, key);
+  auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
+  if (version == nullptr) return impl.GetProperty(key, view);
+  if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
+  return versioning::MergeGetProperty(*version, impl, key);
 }
 
 storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::VertexAccessor &impl,
                                                 storage::PropertyId key, storage::View view) {
-  const auto gid = impl.Gid();
-  auto overlay = ctx.ReadVertexOverlay(gid, view, {.properties = true});
-  if (!overlay) return std::unexpected{overlay.error()};
-  if (!*overlay) return impl.GetPropertySize(key, view);
-  if ((*overlay)->deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-  if ((*overlay)->properties.contains(key)) return ctx.ReadOverlayPropertySize(gid, view, key);
+  auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
+  if (version == nullptr) return impl.GetPropertySize(key, view);
+  if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
+  // An overlay property is never null, so a non-zero size means the overlay owns a value for `key`.
+  if (auto const own = version->properties().PropertySize(key); own != 0) return uint64_t{own};
   auto in_fork = impl.GetPropertySize(key, storage::View::OLD);
   if (!in_fork) return in_fork;
-  if (*in_fork == 0 || std::ranges::contains((*overlay)->removed_pids, key)) return uint64_t{0};
+  if (*in_fork == 0 || std::ranges::binary_search(version->removed_pids(), key)) return uint64_t{0};
   return in_fork;
 }
 

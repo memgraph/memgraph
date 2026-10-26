@@ -153,9 +153,9 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   auto x_again = second->GetProperty(prop_x, ms::View::NEW);
   ASSERT_TRUE(x_again.has_value());
   EXPECT_TRUE(x_again->IsNull()) << "an anchor carries no overlay state";
-  auto overlay = branch_context_->ReadVertexOverlay(a_gid, ms::View::NEW, {.properties = true});
-  ASSERT_TRUE(overlay.has_value() && overlay->has_value());
-  EXPECT_EQ((*overlay)->properties.at(prop_x), ms::PropertyValue(42));
+  auto const *overlay = branch_context_->ReadOverlayVersion(a_gid, ms::View::NEW);
+  ASSERT_NE(overlay, nullptr);
+  EXPECT_EQ(overlay->properties().GetProperty(prop_x), ms::PropertyValue(42));
   EXPECT_EQ(count_stubs(), 1u) << "idempotent COW must not create a duplicate";
 
   // Unknown gid: an error, and nothing is created.
@@ -212,9 +212,9 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
 
   // A fork vertex resolves to its fork accessor; the branch's value comes from the overlay merged over it.
   auto branch_value = [&](const ms::VertexAccessor &fork) {
-    auto overlay = branch_context_->ReadVertexOverlay(fork.Gid(), ms::View::NEW, {.properties = true});
-    EXPECT_TRUE(overlay.has_value() && overlay->has_value());
-    return mv::MergeGetProperty(**overlay, fork, prop_x);
+    auto const *overlay = branch_context_->ReadOverlayVersion(fork.Gid(), ms::View::NEW);
+    EXPECT_NE(overlay, nullptr);
+    return mv::MergeGetProperty(*overlay, fork, prop_x);
   };
   auto resolved_a = branch_context_->ResolveVertex(a_gid, ms::View::NEW);
   ASSERT_TRUE(resolved_a.has_value());
@@ -988,9 +988,9 @@ TEST_F(VersioningBranchGcTest, OverlayOnlyCommitsAreVisibleAndDoNotStallDiffEngi
 
   auto acc = Diff().Access(ms::READ);
   ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
-  auto overlay = ctx_->ReadVertexOverlay(v_gid_, ms::View::NEW, {.properties = true});
-  ASSERT_TRUE(overlay.has_value() && overlay->has_value());
-  EXPECT_EQ((*overlay)->properties.at(prop_x_), ms::PropertyValue(kCommits));
+  auto const *overlay = ctx_->ReadOverlayVersion(v_gid_, ms::View::NEW);
+  ASSERT_NE(overlay, nullptr);
+  EXPECT_EQ(overlay->properties().GetProperty(prop_x_), ms::PropertyValue(kCommits));
   ctx_->EndTransaction();
 }
 
@@ -1025,9 +1025,9 @@ TEST_F(VersioningBranchGcTest, MixedTransactionCommitsAndAbortsOverlayAndDiffTog
   auto acc = Diff().Access(ms::READ);
   ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
   EXPECT_TRUE(ctx_->FindStub(native, ms::View::NEW).has_value());
-  auto overlay = ctx_->ReadVertexOverlay(v_gid_, ms::View::NEW, {.properties = true});
-  ASSERT_TRUE(overlay.has_value() && overlay->has_value());
-  EXPECT_EQ((*overlay)->properties.at(prop_x_), ms::PropertyValue(6));
+  auto const *overlay = ctx_->ReadOverlayVersion(v_gid_, ms::View::NEW);
+  ASSERT_NE(overlay, nullptr);
+  EXPECT_EQ(overlay->properties().GetProperty(prop_x_), ms::PropertyValue(6));
   ctx_->EndTransaction();
 }
 

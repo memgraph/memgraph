@@ -37,7 +37,7 @@ struct EdgeVertexAccessorResult {
 class VertexAccessor final {
  public:
   // On a branch a fork vertex keeps its main@fork_ts accessor here, even once the branch has changed it; the changes
-  // are reached by gid (BranchContext::ReadVertexOverlay and the Overlay* writes). Branch-native vertices are
+  // are reached by gid (BranchContext::ReadOverlayVersion and the Overlay* writes). Branch-native vertices are
   // diff-engine vertices.
   storage::VertexAccessor impl_;
   // Non-null iff minted while checked out on a branch. A single raw pointer keeps this trivially copyable

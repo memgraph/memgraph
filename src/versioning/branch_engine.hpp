@@ -347,11 +347,10 @@ class BranchContext {
   // Each write is one overlay write; a caller that must report a failed prepare (a delete on this branch) calls
   // PrepareForkWrite first.
 
-  // The changes visible to the current diff txn at `view`; only the `parts` requested are decoded.
-  storage::Result<std::optional<VertexOverlayView>> ReadVertexOverlay(storage::Gid gid, storage::View view,
-                                                                      OverlayRead parts = kOverlayReadAll);
-  // Encoded size of the overlay's own value for `key`; 0 if it has none.
-  storage::Result<uint64_t> ReadOverlayPropertySize(storage::Gid gid, storage::View view, storage::PropertyId key);
+  // The overlay version of a fork vertex visible to the current diff txn at `view`; null for a non-fork gid or when the
+  // branch changed nothing. Valid only while the branch txn is pinned (OpenHistorical..EndTransaction): use it inside
+  // the calling function and never store or return it.
+  const OverlayVersion *ReadOverlayVersion(storage::Gid gid, storage::View view);
   // True when the overlay has a version of the fork vertex visible to this transaction.
   bool HasVertexOverlay(storage::Gid gid);
 

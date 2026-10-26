@@ -690,42 +690,10 @@ bool BranchContext::IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, sto
   return to.Gid() != from.Gid() && hides(to, false);
 }
 
-storage::Result<std::optional<VertexOverlayView>> BranchContext::ReadVertexOverlay(storage::Gid gid, storage::View view,
-                                                                                   OverlayRead parts) {
-  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadVertexOverlay: no current diff transaction set.");
-  if (!IsForkVertexGid(gid)) return std::optional<VertexOverlayView>{};
-  auto const *version = ReadVersion(gid, view);
-  if (version == nullptr) return std::optional<VertexOverlayView>{};
-
-  VertexOverlayView overlay;
-  if (version->deleted()) {
-    overlay.deleted = true;
-    return std::optional<VertexOverlayView>{std::move(overlay)};
-  }
-  if (parts.labels) {
-    auto const added = version->added_labels();
-    auto const removed = version->removed_labels();
-    overlay.added_labels.assign(added.begin(), added.end());
-    overlay.removed_labels.assign(removed.begin(), removed.end());
-  }
-  if (parts.properties) {
-    overlay.properties = version->properties().Properties();
-    auto const removed = version->removed_pids();
-    overlay.removed_pids.assign(removed.begin(), removed.end());
-  }
-  if (parts.deleted_edges) {
-    auto const edges = version->deleted_edge_gids();
-    overlay.deleted_edge_gids.assign(edges.begin(), edges.end());
-  }
-  return std::optional<VertexOverlayView>{std::move(overlay)};
-}
-
-storage::Result<uint64_t> BranchContext::ReadOverlayPropertySize(storage::Gid gid, storage::View view,
-                                                                 storage::PropertyId key) {
-  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadOverlayPropertySize: no current diff transaction set.");
-  auto const *version = ReadVersion(gid, view);
-  if (version == nullptr) return uint64_t{0};
-  return uint64_t{version->properties().PropertySize(key)};
+const OverlayVersion *BranchContext::ReadOverlayVersion(storage::Gid gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadOverlayVersion: no current diff transaction set.");
+  if (!IsForkVertexGid(gid)) return nullptr;
+  return ReadVersion(gid, view);
 }
 
 bool BranchContext::HasVertexOverlay(storage::Gid gid) { return ReadVersion(gid, storage::View::NEW) != nullptr; }
