@@ -94,7 +94,7 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -176,7 +176,7 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -187,14 +187,14 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   ASSERT_TRUE(cowed_a.has_value());
   ASSERT_TRUE(cowed_a->SetProperty(prop_x, ms::PropertyValue(2)).has_value());
 
-  auto c = diff_acc->CreateVertex();
-  auto d = diff_acc->CreateVertex();
+  auto c = branch_context_->CreateNativeVertex();
+  auto d = branch_context_->CreateNativeVertex();
   const auto c_gid = c.Gid();
   ASSERT_TRUE(c.SetProperty(prop_x, ms::PropertyValue(7)).has_value());
-  auto native_edge = diff_acc->CreateEdge(&c, &d, edge_type);
+  auto native_edge = branch_context_->CreateNativeEdge(&c, &d, edge_type);
   ASSERT_TRUE(native_edge.has_value());
-  EXPECT_FALSE(branch_context_->IsForkGid(c_gid)) << "a native vertex must not reuse a fork-range gid";
-  EXPECT_FALSE(branch_context_->IsForkGid(native_edge->Gid())) << "a native edge must not reuse a fork-range gid";
+  EXPECT_FALSE(branch_context_->IsForkVertexGid(c_gid)) << "a native vertex must not reuse a fork-range gid";
+  EXPECT_FALSE(branch_context_->IsForkEdgeGid(native_edge->Gid())) << "a native edge must not reuse a fork-range gid";
 
   auto resolved_a = branch_context_->ResolveVertex(a_gid, ms::View::NEW);
   ASSERT_TRUE(resolved_a.has_value());
@@ -227,6 +227,88 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
+// Branch-native gids come from main's counters: at or above the fork floors, never reused by main or another branch.
+TEST_F(VersioningBranchEngineTest, NativeGidsComeFromMainCountersAndNeverCollide) {
+  const auto edge_type = storage_->NameToEdgeType("E");
+  ms::Gid fork_vertex_gid, fork_edge_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    fork_vertex_gid = a.Gid();
+    auto e = acc->CreateEdge(&a, &b, edge_type);
+    ASSERT_TRUE(e.has_value());
+    fork_edge_gid = e->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const auto fork_ts = ForkNow();
+  auto first = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
+  ASSERT_TRUE(first.has_value());
+  branch_context_ = std::move(*first);
+  auto second = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
+  ASSERT_TRUE(second.has_value());
+
+  EXPECT_TRUE(branch_context_->IsForkVertexGid(fork_vertex_gid));
+  EXPECT_TRUE(branch_context_->IsForkEdgeGid(fork_edge_gid));
+  const auto vertex_floor = branch_context_->core()->vertex_gid_floor();
+  const auto edge_floor = branch_context_->core()->edge_gid_floor();
+
+  auto diff1 = branch_context_->diff_engine().Access(ms::WRITE);
+  Begin(diff1.get());
+  auto diff2 = (*second)->diff_engine().Access(ms::WRITE);
+  ASSERT_TRUE((*second)->BeginTransaction(diff2.get()).has_value());
+
+  auto v1a = branch_context_->CreateNativeVertex();
+  auto v1b = branch_context_->CreateNativeVertex();
+  auto e1 = branch_context_->CreateNativeEdge(&v1a, &v1b, edge_type);
+  ASSERT_TRUE(e1.has_value());
+  auto v2a = (*second)->CreateNativeVertex();
+  auto v2b = (*second)->CreateNativeVertex();
+  auto e2 = (*second)->CreateNativeEdge(&v2a, &v2b, edge_type);
+  ASSERT_TRUE(e2.has_value());
+
+  ms::Gid main_vertex_gid, main_edge_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    main_vertex_gid = a.Gid();
+    auto e = acc->CreateEdge(&a, &b, edge_type);
+    ASSERT_TRUE(e.has_value());
+    main_edge_gid = e->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const std::vector<ms::Gid> vertex_gids{v1a.Gid(), v1b.Gid(), v2a.Gid(), v2b.Gid(), main_vertex_gid};
+  const std::vector<ms::Gid> edge_gids{e1->Gid(), e2->Gid(), main_edge_gid};
+  for (const auto gid : vertex_gids) {
+    EXPECT_GE(gid.AsUint(), vertex_floor);
+    EXPECT_EQ(std::ranges::count(vertex_gids, gid), 1) << "vertex gid " << gid.AsUint() << " allocated twice";
+  }
+  for (const auto gid : edge_gids) {
+    EXPECT_GE(gid.AsUint(), edge_floor);
+    EXPECT_EQ(std::ranges::count(edge_gids, gid), 1) << "edge gid " << gid.AsUint() << " allocated twice";
+  }
+  EXPECT_FALSE(branch_context_->IsForkVertexGid(v1a.Gid()));
+  EXPECT_FALSE(branch_context_->IsForkEdgeGid(e1->Gid()));
+
+  EXPECT_TRUE(diff1->FindVertex(v1a.Gid(), ms::View::NEW).has_value());
+  EXPECT_FALSE(diff1->FindVertex(v2a.Gid(), ms::View::NEW).has_value()) << "branches must not see each other";
+  EXPECT_TRUE(diff2->FindVertex(v2a.Gid(), ms::View::NEW).has_value());
+  EXPECT_FALSE(diff2->FindVertex(main_vertex_gid, ms::View::NEW).has_value())
+      << "main's later create is not in a branch";
+  {
+    auto acc = storage_->Access(ms::READ);
+    EXPECT_TRUE(acc->FindVertex(main_vertex_gid, ms::View::NEW).has_value());
+    EXPECT_FALSE(acc->FindVertex(v1a.Gid(), ms::View::NEW).has_value()) << "branch creates are not in main";
+  }
+
+  ASSERT_TRUE(diff1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(diff2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  (*second)->EndTransaction();
+}
+
 // A fork_ts never registered via RegisterForkPin is a BuildError.
 TEST_F(VersioningBranchEngineTest, BuildFromForkRejectsUnpinnedTs) {
   {
@@ -238,12 +320,12 @@ TEST_F(VersioningBranchEngineTest, BuildFromForkRejectsUnpinnedTs) {
   // A pin exists, but on a different timestamp.
   const auto pinned_ts = ForkNow();
   const uint64_t never_pinned_ts = pinned_ts + 1000;
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, never_pinned_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, never_pinned_ts);
   ASSERT_FALSE(result.has_value());
   EXPECT_NE(result.error().message.find(std::to_string(never_pinned_ts)), std::string::npos) << result.error().message;
   EXPECT_EQ(mem_storage_->OldestForkPin(), std::optional<uint64_t>{pinned_ts}) << "a failed build must leak no pin";
 
-  auto built = mv::BranchContext::BuildFromFork(*mem_storage_, pinned_ts, memgraph::tests::MakeMainCommitArgs());
+  auto built = mv::BranchContext::BuildFromFork(*mem_storage_, pinned_ts);
   EXPECT_TRUE(built.has_value()) << "the pinned timestamp itself still builds";
 }
 
@@ -262,7 +344,7 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -349,7 +431,7 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -462,7 +544,7 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -564,7 +646,7 @@ TEST_F(VersioningBranchLightEdgeTest, CowEdgeMaterializesEmptyStubThatSurvivesRo
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts);
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -649,7 +731,7 @@ class VersioningBranchGcTest : public testing::Test {
       EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     fork_ts_ = storage_->RegisterForkPin();
-    auto built = mv::BranchContext::BuildFromFork(*storage_, fork_ts_, memgraph::tests::MakeMainCommitArgs());
+    auto built = mv::BranchContext::BuildFromFork(*storage_, fork_ts_);
     ASSERT_TRUE(built.has_value());
     ctx_ = std::move(*built);
     Collect();
@@ -764,7 +846,7 @@ TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
   auto acc = Diff().Access(ms::READ);
   size_t natives = 0;
   for (auto v : acc->Vertices(ms::View::NEW)) {
-    if (!ctx_->IsForkGid(v.Gid())) ++natives;
+    if (!ctx_->IsForkVertexGid(v.Gid())) ++natives;
   }
   EXPECT_EQ(natives, 0u);
   EXPECT_TRUE(acc->FindVertex(v_gid_, ms::View::NEW).has_value()) << "the stub is never collected";

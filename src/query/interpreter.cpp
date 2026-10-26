@@ -7985,7 +7985,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         if (branch) {
           auto const seen = std::unordered_set<storage::EdgeTypeId>(edge_types.begin(), edge_types.end());
           for (auto const edge_type : branch->diff_engine().ListAllPossiblyPresentEdgeTypes()) {
-            if (edge_type != branch->GidWatermarkEdgeType() && !seen.contains(edge_type)) {
+            if (!seen.contains(edge_type)) {
               edge_types.push_back(edge_type);
             }
           }
@@ -9075,13 +9075,12 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
 
   std::expected<std::shared_ptr<versioning::BranchCore>, std::string> core;
   try {
-    core = version_store->GetOrBuildCore(
-        info->number, [&]() -> std::expected<std::shared_ptr<versioning::BranchCore>, std::string> {
-          auto built = versioning::BranchCore::Build(
-              *mem_storage, info->fork_ts, storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone()));
-          if (!built) return std::unexpected(std::move(built.error().message));
-          return std::move(*built);
-        });
+    core = version_store->GetOrBuildCore(info->number,
+                                         [&]() -> std::expected<std::shared_ptr<versioning::BranchCore>, std::string> {
+                                           auto built = versioning::BranchCore::Build(*mem_storage, info->fork_ts);
+                                           if (!built) return std::unexpected(std::move(built.error().message));
+                                           return std::move(*built);
+                                         });
   } catch (...) {
     version_store->ReleaseCheckout(name);
     throw;

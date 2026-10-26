@@ -194,8 +194,7 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
 
     auto info = db.version_store()->CreateBranch("b1", "main", std::nullopt);
     ASSERT_TRUE(info.has_value());
-    auto ctx = memgraph::versioning::BranchContext::BuildFromFork(
-        *storage, info->fork_ts, memgraph::tests::MakeMainCommitArgs());
+    auto ctx = memgraph::versioning::BranchContext::BuildFromFork(*storage, info->fork_ts);
     ASSERT_TRUE(ctx.has_value());
     {
       auto diff_acc = (*ctx)->diff_engine().Access(ms::WRITE);
@@ -204,11 +203,11 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
       ASSERT_TRUE(stub.has_value());
       ASSERT_TRUE(stub->AddLabel(branch_label).has_value());
       ASSERT_TRUE(stub->SetProperty(x, ms::PropertyValue(2)).has_value());
-      auto c = diff_acc->CreateVertex();
-      auto d = diff_acc->CreateVertex();
+      auto c = (*ctx)->CreateNativeVertex();
+      auto d = (*ctx)->CreateNativeVertex();
       ASSERT_TRUE(c.AddLabel(branch_label).has_value());
       ASSERT_TRUE(c.SetProperty(branch_prop, ms::PropertyValue(7)).has_value());
-      ASSERT_TRUE(diff_acc->CreateEdge(&c, &d, edge_type).has_value());
+      ASSERT_TRUE((*ctx)->CreateNativeEdge(&c, &d, edge_type).has_value());
       ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       (*ctx)->EndTransaction();
     }

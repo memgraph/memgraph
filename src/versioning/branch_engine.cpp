@@ -36,54 +36,6 @@ constexpr std::string_view kRemovedPropsName = "__mg_removed";
 constexpr std::string_view kDeletedLabelName = "__mg_deleted";
 constexpr std::string_view kDeletedEdgesName = "__mg_deleted_edges";
 
-// Gids >= this are branch-native (main allocates from 0 upward). A sacrificial create+delete at this gid advances
-// vertex_id_/edge_id_ past it (CreateVertexEx/CreateEdgeEx fetch_max); there is no direct setter.
-constexpr uint64_t kBranchNativeGidWatermark = 1ULL << 62;
-constexpr std::string_view kGidWatermarkEdgeTypeName = "__branch_native_gid_watermark__";
-
-// Returns the placeholder edge's type id so callers can hide it from schema listings.
-storage::EdgeTypeId ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine,
-                                                storage::CommitArgs commit_args) {
-  std::unique_ptr<storage::ReplicationAccessor> reserve(
-      static_cast<storage::ReplicationAccessor *>(diff_engine.Access(storage::StorageAccessType::WRITE).release()));
-
-  auto sacrificial = reserve->CreateVertexEx(storage::Gid::FromUint(kBranchNativeGidWatermark));
-  MG_ASSERT(sacrificial.has_value(),
-            "BranchCore::Build: gid-watermark reservation collided on a freshly-created, empty diff "
-            "engine -- should be impossible.");
-
-  // CreateEdgeEx MG_ASSERTs both endpoints belong to this transaction; sac_from/sac_to are deleted below, so their
-  // gids never escape.
-  auto sac_from = reserve->CreateVertex();
-  auto sac_to = reserve->CreateVertex();
-  auto edge_type = reserve->NameToEdgeType(kGidWatermarkEdgeTypeName);
-  auto sacrificial_edge =
-      reserve->CreateEdgeEx(&sac_from, &sac_to, edge_type, storage::Gid::FromUint(kBranchNativeGidWatermark));
-  MG_ASSERT(sacrificial_edge.has_value(),
-            "BranchCore::Build: edge gid-watermark reservation collided on a freshly-created, empty diff "
-            "engine -- should be impossible.");
-
-  // Edge before endpoints: DeleteVertex returns VERTEX_HAS_EDGES rather than cascading.
-  auto deleted_edge = reserve->DeleteEdge(&*sacrificial_edge);
-  MG_ASSERT(deleted_edge.has_value() && deleted_edge->has_value(),
-            "BranchCore::Build: failed to remove the edge gid-watermark placeholder edge.");
-
-  auto deleted_to = reserve->DeleteVertex(&sac_to);
-  MG_ASSERT(deleted_to.has_value() && deleted_to->has_value(),
-            "BranchCore::Build: failed to remove an edge gid-watermark sacrificial vertex.");
-  auto deleted_from = reserve->DeleteVertex(&sac_from);
-  MG_ASSERT(deleted_from.has_value() && deleted_from->has_value(),
-            "BranchCore::Build: failed to remove an edge gid-watermark sacrificial vertex.");
-
-  auto deleted = reserve->DeleteVertex(&*sacrificial);
-  MG_ASSERT(deleted.has_value() && deleted->has_value(),
-            "BranchCore::Build: failed to remove the gid-watermark placeholder vertex.");
-
-  auto commit_res = reserve->PrepareForCommitPhase(std::move(commit_args));
-  MG_ASSERT(commit_res.has_value(), "BranchCore::Build: gid-watermark reservation commit failed.");
-  return edge_type;
-}
-
 // Mirrors main's index definitions (not contents) so the planner can pick index scans on a checked-out branch;
 // the diff engine populates them through ordinary index maintenance.
 void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
@@ -219,8 +171,7 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 }  // namespace
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(storage::InMemoryStorage &main,
-                                                                                     uint64_t fork_ts,
-                                                                                     storage::CommitArgs commit_args) {
+                                                                                     uint64_t fork_ts) {
   // Attribute the diff engine's allocations to main's tenant arena pool.
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
@@ -278,30 +229,35 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.DbEmbeddingMemoryTracker(),
                                                                 main.GetSharedNameIdMapper());
 
-  const auto gid_watermark_edge_type = ReserveBranchNativeGidRange(*diff_engine, std::move(commit_args));
-
   // Done before the core is visible to any session, so the diff engine never needs UNIQUE/READ_ONLY afterwards.
   MirrorMainIndexDefinitionsIntoDiffEngine(*diff_engine, historical->ListAllIndices());
 
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
-  return std::shared_ptr<BranchCore>(new BranchCore(&main, fork_ts, std::move(diff_engine), gid_watermark_edge_type));
+  // After the fork pin: every gid visible at fork_ts is below these floors, every later allocation (main or any
+  // branch) is at or above them.
+  return std::shared_ptr<BranchCore>(new BranchCore(&main,
+                                                    fork_ts,
+                                                    std::move(diff_engine),
+                                                    main.vertex_id_.load(std::memory_order_acquire),
+                                                    main.edge_id_.load(std::memory_order_acquire)));
 }
 
 BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
-                       std::unique_ptr<storage::InMemoryStorage> diff_engine,
-                       storage::EdgeTypeId gid_watermark_edge_type)
+                       std::unique_ptr<storage::InMemoryStorage> diff_engine, uint64_t vertex_gid_floor,
+                       uint64_t edge_gid_floor)
     : main_(main),
       fork_ts_(fork_ts),
+      vertex_gid_floor_(vertex_gid_floor),
+      edge_gid_floor_(edge_gid_floor),
       diff_engine_(std::move(diff_engine)),
       removed_props_key_(diff_engine_->NameToProperty(kRemovedPropsName)),
       deleted_label_(diff_engine_->NameToLabel(kDeletedLabelName)),
-      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)),
-      gid_watermark_edge_type_(gid_watermark_edge_type) {}
+      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)) {}
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
-  auto core = BranchCore::Build(main, fork_ts, std::move(commit_args));
+    storage::InMemoryStorage &main, uint64_t fork_ts) {
+  auto core = BranchCore::Build(main, fork_ts);
   if (!core) return std::unexpected(std::move(core.error()));
   return std::make_unique<BranchContext>(std::move(*core));
 }
@@ -374,7 +330,7 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
 
   // A prior COW in the diff engine wins, unless it is a stub marked deleted.
   if (auto existing = diff_txn->FindVertex(gid, storage::View::NEW)) {
-    if (IsForkGid(gid) && IsStubDeleted(*existing, storage::View::NEW)) {
+    if (IsForkVertexGid(gid) && IsStubDeleted(*existing, storage::View::NEW)) {
       return std::unexpected(
           CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
     }
@@ -454,7 +410,27 @@ bool BranchContext::StubEdgeTouches(const storage::EdgeAccessor &stub, storage::
   return std::ranges::contains(TakeRemoved(*this, *props), property);
 }
 
-bool BranchContext::IsForkGid(storage::Gid gid) const { return gid.AsUint() < kBranchNativeGidWatermark; }
+bool BranchContext::IsForkVertexGid(storage::Gid gid) const { return gid.AsUint() < core_->vertex_gid_floor(); }
+
+bool BranchContext::IsForkEdgeGid(storage::Gid gid) const { return gid.AsUint() < core_->edge_gid_floor(); }
+
+storage::VertexAccessor BranchContext::CreateNativeVertex() {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::CreateNativeVertex: no current diff transaction set.");
+  const auto gid = storage::Gid::FromUint(core_->main().vertex_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto created = static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->CreateVertexEx(gid);
+  MG_ASSERT(created.has_value(),
+            "BranchContext::CreateNativeVertex: gid {} already exists in the diff engine.",
+            gid.AsUint());
+  return *created;
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::VertexAccessor *from,
+                                                                       storage::VertexAccessor *to,
+                                                                       storage::EdgeTypeId edge_type) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::CreateNativeEdge: no current diff transaction set.");
+  const auto gid = storage::Gid::FromUint(core_->main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  return static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->CreateEdgeEx(from, to, edge_type, gid);
+}
 
 bool BranchContext::IsStubDeleted(const storage::VertexAccessor &stub, storage::View view) {
   auto deleted = stub.HasLabel(DeletedLabel(), view);
@@ -463,7 +439,7 @@ bool BranchContext::IsStubDeleted(const storage::VertexAccessor &stub, storage::
 
 bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsVertexDeleted: no current diff transaction set.");
-  if (!IsForkGid(gid)) return false;
+  if (!IsForkVertexGid(gid)) return false;
   auto stub = current_diff_txn_->FindVertex(gid, view);
   return stub.has_value() && IsStubDeleted(*stub, view);
 }
@@ -475,7 +451,7 @@ bool BranchContext::IsForkVertexDeleted(const storage::VertexAccessor &fork_vert
 
 bool BranchContext::IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsForkEdgeHidden: no current diff transaction set.");
-  if (!IsForkGid(fork_edge.Gid())) return false;
+  if (!IsForkEdgeGid(fork_edge.Gid())) return false;
   // A diff-engine copy's endpoints are diff-engine vertices, whose branched() bit means nothing: always look.
   const bool in_diff = fork_edge.storage_ == &diff_engine();
   const auto from = fork_edge.FromVertex();
@@ -570,7 +546,7 @@ std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
   if (auto diff_vertex = current_diff_txn_->FindVertex(gid, view)) {
-    if (IsForkGid(gid) && IsStubDeleted(*diff_vertex, view)) return std::nullopt;
+    if (IsForkVertexGid(gid) && IsStubDeleted(*diff_vertex, view)) return std::nullopt;
     return diff_vertex;
   }
   return historical().FindVertex(gid, storage::View::OLD);
@@ -611,7 +587,7 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
   // Diff side first: only branch-native edges are emitted from it. A fork-gid edge here is a stub whose fork edge is
   // emitted by the historical pass below, in fork identity (readers overlay the stub on it by gid).
   if (auto diff_vertex = current_diff_txn_->FindVertex(vertex_gid, view)) {
-    if (IsForkGid(vertex_gid)) {
+    if (IsForkVertexGid(vertex_gid)) {
       if (IsStubDeleted(*diff_vertex, view)) {
         if (vertex_deleted != nullptr) *vertex_deleted = true;
         return result;
@@ -623,7 +599,7 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
     if (maybe_result.has_value()) {
       result.reserve(maybe_result->edges.size());
       for (auto &edge : maybe_result->edges) {
-        if (!IsForkGid(edge.Gid())) result.push_back(edge);
+        if (!IsForkEdgeGid(edge.Gid())) result.push_back(edge);
       }
     }
   }
@@ -649,16 +625,21 @@ BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view)
             "BranchContext::Vertices: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
-  return UnionVerticesIterable(
-      historical().Vertices(storage::View::OLD), current_diff_txn_->Vertices(view), DeletedLabel(), view);
+  return UnionVerticesIterable(historical().Vertices(storage::View::OLD),
+                               current_diff_txn_->Vertices(view),
+                               DeletedLabel(),
+                               core_->vertex_gid_floor(),
+                               view);
 }
 
 BranchContext::UnionVerticesIterable::UnionVerticesIterable(storage::VerticesIterable hist_vertices,
                                                             storage::VerticesIterable diff_vertices,
-                                                            storage::LabelId deleted_label, storage::View view)
+                                                            storage::LabelId deleted_label, uint64_t vertex_gid_floor,
+                                                            storage::View view)
     : hist_vertices_(std::move(hist_vertices)),
       diff_vertices_(std::move(diff_vertices)),
       deleted_label_(deleted_label),
+      vertex_gid_floor_(vertex_gid_floor),
       view_(view) {}
 
 BranchContext::UnionVerticesIterable::Iterator BranchContext::UnionVerticesIterable::begin() {
@@ -667,6 +648,7 @@ BranchContext::UnionVerticesIterable::Iterator BranchContext::UnionVerticesItera
                   diff_vertices_.begin(),
                   diff_vertices_.end(),
                   deleted_label_,
+                  vertex_gid_floor_,
                   view_);
 }
 
@@ -674,12 +656,14 @@ BranchContext::UnionVerticesIterable::Iterator::Iterator(storage::VerticesIterab
                                                          storage::VerticesIterable::Iterator hist_end,
                                                          storage::VerticesIterable::Iterator diff_it,
                                                          storage::VerticesIterable::Iterator diff_end,
-                                                         storage::LabelId deleted_label, storage::View view)
+                                                         storage::LabelId deleted_label, uint64_t vertex_gid_floor,
+                                                         storage::View view)
     : hist_it_(std::move(hist_it)),
       hist_end_(std::move(hist_end)),
       diff_it_(std::move(diff_it)),
       diff_end_(std::move(diff_end)),
       deleted_label_(deleted_label),
+      vertex_gid_floor_(vertex_gid_floor),
       view_(view) {
   SeekNext();
 }
@@ -693,7 +677,7 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
 // its gid and drops it; a fork vertex without a stub passes through.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
   auto deleted_stub = [this](const storage::VertexAccessor &v) {
-    if (v.Gid().AsUint() >= kBranchNativeGidWatermark) return false;
+    if (v.Gid().AsUint() >= vertex_gid_floor_) return false;
     auto deleted = v.HasLabel(deleted_label_, view_);
     return deleted.has_value() && *deleted;
   };

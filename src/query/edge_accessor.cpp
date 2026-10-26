@@ -48,7 +48,8 @@ namespace {
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
 // A fork edge changed on the branch is an EMPTY diff-engine stub with the same gid (BranchContext::CowEdge); a read
-// overlays the stub on the fork edge. Branch-native edges (gid >= 2^62) are complete and never merged.
+// overlays the stub on the fork edge. Branch-native edges (gid at or above the edge floor) are complete and never
+// merged.
 struct ReadTarget {
   enum class Kind { kDirect, kHidden, kOverlay };
   Kind kind{Kind::kDirect};
@@ -60,7 +61,7 @@ struct ReadTarget {
 // fork edge proves no stub exists, skipping the lookup; a deleted fork edge reads as DELETED_OBJECT (kHidden).
 ReadTarget ResolveReadTarget(versioning::BranchContext &ctx, const storage::EdgeAccessor &impl, storage::View view) {
   if (impl.storage_ == &ctx.diff_engine()) {
-    if (!ctx.IsForkGid(impl.Gid())) return {};
+    if (!ctx.IsForkEdgeGid(impl.Gid())) return {};
     if (ctx.IsForkEdgeHidden(impl, view)) return {.kind = ReadTarget::Kind::kHidden};
     auto fork = ctx.FindForkEdge(impl);
     DMG_ASSERT(fork.has_value(), "Fork edge missing for stub {}", impl.Gid().AsUint());
@@ -110,7 +111,7 @@ struct WriteTarget {
 };
 
 WriteTarget ResolveWriteTarget(versioning::BranchContext &ctx, const storage::EdgeAccessor &impl) {
-  if (impl.storage_ == &ctx.diff_engine() && !ctx.IsForkGid(impl.Gid())) return {impl, std::nullopt};
+  if (impl.storage_ == &ctx.diff_engine() && !ctx.IsForkEdgeGid(impl.Gid())) return {impl, std::nullopt};
   auto stub = ctx.CowEdge(impl);
   if (!stub) {
     throw QueryRuntimeException(stub.error().message);

@@ -619,7 +619,7 @@ class DbAccessor final {
                                    storage::PropertyValueRange const *range) {
     auto collect = [&](storage::VerticesIterable hits) {
       for (auto raw : hits) {
-        if (branch_ctx_->IsForkGid(raw.Gid())) touched.Add(raw);
+        if (branch_ctx_->IsForkVertexGid(raw.Gid())) touched.Add(raw);
       }
     };
     if (range != nullptr && range->type_ == storage::PropertyRangeType::BOUNDED && (range->lower_ || range->upper_)) {
@@ -686,7 +686,7 @@ class DbAccessor final {
     for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) touched.Add(raw);
     // Stubs that gained `label` on the branch (a stub lacks the key properties the composite index needs).
     for (auto raw : accessor_->Vertices(label, view)) {
-      if (branch_ctx_->IsForkGid(raw.Gid())) touched.Add(raw);
+      if (branch_ctx_->IsForkVertexGid(raw.Gid())) touched.Add(raw);
     }
     // Stubs that SET a key property. A null-excluding range anchors the match, so only constrained positions can have
     // turned into a match; otherwise every key position is enumerated.
@@ -872,12 +872,12 @@ class DbAccessor final {
     constexpr auto kView = storage::View::NEW;
 
     std::erase_if(nodes, [&](const VertexAccessor &node) {
-      return ctx.IsForkGid(node.Gid()) ? ctx.IsVertexDeleted(node.Gid(), kView)
-                                       : !accessor_->FindVertex(node.Gid(), kView).has_value();
+      return ctx.IsForkVertexGid(node.Gid()) ? ctx.IsVertexDeleted(node.Gid(), kView)
+                                             : !accessor_->FindVertex(node.Gid(), kView).has_value();
     });
     std::erase_if(edges, [&](const EdgeAccessor &edge) {
-      return ctx.IsForkGid(edge.Gid()) ? ctx.IsForkEdgeHidden(edge.impl_, kView)
-                                       : !ctx.FindDiffEdge(edge.Gid(), kView).has_value();
+      return ctx.IsForkEdgeGid(edge.Gid()) ? ctx.IsForkEdgeHidden(edge.impl_, kView)
+                                           : !ctx.FindDiffEdge(edge.Gid(), kView).has_value();
     });
 
     // Plain DELETE fails like main if a visible edge remains (edges this statement deletes excluded); checked before
@@ -899,7 +899,7 @@ class DbAccessor final {
 
     for (auto &edge : edges) {
       if (!seen_edges.insert(edge.Gid()).second) continue;
-      if (ctx.IsForkGid(edge.Gid())) {
+      if (ctx.IsForkEdgeGid(edge.Gid())) {
         auto deleted = ctx.DeleteForkEdge(edge.impl_);
         if (!deleted) return std::unexpected{deleted.error()};
         if (*deleted) deleted_edges.push_back(edge);
@@ -911,7 +911,7 @@ class DbAccessor final {
     std::vector<VertexAccessor *> diff_nodes;
     std::vector<VertexAccessor *> fork_nodes;
     for (auto &node : nodes) {
-      if (!ctx.IsForkGid(node.Gid())) {
+      if (!ctx.IsForkVertexGid(node.Gid())) {
         auto cowed = ctx.CowVertex(node.Gid());
         if (!cowed) throw QueryRuntimeException(cowed.error().message);
         node.impl_ = *cowed;
@@ -1079,7 +1079,7 @@ class DbAccessor final {
       // fork vertex already had it was emitted by (a)).
       for (auto raw : accessor_->Vertices(label, view)) {
         auto const g = raw.Gid();
-        if (branch_ctx_->IsForkGid(g)) {
+        if (branch_ctx_->IsForkVertexGid(g)) {
           if (branch_ctx_->IsStubDeleted(raw, view)) continue;
           auto fork = branch_ctx_->FindForkVertex(g);
           if (fork) {
@@ -1385,11 +1385,11 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }
 
-  // Stock CreateVertex on the diff engine, stamped with the context; branch-native gids start at 2^62, disjoint from
-  // fork gids.
+  // On a branch the gid comes from main's counter (BranchContext::CreateNativeVertex), disjoint from every fork and
+  // main gid.
   VertexAccessor InsertVertex() {
     if (branch_ctx_ != nullptr) {
-      return VertexAccessor(accessor_->CreateVertex(), branch_ctx_);
+      return VertexAccessor(branch_ctx_->CreateNativeVertex(), branch_ctx_);
     }
     return VertexAccessor(accessor_->CreateVertex());
   }
@@ -1407,7 +1407,7 @@ class DbAccessor final {
       from->impl_ = *from_diff;
       to->impl_ = *to_diff;
 
-      auto maybe_edge = accessor_->CreateEdge(&*from_diff, &*to_diff, edge_type);
+      auto maybe_edge = branch_ctx_->CreateNativeEdge(&*from_diff, &*to_diff, edge_type);
       if (!maybe_edge) return std::unexpected{maybe_edge.error()};
 
       // InsertEdge creates the edge natively and never goes through CowEdge, so both endpoints' adjacency change is

@@ -17,6 +17,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -60,8 +61,9 @@ void ForEachRemovedPid(PV const &value, F &&visit) {
 // Edge stubs mirror vertex stubs: an empty delta-less diff edge with the fork edge's gid, holding only changed
 // properties plus the `__mg_removed` pid list for removed ones.
 //
-// The diff engine's gid counters start at 0, so `Build` reserves a disjoint range for branch-native creates
-// (kBranchNativeGidWatermark, branch_engine.cpp).
+// Branch-native creates take gids from main's counters, so gids are unique across main and every branch. `Build`
+// records main's counters as floors: a gid below the vertex (edge) floor is a fork vertex (edge), at or above it is
+// native.
 //
 // Deleted fork objects are recorded in the diff engine: the vertex stub carries label `__mg_deleted`; a deleted fork
 // edge's gid is listed in property `__mg_deleted_edges` on both endpoint stubs.
@@ -82,10 +84,8 @@ class BranchCore {
     std::optional<storage::LabelId> removed_label;
   };
 
-  // Builds an empty diff engine, reserves the branch-native gid range, and mirrors main's index and enum definitions.
-  // `commit_args` is consumed by the gid-reservation commit.
-  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main, uint64_t fork_ts,
-                                                                      storage::CommitArgs commit_args);
+  // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions.
+  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main, uint64_t fork_ts);
 
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
@@ -109,8 +109,10 @@ class BranchCore {
 
   storage::PropertyId DeletedEdgesKey() const { return deleted_edges_key_; }
 
-  // Edge type of the gid-watermark placeholder edge; lingers in the diff engine's schema metadata.
-  storage::EdgeTypeId GidWatermarkEdgeType() const { return gid_watermark_edge_type_; }
+  // Main's vertex/edge counters at Build: gids below are fork objects, gids at or above are branch-native.
+  uint64_t vertex_gid_floor() const { return vertex_gid_floor_; }
+
+  uint64_t edge_gid_floor() const { return edge_gid_floor_; }
 
   // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions.
   void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept {
@@ -135,17 +137,18 @@ class BranchCore {
 
  private:
   BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts, std::unique_ptr<storage::InMemoryStorage> diff_engine,
-             storage::EdgeTypeId gid_watermark_edge_type);
+             uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
 
   storage::InMemoryStorage *main_;  // Not owned.
   uint64_t fork_ts_;
+  uint64_t vertex_gid_floor_;
+  uint64_t edge_gid_floor_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
   // Resolved once in the constructor so hot read paths take no lock.
   storage::PropertyId removed_props_key_;
   storage::LabelId deleted_label_;
   storage::PropertyId deleted_edges_key_;
-  storage::EdgeTypeId gid_watermark_edge_type_;
 
   // Lazy caches over the shared NameIdMapper; entries are immutable once inserted.
   std::mutex marker_mutex_;
@@ -172,8 +175,7 @@ class BranchContext {
 
   // Builds a private, unregistered core and wraps it (unit tests; production attaches to the registry's core).
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
-                                                                                 uint64_t fork_ts,
-                                                                                 storage::CommitArgs commit_args);
+                                                                                 uint64_t fork_ts);
 
   // `name` is the branch this context was attached through (empty for test-built contexts); nested sessions use it.
   explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {})
@@ -259,7 +261,14 @@ class BranchContext {
   // deleted.
   storage::Result<bool> DeleteForkEdge(const storage::EdgeAccessor &fork_edge);
 
-  bool IsForkGid(storage::Gid gid) const;
+  bool IsForkVertexGid(storage::Gid gid) const;
+  bool IsForkEdgeGid(storage::Gid gid) const;
+
+  // Creates a branch-native vertex in the diff engine at a gid taken from main's counter.
+  storage::VertexAccessor CreateNativeVertex();
+  // Creates a branch-native edge at a gid taken from main's counter; endpoints must already be diff-engine vertices.
+  storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor *from, storage::VertexAccessor *to,
+                                                          storage::EdgeTypeId edge_type);
   // Fork-state vertex (historical_, View::OLD).
   std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
   // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
@@ -276,7 +285,11 @@ class BranchContext {
 
   template <typename Accessor>
   bool IsStub(const Accessor &diff_object) const {
-    return diff_object.storage_ == &core_->diff_engine() && IsForkGid(diff_object.Gid());
+    if constexpr (std::is_same_v<Accessor, storage::EdgeAccessor>) {
+      return diff_object.storage_ == &core_->diff_engine() && IsForkEdgeGid(diff_object.Gid());
+    } else {
+      return diff_object.storage_ == &core_->diff_engine() && IsForkVertexGid(diff_object.Gid());
+    }
   }
 
   // True when `stub` carries its own value for `property` or records its removal (the fork edge's value is stale).
@@ -302,7 +315,7 @@ class BranchContext {
       Iterator() = default;
       Iterator(storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
                storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
-               storage::LabelId deleted_label, storage::View view);
+               storage::LabelId deleted_label, uint64_t vertex_gid_floor, storage::View view);
 
       storage::VertexAccessor operator*() const { return *current_; }
 
@@ -320,6 +333,7 @@ class BranchContext {
       std::optional<storage::VerticesIterable::Iterator> diff_end_;
       std::optional<storage::VertexAccessor> current_;
       storage::LabelId deleted_label_{storage::kInvalidLabelId};
+      uint64_t vertex_gid_floor_{0};
       storage::View view_{storage::View::NEW};
       bool done_{true};
     };
@@ -332,11 +346,12 @@ class BranchContext {
     friend class BranchContext;
 
     UnionVerticesIterable(storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices,
-                          storage::LabelId deleted_label, storage::View view);
+                          storage::LabelId deleted_label, uint64_t vertex_gid_floor, storage::View view);
 
     storage::VerticesIterable hist_vertices_;
     storage::VerticesIterable diff_vertices_;
     storage::LabelId deleted_label_;
+    uint64_t vertex_gid_floor_;
     storage::View view_;
   };
 
