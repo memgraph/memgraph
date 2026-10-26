@@ -61,6 +61,9 @@ void ForEachRemovedPid(PV const &value, F &&visit) {
 // The diff engine shares main's NameIdMapper because not-yet-stubbed fork vertices carry main's label/property ids.
 // Enum-type ids differ (the enum store is mirrored, not shared); stubs copy no fork values, so none cross over.
 //
+// Vertex stubs are empty, delta-less Vertex objects owned by the StubIndex, not entries of the diff engine's vertices_
+// (which holds only branch-native vertices); their changes are recorded as ordinary diff-engine deltas.
+//
 // Edge stubs mirror vertex stubs: an empty delta-less diff edge with the fork edge's gid, holding only changed
 // properties plus the `__mg_removed` pid list for removed ones.
 //
@@ -94,7 +97,8 @@ class BranchCore {
   BranchCore &operator=(const BranchCore &) = delete;
   BranchCore(BranchCore &&) = delete;
   BranchCore &operator=(BranchCore &&) = delete;
-  ~BranchCore() = default;
+  // Destroys the diff engine before the stub index frees the stubs its deltas and index entries point at.
+  ~BranchCore();
 
   storage::InMemoryStorage &diff_engine() { return *diff_engine_; }
 
@@ -190,7 +194,7 @@ class BranchCore {
   uint64_t touched_version_{1};
   absl::flat_hash_map<storage::LabelId, CachedLabelSnapshot> label_snapshots_;
 
-  // Declared last: destroyed before the diff engine whose Vertex objects it points into.
+  // Owns the fork-vertex stubs; ~BranchCore resets diff_engine_ first, so they outlive it.
   StubIndex stub_index_;
 };
 
@@ -317,8 +321,8 @@ class BranchContext {
                                                           storage::EdgeTypeId edge_type);
   // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when recorded, else historical_.
   std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
-  // The current diff txn's vertex for `gid` (stub or native), via the stub index when recorded, else the diff engine's
-  // skiplist; equivalent to current_diff_txn()->FindVertex(gid, view).
+  // The current diff txn's vertex for `gid`: a fork gid resolves only through the stub index, a native gid only
+  // through the diff engine's skiplist.
   std::optional<storage::VertexAccessor> FindStub(storage::Gid gid, storage::View view);
   // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
   std::optional<storage::VertexAccessor> FindStubOrDiffVertex(storage::Gid gid, storage::View view);
@@ -349,11 +353,13 @@ class BranchContext {
 
   // Diff-engine-ONLY point lookup by edge gid (no historical_ fallback).
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
-  // Same lookup when the FROM endpoint's gid is known: avoids the diff engine's all-vertex scan for the edge.
+  // Same lookup when the FROM endpoint's gid is known: walks that vertex's adjacency, stub or native, instead of
+  // scanning every vertex for the edge.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
-  // Gid-ordered streaming union of historical_ (a COW'd gid yields the diff engine's copy) with the diff engine's
-  // vertices (branch-native creates). Both sides are gid-ordered, so it is one O(H + D) forward pass.
+  // Gid-ordered streaming union: every historical_ vertex (a COW'd one yields its stub from the stub index, dropped if
+  // delete-marked), then the diff engine's vertices_, which hold only branch-native creates (gids at or above the
+  // vertex floor, above every fork gid). One O(H + D) forward pass.
   class UnionVerticesIterable {
    public:
     class Iterator {
@@ -364,7 +370,7 @@ class BranchContext {
       Iterator() = default;
       Iterator(storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
                storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
-               storage::LabelId deleted_label, uint64_t vertex_gid_floor, storage::View view);
+               BranchContext *ctx, storage::View view);
 
       storage::VertexAccessor operator*() const { return *current_; }
 
@@ -381,8 +387,7 @@ class BranchContext {
       std::optional<storage::VerticesIterable::Iterator> diff_it_;
       std::optional<storage::VerticesIterable::Iterator> diff_end_;
       std::optional<storage::VertexAccessor> current_;
-      storage::LabelId deleted_label_{storage::kInvalidLabelId};
-      uint64_t vertex_gid_floor_{0};
+      BranchContext *ctx_{nullptr};
       storage::View view_{storage::View::NEW};
       bool done_{true};
     };
@@ -395,12 +400,11 @@ class BranchContext {
     friend class BranchContext;
 
     UnionVerticesIterable(storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices,
-                          storage::LabelId deleted_label, uint64_t vertex_gid_floor, storage::View view);
+                          BranchContext *ctx, storage::View view);
 
     storage::VerticesIterable hist_vertices_;
     storage::VerticesIterable diff_vertices_;
-    storage::LabelId deleted_label_;
-    uint64_t vertex_gid_floor_;
+    BranchContext *ctx_;
     storage::View view_;
   };
 
@@ -458,8 +462,8 @@ class BranchContext {
   // current_diff_txn_ is not owned: it points into CurrentDB::db_transactional_accessor_ for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;
-  // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor only causes misses
-  // (skiplist fallback), never wrong pointers; reset per transaction.
+  // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor never yields a wrong
+  // pointer; reset per transaction.
   StubIndex::Cursor stub_cursor_;
 };
 

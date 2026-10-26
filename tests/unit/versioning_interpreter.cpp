@@ -609,17 +609,15 @@ TEST_F(VersioningGatedTest, BranchWriteStubsOnlyTheTouchedVertex) {
 
   faker.Interpret("MATCH (n) WHERE 'A' IN labels(n) SET n.x = 2");
 
-  // Exactly one vertex (A) must have been COW'd into the diff engine.
+  // Exactly one vertex (A) must have been COW'd, into the stub index rather than the diff engine's vertices_.
   {
     auto *ctx = faker.interpreter.current_db_.branch_context();
     ASSERT_NE(ctx, nullptr);
+    size_t stub_count = 0;
+    ctx->core()->stub_index().ForEachStub([&](memgraph::storage::Vertex *) { ++stub_count; });
+    EXPECT_EQ(stub_count, 1U) << "only the touched vertex (A) should have been COW'd";
     auto acc = ctx->diff_engine().Access(memgraph::storage::StorageAccessType::READ);
-    size_t diff_vertex_count = 0;
-    for (auto v : acc->Vertices(memgraph::storage::View::OLD)) {
-      (void)v;
-      ++diff_vertex_count;
-    }
-    EXPECT_EQ(diff_vertex_count, 1U) << "only the touched vertex (A) should have been COW'd";
+    EXPECT_EQ(acc->ApproximateVertexCount(), 0U);
   }
 
   {

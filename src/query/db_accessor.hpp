@@ -886,8 +886,9 @@ class DbAccessor final {
                                              : !accessor_->FindVertex(node.Gid(), kView).has_value();
     });
     std::erase_if(edges, [&](const EdgeAccessor &edge) {
-      return ctx.IsForkEdgeGid(edge.Gid()) ? ctx.IsForkEdgeHidden(edge.impl_, kView)
-                                           : !ctx.FindDiffEdge(edge.Gid(), kView).has_value();
+      return ctx.IsForkEdgeGid(edge.Gid())
+                 ? ctx.IsForkEdgeHidden(edge.impl_, kView)
+                 : !ctx.FindDiffEdge(edge.Gid(), edge.impl_.from_vertex_->gid, kView).has_value();
     });
 
     // Plain DELETE fails like main if a visible edge remains (edges this statement deletes excluded); checked before

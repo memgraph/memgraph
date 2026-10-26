@@ -23,12 +23,15 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/vertex.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::versioning {
 
-// Sparse, page-keyed table of a branch's fork-vertex stubs: for each fork gid that has a stub, the stub's diff-engine
-// Vertex* and the fork (main) Vertex* it shadows. Replaces a skiplist lookup per read.
+// Sparse, page-keyed table of a branch's fork-vertex stubs: for each fork gid that has a stub, the stub Vertex* and the
+// fork (main) Vertex* it shadows. The table owns the stubs: they are heap objects outside the diff engine's vertices_
+// skiplist, created by GetOrCreateStub and freed in ~StubIndex, so the owner must destroy the diff engine first (its
+// deltas and index entries point at the stubs). A stub never has a create delta and is never marked deleted.
 //
 // Structure: gids are grouped into pages of kPageSize = 16 consecutive gids (page_id = gid >> 4). kShards independently
 // locked absl::flat_hash_maps map page_id -> Page*. A Page holds a 16-entry slot table (slot_of[gid & 15]: 0 = absent,
@@ -38,12 +41,11 @@ namespace memgraph::versioning {
 //
 // Lookups carry a caller-owned Cursor that remembers the last page. Scans visit gids in order, so most lookups hit the
 // cached page: no lock, no hash probe, just two acquire loads. Insert-only; both pointers are stable for the owning
-// BranchCore's lifetime (stubs are never erased from the diff engine, and a fork vertex visible at fork_ts cannot be
-// freed while the fork pin is held). Insert is idempotent.
+// BranchCore's lifetime (stubs are never erased, and a fork vertex visible at fork_ts cannot be freed while the fork
+// pin is held).
 //
-// A null result only means "not recorded (yet)"; callers must fall back to the skiplist, which stays authoritative.
-// This is what makes stale views safe: a stale cursor or a replaced page can only miss entries, never return a wrong
-// pointer.
+// A null stub result means no stub is recorded at the time of the call: a stale cursor or a replaced page can only miss
+// entries, never return a wrong pointer, and a miss is re-checked under the shard epoch before it is returned.
 //
 // Memory ordering:
 //  - Writers are serialized per shard by the unique lock. A new entry's pointers are stored relaxed, then
@@ -59,7 +61,8 @@ namespace memgraph::versioning {
 //    the refresh, so the cached view (including "page absent") is current and the miss is returned without locking. A
 //    changed epoch triggers one locked refresh. Hits never touch the epoch.
 //
-// Memory (64-bit): entry 16 B; page header 24 B; one map slot ~17 B / load factor (~26 B per page).
+// Memory (64-bit), excluding the stub Vertex itself (one 80 B heap object per entry): entry 16 B; page header 24 B; one
+// map slot ~17 B / load factor (~26 B per page).
 //  - Sparse (one recorded gid per page): 40 B page + ~26 B map = ~66 B per entry.
 //  - Dense (full pages): 280 B / 16 = 17.5 B per gid + ~1.6 B map + retired 1- and 4-entry copies (128 B per full page
 //    = 8 B per gid) = ~27 B per gid.
@@ -94,40 +97,14 @@ class StubIndex {
   StubIndex &operator=(StubIndex &&) = delete;
   ~StubIndex() = default;
 
-  // Records non-null pointers for `gid`. Concurrent-safe. A null argument leaves the existing value untouched.
+  // Returns the stub recorded for `gid`, creating an empty, delta-less one if none exists. Concurrent creators race on
+  // the insert: the loser frees its candidate and returns the winner's. `fork` fills the entry's null fork pointer.
   // @throw std::bad_alloc
-  void Insert(uint64_t gid, storage::Vertex *stub, storage::Vertex *fork) {
-    if (stub == nullptr && fork == nullptr) return;
-    const uint64_t page_id = gid >> kPageBits;
-    const unsigned off = static_cast<unsigned>(gid & (kPageSize - 1));
-    Shard &shard = ShardFor(page_id);
-    std::unique_lock guard{shard.lock};
-
-    const auto it = shard.map.find(page_id);
-    Page *page = it == shard.map.end() ? nullptr : it->second;
-    if (page != nullptr) {
-      if (page->Fill(off, stub, fork)) shard.BumpEpoch();
-      if (page->HasSlot(off)) return;
-    }
-
-    // New gid in this page: append in place if there is room, else build a larger page and publish it.
-    if (page != nullptr && page->HasRoom()) {
-      page->Append(off, stub, fork);
-      shard.BumpEpoch();
-      return;
-    }
-    std::unique_ptr<Page, PageDeleter> grown{Page::Create(page == nullptr ? 1 : Page::NextCapacity(page->capacity()))};
-    if (page != nullptr) grown->CopyFrom(*page);
-    grown->Append(off, stub, fork);
-    if (page != nullptr) {
-      shard.retired.reserve(shard.retired.size() + 1);  // before publishing so retiring cannot throw
-      it->second = grown.release();
-      shard.retired.push_back(page);
-    } else {
-      shard.map.emplace(page_id, grown.get());
-      grown.release();
-    }
-    shard.BumpEpoch();
+  storage::Vertex *GetOrCreateStub(uint64_t gid, storage::Vertex *fork) {
+    auto candidate = memory::MakeDbAwareUnique<storage::Vertex>(storage::Gid::FromUint(gid), nullptr);
+    storage::Vertex *winner = InsertEntry(gid, candidate.get(), fork).stub;
+    if (winner == candidate.get()) candidate.release();
+    return winner;
   }
 
   // Cursor-less lookups: one shared-lock probe each; for callers without a cursor.
@@ -146,6 +123,15 @@ class StubIndex {
   storage::Vertex *FindFork(uint64_t gid, Cursor &cursor) const noexcept { return Lookup(gid, cursor, false).fork; }
 
   Found Find(uint64_t gid, Cursor &cursor) const noexcept { return Lookup(gid, cursor, true); }
+
+  // Calls `fn(stub)` for every recorded stub in unspecified order. Concurrent creators may or may not be visited.
+  template <typename Fn>
+  void ForEachStub(Fn &&fn) const {
+    for (const Shard &shard : shards_) {
+      std::shared_lock guard{shard.lock};
+      for (const auto &[page_id, page] : shard.map) page->ForEachStub(fn);
+    }
+  }
 
   // Variable-size: header followed by `capacity` entries in the same allocation.
   class alignas(8) Page {
@@ -204,6 +190,16 @@ class StubIndex {
       slot_of_[off].store(static_cast<uint8_t>(idx + 1), std::memory_order_release);
     }
 
+    // Calls `fn(stub)` for every recorded stub. Caller excludes concurrent writers (unique/shared shard lock, or
+    // single-threaded teardown).
+    template <typename Fn>
+    void ForEachStub(Fn &&fn) const {
+      const Entry *all = entries();
+      for (unsigned i = 0; i < count_; ++i) {
+        if (auto *stub = all[i].stub.load(std::memory_order_relaxed)) fn(stub);
+      }
+    }
+
     // Copies all entries of `old` (smaller) into this empty page.
     void CopyFrom(const Page &old) noexcept {
       for (unsigned off = 0; off < kPageSize; ++off) {
@@ -249,8 +245,12 @@ class StubIndex {
     Shard(const Shard &) = delete;
     Shard &operator=(const Shard &) = delete;
 
+    // Stubs are owned through the live pages only; retired pages hold copies of the same pointers.
     ~Shard() {
-      for (auto &[page_id, page] : map) PageDeleter{}(page);
+      for (auto &[page_id, page] : map) {
+        page->ForEachStub([](storage::Vertex *stub) { memory::ArenaAwareDeleter<storage::Vertex>{}(stub); });
+        PageDeleter{}(page);
+      }
       for (Page *page : retired) PageDeleter{}(page);
     }
 
@@ -265,6 +265,45 @@ class StubIndex {
   Shard &ShardFor(uint64_t page_id) noexcept { return shards_[ShardIndex(page_id)]; }
 
   const Shard &ShardFor(uint64_t page_id) const noexcept { return shards_[ShardIndex(page_id)]; }
+
+  // Records non-null pointers for `gid`; a null argument leaves the existing value untouched. Returns the entry as
+  // recorded afterwards. Does not take ownership of `stub`.
+  // @throw std::bad_alloc
+  Found InsertEntry(uint64_t gid, storage::Vertex *stub, storage::Vertex *fork) {
+    if (stub == nullptr && fork == nullptr) return {};
+    const uint64_t page_id = gid >> kPageBits;
+    const unsigned off = static_cast<unsigned>(gid & (kPageSize - 1));
+    Shard &shard = ShardFor(page_id);
+    std::unique_lock guard{shard.lock};
+
+    const auto it = shard.map.find(page_id);
+    Page *page = it == shard.map.end() ? nullptr : it->second;
+    if (page != nullptr) {
+      if (page->Fill(off, stub, fork)) shard.BumpEpoch();
+      if (page->HasSlot(off)) return page->Read(off);
+    }
+
+    // New gid in this page: append in place if there is room, else build a larger page and publish it.
+    if (page != nullptr && page->HasRoom()) {
+      page->Append(off, stub, fork);
+      shard.BumpEpoch();
+      return {stub, fork};
+    }
+    std::unique_ptr<Page, PageDeleter> grown{Page::Create(page == nullptr ? 1 : Page::NextCapacity(page->capacity()))};
+    if (page != nullptr) grown->CopyFrom(*page);
+    grown->Append(off, stub, fork);
+    const Found result = grown->Read(off);
+    if (page != nullptr) {
+      shard.retired.reserve(shard.retired.size() + 1);  // before publishing so retiring cannot throw
+      it->second = grown.release();
+      shard.retired.push_back(page);
+    } else {
+      shard.map.emplace(page_id, grown.get());
+      grown.release();
+    }
+    shard.BumpEpoch();
+    return result;
+  }
 
   Found Lookup(uint64_t gid, Cursor &cursor, bool want_stub) const noexcept {
     const uint64_t page_id = gid >> kPageBits;

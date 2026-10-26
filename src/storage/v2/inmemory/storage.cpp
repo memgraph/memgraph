@@ -679,26 +679,11 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(
   return VertexAccessor{&*it, storage_, &transaction_};
 }
 
-Vertex *InMemoryStorage::MaterializeStubVertex(Gid gid) {
-  atomic_fetch_max_explicit(&vertex_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
-  auto acc = vertices_.access();
-  auto [it, inserted] = acc.insert(Vertex{gid, nullptr});
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  return &*it;
-}
-
-VertexAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubVertex(storage::Gid gid) {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  return {mem_storage->MaterializeStubVertex(gid), storage_, &transaction_};
-}
-
-EdgeAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubEdge(Gid edge_gid, Gid from_gid, Gid to_gid,
-                                                                    EdgeTypeId edge_type) {
+EdgeAccessor InMemoryStorage::InMemoryAccessor::MaterializeStubEdge(Gid edge_gid, Vertex *from_vertex,
+                                                                    Vertex *to_vertex, EdgeTypeId edge_type) {
   MG_ASSERT(config_.properties_on_edges, "A stub edge needs an Edge object, i.e. properties_on_edges.");
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto *from_vertex = mem_storage->MaterializeStubVertex(from_gid);
-  auto *to_vertex = from_gid == to_gid ? from_vertex : mem_storage->MaterializeStubVertex(to_gid);
   atomic_fetch_max_explicit(&mem_storage->edge_id_, edge_gid.AsUint() + 1, std::memory_order_acq_rel);
 
   // Declared before the guards: destroyed after they release (skip list GC must not run under the locks).
@@ -5288,6 +5273,15 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
     throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
   }
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
+}
+
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdgeFrom(Gid edge_gid, Vertex *from_vertex,
+                                                                            View view) {
+  if (!config_.properties_on_edges) return std::nullopt;
+  const auto maybe_edge_info = ScanOutEdgesForGid(from_vertex, edge_gid);
+  if (!maybe_edge_info) return std::nullopt;
+  const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
+  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
 }
 
 Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {

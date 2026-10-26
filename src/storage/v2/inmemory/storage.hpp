@@ -777,16 +777,16 @@ class InMemoryStorage final : public Storage {
 
     void DowngradeToReadIfValid();
 
-    /// Get-or-create an empty, delta-less vertex with `gid` (versioning branch stub). Concurrent-safe.
+    /// Get-or-create an empty, delta-less edge `edge_gid` from `from_vertex` to `to_vertex` (versioning branch stub;
+    /// both endpoints are caller-owned stubs or vertices of this storage). An already-present edge is returned as-is,
+    /// so concurrent and repeated calls are safe. Requires properties_on_edges. Bumps `edge_id_` past `edge_gid`.
     /// @throw std::bad_alloc
-    VertexAccessor MaterializeStubVertex(storage::Gid gid);
-
-    /// Get-or-create an empty, delta-less edge `edge_gid` from `from_gid` to `to_gid`, materializing both endpoint
-    /// stubs. An already-present edge is returned as-is, so concurrent and repeated calls are safe. Requires
-    /// properties_on_edges. Bumps `edge_id_` past `edge_gid`.
-    /// @throw std::bad_alloc
-    EdgeAccessor MaterializeStubEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::Gid to_gid,
+    EdgeAccessor MaterializeStubEdge(storage::Gid edge_gid, Vertex *from_vertex, Vertex *to_vertex,
                                      EdgeTypeId edge_type);
+
+    /// Finds the out-edge `edge_gid` in `from_vertex`'s adjacency, for a `from_vertex` that is not in `vertices_`
+    /// (a versioning stub). Requires properties_on_edges.
+    std::optional<EdgeAccessor> FindEdgeFrom(Gid edge_gid, Vertex *from_vertex, View view);
 
    protected:
     // TODO Better naming
@@ -1001,11 +1001,6 @@ class InMemoryStorage final : public Storage {
   EdgeInfo FindEdge(Gid edge_gid);
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
-
-  /// Get-or-create a vertex with `gid` and no delta, labels, properties or index entries (like recovery does).
-  /// Bumps `vertex_id_` past `gid`. An already-present vertex is returned as-is.
-  /// @throw std::bad_alloc
-  Vertex *MaterializeStubVertex(Gid gid);
 
   // Light-edge find helpers (gated by salient.items.storage_light_edge). The
   // heavy path remains FindHeavyEdge (== prior FindEdge(Gid) body).

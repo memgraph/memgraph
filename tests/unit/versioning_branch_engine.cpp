@@ -107,10 +107,17 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
     return n;
   };
 
+  auto count_stubs = [&] {
+    size_t n = 0;
+    branch_context_->core()->stub_index().ForEachStub([&](ms::Vertex *) { ++n; });
+    return n;
+  };
+
   auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
   Begin(diff_acc.get());
 
   ASSERT_EQ(count_diff_vertices(*diff_acc), 0u);
+  ASSERT_EQ(count_stubs(), 0u);
   auto hist_vertex = branch_context_->historical().FindVertex(a_gid, ms::View::OLD);
   ASSERT_TRUE(hist_vertex.has_value());
   EXPECT_TRUE(hist_vertex->HasLabel(label_a, ms::View::OLD).value_or(false));
@@ -131,8 +138,11 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   ASSERT_TRUE(fork_x.has_value());
   EXPECT_EQ(*fork_x, ms::PropertyValue(1));
 
-  EXPECT_EQ(count_diff_vertices(*diff_acc), 1u);
-  EXPECT_FALSE(diff_acc->FindVertex(b_gid, ms::View::NEW).has_value()) << "untouched vertex must not be copied";
+  EXPECT_EQ(count_diff_vertices(*diff_acc), 0u) << "stubs are owned by the stub index, not the diff engine's vertices_";
+  EXPECT_EQ(count_stubs(), 1u);
+  EXPECT_FALSE(diff_acc->FindVertex(a_gid, ms::View::NEW).has_value());
+  EXPECT_NE(branch_context_->core()->stub_index().FindStub(a_gid.AsUint()), nullptr);
+  EXPECT_FALSE(branch_context_->FindStub(b_gid, ms::View::NEW).has_value()) << "untouched vertex must not be copied";
 
   ASSERT_TRUE(cowed->SetProperty(prop_x, ms::PropertyValue(42)).has_value());
   auto second = branch_context_->CowVertex(a_gid);
@@ -141,13 +151,13 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   auto x_again = second->GetProperty(prop_x, ms::View::NEW);
   ASSERT_TRUE(x_again.has_value());
   EXPECT_EQ(*x_again, ms::PropertyValue(42)) << "second CowVertex must resolve to the SAME (already-mutated) stub";
-  EXPECT_EQ(count_diff_vertices(*diff_acc), 1u) << "idempotent COW must not create a duplicate";
+  EXPECT_EQ(count_stubs(), 1u) << "idempotent COW must not create a duplicate";
 
   // Unknown gid: an error, and nothing is created.
   auto missing = branch_context_->CowVertex(ms::Gid::FromUint(1'000'000));
   ASSERT_FALSE(missing.has_value());
   EXPECT_NE(missing.error().message.find("not found"), std::string::npos) << missing.error().message;
-  EXPECT_EQ(count_diff_vertices(*diff_acc), 1u);
+  EXPECT_EQ(count_stubs(), 1u);
 
   auto deleted_a = branch_context_->DeleteForkVertex(a_gid);
   ASSERT_TRUE(deleted_a.has_value() && deleted_a->has_value());
@@ -593,13 +603,13 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
     EXPECT_NE(resolved_in[0].storage_, &branch_context_->diff_engine());
 
     // Linked into both diff-engine endpoint stubs exactly once.
-    auto diff_from = diff_acc->FindVertex(s_gid, ms::View::NEW);
+    auto diff_from = branch_context_->FindStub(s_gid, ms::View::NEW);
     ASSERT_TRUE(diff_from.has_value());
     auto diff_out = diff_from->OutEdges(ms::View::NEW);
     ASSERT_TRUE(diff_out.has_value());
     ASSERT_EQ(diff_out->edges.size(), 1u);
     EXPECT_EQ(diff_out->edges[0].Gid(), edge_gid);
-    auto diff_to = diff_acc->FindVertex(a_gid, ms::View::NEW);
+    auto diff_to = branch_context_->FindStub(a_gid, ms::View::NEW);
     ASSERT_TRUE(diff_to.has_value());
     auto diff_in = diff_to->InEdges(ms::View::NEW);
     ASSERT_TRUE(diff_in.has_value());
@@ -673,7 +683,7 @@ TEST_F(VersioningBranchLightEdgeTest, CowEdgeMaterializesEmptyStubThatSurvivesRo
     auto again = branch_context_->CowEdge(fork_edge_of());
     ASSERT_TRUE(again.has_value()) << "CowEdge is idempotent";
     EXPECT_EQ(again->edge_.ptr, stub->edge_.ptr) << "idempotent CowEdge must return the same stub object";
-    auto diff_from = diff_acc->FindVertex(s_gid, ms::View::NEW);
+    auto diff_from = branch_context_->FindStub(s_gid, ms::View::NEW);
     ASSERT_TRUE(diff_from.has_value());
     auto diff_out = diff_from->OutEdges(ms::View::NEW);
     ASSERT_TRUE(diff_out.has_value());
@@ -757,10 +767,12 @@ class VersioningBranchGcTest : public testing::Test {
 
   void CommitStubWrite(int64_t value) {
     auto acc = Diff().Access(ms::WRITE);
-    auto v = acc->FindVertex(v_gid_, ms::View::NEW);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    auto v = ctx_->FindStub(v_gid_, ms::View::NEW);
     ASSERT_TRUE(v.has_value());
     ASSERT_TRUE(v->SetProperty(prop_x_, ms::PropertyValue(value)).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
   }
 
   void MaterializeVertexStub() {
@@ -821,7 +833,9 @@ TEST_F(VersioningBranchGcTest, DeltasRetainedBehindOpenTransactionAreFreedByGc) 
   EXPECT_LE(Deltas() - baseline_, 4);
 
   auto acc = Diff().Access(ms::READ);
-  EXPECT_EQ(*acc->FindVertex(v_gid_, ms::View::NEW)->GetProperty(prop_x_, ms::View::NEW), ms::PropertyValue(kCommits));
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(*ctx_->FindStub(v_gid_, ms::View::NEW)->GetProperty(prop_x_, ms::View::NEW), ms::PropertyValue(kCommits));
+  ctx_->EndTransaction();
 }
 
 TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
@@ -849,7 +863,42 @@ TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
     if (!ctx_->IsForkVertexGid(v.Gid())) ++natives;
   }
   EXPECT_EQ(natives, 0u);
-  EXPECT_TRUE(acc->FindVertex(v_gid_, ms::View::NEW).has_value()) << "the stub is never collected";
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_TRUE(ctx_->FindStub(v_gid_, ms::View::NEW).has_value()) << "the stub is never collected";
+  ctx_->EndTransaction();
+}
+
+// A stub outlives an aborted transaction and GC without being an entry of vertices_: the abort undoes only its deltas,
+// GC never retires it, and the branch still finds it and reads the fork state through it.
+TEST_F(VersioningBranchGcTest, AbortedStubWriteThenGcKeepsStubOutsideDiffEngineAndForkReadable) {
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    auto stub = ctx_->CowVertex(v_gid_);
+    ASSERT_TRUE(stub.has_value());
+    ASSERT_TRUE(stub->SetProperty(prop_x_, ms::PropertyValue(7)).has_value());
+    acc->Abort();
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 4);
+
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_FALSE(acc->FindVertex(v_gid_, ms::View::NEW).has_value()) << "a stub is not an entry of vertices_";
+  EXPECT_EQ(acc->ApproximateVertexCount(), 0U);
+
+  auto stub = ctx_->FindStub(v_gid_, ms::View::NEW);
+  ASSERT_TRUE(stub.has_value());
+  auto stub_x = stub->GetProperty(prop_x_, ms::View::NEW);
+  ASSERT_TRUE(stub_x.has_value());
+  EXPECT_TRUE(stub_x->IsNull()) << "the aborted write must be undone on the stub";
+
+  auto fork = ctx_->FindForkVertex(v_gid_);
+  ASSERT_TRUE(fork.has_value());
+  EXPECT_EQ(*fork->GetProperty(prop_x_, ms::View::OLD), ms::PropertyValue(0));
+  EXPECT_TRUE(fork->HasLabel(label_, ms::View::OLD).value_or(false));
+  ctx_->EndTransaction();
 }
 
 // GC frees a deleted edge stub; the fork edge stays hidden (the delete lives on the endpoint stubs) and CowEdge refuses
@@ -896,11 +945,13 @@ TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRemate
   EXPECT_TRUE(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::OUT, ms::View::NEW).empty());
   EXPECT_FALSE(ctx_->CowEdge(fork_edge).has_value());
 
+  auto *from_stub = ctx_->FindStub(v_gid_, ms::View::NEW)->vertex_;
+  auto *to_stub = ctx_->FindStub(a_gid_, ms::View::NEW)->vertex_;
   auto fresh =
-      static_cast<ms::ReplicationAccessor *>(acc.get())->MaterializeStubEdge(edge_gid_, v_gid_, a_gid_, edge_type_);
+      static_cast<ms::ReplicationAccessor *>(acc.get())->MaterializeStubEdge(edge_gid_, from_stub, to_stub, edge_type_);
   EXPECT_EQ(fresh.Gid(), edge_gid_);
   auto again =
-      static_cast<ms::ReplicationAccessor *>(acc.get())->MaterializeStubEdge(edge_gid_, v_gid_, a_gid_, edge_type_);
+      static_cast<ms::ReplicationAccessor *>(acc.get())->MaterializeStubEdge(edge_gid_, from_stub, to_stub, edge_type_);
   EXPECT_EQ(again.edge_.ptr, fresh.edge_.ptr) << "re-materializing an existing stub must return it, not a second edge";
   EXPECT_TRUE(fresh.Properties(ms::View::NEW)->empty());
   EXPECT_TRUE(ctx_->IsForkEdgeHidden(fork_edge, ms::View::NEW));
@@ -946,10 +997,10 @@ TEST_F(VersioningBranchPeriodicGcTest, PeriodicGcThreadFreesDeltasWithoutExplici
   EXPECT_LE(Deltas() - baseline_, 4);
 }
 
-// The stub index records exactly the touched fork gids, with the same Vertex* the skiplists return, under concurrent
-// CowVertex from several sessions (own context + diff txn each) and after their rollback.
-TEST_F(VersioningBranchEngineTest, StubIndexAgreesWithSkiplistsUnderConcurrentCowAndRollback) {
-  constexpr size_t kVertices = 300;  // spans several 64-gid pages
+// The stub index records exactly the touched fork gids, one stub each and none in the diff engine's vertices_, under
+// concurrent CowVertex from several sessions (own context + diff txn each) and after their rollback.
+TEST_F(VersioningBranchEngineTest, StubIndexRecordsTouchedGidsUnderConcurrentCowAndRollback) {
+  constexpr size_t kVertices = 300;  // spans several 16-gid pages
   constexpr size_t kThreads = 4;
 
   std::vector<ms::Gid> gids;
@@ -995,30 +1046,29 @@ TEST_F(VersioningBranchEngineTest, StubIndexAgreesWithSkiplistsUnderConcurrentCo
     (void)v;
     ++diff_count;
   }
+  EXPECT_EQ(diff_count, 0u) << "stubs must not be entries of the diff engine's vertices_";
   size_t expected_count = 0;
   for (size_t i = 0; i < kVertices; ++i) expected_count += is_touched[i] ? 1 : 0;
-  EXPECT_EQ(diff_count, expected_count) << "exactly one stub per touched gid";
+  size_t stub_count = 0;
+  core->stub_index().ForEachStub([&](ms::Vertex *) { ++stub_count; });
+  EXPECT_EQ(stub_count, expected_count) << "exactly one stub per touched gid";
 
   auto &index = core->stub_index();
   for (size_t i = 0; i < kVertices; ++i) {
     const auto gid = gids[i];
-    auto diff_vertex = diff_acc->FindVertex(gid, ms::View::NEW);
+    auto diff_vertex = branch_context_->FindStub(gid, ms::View::NEW);
     auto hist_vertex = branch_context_->historical().FindVertex(gid, ms::View::OLD);
     ASSERT_TRUE(hist_vertex.has_value());
     if (!is_touched[i]) {
       EXPECT_FALSE(diff_vertex.has_value());
       EXPECT_EQ(index.FindStub(gid.AsUint()), nullptr);
       EXPECT_EQ(index.FindFork(gid.AsUint()), nullptr);
-      EXPECT_FALSE(branch_context_->FindStub(gid, ms::View::NEW).has_value());
       EXPECT_EQ(branch_context_->FindForkVertex(gid)->vertex_, hist_vertex->vertex_) << "miss falls back";
       continue;
     }
     ASSERT_TRUE(diff_vertex.has_value()) << "a rolled-back COW must leave the stub";
     EXPECT_EQ(index.FindStub(gid.AsUint()), diff_vertex->vertex_);
     EXPECT_EQ(index.FindFork(gid.AsUint()), hist_vertex->vertex_);
-    auto via_index = branch_context_->FindStub(gid, ms::View::NEW);
-    ASSERT_TRUE(via_index.has_value());
-    EXPECT_TRUE(*via_index == *diff_vertex);
     auto fork_via_index = branch_context_->FindForkVertex(gid);
     ASSERT_TRUE(fork_via_index.has_value());
     EXPECT_TRUE(*fork_via_index == *hist_vertex);

@@ -255,6 +255,19 @@ BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
       deleted_label_(diff_engine_->NameToLabel(kDeletedLabelName)),
       deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)) {}
 
+BranchCore::~BranchCore() {
+  const bool light_edges = diff_engine_->config_.salient.items.storage_light_edge;
+  diff_engine_.reset();
+  // The engine's teardown frees light edges reachable from vertices_ only; those linked from a stub are freed here.
+  if (light_edges) {
+    stub_index_.ForEachStub([](storage::Vertex *stub) {
+      for (const auto &[edge_type, to_vertex, edge_ref] : stub->out_edges) {
+        storage::InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+      }
+    });
+  }
+}
+
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
     storage::InMemoryStorage &main, uint64_t fork_ts) {
   auto core = BranchCore::Build(main, fork_ts);
@@ -346,17 +359,12 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
             "BranchContext::CowVertex: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
-  storage::Storage::Accessor *diff_txn = current_diff_txn_;
 
   // A prior COW in the diff engine wins, unless it is a stub marked deleted.
   if (auto existing = FindStub(gid, storage::View::NEW)) {
-    if (IsForkVertexGid(gid)) {
-      // Heals an entry a racing materializer has not published yet (the skiplist is authoritative).
-      core_->stub_index().Insert(gid.AsUint(), existing->vertex_, nullptr);
-      if (IsStubDeleted(*existing, storage::View::NEW)) {
-        return std::unexpected(
-            CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
-      }
+    if (IsForkVertexGid(gid) && IsStubDeleted(*existing, storage::View::NEW)) {
+      return std::unexpected(
+          CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
     }
     return *existing;
   }
@@ -372,10 +380,8 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
   // Over-marking is safe: branched() is a hint, not a claim of divergence.
   MarkMainObjectBranched(hist_vertex->vertex_);
 
-  // diff_txn is a ReplicationAccessor (adds no data members over InMemoryAccessor), so the cast is safe.
-  auto stub = static_cast<storage::ReplicationAccessor *>(diff_txn)->MaterializeStubVertex(gid);
-  core_->stub_index().Insert(gid.AsUint(), stub.vertex_, hist_vertex->vertex_);
-  return stub;
+  auto *stub = core_->stub_index().GetOrCreateStub(gid.AsUint(), hist_vertex->vertex_);
+  return storage::VertexAccessor{stub, &core_->diff_engine(), current_diff_txn_->GetTransaction()};
 }
 
 std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::CowEdge(
@@ -413,7 +419,7 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
   if (fork_edge.storage_ != &diff_engine()) MarkForkEdgeBranched(fork_edge);
 
   return static_cast<storage::ReplicationAccessor *>(current_diff_txn_)
-      ->MaterializeStubEdge(edge_gid, from_gid, to_gid, fork_edge.EdgeType());
+      ->MaterializeStubEdge(edge_gid, from_diff->vertex_, to_diff->vertex_, fork_edge.EdgeType());
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(const storage::EdgeAccessor &stub) {
@@ -577,6 +583,7 @@ std::optional<storage::VertexAccessor> BranchContext::FindStub(storage::Gid gid,
     // Same construction as InMemoryAccessor::FindVertex on the diff txn (storage_ is the diff engine).
     return storage::VertexAccessor::Create(stub, &core_->diff_engine(), current_diff_txn_->GetTransaction(), view);
   }
+  if (IsForkVertexGid(gid)) return std::nullopt;  // fork stubs live only in the stub index
   return current_diff_txn_->FindVertex(gid, view);
 }
 
@@ -602,7 +609,14 @@ std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid ed
             "BranchContext::FindDiffEdge: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
-  return current_diff_txn_->FindEdge(edge_gid, view);
+  if (auto found = current_diff_txn_->FindEdge(edge_gid, view)) return found;
+  // The engine's scan covers vertices_ only; an edge whose FROM vertex is a stub is found through the stubs.
+  std::optional<storage::EdgeAccessor> found;
+  auto *diff_txn = static_cast<storage::ReplicationAccessor *>(current_diff_txn_);
+  core_->stub_index().ForEachStub([&](storage::Vertex *stub) {
+    if (!found) found = diff_txn->FindEdgeFrom(edge_gid, stub, view);
+  });
+  return found;
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid,
@@ -611,6 +625,9 @@ std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid ed
             "BranchContext::FindDiffEdge: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
+  if (auto *from_stub = core_->stub_index().FindStub(from_gid.AsUint(), stub_cursor_)) {
+    return static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->FindEdgeFrom(edge_gid, from_stub, view);
+  }
   return current_diff_txn_->FindEdge(edge_gid, from_gid, view);
 }
 
@@ -670,45 +687,30 @@ BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view)
             "BranchContext::Vertices: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
-  return UnionVerticesIterable(historical().Vertices(storage::View::OLD),
-                               current_diff_txn_->Vertices(view),
-                               DeletedLabel(),
-                               core_->vertex_gid_floor(),
-                               view);
+  return UnionVerticesIterable(
+      historical().Vertices(storage::View::OLD), current_diff_txn_->Vertices(view), this, view);
 }
 
 BranchContext::UnionVerticesIterable::UnionVerticesIterable(storage::VerticesIterable hist_vertices,
-                                                            storage::VerticesIterable diff_vertices,
-                                                            storage::LabelId deleted_label, uint64_t vertex_gid_floor,
+                                                            storage::VerticesIterable diff_vertices, BranchContext *ctx,
                                                             storage::View view)
-    : hist_vertices_(std::move(hist_vertices)),
-      diff_vertices_(std::move(diff_vertices)),
-      deleted_label_(deleted_label),
-      vertex_gid_floor_(vertex_gid_floor),
-      view_(view) {}
+    : hist_vertices_(std::move(hist_vertices)), diff_vertices_(std::move(diff_vertices)), ctx_(ctx), view_(view) {}
 
 BranchContext::UnionVerticesIterable::Iterator BranchContext::UnionVerticesIterable::begin() {
-  return Iterator(hist_vertices_.begin(),
-                  hist_vertices_.end(),
-                  diff_vertices_.begin(),
-                  diff_vertices_.end(),
-                  deleted_label_,
-                  vertex_gid_floor_,
-                  view_);
+  return Iterator(
+      hist_vertices_.begin(), hist_vertices_.end(), diff_vertices_.begin(), diff_vertices_.end(), ctx_, view_);
 }
 
 BranchContext::UnionVerticesIterable::Iterator::Iterator(storage::VerticesIterable::Iterator hist_it,
                                                          storage::VerticesIterable::Iterator hist_end,
                                                          storage::VerticesIterable::Iterator diff_it,
                                                          storage::VerticesIterable::Iterator diff_end,
-                                                         storage::LabelId deleted_label, uint64_t vertex_gid_floor,
-                                                         storage::View view)
+                                                         BranchContext *ctx, storage::View view)
     : hist_it_(std::move(hist_it)),
       hist_end_(std::move(hist_end)),
       diff_it_(std::move(diff_it)),
       diff_end_(std::move(diff_end)),
-      deleted_label_(deleted_label),
-      vertex_gid_floor_(vertex_gid_floor),
+      ctx_(ctx),
       view_(view) {
   SeekNext();
 }
@@ -718,70 +720,35 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
   return *this;
 }
 
-// Streaming gid-ordered merge, O(H+D). A fork vertex deleted on the branch has a delete-marked stub that meets it on
-// its gid and drops it; a fork vertex without a stub passes through.
+// A fork vertex whose branched() bit is clear has no stub and passes through; otherwise its stub, if any, is looked up
+// live and wins (the reader overlays it on the fork vertex), or drops the vertex when delete-marked. Fork gids are all
+// below the diff engine's vertices, so the diff side follows once the fork side is exhausted.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
-  auto deleted_stub = [this](const storage::VertexAccessor &v) {
-    if (v.Gid().AsUint() >= vertex_gid_floor_) return false;
-    auto deleted = v.HasLabel(deleted_label_, view_);
-    return deleted.has_value() && *deleted;
-  };
-  while (true) {
-    const bool hist_has = hist_it_.has_value() && !(*hist_it_ == *hist_end_);
-    const bool diff_has = diff_it_.has_value() && !(*diff_it_ == *diff_end_);
-
-    if (!hist_has && !diff_has) {
-      current_.reset();
-      done_ = true;
-      return;
-    }
-
-    if (hist_has && diff_has) {
-      const auto hist_gid = (**hist_it_).Gid();
-      const auto diff_gid = (**diff_it_).Gid();
-
-      if (hist_gid < diff_gid) {
-        current_ = **hist_it_;
-        ++(*hist_it_);
+  while (hist_it_.has_value() && !(*hist_it_ == *hist_end_)) {
+    const storage::VertexAccessor fork_vertex = **hist_it_;
+    ++(*hist_it_);
+    if (fork_vertex.vertex_->branched()) {
+      if (auto stub = ctx_->FindStub(fork_vertex.Gid(), view_)) {
+        if (ctx_->IsStubDeleted(*stub, view_)) continue;
+        current_ = std::move(stub);
         done_ = false;
         return;
       }
-      if (diff_gid < hist_gid) {
-        if (deleted_stub(**diff_it_)) {
-          ++(*diff_it_);
-          continue;
-        }
-        current_ = **diff_it_;
-        ++(*diff_it_);
-        done_ = false;
-        return;
-      }
-      // Tie: the diff engine's stub wins (the reader overlays it on the fork vertex), unless it is a delete marker.
-      const bool deleted = deleted_stub(**diff_it_);
-      if (!deleted) current_ = **diff_it_;
-      ++(*hist_it_);
-      ++(*diff_it_);
-      if (deleted) continue;
-      done_ = false;
-      return;
     }
+    current_ = fork_vertex;
+    done_ = false;
+    return;
+  }
 
-    if (hist_has) {
-      current_ = **hist_it_;
-      ++(*hist_it_);
-      done_ = false;
-      return;
-    }
-
-    if (deleted_stub(**diff_it_)) {
-      ++(*diff_it_);
-      continue;
-    }
+  if (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
     current_ = **diff_it_;
     ++(*diff_it_);
     done_ = false;
     return;
   }
+
+  current_.reset();
+  done_ = true;
 }
 
 }  // namespace memgraph::versioning
