@@ -31,7 +31,7 @@ namespace memgraph::versioning {
 // kind filter.
 
 // Per-kind change filters of one branch, owned by BranchCore (branch_engine.hpp) and shared by every
-// session on it. Starts empty and only grows. `label_`, `edge_`, `property_` are per-gid; the fine
+// session on it. Starts empty and only grows. `label_`, `edge_`, `property_`, `deleted_` are per-gid; the fine
 // `property_field_` is keyed by (gid, property_id) and gates point reads `GetProperty(gid, pid)`,
 // while `property_` gates whole-map `Properties()`.
 //
@@ -46,12 +46,16 @@ namespace memgraph::versioning {
 // degrading toward all-resolve, never toward incorrectness.
 class BranchChangeFilters {
  public:
-  // 32 KiB per filter, 128 KiB per branch. ~8k keys at ~1% false-positive, ~20k at ~10%. Power of two (mask).
+  // 32 KiB per filter, 160 KiB per branch. ~8k keys at ~1% false-positive, ~20k at ~10%. Power of two (mask).
   static constexpr size_t kFilterWords = 4096;
   static_assert((kFilterWords & (kFilterWords - 1)) == 0, "kFilterWords must be a power of two");
 
   BranchChangeFilters()
-      : property_(kFilterWords), label_(kFilterWords), edge_(kFilterWords), property_field_(kFilterWords) {}
+      : property_(kFilterWords),
+        label_(kFilterWords),
+        edge_(kFilterWords),
+        property_field_(kFilterWords),
+        deleted_(kFilterWords) {}
 
   BranchChangeFilters(const BranchChangeFilters &) = delete;
   BranchChangeFilters &operator=(const BranchChangeFilters &) = delete;
@@ -75,6 +79,11 @@ class BranchChangeFilters {
   // Records `endpoint_gid`'s adjacency as possibly changed. Call for BOTH endpoints of a changed edge,
   // since expansion from either side reads incident edges keyed by that vertex's gid.
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { edge_.Insert(endpoint_gid); }
+
+  // Records that this branch marked fork vertex `gid` deleted. Call before the marker write.
+  void RecordVertexDeleted(storage::Gid gid) noexcept { deleted_.Insert(gid); }
+
+  [[nodiscard]] bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return deleted_.MayContain(gid); }
 
   [[nodiscard]] bool MayHaveLabelChange(storage::Gid gid) const noexcept { return label_.MayContain(gid); }
 
@@ -136,6 +145,7 @@ class BranchChangeFilters {
   MonotonicGidFilter label_;
   MonotonicGidFilter edge_;
   MonotonicGidFilter property_field_;
+  MonotonicGidFilter deleted_;
 };
 
 }  // namespace memgraph::versioning

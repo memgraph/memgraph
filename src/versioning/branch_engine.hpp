@@ -121,6 +121,10 @@ class BranchCore {
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
 
+  void RecordVertexDeleted(storage::Gid gid) noexcept { change_filters_.RecordVertexDeleted(gid); }
+
+  bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
+
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     change_filters_.RecordPropertyField(gid, pid);
   }
@@ -368,6 +372,10 @@ class BranchContext {
   void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept { core_->RecordVertexChange(gid, kind); }
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { core_->RecordEdgeChange(endpoint_gid); }
+
+  void RecordVertexDeleted(storage::Gid gid) noexcept { core_->RecordVertexDeleted(gid); }
+
+  bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     core_->RecordPropertyFieldChange(gid, pid);

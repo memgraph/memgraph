@@ -537,12 +537,14 @@ class DbAccessor final {
   }
 
   // Untouched fork candidates keep stream order; stubbed ones join `touched`, bound to the stub. The `branched()` bit
-  // is a lock-free fast path (clear => identical to the fork); a set bit is confirmed by a stub lookup.
+  // is a lock-free fast path (clear => identical to the fork); a set bit is confirmed by the branch's own
+  // label/property filters, then a stub lookup.
   std::vector<storage::VertexAccessor> SplitBranchForkStream(storage::VerticesIterable fork_stream, storage::View view,
                                                              BranchTouchedSet &touched) {
     std::vector<storage::VertexAccessor> untouched;
     for (auto raw : fork_stream) {
-      if (!raw.vertex_->branched()) {
+      if (!raw.vertex_->branched() ||
+          !(branch_ctx_->MayHaveLabelChange(raw.Gid()) || branch_ctx_->MayHavePropertyChange(raw.Gid()))) {
         untouched.push_back(raw);
         continue;
       }
@@ -1062,7 +1064,7 @@ class DbAccessor final {
       // (a) Fork stream: a candidate with a stub is re-checked on the reconstructed vertex (removed label or delete
       // marker drops it) and emitted bound to the stub.
       for (auto raw : historical.Vertices(label, storage::View::OLD)) {
-        if (!raw.vertex_->branched()) {
+        if (!raw.vertex_->branched() || !branch_ctx_->MayHaveLabelChange(raw.Gid())) {
           result->push_back(VertexAccessor(raw, branch_ctx_));
           continue;
         }

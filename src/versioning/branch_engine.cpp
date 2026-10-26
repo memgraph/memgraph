@@ -440,6 +440,7 @@ bool BranchContext::IsStubDeleted(const storage::VertexAccessor &stub, storage::
 bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsVertexDeleted: no current diff transaction set.");
   if (!IsForkVertexGid(gid)) return false;
+  if (!MayHaveVertexDeleted(gid)) return false;
   auto stub = current_diff_txn_->FindVertex(gid, view);
   return stub.has_value() && IsStubDeleted(*stub, view);
 }
@@ -456,16 +457,19 @@ bool BranchContext::IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, sto
   const bool in_diff = fork_edge.storage_ == &diff_engine();
   const auto from = fork_edge.FromVertex();
   const auto to = fork_edge.ToVertex();
-  auto stub_of = [&](const storage::VertexAccessor &v) -> std::optional<storage::VertexAccessor> {
-    if (!in_diff && !v.vertex_->branched()) return std::nullopt;
+  // Not in the diff: the FROM stub hides the edge via its delete marker or deleted-edge list, the TO stub only via its
+  // delete marker; the per-branch filters rule out a stub that cannot carry either.
+  auto stub_of = [&](const storage::VertexAccessor &v, bool may_hide) -> std::optional<storage::VertexAccessor> {
+    if (!in_diff && !(v.vertex_->branched() && may_hide)) return std::nullopt;
     return current_diff_txn_->FindVertex(v.Gid(), view);
   };
-  if (auto from_stub = stub_of(from)) {
+  if (auto from_stub = stub_of(from, MayHaveVertexDeleted(from.Gid()) || MayHaveEdgeChange(from.Gid()))) {
     if (IsStubDeleted(*from_stub, view)) return true;
     if (std::ranges::binary_search(DeletedEdgeGids(*from_stub, view), fork_edge.Gid().AsUint())) return true;
   }
   if (to.Gid() != from.Gid()) {
-    if (auto to_stub = stub_of(to); to_stub && IsStubDeleted(*to_stub, view)) return true;
+    auto to_stub = stub_of(to, MayHaveVertexDeleted(to.Gid()));
+    if (to_stub && IsStubDeleted(*to_stub, view)) return true;
   }
   return false;
 }
@@ -487,6 +491,7 @@ storage::Result<std::optional<storage::VertexAccessor>> BranchContext::DeleteFor
   if (IsVertexDeleted(gid, storage::View::NEW)) return std::optional<storage::VertexAccessor>{};
   auto stub = CowVertex(gid);
   if (!stub) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  RecordVertexDeleted(gid);
   if (auto marked = stub->AddLabel(DeletedLabel()); !marked) return std::unexpected{marked.error()};
   // The marker is a label write on a stub: open the label/property read gates and the adjacency fast path.
   RecordVertexChange(gid, BranchChangeKind::kLabel);

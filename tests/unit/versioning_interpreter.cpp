@@ -469,6 +469,30 @@ TEST_F(VersioningGatedTest, BranchCrossBranchIsolationReadsOwnFork) {
          "fall back to fork-state, never leak across branches";
 }
 
+// Deletes and a label removal on b1 must not leak to an untouched b2 forked from the same main, through a label scan,
+// an expansion and an edge scan; b1 itself must no longer see them.
+TEST_F(VersioningGatedTest, BranchDeleteAndLabelRemovalOnOneBranchDoNotAffectUntouchedSibling) {
+  faker.Interpret("CREATE (:K {i:1})-[:R]->(:K {i:2})-[:R]->(:K {i:3}), (:K:Z {i:4})");
+  Fork("b1");
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
+
+  faker.Interpret("CHECKOUT BRANCH 'b1'");
+  faker.Interpret("MATCH (:K {i:1})-[r:R]->() DELETE r");
+  faker.Interpret("MATCH (n:K {i:2}) DETACH DELETE n");
+  faker.Interpret("MATCH (n:K {i:4}) REMOVE n:Z");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN count(n)"), (Rows{{3}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Z) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{0}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'b2'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN count(n)"), (Rows{{4}})) << "b2 must still see the deleted vertex";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Z) RETURN n.i"), (Rows{{4}})) << "b2 must still see the removed label";
+  EXPECT_EQ(IntRows(faker, "MATCH (:K {i:1})-[r:R]->(m) RETURN m.i"), (Rows{{2}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:K {i:3})<-[r:R]-(m) RETURN m.i"), (Rows{{2}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{2}}));
+}
+
 // A changed property reached through an edge traversal must read the branch's new value and an unchanged property on
 // the same vertex its fork value; main stays untouched.
 TEST_F(VersioningGatedTest, BranchFinePropertyChangeReadViaTraversal) {
