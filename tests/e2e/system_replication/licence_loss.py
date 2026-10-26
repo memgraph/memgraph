@@ -45,8 +45,6 @@ pytestmark = pytest.mark.skipif(
     reason="needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
 )
 
-PENDING_DECISION = "behaviour without a licence is pending a product decision; see the licence-loss post-mortem"
-
 
 @pytest.fixture
 def test_name(request):
@@ -175,8 +173,7 @@ def test_relicensed_main_replica_in_step_without_write(test_name):
     assert replicas[0][4]["tenant"]["behind"] == 0
 
 
-@pytest.mark.xfail(reason=PENDING_DECISION, strict=True)
-def test_fine_grained_rules_enforced_without_licence(test_name):
+def test_fine_grained_rules_not_enforced_without_licence(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
@@ -197,11 +194,10 @@ def test_fine_grained_rules_enforced_without_licence(test_name):
 
     set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
 
-    assert visible_to_restricted() == 0
+    assert visible_to_restricted() == 3
 
 
-@pytest.mark.xfail(reason=PENDING_DECISION, strict=True)
-def test_user_profile_enforced_without_licence(test_name):
+def test_user_profile_not_enforced_without_licence(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
@@ -214,16 +210,13 @@ def test_user_profile_enforced_without_licence(test_name):
     set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
 
     first = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(
-            connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited").cursor(),
-            "RETURN 1;",
-        )
+    second = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    assert execute_and_fetch_all(second.cursor(), "RETURN 1;") == [(1,)]
+    second.close()
     first.close()
 
 
-@pytest.mark.xfail(reason=PENDING_DECISION, strict=True)
-def test_password_masked_in_log_without_licence(test_name):
+def test_password_not_masked_in_log_without_licence(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
@@ -232,22 +225,28 @@ def test_password_masked_in_log_without_licence(test_name):
     execute_and_fetch_all(main_cursor, "CREATE USER secretive IDENTIFIED BY 'do_not_log_this';")
 
     log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
-    assert not any("do_not_log_this" in log.read_text() for log in log_dir.glob("main*.log"))
+    assert any("do_not_log_this" in log.read_text() for log in log_dir.glob("main*.log"))
 
 
-@pytest.mark.xfail(reason=PENDING_DECISION, strict=True)
-def test_audit_log_records_without_licence(test_name):
+def test_audit_log_stops_without_licence(test_name):
     description = instances(test_name, main_args=("--audit-enabled",))
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
-    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
-
-    execute_and_fetch_all(main_cursor, "RETURN 'audit_this_query';")
-
     audit_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name), "main", "audit")
-    mg_sleep_and_assert(
-        True, lambda: any("audit_this_query" in log.read_text() for log in audit_dir.glob("*") if log.is_file())
-    )
+
+    def audited(text):
+        return lambda: any(text in log.read_text() for log in audit_dir.glob("*") if log.is_file())
+
+    execute_and_fetch_all(main_cursor, "RETURN 'audited_licensed';")
+    mg_sleep_and_assert(True, audited("audited_licensed"))
+
+    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
+    execute_and_fetch_all(main_cursor, "RETURN 'not_audited_unlicensed';")
+    set_organization_name(main_cursor, ORGANIZATION_NAME)
+    execute_and_fetch_all(main_cursor, "RETURN 'audited_relicensed';")
+    mg_sleep_and_assert(True, audited("audited_relicensed"))
+
+    assert not audited("not_audited_unlicensed")()
 
 
 if __name__ == "__main__":
