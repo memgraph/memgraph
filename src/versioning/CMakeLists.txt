@@ -15,12 +15,14 @@ target_sources(mg-versioning
         stub_properties.hpp
         version_store.hpp
         vertex_overlay.hpp
+        vertex_overlay_store.hpp
 
         PRIVATE
         branch_engine.cpp
         gate.cpp
         name.cpp
         version_store.cpp
+        vertex_overlay_store.cpp
 )
 
 target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics)

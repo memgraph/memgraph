@@ -108,6 +108,11 @@ add_unit_test(versioning_stub_index
         LINK_TARGETS mg::versioning mg::storage
 )
 
+add_unit_test(versioning_vertex_overlay_store
+        SOURCES versioning_vertex_overlay_store.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
 add_unit_test(versioning_durability_restart
         SOURCES versioning_durability_restart.cpp
         LINK_TARGETS mg::versioning mg::storage mg-dbms
