@@ -253,8 +253,7 @@ BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
       diff_engine_(std::move(diff_engine)),
       removed_props_key_(diff_engine_->NameToProperty(kRemovedPropsName)),
       deleted_label_(diff_engine_->NameToLabel(kDeletedLabelName)),
-      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)),
-      stub_index_(vertex_gid_floor) {}
+      deleted_edges_key_(diff_engine_->NameToProperty(kDeletedEdgesName)) {}
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
     storage::InMemoryStorage &main, uint64_t fork_ts) {
