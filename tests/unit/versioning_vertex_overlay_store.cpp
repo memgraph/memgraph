@@ -322,7 +322,7 @@ TEST(VersioningVertexOverlayStore, VersionsRoundTripEveryPart) {
   EXPECT_EQ(version->properties().GetProperty(Prop(1)).ValueInt(), 42);
   ASSERT_EQ(version->removed_pids().size(), 1U);
   EXPECT_EQ(version->removed_pids()[0], Prop(2));
-  EXPECT_EQ(version->AllocatedBytes(), OverlayVersion::AllocBytes(true, 299, 1, 1));
+  EXPECT_EQ(version->AllocatedBytes(), 1252U);  // 48 B extended header + 300 label ids + 1 property id, 4 B each
 
   txn->AdvanceCommand();
   ASSERT_TRUE(env.store

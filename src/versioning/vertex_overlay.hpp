@@ -66,4 +66,15 @@ storage::Result<storage::PropertyValue> MergeGetProperty(const OverlayVersion &v
   return fork.GetProperty(key, storage::View::OLD);
 }
 
+template <typename Fork>
+storage::Result<uint64_t> MergeGetPropertySize(const OverlayVersion &version, const Fork &fork,
+                                               storage::PropertyId key) {
+  // An overlay property is never null, so a non-zero size means the overlay owns a value for `key`.
+  if (auto const own = version.properties().PropertySize(key); own != 0) return uint64_t{own};
+  auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
+  if (!in_fork) return in_fork;
+  if (*in_fork == 0 || std::ranges::binary_search(version.removed_pids(), key)) return uint64_t{0};
+  return in_fork;
+}
+
 }  // namespace memgraph::versioning

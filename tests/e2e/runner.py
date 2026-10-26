@@ -122,7 +122,7 @@ def run(args):
             if "cluster" in workload:
                 procdir = ""
                 if "proc" in workload:
-                    procdir = ",".join(os.path.join(BUILD_DIR, d) for d in workload["proc"].split(","))
+                    procdir = ",".join(os.path.join(BUILD_DIR, d) for d in workload["proc"].split(",") if d)
                 gdb_port = args.gdb_port if args.gdb else None
                 interactive_mg_runner.start_all(workload["cluster"], procdir, keep_directories=False, gdb_port=gdb_port)
 

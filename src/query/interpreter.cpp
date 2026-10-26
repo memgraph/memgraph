@@ -8013,12 +8013,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
         auto node_labels = storage->ListAllPossiblyPresentVertexLabels();
         if (branch) {
-          auto const seen = std::unordered_set<storage::LabelId>(node_labels.begin(), node_labels.end());
+          auto seen = std::unordered_set<storage::LabelId>(node_labels.begin(), node_labels.end());
           for (auto const label : branch->diff_engine().ListAllPossiblyPresentVertexLabels()) {
-            if (!seen.contains(label) && !branch->ClassifyLabel(label).reserved) node_labels.push_back(label);
+            if (!branch->ClassifyLabel(label).reserved && seen.insert(label).second) node_labels.push_back(label);
           }
           for (auto const label : branch->TouchedLabels()) {
-            if (std::ranges::find(node_labels, label) == node_labels.end()) node_labels.push_back(label);
+            if (seen.insert(label).second) node_labels.push_back(label);
           }
         }
         std::vector<std::vector<TypedValue>> results;

@@ -376,8 +376,7 @@ std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchCons
 
   for (auto const raw_gid : touched) {
     auto const gid = storage::Gid::FromUint(raw_gid);
-    auto resolved =
-        ctx.IsForkVertexGid(gid) ? ctx.FindForkVertex(gid) : ctx.FindStubOrDiffVertex(gid, storage::View::NEW);
+    auto resolved = ctx.ResolveVertex(gid, storage::View::NEW);
     if (!resolved) continue;
     VertexAccessor const vertex{*resolved, &ctx};
 

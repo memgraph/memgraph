@@ -148,8 +148,6 @@ class VerticesIterable final {
     std::shared_ptr<std::vector<VertexAccessor>> materialized_;
 
    public:
-    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
-
     Iterator(storage::VerticesIterable::Iterator it, versioning::BranchContext *ctx)
         : it_(std::move(it)), branch_ctx_(ctx) {}
 

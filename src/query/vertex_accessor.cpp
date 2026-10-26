@@ -78,12 +78,7 @@ storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, 
   auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
   if (version == nullptr) return impl.GetPropertySize(key, view);
   if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
-  // An overlay property is never null, so a non-zero size means the overlay owns a value for `key`.
-  if (auto const own = version->properties().PropertySize(key); own != 0) return uint64_t{own};
-  auto in_fork = impl.GetPropertySize(key, storage::View::OLD);
-  if (!in_fork) return in_fork;
-  if (*in_fork == 0 || std::ranges::binary_search(version->removed_pids(), key)) return uint64_t{0};
-  return in_fork;
+  return versioning::MergeGetPropertySize(*version, impl, key);
 }
 
 // A fork vertex's accessor is main@fork_ts; once its `branched()` bit is set the branch may hold changes for it.

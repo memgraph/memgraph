@@ -158,16 +158,7 @@ class OverlayVersion {
   // Releases the stamp reference and the memory; does not follow `older`.
   static void Destroy(OverlayVersion *version) noexcept;
 
-  // Bytes of the allocation holding a version with these counts.
-  static constexpr size_t AllocBytes(bool extended, size_t added, size_t removed, size_t pids) noexcept {
-    return ComputeLayout(extended, added, removed, pids).total;
-  }
-
-  const OverlayStamp *stamp() const noexcept { return stamp_; }
-
   OverlayVersion *older() const noexcept { return older_.load(std::memory_order_acquire); }
-
-  uint32_t command_id() const noexcept { return command_id_; }
 
   bool deleted() const noexcept { return (flags_ & kDeleted) != 0; }
 
@@ -278,11 +269,7 @@ class OverlayTransaction {
 
   uint64_t start_ts() const noexcept { return start_ts_; }
 
-  uint64_t txn_id() const noexcept { return txn_id_; }
-
   uint32_t command_id() const noexcept { return command_id_; }
-
-  storage::IsolationLevel isolation() const noexcept { return isolation_; }
 
   // Next command: writes made so far become visible to View::OLD.
   void AdvanceCommand() noexcept {
@@ -409,11 +396,6 @@ class VertexOverlayStore {
   // after everything to be marked has been unlinked: garbage is marked with the second sample, so a reader that began
   // after an unlink was sampled can never be freed under. `sample` may take the engine's lock. Calls are serialized.
   void CollectGarbage(const std::function<Horizon()> &sample);
-
-  // For a caller whose clock cannot change during the call (tests): one fixed horizon for both samples.
-  void CollectGarbage(uint64_t oldest_active_start_ts, uint64_t now_ts) {
-    CollectGarbage([=] { return Horizon{oldest_active_start_ts, now_ts}; });
-  }
 
   // Gids with a chain.
   size_t size() const;

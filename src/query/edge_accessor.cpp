@@ -83,12 +83,7 @@ ReadTarget ResolveReadTarget(versioning::BranchContext &ctx, const storage::Edge
 
 storage::Result<uint64_t> MergedGetPropertySize(const versioning::OverlayVersion &version,
                                                 const storage::EdgeAccessor &fork, storage::PropertyId key) {
-  // An overlay property is never null, so a non-zero size means the overlay owns a value for `key`.
-  if (auto const own = version.properties().PropertySize(key); own != 0) return uint64_t{own};
-  auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
-  if (!in_fork) return in_fork;
-  if (*in_fork == 0 || std::ranges::binary_search(version.removed_pids(), key)) return uint64_t{0};
-  return in_fork;
+  return versioning::MergeGetPropertySize(version, fork, key);
 }
 
 // Before an overlay write of a fork edge: throws if it is deleted on the branch or edge properties are disabled.
