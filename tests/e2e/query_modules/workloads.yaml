@@ -33,7 +33,6 @@ in_memory_cluster_edge_props: &in_memory_cluster_edge_props
       validation_queries: []
 
 # Versioning branches need an enterprise license and a snapshot interval that never fires during the test.
-# schema.so lives in build/query_modules (relative to the e2e cwd, build/tests/e2e); versioning_mgp.so next to it.
 args_versioning: &args_versioning
   - "--bolt_port"
   - *bolt_port
@@ -43,7 +42,6 @@ args_versioning: &args_versioning
   - "--versioning-enabled=true"
   - "--storage-wal-enabled=true"
   - "--storage-snapshot-interval-sec=86400"
-  - "--query-modules-directory=../../query_modules,query_modules/query_modules"
 
 in_memory_cluster_versioning: &in_memory_cluster_versioning
   cluster:
@@ -99,5 +97,6 @@ workloads:
 
   - name: "Versioning mgp_execute_query and schema.assert test"
     binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/,tests/e2e/query_modules/query_modules/"
     args: ["query_modules/versioning_mgp_test.py"]
     <<: *in_memory_cluster_versioning

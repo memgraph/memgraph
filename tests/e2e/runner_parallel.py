@@ -531,7 +531,7 @@ def run_single_workload(workload, worker_slot, exclusive, args_dict):
                 subprocess.run([os.path.join(BUILD_DIR, prepared["pre_set_workload"])], check=True, env=env)
 
             if "cluster" in prepared:
-                procdir = os.path.join(BUILD_DIR, prepared["proc"]) if "proc" in prepared else ""
+                procdir = ",".join(os.path.join(BUILD_DIR, d) for d in prepared.get("proc", "").split(",") if d)
                 interactive_mg_runner.start_all(prepared["cluster"], procdir, keep_directories=False, gdb_port=gdb_port)
 
             if args_dict["debug"]:
