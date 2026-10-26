@@ -13,6 +13,7 @@ option(ENABLE_TESTS "Enable tests" ON)
 # required) because if outside, the test support libraries will be copied to
 # the install directory when this project is used as a dependency.
 if (${ENABLE_TESTS})
+  set(NLOHMANN_GIT_TAG "v3.12.0" CACHE STRING "NLohmann git tag")
   file(DOWNLOAD https://raw.githubusercontent.com/memgraph/cmake/main/modules/external-fmt.cmake
        ${CMAKE_BINARY_DIR}/external-fmt.cmake)
   include(${CMAKE_BINARY_DIR}/external-fmt.cmake)
