@@ -106,8 +106,13 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
                                                           const storage::VertexAccessor &stub, storage::View view,
                                                           storage::PropertyId key) {
   if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return storage::PropertyValue{};
+  const auto gid = stub.Gid();
+  // No recorded write, removal or delete for `key`: the stub adds nothing over the fork value.
+  if (!ctx.MayHavePropertyFieldChange(gid, key) && !ctx.MayHaveVertexDeleted(gid)) {
+    if (auto fork_only = ctx.FindForkVertex(gid)) return fork_only->GetProperty(key, storage::View::OLD);
+  }
   if (ctx.IsStubDeleted(stub, view)) return std::unexpected{storage::Error::DELETED_OBJECT};
-  auto fork = ctx.FindForkVertex(stub.Gid());
+  auto fork = ctx.FindForkVertex(gid);
   DMG_ASSERT(fork.has_value(), "Fork vertex missing for stub {}", stub.Gid().AsUint());
   if (!fork) return stub.GetProperty(key, view);
   auto in_fork = fork->GetProperty(key, storage::View::OLD);
@@ -119,8 +124,12 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
 storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::VertexAccessor &stub,
                                                 storage::PropertyId key, storage::View view) {
   if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return uint64_t{0};
+  const auto gid = stub.Gid();
+  if (!ctx.MayHavePropertyFieldChange(gid, key) && !ctx.MayHaveVertexDeleted(gid)) {
+    if (auto fork_only = ctx.FindForkVertex(gid)) return fork_only->GetPropertySize(key, storage::View::OLD);
+  }
   if (ctx.IsStubDeleted(stub, view)) return std::unexpected{storage::Error::DELETED_OBJECT};
-  auto fork = ctx.FindForkVertex(stub.Gid());
+  auto fork = ctx.FindForkVertex(gid);
   DMG_ASSERT(fork.has_value(), "Fork vertex missing for stub {}", stub.Gid().AsUint());
   if (!fork) return stub.GetPropertySize(key, view);
   auto in_fork = fork->GetPropertySize(key, storage::View::OLD);
@@ -243,10 +252,10 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
     if (branch_ctx_->IsStub(impl_)) return MergedGetProperty(*branch_ctx_, impl_, view, key);
-    // Label changes also force the merge: a delete is a label marker and reading a deleted vertex must fail.
+    // A deleted vertex must fail the read, so a recorded delete also forces the merge.
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
-      if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveLabelChange(gid)) {
+      if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveVertexDeleted(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
           if (branch_ctx_->IsStub(*stub)) return MergedGetProperty(*branch_ctx_, *stub, view, key);
           return stub->GetProperty(key, view);
@@ -262,7 +271,7 @@ storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId ke
     if (branch_ctx_->IsStub(impl_)) return MergedGetPropertySize(*branch_ctx_, impl_, key, view);
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
-      if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveLabelChange(gid)) {
+      if (branch_ctx_->MayHavePropertyFieldChange(gid, key) || branch_ctx_->MayHaveVertexDeleted(gid)) {
         if (auto stub = branch_ctx_->FindStubOrDiffVertex(gid, view)) {
           if (branch_ctx_->IsStub(*stub)) return MergedGetPropertySize(*branch_ctx_, *stub, key, view);
           return stub->GetPropertySize(key, view);

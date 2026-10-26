@@ -239,11 +239,21 @@ class BranchContext {
   // labels/properties stay in historical_). CowError if deleted on the branch.
   std::expected<storage::VertexAccessor, CowError> CowVertex(storage::Gid gid);
 
-  LabelInfo ClassifyLabel(storage::LabelId label) { return core_->ClassifyLabel(label); }
+  // Per-session memo over the core's locked caches (entries are immutable there), so hot reads skip its mutex.
+  LabelInfo ClassifyLabel(storage::LabelId label) {
+    if (auto it = label_info_.find(label); it != label_info_.end()) return it->second;
+    return label_info_.emplace(label, core_->ClassifyLabel(label)).first->second;
+  }
 
-  storage::LabelId RemovalMarker(storage::LabelId label) { return core_->RemovalMarker(label); }
+  storage::LabelId RemovalMarker(storage::LabelId label) {
+    if (auto it = removal_marker_.find(label); it != removal_marker_.end()) return it->second;
+    return removal_marker_.emplace(label, core_->RemovalMarker(label)).first->second;
+  }
 
-  bool IsReservedProperty(storage::PropertyId property) { return core_->IsReservedProperty(property); }
+  bool IsReservedProperty(storage::PropertyId property) {
+    if (auto it = reserved_property_.find(property); it != reserved_property_.end()) return it->second;
+    return reserved_property_.emplace(property, core_->IsReservedProperty(property)).first->second;
+  }
 
   storage::PropertyId RemovedPropsKey() { return core_->RemovedPropsKey(); }
 
@@ -409,6 +419,10 @@ class BranchContext {
 
   std::shared_ptr<BranchCore> core_;
   std::string name_;
+  // Session-local memos for ClassifyLabel/RemovalMarker/IsReservedProperty; unsynchronized (one thread at a time).
+  std::unordered_map<storage::LabelId, LabelInfo> label_info_;
+  std::unordered_map<storage::LabelId, storage::LabelId> removal_marker_;
+  std::unordered_map<storage::PropertyId, bool> reserved_property_;
   // current_diff_txn_ is not owned: it points into CurrentDB::db_transactional_accessor_ for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;

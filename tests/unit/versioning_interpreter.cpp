@@ -1951,6 +1951,24 @@ TEST_F(VersioningGatedTest, BranchRemovePropertyOnForkVertexIsVisible) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:P) RETURN n.p, n.q"), (Rows{{7, 8}}));
 }
 
+// Stub-bound reads gate on the per-key property filter: a stub created only by a label or an edge change must still
+// return the fork's property, and a key dropped by `SET n = {...}` must read null.
+TEST_F(VersioningGatedTest, BranchStubPropertyReadsFollowFineFilterNotJustStubPresence) {
+  faker.Interpret("CREATE (:L {id: 1, p: 7}), (:M {id: 2, p: 8}), (:R {id: 3, p: 9, q: 10})");
+  Fork();
+
+  faker.Interpret("MATCH (n:L) SET n:Extra");
+  faker.Interpret("MATCH (a:L), (b:M) CREATE (a)-[:E]->(b)");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Extra) RETURN n.id, n.p"), (Rows{{1, 7}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:M) RETURN n.id, n.p"), (Rows{{2, 8}}));
+
+  faker.Interpret("MATCH (n:R) SET n = {id: 3}");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:R) RETURN n.id, n.p, n.q"), (Rows{{3, kNullInt, kNullInt}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:R) RETURN n.p, n.q"), (Rows{{9, 10}}));
+}
+
 TEST_F(VersioningGatedTest, BranchSetPropertyAfterRemoveRestoresIt) {
   faker.Interpret("CREATE (:P {id: 1, p: 7})");
   Fork();

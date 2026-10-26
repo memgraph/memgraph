@@ -437,6 +437,7 @@ storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::
 }
 
 bool BranchContext::IsStubDeleted(const storage::VertexAccessor &stub, storage::View view) {
+  if (!MayHaveVertexDeleted(stub.Gid())) return false;  // the marker is only written after RecordVertexDeleted
   auto deleted = stub.HasLabel(DeletedLabel(), view);
   return deleted.has_value() && *deleted;
 }
