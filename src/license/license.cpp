@@ -212,7 +212,6 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   auto try_add = [&](std::string_view key, std::string_view org, int priority, std::string_view source_name) {
     auto const reject = [&](std::string_view reason, bool const rejected = true) {
       failures.push_back(fmt::format("[{}] {}", source_name, reason));
-      spdlog::warn("{}", failures.back());
       licence_rejected |= rejected;
     };
     if (key.empty() && org.empty()) return;
@@ -262,6 +261,8 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     if (*locked || (failures_changed && licence_rejected)) {
       spdlog::error("No valid license found. Running in community mode. {}", utils::Join(failures, " "));
       locked->reset();
+    } else if (failures_changed && !failures.empty()) {
+      spdlog::warn("No valid license found. {}", utils::Join(failures, " "));
     }
     atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
       s.valid = false;
@@ -280,6 +281,10 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     if (expiry_of(a) != expiry_of(b)) return expiry_of(a) < expiry_of(b);
     return a.priority < b.priority;
   });
+
+  if (failures_changed && !failures.empty()) {
+    spdlog::warn("Ignoring a rejected license source. {}", utils::Join(failures, " "));
+  }
 
   // Persist winner to Settings so it survives restarts where CLI/ENV are absent.
   settings.SetValueForce(std::string{kEnterpriseLicenseSettingKey}, winner.key);
@@ -439,7 +444,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   if (!locked_previous_license_info) {
     info.is_valid = false;
     auto failures = license_failures_.Lock();
-    info.status = failures->empty() ? "You have not provided any license!" : utils::Join(*failures, " ");
+    info.status = failures->empty() ? "You have not provided any license." : utils::Join(*failures, " ");
     return info;
   }
 
@@ -449,7 +454,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
     if (info.license_key.empty() && info.organization_name.empty()) {
-      info.status = "You have not provided any license!";
+      info.status = "You have not provided any license.";
     } else {
       info.status = "Invalid license key string!";
     }
