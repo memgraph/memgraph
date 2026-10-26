@@ -948,7 +948,8 @@ int main(int argc, char **argv) {
     dbms_handler->ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
-        return locked_repl_state->IsMainWriteable();
+        return locked_repl_state->IsMainWriteable() &&
+               memgraph::license::global_license_checker.IsEnterpriseValidFast();
       });
     });
   }
@@ -1087,7 +1088,8 @@ int main(int argc, char **argv) {
     dh->SetOnPublished([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
-        return locked_repl_state->IsMainWriteable();
+        return locked_repl_state->IsMainWriteable() &&
+               memgraph::license::global_license_checker.IsEnterpriseValidFast();
       });
     });
   }
