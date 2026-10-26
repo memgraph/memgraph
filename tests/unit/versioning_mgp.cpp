@@ -83,6 +83,37 @@ class VersioningMgpTest : public ::testing::Test {
 
   InterpreterFaker faker{&interpreter_context, db};
 
+  void ExpectForkVertexNotDeletedAfterMainDeletes(bool branch_changes_vertex) {
+    faker.Interpret("CREATE (:V {id: 1})");
+    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret("MATCH (n:V) DELETE n");
+    faker.Interpret("CHECKOUT BRANCH 'b'");
+
+    faker.Interpret("BEGIN");
+    if (branch_changes_vertex) faker.Interpret("MATCH (n:V) SET n.x = 2");
+    int64_t gid = 0;
+    {
+      auto stream = faker.Interpret("MATCH (n:V) RETURN id(n)");
+      ASSERT_EQ(stream.GetResults().size(), 1U);
+      gid = stream.GetResults()[0][0].ValueInt();
+    }
+    auto &dba_opt = faker.interpreter.current_db_.execution_db_accessor_;
+    ASSERT_TRUE(dba_opt.has_value());
+    auto va = dba_opt->FindVertex(memgraph::storage::Gid::FromInt(gid), memgraph::storage::View::NEW);
+    ASSERT_TRUE(va.has_value());
+
+    mgp_graph graph{
+        &*dba_opt, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+    mgp_vertex vertex{*va, &graph, mgp_vertex::allocator_type{memgraph::utils::NewDeleteResource()}};
+
+    int deleted = -1;
+    ASSERT_EQ(mgp_vertex_is_deleted(&vertex, &deleted), mgp_error::MGP_ERROR_NO_ERROR);
+    EXPECT_EQ(deleted, 0);
+
+    faker.Interpret("ROLLBACK");
+  }
+
   void SetUp() override {
     FLAGS_versioning_enabled = true;
     memgraph::license::global_license_checker.EnableTesting();
@@ -234,34 +265,11 @@ TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkVertex) {
 // Main's live deleted flag must not leak into the branch: a fork vertex main deleted after the fork is not deleted
 // there, whether or not the branch changed it.
 TEST_F(VersioningMgpTest, IsDeletedIgnoresMainDeletingForkVertexAfterFork) {
-  faker.Interpret("CREATE (:V {id: 1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("MATCH (n:V) DELETE n");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectForkVertexNotDeletedAfterMainDeletes(true);
+}
 
-  faker.Interpret("BEGIN");
-  faker.Interpret("MATCH (n:V) SET n.x = 2");
-  int64_t gid = 0;
-  {
-    auto stream = faker.Interpret("MATCH (n:V) RETURN id(n)");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    gid = stream.GetResults()[0][0].ValueInt();
-  }
-  auto &dba_opt = faker.interpreter.current_db_.execution_db_accessor_;
-  ASSERT_TRUE(dba_opt.has_value());
-  auto va = dba_opt->FindVertex(memgraph::storage::Gid::FromInt(gid), memgraph::storage::View::NEW);
-  ASSERT_TRUE(va.has_value());
-
-  mgp_graph graph{
-      &*dba_opt, memgraph::storage::View::NEW, nullptr, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  mgp_vertex vertex{*va, &graph, mgp_vertex::allocator_type{memgraph::utils::NewDeleteResource()}};
-
-  int deleted = -1;
-  ASSERT_EQ(mgp_vertex_is_deleted(&vertex, &deleted), mgp_error::MGP_ERROR_NO_ERROR);
-  EXPECT_EQ(deleted, 0);
-
-  faker.Interpret("ROLLBACK");
+TEST_F(VersioningMgpTest, IsDeletedIgnoresMainDeletingUnchangedForkVertexAfterFork) {
+  ExpectForkVertexNotDeletedAfterMainDeletes(false);
 }
 
 TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkEdge) {

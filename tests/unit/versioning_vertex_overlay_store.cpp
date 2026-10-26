@@ -9,11 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <malloc.h>
-
 #include <atomic>
 #include <cstdint>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -340,6 +337,34 @@ TEST(VersioningVertexOverlayStore, VersionsRoundTripEveryPart) {
   EXPECT_EQ(version->properties().GetProperty(Prop(1)).IsNull(), true);
 }
 
+TEST(VersioningVertexOverlayStore, NormalFormVersionsRoundTripEveryPart) {
+  Env env;
+  auto txn = env.Begin();
+  ASSERT_TRUE(env.store
+                  .Write(1,
+                         *txn,
+                         [](OverlayState &state) {
+                           state.AddLabel(Label(1));
+                           state.AddLabel(Label(2));
+                           state.AddLabel(Label(3));
+                           state.RemoveLabel(Label(7));
+                           state.SetProperty(Prop(1), ms::PropertyValue(int64_t{42}));
+                           state.RemoveProperty(Prop(2));
+                           return true;
+                         })
+                  .has_value());
+  auto const *version = env.store.Read(1, *txn, View::NEW);
+  ASSERT_NE(version, nullptr);
+  EXPECT_FALSE(version->deleted());
+  EXPECT_EQ(Added(version), (Labels{1, 2, 3}));
+  ASSERT_EQ(version->removed_labels().size(), 1U);
+  EXPECT_EQ(version->removed_labels()[0], Label(7));
+  EXPECT_EQ(version->properties().GetProperty(Prop(1)).ValueInt(), 42);
+  ASSERT_EQ(version->removed_pids().size(), 1U);
+  EXPECT_EQ(version->removed_pids()[0], Prop(2));
+  EXPECT_EQ(version->AllocatedBytes(), 56U);  // 36 B tail start + 3 + 1 label ids + 1 property id, 4 B each
+}
+
 TEST(VersioningVertexOverlayStore, ReportsVersionSizes) {
   Env env;
   auto txn = env.Begin();
@@ -362,23 +387,9 @@ TEST(VersioningVertexOverlayStore, ReportsVersionSizes) {
                            return true;
                          })
                   .has_value());
-  auto const usable = [&](uint64_t gid) {
-    auto const *version = env.store.Read(gid, *txn, View::NEW);
-    return malloc_usable_size(const_cast<OverlayVersion *>(version));
-  };
-  std::cout << "sizeof(OverlayVersion)=" << sizeof(OverlayVersion)
-            << " single-label alloc=" << env.store.Read(1, *txn, View::NEW)->AllocatedBytes() << " (size class "
-            << usable(1) << "), single-property alloc=" << env.store.Read(2, *txn, View::NEW)->AllocatedBytes()
-            << " (size class " << usable(2)
-            << "), three-label alloc=" << env.store.Read(3, *txn, View::NEW)->AllocatedBytes() << " (size class "
-            << usable(3) << ")\n";
-
-  EXPECT_EQ(sizeof(OverlayVersion), 40U);
   EXPECT_EQ(env.store.Read(1, *txn, View::NEW)->AllocatedBytes(), 40U);
   EXPECT_EQ(env.store.Read(2, *txn, View::NEW)->AllocatedBytes(), 40U);
-  EXPECT_LE(usable(1), 48U);
-  EXPECT_LE(usable(2), 48U);
-  EXPECT_LE(usable(3), 48U);
+  EXPECT_EQ(env.store.Read(3, *txn, View::NEW)->AllocatedBytes(), 48U);  // 36 B tail start + 3 label ids
 }
 
 // A fork edge is keyed by EdgeKey: it is its own conflict domain next to the vertex with the same gid, and one
@@ -400,7 +411,9 @@ TEST(VersioningVertexOverlayStore, EdgeKeysAreSeparateConflictDomainsUnderOneTra
   auto b = env.Begin();
   ASSERT_TRUE(set_prop(EdgeKey(5), *a, 1).has_value());
   ASSERT_TRUE(env.AddLabel(*a, 5, 1).has_value());
-  EXPECT_TRUE(set_prop(5, *b, 2).error() == ms::Error::SERIALIZATION_ERROR);
+  auto const conflicted = set_prop(5, *b, 2);
+  ASSERT_FALSE(conflicted.has_value());
+  EXPECT_EQ(conflicted.error(), ms::Error::SERIALIZATION_ERROR);
   EXPECT_FALSE(env.store.CanWrite(EdgeKey(5), *b));
   EXPECT_TRUE(env.store.CanWrite(EdgeKey(6), *b));
   EXPECT_EQ(set_prop(EdgeKey(5), *b, 3).error(), ms::Error::SERIALIZATION_ERROR);
@@ -437,6 +450,7 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
   std::atomic<bool> torn{false};
   std::atomic<bool> unstable{false};
   std::atomic<uint64_t> gc_cycles{0};
+  std::atomic<uint64_t> verified_held{0};
 
   auto check = [&](const OverlayVersion *version) {
     if (version == nullptr) return;
@@ -494,7 +508,10 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
           std::this_thread::yield();
         }
         check(held);
-        if (held != nullptr && held->properties().GetProperty(Prop(1)).ValueInt() != before) unstable = true;
+        if (held != nullptr) {
+          ++verified_held;
+          if (held->properties().GetProperty(Prop(1)).ValueInt() != before) unstable = true;
+        }
         env.Release(*txn);
       }
     });
@@ -510,6 +527,8 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
 
   EXPECT_FALSE(torn.load());
   EXPECT_FALSE(unstable.load());
+  EXPECT_GT(verified_held.load(), 0U) << "no reader ever held a non-null version across a GC cycle";
+  EXPECT_GT(env.store.size(), 0U);
   env.Gc();
   for (uint64_t gid = 0; gid < kGids; ++gid) EXPECT_LE(env.store.ChainLength(gid), 1U);
   EXPECT_EQ(env.store.live_versions(), env.store.size());

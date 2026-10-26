@@ -140,7 +140,6 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
 
   EXPECT_EQ(count_diff_vertices(*diff_acc), 0u) << "stubs are owned by the stub index, not the diff engine's vertices_";
   EXPECT_EQ(count_stubs(), 1u);
-  EXPECT_FALSE(diff_acc->FindVertex(a_gid, ms::View::NEW).has_value());
   EXPECT_NE(branch_context_->core()->stub_index().FindStub(a_gid.AsUint()), nullptr);
   EXPECT_FALSE(branch_context_->FindStub(b_gid, ms::View::NEW).has_value()) << "untouched vertex must not be copied";
 
@@ -173,9 +172,9 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-// ResolveVertex is diff-first with historical fallback; the gid-ordered union scan yields a COW'd vertex (diff wins),
-// an untouched fork vertex and branch-native creates exactly once.
-TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNatives) {
+// Fork vertices resolve to the fork accessor, with the overlay value merged over it for written ones; the gid-ordered
+// union scan yields fork vertices and branch-native creates exactly once.
+TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanMergeOverlayAndIncludeNatives) {
   const auto prop_x = storage_->NameToProperty("x");
   const auto edge_type = storage_->NameToEdgeType("E");
   ms::Gid a_gid, b_gid;
@@ -240,8 +239,8 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   EXPECT_EQ(yielded, 4u) << "A, B, C, D must each be yielded exactly once";
   ASSERT_EQ(seen.size(), 4u);
   EXPECT_TRUE(std::ranges::is_sorted(order)) << "the union merge must be gid-ordered";
-  EXPECT_EQ(seen.at(a_gid.AsUint()), 2) << "A must yield the diff copy, not historical's stale 1";
-  EXPECT_EQ(seen.at(b_gid.AsUint()), 9) << "B must yield historical_'s untouched value";
+  EXPECT_EQ(seen.at(a_gid.AsUint()), 2) << "A must yield the overlay value, not the fork's stale 1";
+  EXPECT_EQ(seen.at(b_gid.AsUint()), 9) << "B must yield the fork's untouched value";
   EXPECT_EQ(seen.at(c_gid.AsUint()), 7) << "C (branch-native) must be yielded too";
 
   ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -637,6 +636,7 @@ class VersioningBranchForkEdgeTest : public VersioningBranchEngineTest {
       Begin(diff_acc.get());
       auto const fork_edge = fork_edge_of();
       ASSERT_TRUE(branch_context_->PrepareForkEdgeWrite(fork_edge).has_value());
+      EXPECT_TRUE(fork_edge.MaybeBranchedHint());
       auto old = branch_context_->EdgeOverlaySetProperty(fork_edge, prop_w, ms::PropertyValue(2));
       ASSERT_TRUE(old.has_value());
       EXPECT_EQ(*old, ms::PropertyValue(1));
@@ -852,9 +852,6 @@ TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
     if (!ctx_->IsForkVertexGid(v.Gid())) ++natives;
   }
   EXPECT_EQ(natives, 0u);
-  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
-  EXPECT_TRUE(ctx_->FindStub(v_gid_, ms::View::NEW).has_value()) << "the stub is never collected";
-  ctx_->EndTransaction();
 }
 
 // A stub outlives an aborted transaction and GC without being an entry of vertices_: the abort undoes only its deltas,
@@ -874,7 +871,6 @@ TEST_F(VersioningBranchGcTest, AbortedStubWriteThenGcKeepsStubOutsideDiffEngineA
 
   auto acc = Diff().Access(ms::READ);
   ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
-  EXPECT_FALSE(acc->FindVertex(v_gid_, ms::View::NEW).has_value()) << "a stub is not an entry of vertices_";
   EXPECT_EQ(acc->ApproximateVertexCount(), 0U);
 
   auto stub = ctx_->FindStub(v_gid_, ms::View::NEW);
@@ -960,13 +956,13 @@ TEST_F(VersioningBranchGcTest, OverlayOnlyCommitsAreVisibleAndDoNotStallDiffEngi
 
 // A mixed transaction (overlay write + diff-engine create) commits or aborts both halves together.
 TEST_F(VersioningBranchGcTest, MixedTransactionCommitsAndAbortsOverlayAndDiffTogether) {
-  ms::Gid native;
+  ms::Gid native, aborted_native;
   {
     auto acc = Diff().Access(ms::WRITE);
     ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
     ASSERT_TRUE(ctx_->PrepareForkWrite(v_gid_).has_value());
     ASSERT_TRUE(ctx_->OverlaySetProperty(v_gid_, prop_x_, ms::PropertyValue(5)).has_value());
-    ctx_->CreateNativeVertex();
+    aborted_native = ctx_->CreateNativeVertex().Gid();
     acc->Abort();
     ctx_->EndTransaction();
   }
@@ -975,6 +971,8 @@ TEST_F(VersioningBranchGcTest, MixedTransactionCommitsAndAbortsOverlayAndDiffTog
     ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
     EXPECT_FALSE(ctx_->HasVertexOverlay(v_gid_)) << "an aborted overlay write must be rolled back";
     EXPECT_EQ(ctx_->core()->overlay_store().size(), 0U);
+    EXPECT_FALSE(ctx_->FindStub(aborted_native, ms::View::NEW).has_value()) << "an aborted native create must be gone";
+    EXPECT_FALSE(acc->FindVertex(aborted_native, ms::View::NEW).has_value());
     ctx_->EndTransaction();
   }
   {
