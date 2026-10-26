@@ -19,6 +19,7 @@
 #include <boost/beast/version.hpp>
 #include <nlohmann/json.hpp>
 
+#include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
 
 namespace memgraph::http {
@@ -56,6 +57,12 @@ class MetricsRequestHandler final {
 
     if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != boost::beast::string_view::npos) {
       return send(bad_request("Illegal request-target"));
+    }
+
+    if (!license::global_license_checker.IsEnterpriseValidFast()) {
+      return send(
+          bad_request("Memgraph must have an Enterprise License for providing metrics. Check your license status by "
+                      "running SHOW LICENSE INFO."));
     }
 
     metrics_->UpdateGauges();
