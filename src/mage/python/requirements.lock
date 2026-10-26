@@ -83,7 +83,7 @@ elasticsearch==8.17.0
     # via -r src/mage/python/requirements.txt
 fastuuid==0.14.0
     # via litellm
-filelock==3.29.0
+filelock==4.2.4
     # via
     #   -r src/mage/python/requirements.txt
     #   huggingface-hub
