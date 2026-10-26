@@ -484,23 +484,32 @@ antlrcpp::Any CypherMainVisitor::visitTypeConstraintType(MemgraphCypher::TypeCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) {
-  auto *cypher_query = storage_->Create<CypherQuery>();
-  MG_ASSERT(ctx->singleQuery(), "Expected single query.");
-  cypher_query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
+  auto *regular_query = ctx->regularQuery();
+  // A CALL, fold or braced branch builds its WHEN body itself, so this one is the statement.
+  auto *conditional = regular_query->conditionalQuery();
+  CypherQuery *cypher_query = nullptr;
+  if (conditional) {
+    in_when_body_ = true;
+    cypher_query = BuildConditionalQuery(conditional).query;
+  } else {
+    cypher_query = storage_->Create<CypherQuery>();
+    MG_ASSERT(regular_query->singleQuery(), "Expected single query.");
+    cypher_query->single_query_ = std::any_cast<SingleQuery *>(regular_query->singleQuery()->accept(this));
 
-  // Check that union and union all dont mix
-  bool has_union = false;
-  bool has_union_all = false;
-  for (auto *child : ctx->cypherUnion()) {
-    if (child->ALL()) {
-      has_union_all = true;
-    } else {
-      has_union = true;
+    // Check that union and union all dont mix
+    bool has_union = false;
+    bool has_union_all = false;
+    for (auto *child : regular_query->cypherUnion()) {
+      if (child->ALL()) {
+        has_union_all = true;
+      } else {
+        has_union = true;
+      }
+      if (has_union && has_union_all) {
+        throw SemanticException("Invalid combination of UNION and UNION ALL.");
+      }
+      cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
     }
-    if (has_union && has_union_all) {
-      throw SemanticException("Invalid combination of UNION and UNION ALL.");
-    }
-    cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
   if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
@@ -518,6 +527,13 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
       cypher_query->memory_limit_ = memory_limit_info->first;
       cypher_query->memory_scale_ = memory_limit_info->second;
     }
+  }
+
+  // Each branch would inherit the commit frequency and plan its own root PeriodicCommit.
+  if (conditional && cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
+    throw SyntaxException(
+        "USING PERIODIC COMMIT cannot be used with WHEN ... THEN. Put 'CALL (row) { ... } IN TRANSACTIONS OF n ROWS' "
+        "inside the branch instead.");
   }
 
   query_ = cypher_query;
@@ -3095,8 +3111,9 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemConte
     named_expr->name_ = std::string(std::any_cast<std::string>(ctx->variable()->accept(this)));
     users_identifiers.insert(named_expr->name_);
   } else {
-    if (in_with_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
-      throw SemanticException("Only variables can be non-aliased in WITH.");
+    if (!utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
+      if (in_with_) throw SemanticException("Only variables can be non-aliased in WITH.");
+      if (in_when_body_) throw SemanticException("Expression in WHEN ... THEN ... must be aliased (use AS)!");
     }
     named_expr->name_ = std::string(ctx->getText());
     named_expr->token_position_ = ctx->expression()->getStart()->getTokenIndex();
@@ -4247,6 +4264,15 @@ namespace {
 [[noreturn]] void ThrowFoldClauseRefused(std::string_view construct) {
   throw SyntaxException("Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
 }
+
+// The WHEN query of a CALL or fold body, if it is one. Directives and a memory limit belong to the statement.
+MemgraphCypher::ConditionalQueryContext *NestedConditional(MemgraphCypher::CypherQueryContext *ctx) {
+  auto *conditional = ctx->regularQuery()->conditionalQuery();
+  if (conditional && (ctx->preQueryDirectives() || ctx->queryMemoryLimit())) {
+    throw SyntaxException("USING and QUERY MEMORY LIMIT can only come with the outermost WHEN ... THEN.");
+  }
+  return conditional;
+}
 }  // namespace
 
 Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx,
@@ -4270,13 +4296,16 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     auto *cypher_query = storage_->Create<CypherQuery>();
     cypher_query->single_query_ = single_query;
     subquery->content_ = cypher_query;
-  } else if (ctx->cypherQuery() || ctx->conditionalQuery()) {
+  } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery } or { WHEN ... THEN ... }
+    auto *conditional = NestedConditional(ctx->cypherQuery());
     auto const old_fold = std::exchange(subquery_fold_, fold);
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto const old_in_with = std::exchange(in_with_, false);
-    auto *cypher_query = ctx->conditionalQuery() ? BuildConditionalQuery(ctx->conditionalQuery()).query
-                                                 : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    auto const old_in_when_body = std::exchange(in_when_body_, conditional != nullptr);
+    auto *cypher_query = conditional ? BuildConditionalQuery(conditional).query
+                                     : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    in_when_body_ = old_in_when_body;
     in_with_ = old_in_with;
     subquery_fold_ = old_fold;
     subquery->content_ = cypher_query;
@@ -4740,14 +4769,15 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   auto *call_subquery = storage_->Create<CallSubquery>();
   call_subquery->optional_ = ctx->OPTIONAL() != nullptr;
 
-  MG_ASSERT(ctx->cypherQuery() || ctx->conditionalQuery(), "Expected query inside subquery clause");
+  MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
 
   // Refused before its body is parsed, so the body's own checks cannot report first.
   if (subquery_fold_) ThrowFoldClauseRefused(SubqueryExpression::FoldName(*subquery_fold_));
-  if (ctx->cypherQuery() && ctx->cypherQuery()->queryMemoryLimit()) {
+  auto *conditional = NestedConditional(ctx->cypherQuery());
+  if (ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
-  if (ctx->conditionalQuery() && ctx->LPAREN() == nullptr) {
+  if (conditional && ctx->LPAREN() == nullptr) {
     throw SyntaxException("WHEN ... THEN ... is not allowed in 'CALL { ... }'. Use 'CALL () { ... }' instead.");
   }
 
@@ -4779,9 +4809,11 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
-  call_subquery->cypher_query_ = ctx->conditionalQuery()
-                                     ? BuildConditionalQuery(ctx->conditionalQuery()).query
-                                     : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  // A CALL body, plain or WHEN, keeps the CALL alias rule, which the symbol generator applies.
+  auto const old_in_when_body = std::exchange(in_when_body_, false);
+  call_subquery->cypher_query_ = conditional ? BuildConditionalQuery(conditional).query
+                                             : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  in_when_body_ = old_in_when_body;
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {
@@ -4835,15 +4867,17 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalQuery(
 
 CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalBody(
     MemgraphCypher::ConditionalBodyContext *ctx) {
-  if (ctx->conditionalQuery()) return BuildConditionalQuery(ctx->conditionalQuery());
+  if (ctx->cypherQuery()) {
+    if (ctx->cypherQuery()->queryMemoryLimit()) {
+      throw SyntaxException("Memory limit cannot be set on subqueries!");
+    }
+    if (ctx->cypherQuery()->preQueryDirectives()) {
+      throw SyntaxException("USING cannot be put in a WHEN branch.");
+    }
+    if (auto *nested = ctx->cypherQuery()->regularQuery()->conditionalQuery()) return BuildConditionalQuery(nested);
+  }
   auto *cypher_query = std::invoke([&] {
     if (ctx->cypherQuery()) {
-      if (ctx->cypherQuery()->queryMemoryLimit()) {
-        throw SyntaxException("Memory limit cannot be set on subqueries!");
-      }
-      if (ctx->cypherQuery()->preQueryDirectives()) {
-        throw SyntaxException("USING cannot be put in a WHEN branch.");
-      }
       return std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     }
     auto *query = storage_->Create<CypherQuery>();
