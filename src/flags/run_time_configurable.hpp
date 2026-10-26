@@ -143,6 +143,11 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
  */
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
 
+/**
+ * @brief Whether the snapshot schedule may run: cron schedules need a valid enterprise license
+ */
+bool SnapshotScheduleLicensed();
+
 int64_t GetLogMinDurationMs();
 bool GetLogFailedQueries();
 bool GetLogQueryPlan();

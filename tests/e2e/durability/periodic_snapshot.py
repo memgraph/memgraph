@@ -16,6 +16,7 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Dict
+from unittest.mock import patch
 
 import interactive_mg_runner
 import pytest
@@ -315,6 +316,46 @@ def test_interval_flag_analytical(set, test_name):
     interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "interval_flag")
     main_test_analytical(snapshots_path(FILE, test_name), set)
     interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_cron_flag_without_license(test_name):
+    """A cron schedule given at startup without a licence is kept but takes no snapshots until a licence is set."""
+    license_key = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE", "")
+    organization_name = os.environ.get("MEMGRAPH_ORGANIZATION_NAME", "")
+    if not (license_key and organization_name):
+        pytest.skip("needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)")
+    instance = {
+        "cron_flag": {
+            "args": [
+                "--log-level=TRACE",
+                "--also-log-to-stderr",
+                "--data-recovery-on-startup=false",
+                "--storage-snapshot-interval-sec=0",
+                "--storage-snapshot-interval=*/1 * * * * *",
+                "--storage-snapshot-retention-count=20",
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/cron_flag.log",
+            "data_directory": get_data_path(FILE, test_name),
+        }
+    }
+    with patch.dict(os.environ):
+        del os.environ["MEMGRAPH_ENTERPRISE_LICENSE"]
+        del os.environ["MEMGRAPH_ORGANIZATION_NAME"]
+        interactive_mg_runner.start(instance, "cron_flag")
+    snapshots_dir = snapshots_path(FILE, test_name)
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    with writing_in_the_background():
+        time.sleep(3)
+        assert number_of_snapshots(snapshots_dir) == 0
+
+        execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
+        execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{license_key}';")
+        tries = 0
+        while number_of_snapshots(snapshots_dir) == 0 and tries < 10:
+            tries += 1
+            time.sleep(1)
+        assert number_of_snapshots(snapshots_dir) > 0, "No snapshot after the licence was set"
 
 
 # Interface doesn't support failure, so can't reliably test if both flags cause a fault
