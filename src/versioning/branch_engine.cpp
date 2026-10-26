@@ -565,7 +565,7 @@ storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor 
 
 std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gid gid) {
   auto &hist = historical();
-  if (auto *fork = core_->stub_index().FindFork(gid.AsUint())) {
+  if (auto *fork = core_->stub_index().FindFork(gid.AsUint(), stub_cursor_)) {
     // Same construction as InMemoryAccessor::FindVertex on hist (storage_ is main, see HistoricalAccess).
     return storage::VertexAccessor::Create(fork, &core_->main(), hist.GetTransaction(), storage::View::OLD);
   }
@@ -573,7 +573,7 @@ std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gi
 }
 
 std::optional<storage::VertexAccessor> BranchContext::FindStub(storage::Gid gid, storage::View view) {
-  if (auto *stub = core_->stub_index().FindStub(gid.AsUint())) {
+  if (auto *stub = core_->stub_index().FindStub(gid.AsUint(), stub_cursor_)) {
     // Same construction as InMemoryAccessor::FindVertex on the diff txn (storage_ is the diff engine).
     return storage::VertexAccessor::Create(stub, &core_->diff_engine(), current_diff_txn_->GetTransaction(), view);
   }

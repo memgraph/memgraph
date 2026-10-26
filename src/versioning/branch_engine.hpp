@@ -252,6 +252,7 @@ class BranchContext {
   void EndTransaction() noexcept {
     current_diff_txn_ = nullptr;
     historical_.reset();
+    stub_cursor_.Reset();
   }
 
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
@@ -457,6 +458,9 @@ class BranchContext {
   // current_diff_txn_ is not owned: it points into CurrentDB::db_transactional_accessor_ for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;
+  // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor only causes misses
+  // (skiplist fallback), never wrong pointers; reset per transaction.
+  StubIndex::Cursor stub_cursor_;
 };
 
 }  // namespace memgraph::versioning
