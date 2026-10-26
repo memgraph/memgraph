@@ -238,8 +238,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityExpired) {
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
-  EXPECT_TRUE(detailed_license_info.status.contains("[CLI] Your license key has expired."))
-      << detailed_license_info.status;
+  EXPECT_TRUE(detailed_license_info.status.contains("[CLI] The license expired on")) << detailed_license_info.status;
 }
 
 TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityNonExpiredIsInvalid) {
@@ -265,7 +264,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
   EXPECT_TRUE(detailed_license_info.status.contains(
-      "[CLI] The organization name contained in the license key is not the same as the one defined in the settings."))
+      "[CLI] The organization name 'Memgraphwrong' does not match the license key, which is for 'Memgraph'."))
       << detailed_license_info.status;
 }
 
@@ -283,7 +282,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_ExpiredReportsDate) {
   license_checker->SetCliLicense(memgraph::license::Encode(license), organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
-  EXPECT_TRUE(detailed_license_info.status.contains("The license is valid until 1970-01-02."))
+  EXPECT_TRUE(detailed_license_info.status.contains("[CLI] The license expired on 1970-01-02."))
       << detailed_license_info.status;
 }
 
