@@ -345,13 +345,13 @@ void LicenseChecker::CheckEnvLicense(utils::Settings &settings) {
   if (!license_key || !organization_name) {
     return;
   }
-  spdlog::warn("License info found in environment variables.");
+  spdlog::info("License info found in environment variables.");
   env_license_info_.emplace(license_key, organization_name);
   RevalidateLicense(settings);
 }
 
 void LicenseChecker::SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings) {
-  spdlog::warn("License info found in command-line flags.");
+  spdlog::info("License info found in command-line flags.");
   cli_license_info_.emplace(std::move(license_key), std::move(organization_name));
   RevalidateLicense(settings);
 }
