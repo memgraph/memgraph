@@ -21,6 +21,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -122,9 +124,19 @@ class BranchCore {
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
 
-  void RecordVertexDeleted(storage::Gid gid) noexcept { change_filters_.RecordVertexDeleted(gid); }
+  // Also feeds the exact deleted-gid set read by LabelTouchedSnapshot. Call before the marker write.
+  void RecordVertexDeleted(storage::Gid gid);
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
+
+  // Exact, insert-only record of fork gids whose membership of `label` may differ on this branch. Call before the
+  // label/marker write; a rolled-back write leaves the gid recorded (superset, never a miss).
+  void RecordLabelTouched(storage::LabelId label, storage::Gid gid);
+
+  // Immutable set of fork gids that a scan of `label` must resolve: the label's touched gids plus every deleted gid.
+  // Cached per label until the next insert, so repeated scans share one copy.
+  using LabelTouchedSet = absl::flat_hash_set<uint64_t>;
+  std::shared_ptr<const LabelTouchedSet> LabelTouchedSnapshot(storage::LabelId label);
 
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     change_filters_.RecordPropertyField(gid, pid);
@@ -164,6 +176,19 @@ class BranchCore {
   std::unordered_map<storage::PropertyId, bool> reserved_property_;
 
   BranchChangeFilters change_filters_;
+
+  // Exact per-label touched gids and deleted gids; memory grows with the number of recorded changes. Writes are rare
+  // next to scans, hence a plain mutex. Every insert bumps `touched_version_`, invalidating `label_snapshots_`.
+  struct CachedLabelSnapshot {
+    uint64_t version;
+    std::shared_ptr<const LabelTouchedSet> set;
+  };
+
+  std::mutex touched_mutex_;
+  absl::flat_hash_map<storage::LabelId, LabelTouchedSet> label_touched_;
+  LabelTouchedSet deleted_exact_;
+  uint64_t touched_version_{1};
+  absl::flat_hash_map<storage::LabelId, CachedLabelSnapshot> label_snapshots_;
 
   // Declared last: destroyed before the diff engine whose Vertex objects it points into.
   StubIndex stub_index_;
@@ -392,7 +417,13 @@ class BranchContext {
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { core_->RecordEdgeChange(endpoint_gid); }
 
-  void RecordVertexDeleted(storage::Gid gid) noexcept { core_->RecordVertexDeleted(gid); }
+  void RecordVertexDeleted(storage::Gid gid) { core_->RecordVertexDeleted(gid); }
+
+  void RecordLabelTouched(storage::LabelId label, storage::Gid gid) { core_->RecordLabelTouched(label, gid); }
+
+  std::shared_ptr<const BranchCore::LabelTouchedSet> LabelTouchedSnapshot(storage::LabelId label) {
+    return core_->LabelTouchedSnapshot(label);
+  }
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 

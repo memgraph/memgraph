@@ -296,6 +296,29 @@ storage::LabelId BranchCore::RemovalMarker(storage::LabelId label) {
   return marker;
 }
 
+void BranchCore::RecordVertexDeleted(storage::Gid gid) {
+  change_filters_.RecordVertexDeleted(gid);
+  std::lock_guard lock(touched_mutex_);
+  if (deleted_exact_.insert(gid.AsUint()).second) ++touched_version_;
+}
+
+void BranchCore::RecordLabelTouched(storage::LabelId label, storage::Gid gid) {
+  std::lock_guard lock(touched_mutex_);
+  if (label_touched_[label].insert(gid.AsUint()).second) ++touched_version_;
+}
+
+std::shared_ptr<const BranchCore::LabelTouchedSet> BranchCore::LabelTouchedSnapshot(storage::LabelId label) {
+  std::lock_guard lock(touched_mutex_);
+  auto &cached = label_snapshots_[label];
+  if (cached.set && cached.version == touched_version_) return cached.set;
+  auto merged = std::make_shared<LabelTouchedSet>(deleted_exact_);
+  if (auto const it = label_touched_.find(label); it != label_touched_.end()) {
+    merged->insert(it->second.begin(), it->second.end());
+  }
+  cached = CachedLabelSnapshot{touched_version_, std::move(merged)};
+  return cached.set;
+}
+
 bool BranchCore::IsReservedProperty(storage::PropertyId property) {
   auto guard = std::lock_guard{marker_mutex_};
   if (auto it = reserved_property_.find(property); it != reserved_property_.end()) return it->second;

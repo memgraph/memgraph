@@ -296,6 +296,7 @@ storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
   auto &ctx = *branch_ctx_;
   if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
   if (auto err = CheckTypesOnAddLabel(ctx, *this, label)) return std::unexpected{*err};
+  if (ctx.IsForkVertexGid(impl_.Gid())) ctx.RecordLabelTouched(label, impl_.Gid());
   CowIfNeeded(versioning::BranchChangeKind::kLabel);
   if (!ctx.IsStub(impl_)) return impl_.AddLabel(label);
 
@@ -323,6 +324,7 @@ storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
 storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) {
   auto &ctx = *branch_ctx_;
   if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
+  if (ctx.IsForkVertexGid(impl_.Gid())) ctx.RecordLabelTouched(label, impl_.Gid());
   CowIfNeeded(versioning::BranchChangeKind::kLabel);
   if (!ctx.IsStub(impl_)) return impl_.RemoveLabel(label);
 

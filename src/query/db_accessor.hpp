@@ -539,12 +539,16 @@ class DbAccessor final {
   // Untouched fork candidates keep stream order; stubbed ones join `touched`, bound to the stub. The `branched()` bit
   // is a lock-free fast path (clear => identical to the fork); a set bit is confirmed by the branch's own
   // label/property filters, then a stub lookup.
-  std::vector<storage::VertexAccessor> SplitBranchForkStream(storage::VerticesIterable fork_stream, storage::View view,
-                                                             BranchTouchedSet &touched) {
+  // `label_touched`, when the scan is for one label, replaces the coarse any-label filter with the exact per-label set.
+  std::vector<storage::VertexAccessor> SplitBranchForkStream(
+      storage::VerticesIterable fork_stream, storage::View view, BranchTouchedSet &touched,
+      versioning::BranchCore::LabelTouchedSet const *label_touched = nullptr) {
     std::vector<storage::VertexAccessor> untouched;
     for (auto raw : fork_stream) {
-      if (!raw.vertex_->branched() ||
-          !(branch_ctx_->MayHaveLabelChange(raw.Gid()) || branch_ctx_->MayHavePropertyChange(raw.Gid()))) {
+      auto const label_changed = [&](storage::Gid gid) {
+        return label_touched != nullptr ? label_touched->contains(gid.AsUint()) : branch_ctx_->MayHaveLabelChange(gid);
+      };
+      if (!raw.vertex_->branched() || !(label_changed(raw.Gid()) || branch_ctx_->MayHavePropertyChange(raw.Gid()))) {
         untouched.push_back(raw);
         continue;
       }
@@ -702,8 +706,12 @@ class DbAccessor final {
                                   constrained && properties[i].size() == 1 ? &property_ranges[i] : nullptr);
     }
 
-    auto untouched = SplitBranchForkStream(
-        historical.Vertices(label, properties, property_ranges, storage::View::OLD, order), view, touched);
+    auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
+    auto untouched =
+        SplitBranchForkStream(historical.Vertices(label, properties, property_ranges, storage::View::OLD, order),
+                              view,
+                              touched,
+                              label_touched.get());
     return MergeBranchOverlay(
         std::move(untouched),
         touched,
@@ -1060,11 +1068,14 @@ class DbAccessor final {
       }
 
       auto result = std::make_shared<std::vector<VertexAccessor>>();
+      result->reserve(historical.ApproximateVertexCount(label));
+      // One snapshot up front: any txn visible to this scan recorded its gids before this point.
+      auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
 
       // (a) Fork stream: a candidate with a stub is re-checked on the reconstructed vertex (removed label or delete
       // marker drops it) and emitted bound to the stub.
       for (auto raw : historical.Vertices(label, storage::View::OLD)) {
-        if (!raw.vertex_->branched() || !branch_ctx_->MayHaveLabelChange(raw.Gid())) {
+        if (!raw.vertex_->branched() || !label_touched->contains(raw.Gid().AsUint())) {
           result->push_back(VertexAccessor(raw, branch_ctx_));
           continue;
         }

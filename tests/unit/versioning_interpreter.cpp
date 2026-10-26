@@ -1546,6 +1546,34 @@ TEST_F(VersioningGatedTest, BranchDeleteThenRollbackRestoresEverything) {
   }
 }
 
+// The label scan resolves only fork vertices whose membership of the scanned label may differ: an unrelated label
+// change must not change the result, while a removal, a delete, a gain and a branch-native vertex all must.
+TEST_F(VersioningGatedTest, BranchLabelScanExactTouchedRecordMatchesMembership) {
+  faker.Interpret("CREATE INDEX ON :User");
+  faker.Interpret("CREATE (:User {i:1}), (:User {i:2}), (:User {i:3}), (:User {i:4}), (:User {i:5}), (:Other {i:6})");
+  Fork();
+
+  faker.Interpret("MATCH (n:User) WHERE n.i IN [1, 2] SET n:Probe");
+  faker.Interpret("MATCH (n:User {i:3}) REMOVE n:User");
+  faker.Interpret("MATCH (n:User {i:4}) DETACH DELETE n");
+  faker.Interpret("MATCH (n:Other {i:6}) SET n:User");
+  faker.Interpret("CREATE (:User {i:7})");
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN count(n)"), (Rows{{5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN n.i ORDER BY n.i"), (Rows{{1}, {2}, {5}, {6}, {7}}));
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:User {i:5}) REMOVE n:User");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN count(n)"), (Rows{{4}}));
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN n.i ORDER BY n.i"), (Rows{{1}, {2}, {5}, {6}, {7}}))
+      << "a rolled-back removal must not hide the vertex";
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN n.i ORDER BY n.i"), (Rows{{1}, {2}, {3}, {4}, {5}}))
+      << "main must be untouched";
+}
+
 namespace {
 struct DeletedReadCase {
   const char *name;
