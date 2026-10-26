@@ -23,22 +23,31 @@
 
 namespace memgraph::query {
 
-// Endpoint is deliberately not resolved to its diff-engine copy: branch-aware VertexAccessor reads resolve by gid
-// themselves, and eager per-edge resolution dominated deep branch traversals.
-VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex(), branch_ctx_); }
+namespace {
 
-VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex(), branch_ctx_); }
+// A branch-native edge between a fork vertex and anything else has the fork vertex's diff-engine stub as its endpoint
+// (the diff engine needs a Vertex there); a fork vertex always surfaces as its fork accessor.
+VertexAccessor Endpoint(const storage::VertexAccessor &impl, versioning::BranchContext *branch_ctx) {
+  if (branch_ctx == nullptr) return VertexAccessor(impl);
+  return VertexAccessor(branch_ctx->ForkIdentity(impl), branch_ctx);
+}
+
+}  // namespace
+
+// Endpoint is deliberately not resolved further: branch-aware VertexAccessor reads resolve by gid themselves, and eager
+// per-edge resolution dominated deep branch traversals.
+VertexAccessor EdgeAccessor::To() const { return Endpoint(impl_.ToVertex(), branch_ctx_); }
+
+VertexAccessor EdgeAccessor::From() const { return Endpoint(impl_.FromVertex(), branch_ctx_); }
 
 /// When edge is deleted and you are accessing To vertex
 /// for_deleted_ flag will in this case be updated properly
-VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
-  return VertexAccessor(impl_.DeletedEdgeToVertex(), branch_ctx_);
-}
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return Endpoint(impl_.DeletedEdgeToVertex(), branch_ctx_); }
 
 /// When edge is deleted and you are accessing From vertex
 /// for_deleted_ flag will in this case be updated properly
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
-  return VertexAccessor(impl_.DeletedEdgeFromVertex(), branch_ctx_);
+  return Endpoint(impl_.DeletedEdgeFromVertex(), branch_ctx_);
 }
 
 bool EdgeAccessor::IsCycle() const { return To() == From(); }

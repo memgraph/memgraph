@@ -493,14 +493,18 @@ class DbAccessor final {
   // native hits) rechecked on the reconstructed vertex. Cost is O(log V + fork matches + touched), never O(V).
   using BranchKey = std::vector<storage::PropertyValue>;
 
-  // Touched candidates, deduplicated by gid. A deleted fork vertex (its stub carries the delete marker) may be a
-  // candidate: the recheck on the reconstructed vertex fails with DELETED_OBJECT and drops it.
+  // Touched candidates, deduplicated by gid and always held as fork accessors for fork gids (the diff engine's index
+  // hits are stubs). A deleted fork vertex may be a candidate: the recheck on the reconstructed vertex fails with
+  // DELETED_OBJECT and drops it.
   struct BranchTouchedSet {
+    explicit BranchTouchedSet(versioning::BranchContext *ctx) : ctx_(ctx) {}
+
+    versioning::BranchContext *ctx_;
     std::unordered_set<storage::Gid> seen;
     std::vector<storage::VertexAccessor> items;
 
     void Add(storage::VertexAccessor const &raw) {
-      if (seen.insert(raw.Gid()).second) items.push_back(raw);
+      if (seen.insert(raw.Gid()).second) items.push_back(ctx_->ForkIdentity(raw));
     }
   };
 
@@ -536,12 +540,12 @@ class DbAccessor final {
     return !std::ranges::all_of(key, [](auto const &v) { return v.IsNull(); });
   }
 
-  // Untouched fork candidates keep stream order; stubbed ones join `touched`, bound to the stub. The `branched()` bit
-  // is a lock-free fast path (clear => identical to the fork); a set bit is confirmed by the branch's own
-  // label/property filters, then a stub lookup.
+  // Untouched fork candidates keep stream order; those with an overlay join `touched`. The `branched()` bit is a
+  // lock-free fast path (clear => identical to the fork); a set bit is confirmed by the branch's own label/property
+  // filters, then an overlay lookup.
   // `label_touched`, when the scan is for one label, replaces the coarse any-label filter with the exact per-label set.
   std::vector<storage::VertexAccessor> SplitBranchForkStream(
-      storage::VerticesIterable fork_stream, storage::View view, BranchTouchedSet &touched,
+      storage::VerticesIterable fork_stream, BranchTouchedSet &touched,
       versioning::BranchCore::LabelTouchedSet const *label_touched = nullptr) {
     std::vector<storage::VertexAccessor> untouched;
     for (auto raw : fork_stream) {
@@ -552,9 +556,8 @@ class DbAccessor final {
         untouched.push_back(raw);
         continue;
       }
-      auto const g = raw.Gid();
-      if (auto stub = branch_ctx_->FindStubOrDiffVertex(g, view)) {
-        touched.Add(*stub);
+      if (branch_ctx_->HasVertexOverlay(raw.Gid())) {
+        touched.Add(raw);
       } else {
         untouched.push_back(raw);
       }
@@ -619,8 +622,8 @@ class DbAccessor final {
            (range.type_ == storage::PropertyRangeType::BOUNDED && (range.lower_ || range.upper_));
   }
 
-  // Fork-gid stubs that SET `pid`; `range` narrows only top-level keys (a nested key's top-level value is a Map).
-  // Branch-native hits are already covered by the composite scan.
+  // Fork vertices whose overlay SETs `pid`; `range` narrows only top-level keys (a nested key's top-level value is a
+  // Map). Branch-native hits are already covered by the composite scan.
   void AddDiffStubsSettingProperty(BranchTouchedSet &touched, storage::View view, storage::PropertyId pid,
                                    storage::PropertyValueRange const *range) {
     auto collect = [&](storage::VerticesIterable hits) {
@@ -686,16 +689,16 @@ class DbAccessor final {
       return VerticesIterable(std::make_shared<std::vector<VertexAccessor>>());
     }
 
-    BranchTouchedSet touched;
+    BranchTouchedSet touched{branch_ctx_};
 
-    // Candidates the fork index cannot contain: branch-native hits, and stubs carrying both the label and the key.
+    // Candidates the fork index cannot contain: branch-native hits, and overlays carrying both the label and the key.
     for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) touched.Add(raw);
-    // Stubs that gained `label` on the branch (a stub lacks the key properties the composite index needs).
+    // Vertices that gained `label` on the branch (an overlay lacks the key properties the composite index needs).
     for (auto raw : accessor_->Vertices(label, view)) {
       if (branch_ctx_->IsForkVertexGid(raw.Gid())) touched.Add(raw);
     }
-    // Stubs that SET a key property. A null-excluding range anchors the match, so only constrained positions can have
-    // turned into a match; otherwise every key position is enumerated.
+    // Vertices that SET a key property. A null-excluding range anchors the match, so only constrained positions can
+    // have turned into a match; otherwise every key position is enumerated.
     bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
     for (size_t i = 0; i < properties.size(); ++i) {
       bool const constrained = i < property_ranges.size();
@@ -709,7 +712,6 @@ class DbAccessor final {
     auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
     auto untouched =
         SplitBranchForkStream(historical.Vertices(label, properties, property_ranges, storage::View::OLD, order),
-                              view,
                               touched,
                               label_touched.get());
     return MergeBranchOverlay(
@@ -738,9 +740,9 @@ class DbAccessor final {
           },
           [](storage::PropertyValue const &a, storage::PropertyValue const &b) { return a < b; });
     }
-    BranchTouchedSet touched;
+    BranchTouchedSet touched{branch_ctx_};
     for (auto raw : diff_scan()) touched.Add(raw);
-    auto untouched = SplitBranchForkStream(fork_scan(), view, touched);
+    auto untouched = SplitBranchForkStream(fork_scan(), touched);
     return MergeBranchOverlay(
         std::move(untouched),
         touched,
@@ -962,10 +964,9 @@ class DbAccessor final {
     }
 
     for (auto *node : fork_nodes) {
-      auto stub = ctx.DeleteForkVertex(node->Gid());
-      if (!stub) return std::unexpected{stub.error()};
-      if (!*stub) continue;
-      node->impl_ = **stub;
+      auto marked = ctx.OverlayMarkDeleted(node->Gid());
+      if (!marked) return std::unexpected{marked.error()};
+      if (!*marked) continue;
       deleted_vertices.push_back(*node);
     }
 
@@ -1073,35 +1074,31 @@ class DbAccessor final {
       // One snapshot up front: any txn visible to this scan recorded its gids before this point.
       auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
 
-      // (a) Fork stream: a candidate with a stub is re-checked on the reconstructed vertex (removed label or delete
-      // marker drops it) and emitted bound to the stub.
+      // (a) Fork stream: a candidate the branch changed is re-checked on the reconstructed vertex (removed label or
+      // delete marker drops it).
       for (auto raw : historical.Vertices(label, storage::View::OLD)) {
-        if (!raw.vertex_->branched() || !label_touched->contains(raw.Gid().AsUint())) {
-          result->push_back(VertexAccessor(raw, branch_ctx_));
+        VertexAccessor candidate(raw, branch_ctx_);
+        if (raw.vertex_->branched() && label_touched->contains(raw.Gid().AsUint()) &&
+            branch_ctx_->HasVertexOverlay(raw.Gid()) && !VertexHasLabel(candidate, view, label)) {
           continue;
         }
-        auto const g = raw.Gid();
-        if (auto stub = branch_ctx_->FindStubOrDiffVertex(g, storage::View::NEW)) {
-          VertexAccessor candidate(*stub, branch_ctx_);
-          if (VertexHasLabel(candidate, view, label)) result->push_back(candidate);
-        } else {
-          result->push_back(VertexAccessor(raw, branch_ctx_));
-        }
+        result->push_back(candidate);
       }
 
-      // (b) Diff stream: branch-native vertices, plus stubs that gained `label` on the branch (a stub whose
+      // (b) Diff stream: branch-native vertices, plus fork vertices that gained `label` on the branch (one whose
       // fork vertex already had it was emitted by (a)).
       for (auto raw : accessor_->Vertices(label, view)) {
         auto const g = raw.Gid();
-        if (branch_ctx_->IsForkVertexGid(g)) {
-          if (branch_ctx_->IsStubDeleted(raw, view)) continue;
-          auto fork = branch_ctx_->FindForkVertex(g);
-          if (fork) {
-            auto had = fork->HasLabel(label, storage::View::OLD);
-            if (had.has_value() && *had) continue;
-          }
+        if (!branch_ctx_->IsForkVertexGid(g)) {
+          result->push_back(VertexAccessor(raw, branch_ctx_));
+          continue;
         }
-        result->push_back(VertexAccessor(raw, branch_ctx_));
+        if (branch_ctx_->IsVertexDeleted(g, view)) continue;
+        auto fork = branch_ctx_->FindForkVertex(g);
+        if (!fork) continue;
+        auto had = fork->HasLabel(label, storage::View::OLD);
+        if (had.has_value() && *had) continue;
+        result->push_back(VertexAccessor(*fork, branch_ctx_));
       }
 
       return VerticesIterable(std::move(result));
@@ -1409,7 +1406,7 @@ class DbAccessor final {
   }
 
   // CreateEdge MG_ASSERTs both endpoints are resident in the diff engine, so CowVertex them first (idempotent) and
-  // redirect `from`/`to` to the copies so outstanding accessors stay consistent with the new edge.
+  // redirect a native `from`/`to` to its diff-engine vertex so outstanding accessors stay consistent with the new edge.
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     if (branch_ctx_ != nullptr) {
@@ -1418,8 +1415,9 @@ class DbAccessor final {
       auto to_diff = branch_ctx_->CowVertex(to->Gid());
       if (!to_diff) throw QueryRuntimeException(to_diff.error().message);
 
-      from->impl_ = *from_diff;
-      to->impl_ = *to_diff;
+      // Fork endpoints stay fork accessors; the diff engine only needs their stubs as the edge's anchors.
+      if (!branch_ctx_->IsForkVertexGid(from->Gid())) from->impl_ = *from_diff;
+      if (!branch_ctx_->IsForkVertexGid(to->Gid())) to->impl_ = *to_diff;
 
       auto maybe_edge = branch_ctx_->CreateNativeEdge(&*from_diff, &*to_diff, edge_type);
       if (!maybe_edge) return std::unexpected{maybe_edge.error()};

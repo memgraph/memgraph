@@ -533,6 +533,203 @@ storage::Result<std::optional<storage::VertexAccessor>> BranchContext::DeleteFor
   return std::make_optional(*stub);
 }
 
+storage::Result<std::optional<VertexOverlayView>> BranchContext::ReadVertexOverlay(storage::Gid gid, storage::View view,
+                                                                                   OverlayRead parts) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadVertexOverlay: no current diff transaction set.");
+  if (!IsForkVertexGid(gid)) return std::optional<VertexOverlayView>{};
+  auto stub = FindStub(gid, view);
+  if (!stub) return std::optional<VertexOverlayView>{};
+
+  VertexOverlayView overlay;
+  if (IsStubDeleted(*stub, view)) {
+    overlay.deleted = true;
+    return std::optional<VertexOverlayView>{std::move(overlay)};
+  }
+  if (parts.labels) {
+    auto labels = stub->Labels(view);
+    if (!labels) return std::unexpected{labels.error()};
+    for (auto const label : *labels) {
+      auto const info = ClassifyLabel(label);
+      if (info.removed_label) {
+        overlay.removed_labels.push_back(*info.removed_label);
+      } else if (!info.reserved) {
+        overlay.added_labels.push_back(label);
+      }
+    }
+  }
+  if (parts.properties) {
+    auto props = stub->Properties(view);  // single call: values and removal list must agree
+    if (!props) return std::unexpected{props.error()};
+    overlay.removed_pids = TakeRemoved(*this, *props);
+    overlay.properties = std::move(*props);
+  }
+  if (parts.deleted_edges) overlay.deleted_edge_gids = DeletedEdgeGids(*stub, view);
+  return std::optional<VertexOverlayView>{std::move(overlay)};
+}
+
+storage::Result<uint64_t> BranchContext::ReadOverlayPropertySize(storage::Gid gid, storage::View view,
+                                                                 storage::PropertyId key) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadOverlayPropertySize: no current diff transaction set.");
+  auto stub = FindStub(gid, view);
+  if (!stub) return uint64_t{0};
+  return stub->GetPropertySize(key, view);
+}
+
+bool BranchContext::HasVertexOverlay(storage::Gid gid) {
+  return core_->stub_index().FindStub(gid.AsUint(), stub_cursor_) != nullptr;
+}
+
+std::optional<storage::VertexAccessor> BranchContext::StubForWrite(storage::Gid gid) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::StubForWrite: no current diff transaction set.");
+  if (auto stub = FindStub(gid, storage::View::NEW)) return stub;
+  if (auto cowed = CowVertex(gid)) return *cowed;
+  return std::nullopt;
+}
+
+storage::Result<bool> BranchContext::OverlayAddLabel(storage::Gid gid, storage::LabelId label) {
+  auto stub = StubForWrite(gid);
+  auto fork = FindForkVertex(gid);
+  if (!stub || !fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  const auto marker = RemovalMarker(label);
+  auto in_fork = fork->HasLabel(label, storage::View::OLD);
+  if (!in_fork) return in_fork;
+  auto in_stub = stub->HasLabel(label, storage::View::NEW);
+  if (!in_stub) return in_stub;
+  auto marked = stub->HasLabel(marker, storage::View::NEW);
+  if (!marked) return marked;
+
+  if (*in_stub || (*in_fork && !*marked)) return false;
+  if (*marked) {
+    if (auto r = stub->RemoveLabel(marker); !r) return std::unexpected{r.error()};
+  }
+  // Re-adding a label the fork vertex has is just un-hiding it; no redundant diff label-index entry.
+  if (!*in_fork) {
+    if (auto r = stub->AddLabel(label); !r) return std::unexpected{r.error()};
+  }
+  return true;
+}
+
+storage::Result<bool> BranchContext::OverlayRemoveLabel(storage::Gid gid, storage::LabelId label) {
+  auto stub = StubForWrite(gid);
+  auto fork = FindForkVertex(gid);
+  if (!stub || !fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  const auto marker = RemovalMarker(label);
+  auto in_fork = fork->HasLabel(label, storage::View::OLD);
+  if (!in_fork) return in_fork;
+  auto in_stub = stub->HasLabel(label, storage::View::NEW);
+  if (!in_stub) return in_stub;
+  auto marked = stub->HasLabel(marker, storage::View::NEW);
+  if (!marked) return marked;
+
+  if (!*in_stub && !(*in_fork && !*marked)) return false;
+  if (*in_stub) {
+    if (auto r = stub->RemoveLabel(label); !r) return std::unexpected{r.error()};
+  }
+  if (*in_fork && !*marked) {
+    if (auto r = stub->AddLabel(marker); !r) return std::unexpected{r.error()};
+  }
+  return true;
+}
+
+storage::Result<storage::PropertyValue> BranchContext::OverlaySetProperty(storage::Gid gid, storage::PropertyId key,
+                                                                          const storage::PropertyValue &value) {
+  auto stub = StubForWrite(gid);
+  auto fork = FindForkVertex(gid);
+  if (!stub || !fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto read = ReadVertexOverlay(gid, storage::View::NEW, {.properties = true});
+  if (!read) return std::unexpected{read.error()};
+  if (!*read) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto &overlay = **read;
+  if (overlay.deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
+
+  auto old_value = MergeGetProperty(overlay, *fork, key);
+  if (!old_value) return old_value;
+  const std::map<storage::PropertyId, storage::PropertyValue> changes{{key, value}};
+  auto applied = ApplyPropertyChanges(*this, *stub, std::move(overlay.removed_pids), changes, ForkHas(*fork));
+  if (!applied) return std::unexpected{applied.error()};
+  return old_value;
+}
+
+storage::Result<bool> BranchContext::OverlayInitProperties(
+    storage::Gid gid, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  auto stub = StubForWrite(gid);
+  auto fork = FindForkVertex(gid);
+  if (!stub || !fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto read = ReadVertexOverlay(gid, storage::View::NEW, {.properties = true});
+  if (!read) return std::unexpected{read.error()};
+  if (!*read) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto &overlay = **read;
+  if (overlay.deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
+
+  auto existing = MergeProperties(overlay, *fork);
+  if (!existing) return std::unexpected{existing.error()};
+  if (!existing->empty()) return false;
+  auto applied = ApplyPropertyChanges(*this, *stub, std::move(overlay.removed_pids), properties, ForkHas(*fork));
+  if (!applied) return std::unexpected{applied.error()};
+  return true;
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+BranchContext::OverlayUpdateProperties(storage::Gid gid,
+                                       std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  auto stub = StubForWrite(gid);
+  auto fork = FindForkVertex(gid);
+  if (!stub || !fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto read = ReadVertexOverlay(gid, storage::View::NEW, {.properties = true});
+  if (!read) return std::unexpected{read.error()};
+  if (!*read) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto &overlay = **read;
+  if (overlay.deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
+
+  auto existing = MergeProperties(overlay, *fork);
+  if (!existing) return std::unexpected{existing.error()};
+  auto changes = UpdateChanges(*existing, properties);
+  auto applied = ApplyPropertyChanges(*this, *stub, std::move(overlay.removed_pids), properties, ForkHas(*fork));
+  if (!applied) return std::unexpected{applied.error()};
+  MergeOldBack(*existing, properties);
+  return changes;
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchContext::OverlayClearProperties(
+    storage::Gid gid) {
+  auto stub = StubForWrite(gid);
+  auto fork = FindForkVertex(gid);
+  if (!stub || !fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto read = ReadVertexOverlay(gid, storage::View::NEW, {.properties = true, .deleted_edges = true});
+  if (!read) return std::unexpected{read.error()};
+  if (!*read) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto &overlay = **read;
+  if (overlay.deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
+
+  auto existing = MergeProperties(overlay, *fork);
+  if (!existing) return existing;
+  auto fork_props = fork->Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  if (auto cleared = stub->ClearProperties(); !cleared) return std::unexpected{cleared.error()};  // incl. the lists
+  if (!overlay.deleted_edge_gids.empty()) {
+    if (auto stored = StoreDeletedEdgeGids(*stub, overlay.deleted_edge_gids); !stored) {
+      return std::unexpected{stored.error()};
+    }
+  }
+  if (auto written = WriteAllForkRemoved(*this, *stub, *fork_props); !written) {
+    return std::unexpected{written.error()};
+  }
+  return existing;
+}
+
+storage::Result<bool> BranchContext::OverlayMarkDeleted(storage::Gid gid) {
+  auto marked = DeleteForkVertex(gid);
+  if (!marked) return std::unexpected{marked.error()};
+  return marked->has_value();
+}
+
+storage::VertexAccessor BranchContext::ForkIdentity(const storage::VertexAccessor &v) {
+  if (!IsStub(v) || historical_ == nullptr) return v;
+  auto fork = FindForkVertex(v.Gid());
+  DMG_ASSERT(fork.has_value(), "Fork vertex missing for stub {}", v.Gid().AsUint());
+  return fork ? *fork : v;
+}
+
 storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor &fork_edge) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::DeleteForkEdge: no current diff transaction set.");
   if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) return false;
@@ -597,11 +794,11 @@ std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid
             "BranchContext::ResolveVertex: no current diff transaction set -- "
             "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
             "runs against a checked-out branch.");
-  if (auto diff_vertex = FindStub(gid, view)) {
-    if (IsForkVertexGid(gid) && IsStubDeleted(*diff_vertex, view)) return std::nullopt;
-    return diff_vertex;
+  if (IsForkVertexGid(gid)) {
+    if (IsVertexDeleted(gid, view)) return std::nullopt;
+    return FindForkVertex(gid);
   }
-  return FindForkVertex(gid);
+  return FindStub(gid, view);
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::View view) {
@@ -720,21 +917,14 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
   return *this;
 }
 
-// A fork vertex whose branched() bit is clear has no stub and passes through; otherwise its stub, if any, is looked up
-// live and wins (the reader overlays it on the fork vertex), or drops the vertex when delete-marked. Fork gids are all
-// below the diff engine's vertices, so the diff side follows once the fork side is exhausted.
+// A fork vertex is always emitted as the fork accessor (readers overlay the branch's changes by gid), unless the branch
+// deleted it. Fork gids are all below the diff engine's vertices, so the diff side follows once the fork side is
+// exhausted.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
   while (hist_it_.has_value() && !(*hist_it_ == *hist_end_)) {
     const storage::VertexAccessor fork_vertex = **hist_it_;
     ++(*hist_it_);
-    if (fork_vertex.vertex_->branched()) {
-      if (auto stub = ctx_->FindStub(fork_vertex.Gid(), view_)) {
-        if (ctx_->IsStubDeleted(*stub, view_)) continue;
-        current_ = std::move(stub);
-        done_ = false;
-        return;
-      }
-    }
+    if (fork_vertex.vertex_->branched() && ctx_->IsVertexDeleted(fork_vertex.Gid(), view_)) continue;
     current_ = fork_vertex;
     done_ = false;
     return;

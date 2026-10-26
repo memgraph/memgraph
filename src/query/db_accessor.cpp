@@ -373,7 +373,7 @@ std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchCons
   for (auto const raw_gid : touched) {
     auto diff_vertex = ctx.FindStubOrDiffVertex(storage::Gid::FromUint(raw_gid), storage::View::NEW);
     if (!diff_vertex) continue;
-    VertexAccessor const vertex{*diff_vertex, &ctx};
+    VertexAccessor const vertex{ctx.ForkIdentity(*diff_vertex), &ctx};
 
     auto labels = vertex.Labels(storage::View::NEW);
     if (!labels) {

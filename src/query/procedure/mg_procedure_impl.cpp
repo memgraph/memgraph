@@ -403,14 +403,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 
 bool IsDeleted(const mgp_vertex *vertex) {
   if (vertex->IsVirtual()) return false;
-  const auto &va = vertex->getImpl();
-  // On a branch a deleted fork vertex is never physically deleted: its stub carries the delete marker, so the raw
-  // flag only covers branch-native vertices.
-  if (auto *ctx = va.branch_ctx_; ctx != nullptr && ctx->current_diff_txn() != nullptr &&
-                                  ctx->IsVertexDeleted(va.Gid(), memgraph::storage::View::NEW)) {
-    return true;
-  }
-  return va.impl_.vertex_->deleted();
+  return vertex->getImpl().IsDeleted();
 }
 
 bool IsDeleted(const mgp_edge *edge) {

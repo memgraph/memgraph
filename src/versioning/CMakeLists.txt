@@ -14,6 +14,7 @@ target_sources(mg-versioning
         stub_index.hpp
         stub_properties.hpp
         version_store.hpp
+        vertex_overlay.hpp
 
         PRIVATE
         branch_engine.cpp

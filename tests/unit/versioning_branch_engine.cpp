@@ -206,9 +206,15 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   EXPECT_FALSE(branch_context_->IsForkVertexGid(c_gid)) << "a native vertex must not reuse a fork-range gid";
   EXPECT_FALSE(branch_context_->IsForkEdgeGid(native_edge->Gid())) << "a native edge must not reuse a fork-range gid";
 
+  // A fork vertex resolves to its fork accessor; the branch's value comes from the overlay merged over it.
+  auto branch_value = [&](const ms::VertexAccessor &fork) {
+    auto overlay = branch_context_->ReadVertexOverlay(fork.Gid(), ms::View::NEW, {.properties = true});
+    EXPECT_TRUE(overlay.has_value() && overlay->has_value());
+    return mv::MergeGetProperty(**overlay, fork, prop_x);
+  };
   auto resolved_a = branch_context_->ResolveVertex(a_gid, ms::View::NEW);
   ASSERT_TRUE(resolved_a.has_value());
-  auto a_val = resolved_a->GetProperty(prop_x, ms::View::NEW);
+  auto a_val = branch_value(*resolved_a);
   ASSERT_TRUE(a_val.has_value());
   EXPECT_EQ(*a_val, ms::PropertyValue(2));
   auto resolved_b = branch_context_->ResolveVertex(b_gid, ms::View::NEW);
@@ -223,7 +229,7 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   for (auto v : branch_context_->Vertices(ms::View::NEW)) {
     ++yielded;
     order.push_back(v.Gid().AsUint());
-    auto val = v.GetProperty(prop_x, ms::View::NEW);
+    auto val = v.Gid() == a_gid ? branch_value(v) : v.GetProperty(prop_x, ms::View::NEW);
     ASSERT_TRUE(val.has_value());
     seen.emplace(v.Gid().AsUint(), val->IsNull() ? -1 : val->ValueInt());
   }
