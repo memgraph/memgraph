@@ -11,3 +11,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_license_info/test_show_license_info.py"]
     <<: *show_license_info
+
+  - name: "Tenants are read-only without a licence"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_license_info/tenants_without_licence.py"]

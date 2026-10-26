@@ -9053,12 +9053,6 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
                                       InterpreterContext *interpreter_context,
                                       std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException(
-        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
-        "INFO.");
-  }
-
   auto *query = utils::Downcast<UseDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
@@ -9145,11 +9139,6 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         std::shared_ptr<QueryUserOrRole> user_or_role) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException(
-        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
-  }
-
   auto *db_handler = interpreter_context->dbms_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
@@ -11210,6 +11199,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (!interpreter_context_->repl_state->ReadLock()->IsMainWriteable()) {
         query_execution = nullptr;
         throw WriteQueryOnMainException();
+      }
+      if (current_db_.db_acc_ && current_db_.db_acc_->get()->name() != dbms::kDefaultDB &&
+          !license::global_license_checker.IsEnterpriseValidFast()) {
+        query_execution = nullptr;
+        throw QueryException(
+            "Database '{}' is read-only without a valid license. Check your license status by running SHOW LICENSE "
+            "INFO.",
+            current_db_.db_acc_->get()->name());
       }
 #endif
     }
