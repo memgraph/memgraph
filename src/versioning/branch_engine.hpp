@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
 #include <expected>
 #include <memory>
 #include <mutex>
@@ -427,15 +428,9 @@ class BranchContext {
   // The current diff txn's vertex for `gid`: a fork gid resolves only through the stub index, a native gid only
   // through the diff engine's skiplist.
   std::optional<storage::VertexAccessor> FindStub(storage::Gid gid, storage::View view);
-  // Diff-engine vertex (stub or native) in the current diff txn; no historical_ fallback.
-  std::optional<storage::VertexAccessor> FindStubOrDiffVertex(storage::Gid gid, storage::View view);
 
   // The fork edge `edge_gid` (historical_, View::OLD) out of fork vertex `from_gid`.
   std::optional<storage::EdgeAccessor> FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid);
-
-  bool IsStub(const storage::VertexAccessor &diff_vertex) const {
-    return diff_vertex.storage_ == &core_->diff_engine() && IsForkVertexGid(diff_vertex.Gid());
-  }
 
   // Point lookup: a fork gid resolves to its fork accessor unless the branch deleted it, a native gid to the diff
   // engine's vertex.
@@ -566,6 +561,23 @@ class BranchContext {
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
  private:
+  bool IsStub(const storage::VertexAccessor &diff_vertex) const {
+    return diff_vertex.storage_ == &core_->diff_engine() && IsForkVertexGid(diff_vertex.Gid());
+  }
+
+  // The branch marked fork edge `edge_gid` deleted, as seen at `view`.
+  bool IsForkEdgeDeleted(storage::Gid edge_gid, storage::View view);
+
+  // OverlayAddLabel (`add`) / OverlayRemoveLabel on fork vertex `gid`.
+  storage::Result<bool> OverlayToggleLabel(storage::Gid gid, storage::LabelId label, bool add);
+
+  // Registers the overlay's commit as a callback of the diff commit.
+  void AddOverlayCommitCallback();
+
+  // Overlay-only commit: takes a commit timestamp under engine_lock_ for the diff accessor and commits the overlay
+  // with it. Returns the overlay commit's exception, if any, for the caller to rethrow after FinalizeTransaction.
+  std::exception_ptr StampOverlayOnlyCommit();
+
   // Sets the monotonic `branched()` hint bit on `main_vertex` under its lock; callers hold no diff-engine lock.
   void MarkMainObjectBranched(storage::Vertex *main_vertex);
 

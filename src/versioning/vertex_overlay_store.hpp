@@ -100,6 +100,11 @@ struct OverlayState {
     Insert(removed_labels, label);
   }
 
+  // A fork label the overlay hid is shown again.
+  void UnhideLabel(storage::LabelId label) { Erase(removed_labels, label); }
+
+  void DropAddedLabel(storage::LabelId label) { Erase(added_labels, label); }
+
   // A null value removes the property.
   void SetProperty(storage::PropertyId pid, const storage::PropertyValue &value) {
     if (value.IsNull()) {
