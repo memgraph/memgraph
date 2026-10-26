@@ -190,7 +190,6 @@ class VerticesIterable final {
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
 
-  // Lazy fork-stream scan on a branch: each yielded accessor is stamped with `ctx`.
   VerticesIterable(storage::VerticesIterable iterable, versioning::BranchContext *ctx)
       : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
 
@@ -497,13 +496,12 @@ class DbAccessor final {
     return result;
   }
 
-  // Index-scan overlay: the fork index minus overlaid vertices, merged in index order with a touched set (overlaid fork
-  // vertices, branch-native hits) rechecked on the reconstructed vertex. Cost is O(log V + fork matches + touched),
-  // never O(V).
+  // Index-scan overlay: the fork index minus touched vertices, merged in index order with the touched set rechecked on
+  // the reconstructed vertex. O(log V + fork matches + touched), never O(V).
   using BranchKey = std::vector<storage::PropertyValue>;
 
-  // Touched candidates, deduplicated by gid and always held as fork accessors for fork gids. A deleted fork vertex may
-  // be a candidate: the recheck on the reconstructed vertex fails with DELETED_OBJECT and drops it.
+  // Deduplicated by gid; fork gids are held as fork accessors. A deleted fork vertex may be a candidate: the recheck
+  // fails with DELETED_OBJECT and drops it.
   struct BranchTouchedSet {
     explicit BranchTouchedSet(versioning::BranchContext *ctx) : ctx_(ctx) {}
 
@@ -548,10 +546,8 @@ class DbAccessor final {
     return !std::ranges::all_of(key, [](auto const &v) { return v.IsNull(); });
   }
 
-  // Untouched fork candidates keep stream order; those with an overlay join `touched`. The `branched()` bit is a
-  // lock-free fast path (clear => identical to the fork); a set bit is confirmed by the branch's own label/property
-  // filters, then an overlay lookup.
-  // `label_touched`, when the scan is for one label, replaces the coarse any-label filter with the exact per-label set.
+  // Untouched fork candidates keep stream order; those with an overlay join `touched`. A clear `branched()` bit is a
+  // lock-free fast path; `label_touched` (single-label scans) replaces the coarse any-label filter.
   std::vector<storage::VertexAccessor> SplitBranchForkStream(
       storage::VerticesIterable fork_stream, BranchTouchedSet &touched,
       versioning::BranchCore::LabelTouchedSet const *label_touched = nullptr) {
@@ -630,8 +626,8 @@ class DbAccessor final {
            (range.type_ == storage::PropertyRangeType::BOUNDED && (range.lower_ || range.upper_));
   }
 
-  // Adds the fork vertices named by a touched set (ascending by gid, so the merge order is stable). The set is a
-  // superset of the vertices that changed, so every candidate is rechecked on its reconstructed state.
+  // Adds the fork vertices named by a touched set in gid order (stable merge). The set is a superset of the changed
+  // vertices, so every candidate is rechecked on its reconstructed state.
   void AddTouchedForkVertices(BranchTouchedSet &touched, versioning::BranchCore::LabelTouchedSet const &gids) {
     std::vector<uint64_t> sorted(gids.begin(), gids.end());
     std::ranges::sort(sorted);
@@ -693,12 +689,11 @@ class DbAccessor final {
     // One snapshot up front: any txn visible to this scan recorded its gids before this point.
     auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
 
-    // Candidates the fork index cannot contain: branch-native hits, ...
+    // Candidates the fork index cannot contain: branch-native hits, vertices that gained `label` or SET a key property.
     for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) touched.Add(raw);
-    // ... fork vertices that gained `label` on the branch (their overlay may lack the key properties), ...
     AddTouchedForkVertices(touched, *label_touched);
-    // ... and fork vertices that SET a key property. A null-excluding range anchors the match, so only constrained
-    // positions can have turned into a match; otherwise every key position is enumerated.
+    // A null-excluding range anchors the match, so only constrained positions can have turned into a match; otherwise
+    // every key position is enumerated.
     bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
     for (size_t i = 0; i < properties.size(); ++i) {
       if (anchored && i >= property_ranges.size()) continue;
@@ -719,9 +714,8 @@ class DbAccessor final {
         });
   }
 
-  // Global vertex-property scan overlay (ascending by value). `fork_scan`/`diff_scan` open the same property scan on
-  // main@fork and on the diff engine (branch-native vertices only); `in_range` is the value predicate for the
-  // reconstructed vertex.
+  // Global vertex-property scan overlay (ascending by value). `fork_scan`/`diff_scan` open the scan on main@fork and
+  // the diff engine (native vertices only); `in_range` is the predicate for the reconstructed vertex.
   template <typename ForkScan, typename DiffScan, typename InRange>
   VerticesIterable BranchPropertyScan(storage::View view, storage::PropertyId property, ForkScan &&fork_scan,
                                       DiffScan &&diff_scan, InRange &&in_range) {
@@ -801,10 +795,8 @@ class DbAccessor final {
     return result;
   }
 
-  // Edge-property scan on a branch, ascending by `property` (the planner elides OrderBy on this scan). Three runs are
-  // merged: the diff engine's index (branch-native edges only), main@fork's index minus the fork edges the branch hid
-  // or may have written `property` on, and those touched edges re-read through their overlay (`edge_type`, when the
-  // scan has one, and `in_range` re-checked on the merged value). Cost is O(log E + fork matches + touched).
+  // Ascending by `property` (planner elides OrderBy): merges the diff index (native edges), the fork index minus hidden
+  // or touched edges, and touched fork edges re-read via the overlay. O(log E + fork matches + touched).
   template <typename InRange>
   auto MergeBranchEdgePropertyScan(storage::View view, storage::PropertyId property,
                                    std::optional<storage::EdgeTypeId> edge_type, storage::EdgesIterable diff_stream,
@@ -819,7 +811,7 @@ class DbAccessor final {
     std::vector<KeyedEdge> native;
     for (auto raw : diff_stream) {
       auto prop = raw.GetProperty(property, view);
-      if (!prop.has_value()) continue;  // defensive: an index candidate should always have it
+      if (!prop.has_value()) continue;
       native.emplace_back(std::move(*prop), EdgeAccessor(raw, branch_ctx_));
     }
 
@@ -827,7 +819,7 @@ class DbAccessor final {
     for (auto raw : hist_stream) {
       if (touched->contains(raw.Gid().AsUint()) || branch_ctx_->IsForkEdgeHidden(raw, view)) continue;
       auto prop = raw.GetProperty(property, storage::View::OLD);
-      if (!prop.has_value()) continue;  // defensive: an index candidate should always have it
+      if (!prop.has_value()) continue;
       untouched.emplace_back(std::move(*prop), EdgeAccessor(raw, branch_ctx_));
     }
 
@@ -860,8 +852,9 @@ class DbAccessor final {
     return result;
   }
 
-  // The diff engine's native check sees only its own adjacency (empty for a stub), so consult the branch's full
-  // adjacency. Edges this same statement deletes (`co_deleted_edge_gids`) do not count against the vertex.
+  // The diff engine's native check sees only its own adjacency (for a fork vertex, just its anchor's branch-created
+  // edges, not fork edges), so consult the branch's full adjacency. Edges this same statement deletes
+  // (`co_deleted_edge_gids`) do not count against the vertex.
   bool BranchVertexHasUncountedEdges(storage::Gid vertex_gid,
                                      const std::unordered_set<storage::Gid> &co_deleted_edge_gids) {
     auto has_uncounted = [&](storage::EdgeDirection direction) {
@@ -871,9 +864,8 @@ class DbAccessor final {
     return has_uncounted(storage::EdgeDirection::OUT) || has_uncounted(storage::EdgeDirection::IN);
   }
 
-  // DELETE on a branch: diff-engine objects are deleted normally; a fork vertex or fork edge gets the overlay's delete
-  // flag (OverlayMarkDeleted/DeleteForkEdge). DETACH DELETE of a fork vertex thus writes only the flag; just its
-  // incident diff-engine edges are deleted for real.
+  // DELETE on a branch: diff-engine objects are deleted normally; fork vertices/edges get the overlay delete flag
+  // (OverlayMarkDeleted/DeleteForkEdge), so DETACH DELETE of a fork vertex deletes only its diff-engine edges for real.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
@@ -998,8 +990,7 @@ class DbAccessor final {
     return std::nullopt;
   }
 
-  // On a branch `accessor_` is the diff engine only (branch-native edges): look up diff-first, else fall back to a full
-  // union scan, O(V+E).
+  // On a branch `accessor_` is the diff engine only: look up diff-first, else union scan O(V+E).
   // Prefer the 3-argument overload when the FROM vertex is known.
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
@@ -1053,9 +1044,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(view));
   }
 
-  // Union of the fork label index and the diff engine's, unsorted (no property key); full-scan fallback if main dropped
-  // the index after the fork. Deleted fork vertices are dropped; fork candidates with an overlay are re-checked on the
-  // reconstructed vertex.
+  // Union of the fork and diff label indexes, unsorted; full-scan fallback if main dropped the index after the fork.
+  // Fork candidates with an overlay are re-checked on the reconstructed vertex.
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
@@ -1089,11 +1079,9 @@ class DbAccessor final {
         result->push_back(candidate);
       }
 
-      // (b) Diff stream: branch-native vertices.
       for (auto raw : accessor_->Vertices(label, view)) result->push_back(VertexAccessor(raw, branch_ctx_));
 
-      // (c) Fork vertices that may have gained `label` on the branch, in gid order; one whose fork vertex already had
-      // it was emitted by (a).
+      // (c) Fork vertices that may have gained `label`, in gid order; ones that already had it were emitted by (a).
       std::vector<uint64_t> gained(label_touched->begin(), label_touched->end());
       std::ranges::sort(gained);
       for (auto const gid : gained) {
@@ -1258,7 +1246,7 @@ class DbAccessor final {
 
   // On a branch `accessor_` is the diff engine only, so Edges() overloads merge it with main@fork's index via
   // historical(). Edge-type scan: unsorted union (no property key); a fork candidate is skipped if the branch deleted
-  // it (stubs never change type or endpoints).
+  // it (fork edges never change type or endpoints).
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();

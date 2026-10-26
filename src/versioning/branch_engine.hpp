@@ -47,18 +47,16 @@ namespace memgraph::versioning {
 // Shared per-branch state: one per live branch, shared by every session that has it checked out. Session-mutated
 // state lives in the diff engine (MVCC) or behind an atomic / mutex here; per-transaction state is BranchContext's.
 //
-// The diff engine shares main's NameIdMapper because not-yet-stubbed fork vertices carry main's label/property ids.
-// Enum-type ids differ (the enum store is mirrored, not shared); stubs copy no fork values, so none cross over.
+// The diff engine shares main's NameIdMapper because fork objects read from main@fork_ts carry main's ids. Enum-type
+// ids differ (the enum store is mirrored, not shared).
 //
-// A branch's changes to fork vertices (labels, properties, deletes) and to fork edges (properties, deletes) live in the
-// VertexOverlayStore, a small MVCC of its own that shares the diff engine's clock: a branch transaction's overlay
-// snapshot is its diff transaction's start timestamp. A fork edge is keyed by EdgeKey(gid), so one OverlayTransaction
-// and one commit stamp cover both kinds. The overlay is stamped by the diff commit (a commit callback under
-// engine_lock_) or, for an overlay-only transaction, by BranchContext::CommitTransaction under the same lock.
+// A branch's changes to fork vertices and fork edges (labels, properties, deletes) live in the VertexOverlayStore, an
+// MVCC on the diff engine's clock: a transaction's overlay snapshot is its diff transaction's start timestamp. The
+// overlay is stamped by the diff commit (a commit callback under engine_lock_) or, if overlay-only, by
+// BranchContext::CommitTransaction under the same lock.
 //
-// Vertex stubs are empty, delta-less Vertex objects owned by the StubIndex, not entries of the diff engine's vertices_
-// (which holds only branch-native vertices). They are anchors only: the adjacency of fork vertices that got a
-// branch-created edge. They carry no labels, properties or markers. A change to a fork edge creates no stub.
+// Stubs are empty, delta-less Vertex objects owned by the StubIndex, not entries of the diff engine's vertices_. They
+// are adjacency anchors only, for fork vertices that got a branch-created edge; a fork edge change creates none.
 //
 // Branch-native creates take gids from main's counters, so gids are unique across main and every branch. `Build`
 // records main's counters as floors: a gid below the vertex (edge) floor is a fork vertex (edge), at or above it is
@@ -87,7 +85,6 @@ class BranchCore {
   BranchCore &operator=(const BranchCore &) = delete;
   BranchCore(BranchCore &&) = delete;
   BranchCore &operator=(BranchCore &&) = delete;
-  // Destroys the diff engine before the stub index frees the stubs its deltas and index entries point at.
   ~BranchCore();
 
   storage::InMemoryStorage &diff_engine() { return *diff_engine_; }
@@ -190,8 +187,7 @@ class BranchCore {
   void RepinSnapshot(uint64_t from, uint64_t to);
   void UnpinSnapshot(uint64_t ts);
 
-  // Counts a finished overlay-writing transaction; every kGcEveryTxns-th one runs CollectOverlayGarbage. Commit and
-  // abort are the only places versions become garbage, so this keeps pace with them without a thread of its own.
+  // Counts a finished overlay-writing transaction; every kGcEveryTxns-th one runs CollectOverlayGarbage.
   void OnOverlayTxnEnded() noexcept;
   void CollectOverlayGarbage();
 
@@ -242,7 +238,7 @@ class BranchCore {
   std::multiset<uint64_t> snapshot_pins_;
   std::atomic<uint64_t> overlay_txns_ended_{0};
 
-  // Owns the fork-vertex stubs; ~BranchCore resets diff_engine_ first, so they outlive it.
+  // Owns the stubs the diff engine's deltas and indexes point at; ~BranchCore resets diff_engine_ first.
   StubIndex stub_index_;
 };
 
@@ -252,11 +248,9 @@ class BranchCore {
 // engine (`CowVertex`), then is created on it.
 //
 // The per-transaction slots (`current_diff_txn_`, `historical_`, `overlay_txn_`) are opened by
-// CurrentDB::SetupDatabaseTransaction and released by CleanupDBTransaction. The overlay transaction commits only
-// through CommitTransaction/PeriodicCommitTransaction; EndTransaction aborts it if it never did, so an abort, a failed
-// commit and a dropped context all roll the overlay back exactly once, and a committed overlay is never rolled back.
-// Owned by one session and used by one transaction at a time; concurrent sessions each hold their own BranchContext
-// over the same core.
+// CurrentDB::SetupDatabaseTransaction and released by CleanupDBTransaction. The overlay transaction must end in
+// CommitTransaction/PeriodicCommitTransaction; otherwise EndTransaction aborts it, exactly once.
+// One session, one transaction at a time; concurrent sessions each hold their own BranchContext over the same core.
 //
 // historical_ holds main's READ storage guard only while a branch transaction is open.
 class BranchContext {
@@ -353,10 +347,8 @@ class BranchContext {
   // branch-native edge.
   bool IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view);
 
-  // Gid-keyed access to a fork vertex's branch-side changes. Callers hold the fork accessor (historical_, View::OLD)
-  // and never see how the changes are stored; an optional on the read side is empty when the branch changed nothing.
-  // Each write is one overlay write; a caller that must report a failed prepare (a delete on this branch) calls
-  // PrepareForkWrite first.
+  // Gid-keyed access to a fork vertex's branch-side changes; callers hold the fork accessor (historical_, View::OLD).
+  // A caller that must report a failed prepare (a delete on this branch) calls PrepareForkWrite first.
 
   // The overlay version of a fork vertex visible to the current diff txn at `view`; null for a non-fork gid or when the
   // branch changed nothing. Valid only while the branch txn is pinned (OpenHistorical..EndTransaction): use it inside
@@ -365,10 +357,9 @@ class BranchContext {
   // True when the overlay has a version of the fork vertex visible to this transaction.
   bool HasVertexOverlay(storage::Gid gid);
 
-  // Same for a fork edge: null for a native gid or when the branch changed nothing. Same validity rule.
+  // As ReadOverlayVersion, for a fork edge.
   const OverlayVersion *ReadEdgeOverlayVersion(storage::Gid edge_gid, storage::View view);
 
-  // The writes return what the matching storage::VertexAccessor call returns, so the query layer wraps them 1:1.
   storage::Result<bool> OverlayAddLabel(storage::Gid gid, storage::LabelId label);
   storage::Result<bool> OverlayRemoveLabel(storage::Gid gid, storage::LabelId label);
   storage::Result<storage::PropertyValue> OverlaySetProperty(storage::Gid gid, storage::PropertyId key,
@@ -400,8 +391,6 @@ class BranchContext {
   // disabled, else sets main's `branched()` hint bit on the edge. Allocates no stub.
   std::expected<void, CowError> PrepareForkEdgeWrite(const storage::EdgeAccessor &fork_edge);
 
-  // Edge property writes of fork edge `fork_edge` (main@fork_ts), each one overlay write returning what the matching
-  // storage::EdgeAccessor call returns.
   storage::Result<storage::PropertyValue> EdgeOverlaySetProperty(const storage::EdgeAccessor &fork_edge,
                                                                  storage::PropertyId key,
                                                                  const storage::PropertyValue &value);
@@ -439,8 +428,7 @@ class BranchContext {
   // Diff-engine-ONLY point lookup by edge gid (no historical_ fallback): branch-native edges, which hang off
   // diff-engine vertices or anchor stubs.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
-  // Same lookup when the FROM endpoint's gid is known: walks that vertex's adjacency, stub or native, instead of
-  // scanning every vertex for the edge.
+  // Same, walking the known FROM vertex's adjacency instead of scanning every vertex.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
   // Gid-ordered streaming union: every historical_ vertex as its fork accessor (dropped if the branch deleted it), then
@@ -546,6 +534,8 @@ class BranchContext {
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 
+  bool MayHaveAnyVertexDeleted() const noexcept { return core_->MayHaveAnyVertexDeleted(); }
+
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     core_->RecordPropertyFieldChange(gid, pid);
   }
@@ -574,8 +564,8 @@ class BranchContext {
   // Registers the overlay's commit as a callback of the diff commit.
   void AddOverlayCommitCallback();
 
-  // Overlay-only commit: takes a commit timestamp under engine_lock_ for the diff accessor and commits the overlay
-  // with it. Returns the overlay commit's exception, if any, for the caller to rethrow after FinalizeTransaction.
+  // Overlay-only commit: stamps the diff accessor and the overlay under engine_lock_. Returns the overlay commit's
+  // exception, if any, for the caller to rethrow after FinalizeTransaction.
   std::exception_ptr StampOverlayOnlyCommit();
 
   // Sets the monotonic `branched()` hint bit on `main_vertex` under its lock; callers hold no diff-engine lock.

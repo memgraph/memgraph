@@ -8003,8 +8003,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
-      // On a branch: main's labels plus those used on the branch (the diff engine's metadata and the labels written on
-      // fork vertices), minus reserved `__mg_*` labels. Both are metadata sets, so no graph scan.
+      // On a branch: main's labels plus the diff engine's (minus reserved `__mg_*` markers) and those touched on fork
+      // vertices. All are metadata sets, so no graph scan.
       handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
@@ -12287,7 +12287,6 @@ void Interpreter::Commit() {
         return std::unexpected{storage::StorageManipulationError{valid.error()}};
       }
     }
-    // A branch commits its overlay together with the diff transaction.
     if (current_db_.execution_db_accessor_) {
       if (auto *branch = current_db_.execution_db_accessor_->branch_context()) {
         return branch->CommitTransaction(make_commit_arg(is_main, *current_db_.db_acc_));

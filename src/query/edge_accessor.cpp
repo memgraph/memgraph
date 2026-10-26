@@ -56,21 +56,24 @@ namespace {
 
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
-// A fork edge is a main@fork_ts accessor; the branch's changes to it (properties, delete) are its overlay version
-// (BranchContext::ReadEdgeOverlayVersion), merged over the fork edge on read. Branch-native edges (diff-engine
-// accessors, gid at or above the edge floor) are complete and never merged.
+// A fork edge's branch-side changes are its overlay version, merged over it on read. Branch-native edges (diff-engine
+// accessors) are complete and never merged.
 struct ReadTarget {
   enum class Kind { kDirect, kHidden, kOverlay };
   Kind kind{Kind::kDirect};
-  const versioning::OverlayVersion *version{nullptr};  // valid for the rest of the calling function only
+  const versioning::OverlayVersion *version{nullptr};
 };
 
-// A clear branched bit on the fork edge proves the branch never wrote it. A deleted fork edge reads as DELETED_OBJECT
-// (kHidden). `field` narrows the property gate to one property.
+// A clear branched bit proves the branch never wrote the fork edge, but a deleted endpoint hides it regardless, so
+// the bit short-circuits only while the branch has deleted no vertex. A deleted fork edge is kHidden (DELETED_OBJECT);
+// `field` narrows the property gate to one property.
 ReadTarget ResolveReadTarget(versioning::BranchContext &ctx, const storage::EdgeAccessor &impl, storage::View view,
                              std::optional<storage::PropertyId> field) {
-  if (impl.storage_ == &ctx.diff_engine() || !impl.MaybeBranchedHint()) return {};
+  if (impl.storage_ == &ctx.diff_engine()) return {};
+  bool const hint = impl.MaybeBranchedHint();
+  if (!hint && !ctx.MayHaveAnyVertexDeleted()) return {};
   if (ctx.IsForkEdgeHidden(impl, view)) return {.kind = ReadTarget::Kind::kHidden};
+  if (!hint) return {};
   auto const gid = impl.Gid();
   bool const may_have =
       field ? ctx.MayHaveForkEdgePropertyFieldChange(gid, *field) : ctx.MayHaveForkEdgePropertyChange(gid);
@@ -86,7 +89,6 @@ storage::Result<uint64_t> MergedGetPropertySize(const versioning::OverlayVersion
   return versioning::MergeGetPropertySize(version, fork, key);
 }
 
-// Before an overlay write of a fork edge: throws if it is deleted on the branch or edge properties are disabled.
 void PrepareForkEdge(versioning::BranchContext &ctx, const storage::EdgeAccessor &fork_edge) {
   if (auto prepared = ctx.PrepareForkEdgeWrite(fork_edge); !prepared) {
     throw QueryRuntimeException(prepared.error().message);

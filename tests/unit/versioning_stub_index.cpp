@@ -56,8 +56,6 @@ TEST(VersioningStubIndex, SequentialAndSparseInsertsResolve) {
   EXPECT_EQ(index.FindStub(7), stub7) << "growing a page must keep the stub object";
   EXPECT_TRUE(IsStubOf(index.FindStub(1ULL << 50, cursor), 1ULL << 50));
   EXPECT_EQ(index.FindStub(16), nullptr);
-
-  // A repeat returns the recorded stub; the redundant candidate is freed.
   EXPECT_EQ(index.GetOrCreateStub(3, FakeFork(3)), index.FindStub(3));
 
   size_t visited = 0;

@@ -85,8 +85,7 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  // On a branch, storage's operator== (EdgeRef + Transaction*) differs between a fork edge and a branch-native edge's
-  // diff-engine copy, so compare gids.
+  // On a branch, compare by gid like VertexAccessor (hash is gid-based too).
   bool operator==(const EdgeAccessor &e) const noexcept {
     if (branch_ctx_ != nullptr || e.branch_ctx_ != nullptr) {
       return Gid() == e.Gid();

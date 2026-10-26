@@ -36,9 +36,8 @@ namespace {
 
 constexpr std::string_view kReservedPrefix = "__mg_";
 
-// Mirrors main's index definitions (not contents) so the planner can pick index scans on a checked-out branch;
-// the diff engine populates them through ordinary index maintenance, which sees branch-native objects only: a fork
-// vertex's changes are found through the touched sets, not the diff engine's indexes.
+// Mirrors main's index definitions (not contents) so the planner can pick index scans on a checked-out branch. They
+// only ever index branch-native objects; a fork vertex's changes are found through the touched sets.
 void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
                                               const storage::IndicesInfo &main_indices) {
   // No early-return emptiness guard: it enumerated every index kind, was twice forgotten for a new kind, and silently
@@ -547,7 +546,6 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
         CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
   }
 
-  // A prior COW (or a native vertex) in the diff engine wins.
   if (auto existing = FindStub(gid, storage::View::NEW)) return *existing;
 
   auto hist_vertex = FindForkVertex(gid);
@@ -686,7 +684,6 @@ using MutateError = std::optional<storage::Error>;
 
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
-// (pid, old, new) per entry of `properties`; `existing` supplies the old values.
 std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> UpdateChanges(
     const PropertyMap &existing, const PropertyMap &properties) {
   std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
@@ -703,7 +700,6 @@ void MergeOldBack(PropertyMap &existing, PropertyMap &properties) {
   for (auto &[pid, old_value] : existing) properties.emplace(pid, std::move(old_value));
 }
 
-// The fork properties with the overlay's removals and values applied.
 PropertyMap MergedFromState(const OverlayState &state, const PropertyMap &fork_props) {
   auto merged = fork_props;
   for (auto const pid : state.removed_pids) merged.erase(pid);
@@ -1027,7 +1023,7 @@ std::optional<storage::VertexAccessor> BranchContext::FindStub(storage::Gid gid,
     // Same construction as InMemoryAccessor::FindVertex on the diff txn (storage_ is the diff engine).
     return storage::VertexAccessor::Create(stub, &core_->diff_engine(), current_diff_txn_->GetTransaction(), view);
   }
-  if (IsForkVertexGid(gid)) return std::nullopt;  // fork stubs live only in the stub index
+  if (IsForkVertexGid(gid)) return std::nullopt;  // fork anchors live in the stub index only
   return current_diff_txn_->FindVertex(gid, view);
 }
 
@@ -1161,9 +1157,8 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
   return *this;
 }
 
-// A fork vertex is always emitted as the fork accessor (readers overlay the branch's changes by gid), unless the branch
-// deleted it. Fork gids are all below the diff engine's vertices, so the diff side follows once the fork side is
-// exhausted.
+// Fork vertices are emitted as the fork accessor (readers overlay branch changes by gid) unless deleted on the branch;
+// fork gids are all below the diff engine's, so the diff side follows once the fork side is exhausted.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
   while (hist_it_.has_value() && !(*hist_it_ == *hist_end_)) {
     const storage::VertexAccessor fork_vertex = **hist_it_;

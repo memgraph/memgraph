@@ -777,8 +777,8 @@ class InMemoryStorage final : public Storage {
 
     void DowngradeToReadIfValid();
 
-    /// Finds the out-edge `edge_gid` in `from_vertex`'s adjacency, for a `from_vertex` that is not in `vertices_`
-    /// (a versioning stub). Requires properties_on_edges.
+    /// Finds out-edge `edge_gid` by scanning `from_vertex`'s adjacency (for versioning stubs, which the vertex-skiplist
+    /// scan in FindEdge misses). Returns nullopt if absent or properties_on_edges is off.
     std::optional<EdgeAccessor> FindEdgeFrom(Gid edge_gid, Vertex *from_vertex, View view);
 
    protected:

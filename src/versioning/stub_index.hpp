@@ -28,10 +28,9 @@
 
 namespace memgraph::versioning {
 
-// Sparse, page-keyed table of a branch's fork-vertex stubs: for each fork gid that has a stub, the stub Vertex* and the
-// fork (main) Vertex* it shadows. The table owns the stubs: they are heap objects outside the diff engine's vertices_
-// skiplist, created by GetOrCreateStub and freed in ~StubIndex, so the owner must destroy the diff engine first (its
-// deltas and index entries point at the stubs). A stub never has a create delta and is never marked deleted.
+// Sparse, page-keyed table of a branch's fork-vertex stubs: per fork gid, the stub Vertex* and the fork (main) Vertex*
+// it anchors. Owns the stubs (heap objects outside the diff engine's vertices_), freed in ~StubIndex, so the owner must
+// destroy the diff engine first: its deltas and index entries point at the stubs.
 //
 // Structure: gids are grouped into pages of kPageSize = 16 consecutive gids (page_id = gid >> 4). kShards independently
 // locked absl::flat_hash_maps map page_id -> Page*. A Page holds a 16-entry slot table (slot_of[gid & 15]: 0 = absent,
@@ -44,8 +43,8 @@ namespace memgraph::versioning {
 // BranchCore's lifetime (stubs are never erased, and a fork vertex visible at fork_ts cannot be freed while the fork
 // pin is held).
 //
-// A null stub result means no stub is recorded at the time of the call: a stale cursor or a replaced page can only miss
-// entries, never return a wrong pointer, and a miss is re-checked under the shard epoch before it is returned.
+// A null stub result means no stub is recorded yet: a stale cursor or a replaced page can only miss entries, never
+// return a wrong pointer.
 //
 // Memory ordering:
 //  - Writers are serialized per shard by the unique lock. A new entry's pointers are stored relaxed, then
@@ -55,7 +54,7 @@ namespace memgraph::versioning {
 //    obtain it under the shared lock (lock hand-off orders the build before the read). The replaced page is retired,
 //    not freed (freed only in ~StubIndex), so readers holding it, including via a stale Cursor, read valid memory;
 //    it is frozen after retirement, so they just may not see later inserts.
-//  - Each shard has an epoch bumped (release) after every state-changing Insert while holding the unique lock. A cursor
+//  - Each shard has an epoch bumped (release) after every state-changing insert while holding the unique lock. A cursor
 //    records the epoch observed under the shared lock when it was refreshed. If a lookup in the cached page does not
 //    yield the wanted pointer and the shard epoch (acquire) is unchanged, no insert has completed in that shard since
 //    the refresh, so the cached view (including "page absent") is current and the miss is returned without locking. A

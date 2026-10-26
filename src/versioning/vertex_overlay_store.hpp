@@ -40,13 +40,8 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
 
-// Versioned per-object changes of a branch over its fork vertices and fork edges, with a small MVCC of their own that
-// follows the storage engine's visibility and conflict rules (storage/v2/mvcc.hpp) without reusing its deltas.
-//
-// Per key the store keeps a newest-first chain of OverlayVersion. A version is the FULL overlay state after a write
-// (not a diff), so a read finds the one visible version and never replays. No visible version means the fork object's
-// own state applies. A vertex is keyed by its gid, an edge by EdgeKey(gid): one store, one transaction stamp and one
-// commit/abort/GC path cover both, and each object kind is its own conflict domain.
+// Per-object MVCC of a branch's changes over fork vertices and edges, following storage's visibility/conflict rules.
+// A key (vertex gid or EdgeKey) has a newest-first chain of full-state versions; none visible: the fork's own state.
 namespace memgraph::versioning {
 
 // Keyspace of fork edges: gids are counters that never reach bit 63, so the bit separates them from vertex gids.
@@ -56,9 +51,8 @@ constexpr uint64_t EdgeKey(uint64_t edge_gid) noexcept { return edge_gid | kEdge
 
 constexpr bool IsEdgeKey(uint64_t key) noexcept { return (key & kEdgeKeyBit) != 0; }
 
-// Shared by all versions of one transaction: the transaction id until commit, the commit timestamp afterwards. One
-// release store makes every version of the transaction visible at once. Reference counted by its versions and by the
-// owning OverlayTransaction.
+// Shared by all versions of one transaction: its id until commit, the commit timestamp after, so one release store
+// publishes them all. Reference counted by its versions and the owning OverlayTransaction.
 class OverlayStamp {
  public:
   // @throw std::bad_alloc
@@ -81,8 +75,7 @@ class OverlayStamp {
   std::atomic<uint32_t> refs_{1};
 };
 
-// Mutable, unpacked overlay state: what a write mutator edits and what a version is built from. The sets keep the
-// overlay's meaning relative to the fork vertex: a label or property both "added" and "removed" cannot exist.
+// Mutable, unpacked overlay state that a write mutator edits; a label or property is never both added and removed.
 struct OverlayState {
   bool deleted{false};
   std::vector<storage::LabelId> added_labels;     // sorted
@@ -143,14 +136,9 @@ struct OverlayState {
   }
 };
 
-// One immutable, packed version. The label and pid arrays trail the header in the same allocation; after publication
-// only `older` and the stamp's timestamp change.
-//
-// Layout: 36 B of header fields (padded to 40 B by the alignment), then at offset 36
-//  - normal form: added labels, removed labels, removed pids (4 B each; each count fits the header's u8);
-//  - extended form (any count above 255): three u32 counts, then the same three arrays.
-// A single label or pid is 40 B of allocation, three fit in 48 B. An edge version has only properties and removed
-// pids.
+// One immutable packed version; the label/pid arrays trail the header in one allocation. After publication only `older`
+// and the stamp's timestamp change. Layout: 36 B of fields (40 B padded), then at offset 36 added labels, removed
+// labels, removed pids (4 B each); a count above 255 selects the extended form, which prefixes three u32 counts.
 class OverlayVersion {
  public:
   static constexpr uint8_t kDeleted = 1;
@@ -251,11 +239,10 @@ static_assert(sizeof(storage::PropertyStore) == 12, "OverlayVersion::kTailStart 
 static_assert(sizeof(OverlayVersion) == 40, "OverlayVersion header must stay 40 B");
 static_assert(sizeof(storage::LabelId) == 4 && sizeof(storage::PropertyId) == 4);
 
-// Per-transaction state the store needs: the snapshot, the transaction's stamp, the command counter and the gids it
-// wrote. Owned by the caller, one per overlay transaction, used from one thread at a time.
+// Per-transaction store state: snapshot, stamp, command counter, written gids. One per overlay transaction, used from
+// one thread at a time.
 class OverlayTransaction {
  public:
-  // `txn_id` must be in the transaction id space (>= storage::kTransactionInitialId), as in storage::Transaction.
   OverlayTransaction(uint64_t start_ts, uint64_t txn_id, storage::IsolationLevel isolation) noexcept
       : start_ts_{start_ts}, txn_id_{txn_id}, isolation_{isolation} {
     DMG_ASSERT(txn_id >= storage::kTransactionInitialId);
@@ -284,7 +271,6 @@ class OverlayTransaction {
 
   bool has_writes() const noexcept { return stamp_ != nullptr; }
 
-  // Committed or aborted.
   bool finished() const noexcept { return finished_; }
 
   size_t write_count() const noexcept { return writes_.size(); }
@@ -298,17 +284,15 @@ class OverlayTransaction {
   uint64_t start_ts_;
   uint64_t txn_id_;
   OverlayStamp *stamp_{nullptr};  // created by the first write
-  std::vector<uint64_t> writes_;  // gids whose chain this transaction put a head on
+  std::vector<uint64_t> writes_;
   uint32_t command_id_{0};
   storage::IsolationLevel isolation_;
   bool finished_{false};
 };
 
-// Concurrency: chain walks are lock-free; the gid lookup takes a shard's shared lock, writers its unique lock. A
-// version removed from a chain (replaced, aborted, collapsed by GC) goes to a garbage list and is freed by
-// CollectGarbage only once `oldest_active_start_ts` has passed the clock value the garbage was marked with, the same
-// scheme as the storage engine's garbage_undo_buffers_: any transaction that could hold a pointer to it started before
-// the mark. Every reader must therefore be a transaction that CollectGarbage's `oldest_active_start_ts` accounts for.
+// Chain walks are lock-free; the gid lookup takes a shard's shared lock, writers its unique lock. A version unlinked
+// from a chain (replaced, aborted, collapsed) is freed by CollectGarbage only once the oldest active start timestamp
+// passes the clock value it was marked with, so every reader must be a transaction that timestamp accounts for.
 //
 // Lock order: gc_mutex_ -> shard lock -> garbage_mutex_. The sampler runs under gc_mutex_ only, so it may take
 // engine_lock_ (Commit holds engine_lock_ -> garbage_mutex_).
@@ -323,19 +307,17 @@ class VertexOverlayStore {
   // Single-threaded teardown: no transaction may be using the store.
   ~VertexOverlayStore();
 
-  // The version of `gid` that `txn` sees, or null when the fork vertex's own state applies. The pointer is valid until
-  // `txn` ends. Under READ_UNCOMMITTED the newest version is returned whatever its owner.
+  // The version of `gid` that `txn` sees, or null when the fork object's own state applies. Valid until `txn` ends.
+  // Under READ_UNCOMMITTED the newest version is returned whatever its owner.
   const OverlayVersion *Read(uint64_t gid, const OverlayTransaction &txn, storage::View view) const;
 
-  // Whether a Write of `gid` by `txn` would pass the conflict check (Write's rule); nothing is written.
+  // Whether Write of `gid` by `txn` would pass the conflict check; nothing is written.
   bool CanWrite(uint64_t gid, const OverlayTransaction &txn) const;
 
-  // Lookup, conflict check, read-modify and publish under one shard lock. `mutate(OverlayState &)` receives the
-  // newest state (the transaction's own, or the committed head that is visible to it) and returns whether it changed
-  // anything; a no-op creates no version. Returns whether a version was written, or SERIALIZATION_ERROR when the head
-  // belongs to another transaction that has not committed or committed after `txn` started (storage's PrepareForWrite
-  // rule, for every isolation level). A transaction writing again in the same command replaces its head; in a later
-  // command it adds a version, so View::OLD keeps seeing the earlier command's state.
+  // Conflict check, `mutate(OverlayState &)` on the head's state (returns whether it changed anything; a no-op writes
+  // no version) and publish, under one shard lock. SERIALIZATION_ERROR when the head is another transaction's
+  // uncommitted or committed after `txn` started (PrepareForWrite's rule, any isolation level). The same command
+  // replaces the transaction's own head; a later command adds a version, so View::OLD keeps the earlier state.
   // @throw std::bad_alloc
   template <typename Mutator>
   std::expected<bool, storage::Error> Write(uint64_t gid, OverlayTransaction &txn, Mutator &&mutate) {
@@ -357,7 +339,7 @@ class VertexOverlayStore {
     if (!own) txn.writes_.reserve(txn.writes_.size() + 1);
 
     bool const replace = own && head->command_id_ == txn.command_id_;
-    if (replace) {  // Retire below must not allocate
+    if (replace) {  // so Retire below cannot allocate
       std::lock_guard garbage_guard{garbage_mutex_};
       unmarked_.reserve(unmarked_.size() + 1);
     }
@@ -379,16 +361,13 @@ class VertexOverlayStore {
     return true;
   }
 
-  // Makes every version of `txn` visible to snapshots taken after `commit_ts`: one release store on its stamp. The
-  // caller takes `commit_ts` from the same clock as start timestamps, with no start timestamp handed out between taking
-  // it and this call returning.
+  // Publishes all of `txn`'s versions with one release store on its stamp. The caller takes `commit_ts` from the
+  // start-timestamp clock and hands out no start timestamp between taking it and this call returning.
   void Commit(OverlayTransaction &txn, uint64_t commit_ts);
 
-  // Unlinks the heads `txn` put on its chains, restoring the previous heads. Idempotent for a transaction without
-  // writes.
+  // Unlinks the heads `txn` put on its chains, restoring the previous heads. `txn` must not have finished.
   void Abort(OverlayTransaction &txn);
 
-  // The clock state GC works from, sampled by the caller's registry of active snapshots and clock:
   // `oldest_active` is the smallest start timestamp of any transaction that may hold a version pointer (the clock's
   // next timestamp when none), `now` the clock's next timestamp, read together.
   struct Horizon {
@@ -397,9 +376,8 @@ class VertexOverlayStore {
   };
 
   // Collapses committed chains below the newest version visible at the oldest active snapshot, and frees garbage whose
-  // mark has been passed. `sample` is called without any store lock but gc_mutex_ held, once before collapsing and once
-  // after everything to be marked has been unlinked: garbage is marked with the second sample, so a reader that began
-  // after an unlink was sampled can never be freed under. `sample` may take the engine's lock. Calls are serialized.
+  // mark has passed. `sample` runs under gc_mutex_ only, before collapsing and again after the unlinks; the second
+  // sample is the mark, so a reader that began after an unlink cannot be freed under. Calls are serialized.
   void CollectGarbage(const std::function<Horizon()> &sample);
 
   // Gids with a chain.
@@ -439,7 +417,7 @@ class VertexOverlayStore {
   static const OverlayVersion *Visible(const OverlayVersion *version, const OverlayTransaction &txn,
                                        storage::View view) noexcept;
 
-  // Caller holds the version's shard lock (lock order). Not recoverable on allocation failure (terminates).
+  // Caller holds the version's shard lock (lock order). Terminates on allocation failure.
   void Retire(OverlayVersion *version) noexcept;
 
   void RetireChain(OverlayVersion *first) noexcept;

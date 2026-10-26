@@ -38,8 +38,8 @@ namespace memgraph::versioning {
 //
 // For the fine filter: EVERY property mutation must record (gid, pid) for each affected pid --
 // SetProperty (one), Init/UpdateProperties (the map's keys), ClearProperties (the cleared map's keys).
-// A miss is a stale read. A pid-level bitset gates the fine filter first: the bloom saturates past ~20k
-// touched keys, and a never-written pid must stay free of the per-(gid, pid) probe.
+// A miss is a stale read. A pid bitset gates it first, so a never-written pid skips the probe even once
+// the bloom saturates.
 //
 // There is deliberately no `any_change` catch-all: every value/adjacency read on a branch MUST gate
 // on a dedicated kind filter that ALL of that kind's mutation sites populate.
@@ -105,9 +105,8 @@ class BranchChangeFilters {
 
   [[nodiscard]] bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return edge_.MayContain(gid); }
 
-  // Fork-edge overlay writes are keyed by the EDGE's gid, a different gid space from the vertex-keyed filters above, so
-  // they have filters of their own. A property write records the edge and the pid; a delete records the edge. The
-  // pid gate keeps a never-written pid free of the (saturating) per-edge probe.
+  // Fork-edge overlay writes are keyed by the EDGE's gid, a different gid space from the vertex-keyed filters
+  // above, so they get their own filters and pid gate.
   void RecordForkEdgeProperty(storage::Gid edge_gid, storage::PropertyId pid) noexcept {
     edge_pid_gate_[PidWord(pid)].fetch_or(PidBit(pid), std::memory_order_release);
     fork_edge_property_.Insert(edge_gid);
@@ -178,7 +177,7 @@ class BranchChangeFilters {
     return gid.AsUint() ^ (static_cast<uint64_t>(pid.AsUint()) * 0xD1B54A32D192ED03ULL);
   }
 
-  // 256-bit pid gate; pid aliasing (pid & 255) only yields false positives.
+  // Aliased pids (pid mod 256) only yield false positives.
   static constexpr size_t kPidGateBits = 256;
 
   [[nodiscard]] static size_t PidWord(storage::PropertyId pid) noexcept { return (pid.AsUint() % kPidGateBits) >> 6U; }

@@ -36,9 +36,8 @@ struct EdgeVertexAccessorResult {
 
 class VertexAccessor final {
  public:
-  // On a branch a fork vertex keeps its main@fork_ts accessor here, even once the branch has changed it; the changes
-  // are reached by gid (BranchContext::ReadOverlayVersion and the Overlay* writes). Branch-native vertices are
-  // diff-engine vertices.
+  // On a branch a fork vertex keeps its main@fork_ts accessor here even once changed; changes are reached by gid
+  // (BranchContext::ReadOverlayVersion, Overlay* writes).
   storage::VertexAccessor impl_;
   // Non-null iff minted while checked out on a branch. A single raw pointer keeps this trivially copyable
   // and within mgp_vertex's kMaxMgpVertexSize budget; non-const because CowIfNeeded calls BranchContext::CowVertex.
@@ -51,8 +50,7 @@ class VertexAccessor final {
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
-  // On a branch a fork vertex is deleted only if the branch deleted it; main's live flag on the fork accessor says
-  // nothing about the branch. Out-of-line: BranchContext is only forward-declared.
+  // On a branch a fork vertex is deleted only if the branch deleted it; main's flag on the fork accessor is irrelevant.
   bool IsDeleted() const;
 
   // On a branch, reads re-resolve by gid: a copy taken before a same-statement write (e.g. the Frame's `n` in
@@ -153,9 +151,8 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 
  private:
-  // Materializes the branch's overlay for a fork vertex (impl_ stays the fork accessor) or redirects impl_ to the
-  // diff-engine vertex of a native one; idempotent. Throws QueryRuntimeException on a COW error. `kind` is recorded on
-  // every call, not only the first COW: a vertex COW'd for a property can later be mutated as a label.
+  // Fork vertex: materializes the overlay (impl_ unchanged); native: redirects impl_ to its diff-engine vertex.
+  // Idempotent; throws QueryRuntimeException on COW error. `kind` is recorded on every call, not only the first.
   void CowIfNeeded(versioning::BranchChangeKind kind);
 
   // Records gid + pid in the fine property filter so GetProperty(pid) can skip the resolve for unchanged pids.

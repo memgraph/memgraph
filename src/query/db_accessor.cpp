@@ -360,10 +360,8 @@ std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchCons
   auto const types = main_constraints.Types();
   if (existence.empty() && types.empty()) return {};
 
-  // Branch-native vertices: the newest delta of every object this transaction wrote is that object's chain head (a
-  // concurrent writer would have hit a serialization error), so the head deltas enumerate them exactly as main's
-  // commit does. Fork vertices: the overlay transaction's write set (an anchor's deltas name its fork gid too, which
-  // the write set already holds).
+  // Native vertices come from head deltas (as in main's commit); fork vertices from the overlay write set, since
+  // anchor deltas also name fork gids and are filtered out below.
   std::vector<uint64_t> touched = ctx.OverlayWrittenGids();
   for (auto const &delta : accessor_->GetTransaction()->deltas) {
     auto const prev = delta.prev.Get();

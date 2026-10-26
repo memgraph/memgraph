@@ -601,8 +601,9 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
 }
 
-// A branch touching one of two main vertices must copy-on-write only that one; the untouched vertex stays
-// un-materialized in the diff engine. Labels are filtered via labels(n) to stay independent of any label index.
+// A branch touching one of two main vertices overlays only that one: only A gets an overlay record, and nothing is
+// copied into the stub index or the diff engine. Labels are filtered via labels(n) to stay independent of any label
+// index.
 TEST_F(VersioningGatedTest, BranchWriteOverlaysOnlyTheTouchedVertex) {
   faker.Interpret("CREATE (:A {x:1}), (:B {y:9})");
   Fork();
@@ -610,7 +611,6 @@ TEST_F(VersioningGatedTest, BranchWriteOverlaysOnlyTheTouchedVertex) {
 
   faker.Interpret("MATCH (n) WHERE 'A' IN labels(n) SET n.x = 2");
 
-  // Exactly one vertex (A) has an overlay record, and none was copied into the stub index or the diff engine.
   {
     auto *ctx = faker.interpreter.current_db_.branch_context();
     ASSERT_NE(ctx, nullptr);
@@ -1631,6 +1631,38 @@ constexpr DeletedReadCase kDeletedReadCases[] = {
      "deleted node",
      "MATCH (n:P) WHERE NOT 'X' IN labels(n) RETURN n.prop",
      1},
+    // The fork edge's own branched bit is clear: only its endpoint's delete hides it.
+    {"FromEndpointEdgeProperty",
+     "CREATE (:A)-[:R {p: 1}]->(:B)",
+     "",
+     "MATCH (a:A)-[e:R]->(b:B) DETACH DELETE a RETURN e.p AS p",
+     "deleted object",
+     "MATCH (:A)-[e:R]->(:B) RETURN e.p",
+     1},
+    // The fork edge's own branched bit is clear: only its endpoint's delete hides it.
+    {"ToEndpointEdgeProperty",
+     "CREATE (:A)-[:R {p: 1}]->(:B)",
+     "",
+     "MATCH (a:A)-[e:R]->(b:B) DETACH DELETE b RETURN e.p AS p",
+     "deleted object",
+     "MATCH (:A)-[e:R]->(:B) RETURN e.p",
+     1},
+    // The fork edge's own branched bit is clear: only its endpoint's delete hides it.
+    {"FromEndpointEdgeProperties",
+     "CREATE (:A)-[:R {p: 1}]->(:B)",
+     "",
+     "MATCH (a:A)-[e:R]->(b:B) DETACH DELETE a RETURN properties(e)",
+     "deleted object",
+     "MATCH (:A)-[e:R]->(:B) RETURN e.p",
+     1},
+    // The fork edge's own branched bit is clear: only its endpoint's delete hides it.
+    {"ToEndpointEdgeProperties",
+     "CREATE (:A)-[:R {p: 1}]->(:B)",
+     "",
+     "MATCH (a:A)-[e:R]->(b:B) DETACH DELETE b RETURN properties(e)",
+     "deleted object",
+     "MATCH (:A)-[e:R]->(:B) RETURN e.p",
+     1},
     // The edge is already diff-resident (modified) when deleted: the aborted DELETE must leave it alone.
     {"EdgeModifiedThenDeleted",
      "CREATE (:S)-[:E {w:1}]->(:A)",
@@ -2513,6 +2545,8 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
       {"EndpointDetachDeleteThenEdgeCreate", "", "MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge},
       {"EdgeCreateThenEndpointDelete", "", kCreateEdge, "MATCH (n:K {id:2}) DELETE n"},
       {"EndpointDeleteThenEdgeCreate", "", "MATCH (n:K {id:2}) DELETE n", kCreateEdge},
+      // Pre-committed edge: these conflict when the detach-delete of the edge writes the anchor, before
+      // CanDeleteAnchor/CanAttachEdgeTo run.
       {"EdgeCreateThenEndpointDetachDeleteAnchored", kCreateEdge, kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n"},
       {"EndpointDetachDeleteThenEdgeCreateAnchored", kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge},
   };

@@ -22,9 +22,8 @@
 #include "storage/v2/view.hpp"
 #include "versioning/vertex_overlay_store.hpp"
 
-// The pure merge of a branch's changes to one fork vertex or edge (an OverlayVersion) over the fork object's own state.
-// The property merges take the fork object as a storage vertex or edge accessor. The version is read in place; it must
-// not outlive the branch transaction that pinned it.
+// Merges an OverlayVersion over the fork vertex/edge state read at View::OLD. The version is read in place and must not
+// outlive the branch transaction that pinned it.
 namespace memgraph::versioning {
 
 inline storage::VertexKey MergeLabels(const OverlayVersion &version, storage::VertexKey fork_labels) {
@@ -39,8 +38,7 @@ inline storage::VertexKey MergeLabels(const OverlayVersion &version, storage::Ve
   return fork_labels;
 }
 
-// The overlay's added and removed labels are disjoint, so it decides a label itself when it holds it in either set;
-// otherwise the answer is the fork vertex's.
+// Added and removed labels are disjoint, so either set decides; nullopt defers to the fork vertex.
 inline std::optional<bool> OverlayDecidesLabel(const OverlayVersion &version, storage::LabelId label) {
   if (std::ranges::binary_search(version.added_labels(), label)) return true;
   if (std::ranges::binary_search(version.removed_labels(), label)) return false;
@@ -69,7 +67,7 @@ storage::Result<storage::PropertyValue> MergeGetProperty(const OverlayVersion &v
 template <typename Fork>
 storage::Result<uint64_t> MergeGetPropertySize(const OverlayVersion &version, const Fork &fork,
                                                storage::PropertyId key) {
-  // An overlay property is never null, so a non-zero size means the overlay owns a value for `key`.
+  // Overlay properties are never null, so a non-zero size means the overlay owns `key`.
   if (auto const own = version.properties().PropertySize(key); own != 0) return uint64_t{own};
   auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
   if (!in_fork) return in_fork;

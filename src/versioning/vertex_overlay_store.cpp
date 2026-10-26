@@ -225,7 +225,7 @@ void VertexOverlayStore::CollectGarbage(const std::function<Horizon()> &sample) 
       RetireChain(tail);
     }
   } catch (...) {
-    // Only `again` growing can throw; keep every gid not yet processed for the next run.
+    // Only `again` growing can throw; re-queue the whole batch (reprocessing is harmless).
     again.insert(again.end(), dirty.begin(), dirty.end());
     std::lock_guard guard{garbage_mutex_};
     dirty_.insert(dirty_.end(), again.begin(), again.end());
@@ -236,8 +236,7 @@ void VertexOverlayStore::CollectGarbage(const std::function<Horizon()> &sample) 
     dirty_.insert(dirty_.end(), again.begin(), again.end());
   }
 
-  // Everything unlinked so far, by this call or by writers and aborts, goes to the mark; later unlinks wait for the
-  // next call. The horizon is sampled after the swap, so the mark is never older than any unlink it covers.
+  // Sampled after the swap, so the mark is never older than any unlink it covers.
   std::vector<OverlayVersion *> to_mark;
   {
     std::lock_guard guard{garbage_mutex_};

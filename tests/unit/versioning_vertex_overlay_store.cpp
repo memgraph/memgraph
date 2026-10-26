@@ -43,7 +43,7 @@ ms::PropertyId Prop(uint32_t id) { return ms::PropertyId::FromUint(id); }
 
 // Stands in for the engine: one clock for start and commit timestamps, the active set GC needs.
 struct Env {
-  // Rolls back what a test leaves unfinished, as an OverlayTransaction with writes must end in Commit or Abort.
+  // An OverlayTransaction with writes must end in Commit or Abort; rolls back what a test leaves open.
   struct TxnEnd {
     Env *env;
 
@@ -103,7 +103,6 @@ struct Env {
     });
   }
 
-  // Commits a one-label write of its own transaction.
   void CommitLabel(uint64_t gid, uint32_t label) {
     auto txn = Begin();
     ASSERT_TRUE(AddLabel(*txn, gid, label).has_value());
@@ -179,7 +178,6 @@ TEST(VersioningVertexOverlayStore, OwnWritesFollowCommandIdForOldAndNew) {
   EXPECT_EQ(Added(env.store.Read(1, *txn, View::NEW)), (Labels{1, 2, 3, 9}));
   EXPECT_EQ(Added(env.store.Read(1, *txn, View::OLD)), (Labels{1, 2, 9}));
 
-  // A mutation that changes nothing writes nothing.
   auto const noop = env.store.Write(1, *txn, [](OverlayState &) { return false; });
   ASSERT_TRUE(noop.has_value());
   EXPECT_FALSE(*noop);
@@ -190,7 +188,6 @@ TEST(VersioningVertexOverlayStore, OwnWritesFollowCommandIdForOldAndNew) {
 TEST(VersioningVertexOverlayStore, WriteWriteConflictsInBothOrderings) {
   for (auto const isolation : {kSI, kRC}) {
     Env env;
-    // The first writer has not committed.
     auto first = env.Begin(isolation);
     auto second = env.Begin(isolation);
     ASSERT_TRUE(env.AddLabel(*first, 1, 1).has_value());
@@ -236,7 +233,7 @@ TEST(VersioningVertexOverlayStore, AbortRestoresPreviousHeads) {
 
   env.Abort(*reader);
   env.Gc();
-  EXPECT_EQ(env.store.live_versions(), 1U);  // only the committed head remains
+  EXPECT_EQ(env.store.live_versions(), 1U);
 }
 
 TEST(VersioningVertexOverlayStore, GcCollapsesChainsBehindPinnedSnapshots) {
@@ -268,8 +265,9 @@ TEST(VersioningVertexOverlayStore, GcCollapsesChainsBehindPinnedSnapshots) {
   EXPECT_EQ(Added(env.store.Read(1, *reader, View::NEW)), (Labels{1, 2, 3}));
 }
 
-// A reader that begins after GC's first clock sample must keep the version an abort unlinks meanwhile: garbage is
-// marked with a clock read after the unlink, never with the first sample.
+// Between GC's two samples a writer aborts and a reader begins (start 4, clock now 5). The unlinked version must be
+// marked with the second sample (5 > oldest active 4, so it survives); the first (3 <= 4) would free it under the
+// reader.
 TEST(VersioningVertexOverlayStore, GcMarksGarbageWithAClockSampledAfterTheUnlink) {
   Env env;
   env.CommitLabel(1, 1);
@@ -291,7 +289,7 @@ TEST(VersioningVertexOverlayStore, GcMarksGarbageWithAClockSampledAfterTheUnlink
   });
   ASSERT_EQ(calls, 2);
   ASSERT_NE(held, nullptr);
-  EXPECT_EQ(Added(held), (Labels{1, 2}));  // still readable
+  EXPECT_EQ(Added(held), (Labels{1, 2}));
   EXPECT_EQ(env.store.live_versions(), 2U);
 
   env.Release(*reader);

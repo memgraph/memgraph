@@ -33,10 +33,8 @@ namespace {
 
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 
-// A fork vertex the branch touched reads as its overlay version (BranchContext::ReadOverlayVersion) merged over the
-// fork vertex itself, `impl` (main@fork_ts). A delete reads as DELETED_OBJECT. Branch-native vertices are complete and
-// never merged. Callers have already filtered on `branched()` and the change filters. The version is used only within
-// each function and never escapes.
+// A branch-touched fork vertex reads as its overlay version merged over the fork vertex `impl` (main@fork_ts); a
+// delete reads as DELETED_OBJECT. Branch-native vertices are complete and never merged.
 storage::Result<storage::VertexKey> MergedLabels(versioning::BranchContext &ctx, const storage::VertexAccessor &impl,
                                                  storage::View view) {
   auto const *version = ctx.ReadOverlayVersion(impl.Gid(), view);
@@ -81,7 +79,6 @@ storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, 
   return versioning::MergeGetPropertySize(*version, impl, key);
 }
 
-// A fork vertex's accessor is main@fork_ts; once its `branched()` bit is set the branch may hold changes for it.
 bool MayHaveOverlay(versioning::BranchContext &ctx, const storage::VertexAccessor &impl) {
   return impl.storage_ != &ctx.diff_engine() && impl.vertex_->branched();
 }
@@ -97,8 +94,7 @@ bool MayHaveOverlay(versioning::BranchContext &ctx, const storage::VertexAccesso
 }
 
 // Checks values about to be written (`find` returns the value or nullptr) against main's type constraints on the
-// reconstructed labels, BEFORE the overlay is written. `require_no_properties`: skip if properties exist
-// (InitProperties no-op).
+// reconstructed labels, BEFORE the overlay is written. `require_no_properties`: skip if properties exist.
 template <typename FindWritten>
 std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                         FindWritten &&find, bool require_no_properties = false) {

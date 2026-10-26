@@ -143,7 +143,6 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   EXPECT_NE(branch_context_->core()->stub_index().FindStub(a_gid.AsUint()), nullptr);
   EXPECT_FALSE(branch_context_->FindStub(b_gid, ms::View::NEW).has_value()) << "untouched vertex must not be copied";
 
-  // Changes go to the overlay by gid; the anchor stays empty.
   ASSERT_TRUE(branch_context_->OverlaySetProperty(a_gid, prop_x, ms::PropertyValue(42)).has_value());
   auto second = branch_context_->CowVertex(a_gid);
   ASSERT_TRUE(second.has_value());
@@ -209,7 +208,6 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanMergeOverlayAndIncludeNati
   EXPECT_FALSE(branch_context_->IsForkVertexGid(c_gid)) << "a native vertex must not reuse a fork-range gid";
   EXPECT_FALSE(branch_context_->IsForkEdgeGid(native_edge->Gid())) << "a native edge must not reuse a fork-range gid";
 
-  // A fork vertex resolves to its fork accessor; the branch's value comes from the overlay merged over it.
   auto branch_value = [&](const ms::VertexAccessor &fork) {
     auto const *overlay = branch_context_->ReadOverlayVersion(fork.Gid(), ms::View::NEW);
     EXPECT_NE(overlay, nullptr);
@@ -328,8 +326,8 @@ TEST_F(VersioningBranchEngineTest, NativeGidsComeFromMainCountersAndNeverCollide
   (*second)->EndTransaction();
 }
 
-// A fork-vertex delete must conflict with a branch edge attached by a transaction that committed after the deleter's
-// snapshot, even when a newer, older-than-snapshot edge delta sits on top of it in the anchor's chain.
+// T2 then T3 attach an edge to fork vertex V; T3 commits, T1 begins, then T2 commits. T2's delta is buried under T3's
+// head (committed before T1's snapshot), so T1's delete of V conflicts only if CanDeleteAnchor walks the whole chain.
 TEST_F(VersioningBranchEngineTest, DeleteForkVertexConflictsWithEdgeBuriedUnderOlderCommittedHead) {
   const auto edge_type = storage_->NameToEdgeType("E");
   ms::Gid v_gid;
@@ -467,9 +465,8 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
   EXPECT_EQ(scanned, std::vector<ms::Gid>{b_gid}) << "the union scan must skip the deleted fork vertex";
 }
 
-// Fork-edge delete after an earlier property write: hidden at View::NEW but not View::OLD within the deleting command,
-// sets main's branched bit, hidden at both views later. A self-loop is recorded once and excluded from OUT and IN
-// resolution.
+// Fork-edge delete after a property write: hidden at View::NEW but not OLD within the deleting command, sets main's
+// branched bit, hidden at both views later. A self-loop is recorded once and excluded from OUT and IN resolution.
 TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   const auto prop_w = storage_->NameToProperty("w");
   const auto edge_type = storage_->NameToEdgeType("E");

@@ -262,8 +262,7 @@ TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkVertex) {
   faker.Interpret("ROLLBACK");
 }
 
-// Main's live deleted flag must not leak into the branch: a fork vertex main deleted after the fork is not deleted
-// there, whether or not the branch changed it.
+// Main's live deleted flag must not leak into the branch, whether or not the branch changed the fork vertex.
 TEST_F(VersioningMgpTest, IsDeletedIgnoresMainDeletingForkVertexAfterFork) {
   ExpectForkVertexNotDeletedAfterMainDeletes(true);
 }
