@@ -24,8 +24,8 @@
 #include "storage/v2/view.hpp"
 #include "versioning/branch_engine.hpp"
 
-// A stub stores changed values as plain properties and the ids of fork properties it removed in the reserved list
-// property `__mg_removed`. `Stub` is a storage::VertexAccessor or storage::EdgeAccessor.
+// An edge stub stores changed values as plain properties and the ids of fork properties it removed in the reserved
+// list property `__mg_removed`. `Stub` is a storage::EdgeAccessor (vertex changes live in the overlay store).
 namespace memgraph::versioning {
 
 template <typename T, typename PV>
@@ -69,10 +69,9 @@ storage::Result<bool> WriteIntList(Stub &stub, storage::PropertyId key, const st
   return true;
 }
 
-// Removed pids from a stub's Properties() snapshot; erases the marker entries (also the deleted-edges list) from it.
+// Removed pids from a stub's Properties() snapshot; erases the marker entry from it.
 inline std::vector<storage::PropertyId> TakeRemoved(BranchContext &ctx,
                                                     std::map<storage::PropertyId, storage::PropertyValue> &stub_props) {
-  stub_props.erase(ctx.DeletedEdgesKey());
   std::vector<storage::PropertyId> removed;
   auto it = stub_props.find(ctx.RemovedPropsKey());
   if (it == stub_props.end()) return removed;

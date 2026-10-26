@@ -14,6 +14,8 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "utils/memory_tracker.hpp"
+
 namespace memgraph::versioning {
 
 namespace {
@@ -134,6 +136,7 @@ const OverlayVersion *VertexOverlayStore::Read(uint64_t gid, const OverlayTransa
 void VertexOverlayStore::Commit(OverlayTransaction &txn, uint64_t commit_ts) {
   DMG_ASSERT(!txn.finished_);
   if (txn.stamp_ != nullptr) {
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;  // a tracked OOM must not fail a late commit
     std::lock_guard guard{garbage_mutex_};
     dirty_.reserve(dirty_.size() + txn.writes_.size());  // before the stamp flips: nothing below throws
     txn.stamp_->Commit(commit_ts);
@@ -145,6 +148,7 @@ void VertexOverlayStore::Commit(OverlayTransaction &txn, uint64_t commit_ts) {
 
 void VertexOverlayStore::Abort(OverlayTransaction &txn) {
   DMG_ASSERT(!txn.finished_);
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
   txn.finished_ = true;
   for (uint64_t const gid : txn.writes_) {
     Shard &shard = ShardFor(gid);
@@ -168,17 +172,20 @@ void VertexOverlayStore::Abort(OverlayTransaction &txn) {
 }
 
 void VertexOverlayStore::Retire(OverlayVersion *version) noexcept {
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
   std::lock_guard guard{garbage_mutex_};
   unmarked_.push_back(version);
 }
 
 void VertexOverlayStore::RetireChain(OverlayVersion *first) noexcept {
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
   std::lock_guard guard{garbage_mutex_};
   for (OverlayVersion *version = first; version != nullptr; version = version->older()) unmarked_.push_back(version);
 }
 
-void VertexOverlayStore::CollectGarbage(uint64_t oldest_active_start_ts, uint64_t now_ts) {
+void VertexOverlayStore::CollectGarbage(const std::function<Horizon()> &sample) {
   std::lock_guard gc_guard{gc_mutex_};
+  uint64_t const oldest_active_start_ts = sample().oldest_active;
 
   std::vector<uint64_t> dirty;
   {
@@ -227,13 +234,22 @@ void VertexOverlayStore::CollectGarbage(uint64_t oldest_active_start_ts, uint64_
     dirty_.insert(dirty_.end(), again.begin(), again.end());
   }
 
-  std::vector<OverlayVersion *> free_now;
+  // Everything unlinked so far, by this call or by writers and aborts, goes to the mark; later unlinks wait for the
+  // next call. The horizon is sampled after the swap, so the mark is never older than any unlink it covers.
+  std::vector<OverlayVersion *> to_mark;
   {
     std::lock_guard guard{garbage_mutex_};
-    for (OverlayVersion *version : unmarked_) marked_.push_back({version, now_ts});
-    unmarked_.clear();
+    to_mark.swap(unmarked_);
+  }
+  Horizon const horizon = sample();
+
+  std::vector<OverlayVersion *> free_now;
+  {
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    std::lock_guard guard{garbage_mutex_};
+    for (OverlayVersion *version : to_mark) marked_.push_back({version, horizon.now});
     size_t expired = 0;
-    while (expired < marked_.size() && marked_[expired].mark <= oldest_active_start_ts) ++expired;
+    while (expired < marked_.size() && marked_[expired].mark <= horizon.oldest_active) ++expired;
     free_now.reserve(expired);
     for (size_t i = 0; i < expired; ++i) free_now.push_back(marked_[i].version);
     marked_.erase(marked_.begin(), marked_.begin() + static_cast<std::ptrdiff_t>(expired));

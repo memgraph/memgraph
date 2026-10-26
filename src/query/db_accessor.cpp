@@ -360,20 +360,26 @@ std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchCons
   auto const types = main_constraints.Types();
   if (existence.empty() && types.empty()) return {};
 
-  // The newest delta of every object this transaction wrote is that object's chain head (a concurrent writer would
-  // have hit a serialization error), so the head deltas enumerate the touched vertices exactly as main's commit does.
-  std::vector<uint64_t> touched;
+  // Branch-native vertices: the newest delta of every object this transaction wrote is that object's chain head (a
+  // concurrent writer would have hit a serialization error), so the head deltas enumerate them exactly as main's
+  // commit does. Fork vertices: the overlay transaction's write set (an anchor's deltas name its fork gid too, which
+  // the write set already holds).
+  std::vector<uint64_t> touched = ctx.OverlayWrittenGids();
   for (auto const &delta : accessor_->GetTransaction()->deltas) {
     auto const prev = delta.prev.Get();
-    if (prev.type == storage::PreviousPtr::Type::VERTEX) touched.push_back(prev.vertex->gid.AsUint());
+    if (prev.type == storage::PreviousPtr::Type::VERTEX && !ctx.IsForkVertexGid(prev.vertex->gid)) {
+      touched.push_back(prev.vertex->gid.AsUint());
+    }
   }
   std::ranges::sort(touched);
   touched.erase(std::ranges::unique(touched).begin(), touched.end());
 
   for (auto const raw_gid : touched) {
-    auto diff_vertex = ctx.FindStubOrDiffVertex(storage::Gid::FromUint(raw_gid), storage::View::NEW);
-    if (!diff_vertex) continue;
-    VertexAccessor const vertex{ctx.ForkIdentity(*diff_vertex), &ctx};
+    auto const gid = storage::Gid::FromUint(raw_gid);
+    auto resolved =
+        ctx.IsForkVertexGid(gid) ? ctx.FindForkVertex(gid) : ctx.FindStubOrDiffVertex(gid, storage::View::NEW);
+    if (!resolved) continue;
+    VertexAccessor const vertex{*resolved, &ctx};
 
     auto labels = vertex.Labels(storage::View::NEW);
     if (!labels) {

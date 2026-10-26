@@ -144,13 +144,18 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   EXPECT_NE(branch_context_->core()->stub_index().FindStub(a_gid.AsUint()), nullptr);
   EXPECT_FALSE(branch_context_->FindStub(b_gid, ms::View::NEW).has_value()) << "untouched vertex must not be copied";
 
-  ASSERT_TRUE(cowed->SetProperty(prop_x, ms::PropertyValue(42)).has_value());
+  // Changes go to the overlay by gid; the anchor stays empty.
+  ASSERT_TRUE(branch_context_->OverlaySetProperty(a_gid, prop_x, ms::PropertyValue(42)).has_value());
   auto second = branch_context_->CowVertex(a_gid);
   ASSERT_TRUE(second.has_value());
   EXPECT_EQ(second->Gid(), a_gid);
+  EXPECT_EQ(second->vertex_, cowed->vertex_) << "second CowVertex must resolve to the SAME anchor";
   auto x_again = second->GetProperty(prop_x, ms::View::NEW);
   ASSERT_TRUE(x_again.has_value());
-  EXPECT_EQ(*x_again, ms::PropertyValue(42)) << "second CowVertex must resolve to the SAME (already-mutated) stub";
+  EXPECT_TRUE(x_again->IsNull()) << "an anchor carries no overlay state";
+  auto overlay = branch_context_->ReadVertexOverlay(a_gid, ms::View::NEW, {.properties = true});
+  ASSERT_TRUE(overlay.has_value() && overlay->has_value());
+  EXPECT_EQ((*overlay)->properties.at(prop_x), ms::PropertyValue(42));
   EXPECT_EQ(count_stubs(), 1u) << "idempotent COW must not create a duplicate";
 
   // Unknown gid: an error, and nothing is created.
@@ -159,13 +164,13 @@ TEST_F(VersioningBranchEngineTest, CowVertexMaterializesEmptyStubOnlyForTouchedV
   EXPECT_NE(missing.error().message.find("not found"), std::string::npos) << missing.error().message;
   EXPECT_EQ(count_stubs(), 1u);
 
-  auto deleted_a = branch_context_->DeleteForkVertex(a_gid);
-  ASSERT_TRUE(deleted_a.has_value() && deleted_a->has_value());
+  auto deleted_a = branch_context_->OverlayMarkDeleted(a_gid);
+  ASSERT_TRUE(deleted_a.has_value() && *deleted_a);
   auto refused = branch_context_->CowVertex(a_gid);
   ASSERT_FALSE(refused.has_value());
   EXPECT_NE(refused.error().message.find("already deleted"), std::string::npos) << refused.error().message;
 
-  ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 // ResolveVertex is diff-first with historical fallback; the gid-ordered union scan yields a COW'd vertex (diff wins),
@@ -193,9 +198,8 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
   Begin(diff_acc.get());
 
-  auto cowed_a = branch_context_->CowVertex(a_gid);
-  ASSERT_TRUE(cowed_a.has_value());
-  ASSERT_TRUE(cowed_a->SetProperty(prop_x, ms::PropertyValue(2)).has_value());
+  ASSERT_TRUE(branch_context_->PrepareForkWrite(a_gid).has_value());
+  ASSERT_TRUE(branch_context_->OverlaySetProperty(a_gid, prop_x, ms::PropertyValue(2)).has_value());
 
   auto c = branch_context_->CreateNativeVertex();
   auto d = branch_context_->CreateNativeVertex();
@@ -240,7 +244,7 @@ TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanPreferDiffAndIncludeNative
   EXPECT_EQ(seen.at(b_gid.AsUint()), 9) << "B must yield historical_'s untouched value";
   EXPECT_EQ(seen.at(c_gid.AsUint()), 7) << "C (branch-native) must be yielded too";
 
-  ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 // Branch-native gids come from main's counters: at or above the fork floors, never reused by main or another branch.
@@ -320,8 +324,8 @@ TEST_F(VersioningBranchEngineTest, NativeGidsComeFromMainCountersAndNeverCollide
     EXPECT_FALSE(acc->FindVertex(v1a.Gid(), ms::View::NEW).has_value()) << "branch creates are not in main";
   }
 
-  ASSERT_TRUE(diff1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  ASSERT_TRUE(diff2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE((*second)->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   (*second)->EndTransaction();
 }
 
@@ -369,17 +373,17 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
     Begin(diff_acc.get());
     ASSERT_FALSE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW));
 
-    auto deleted = branch_context_->DeleteForkVertex(a_gid);
-    ASSERT_TRUE(deleted.has_value() && deleted->has_value());
+    auto deleted = branch_context_->OverlayMarkDeleted(a_gid);
+    ASSERT_TRUE(deleted.has_value() && *deleted);
 
     EXPECT_TRUE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW));
     EXPECT_FALSE(branch_context_->IsVertexDeleted(a_gid, ms::View::OLD));
     EXPECT_FALSE(branch_context_->ResolveVertex(a_gid, ms::View::NEW).has_value());
     EXPECT_TRUE(branch_context_->ResolveVertex(a_gid, ms::View::OLD).has_value());
 
-    auto again = branch_context_->DeleteForkVertex(a_gid);
+    auto again = branch_context_->OverlayMarkDeleted(a_gid);
     ASSERT_TRUE(again.has_value());
-    EXPECT_FALSE(again->has_value()) << "a repeated delete is a no-op";
+    EXPECT_FALSE(*again) << "a repeated delete is a no-op";
 
     diff_acc->Abort();
   }
@@ -399,9 +403,9 @@ TEST_F(VersioningBranchEngineTest, DeleteForkVertexMarkerFollowsMvcc) {
     }
     EXPECT_TRUE(found_in_union) << "the union scan must see the vertex again post-abort";
 
-    auto deleted = branch_context_->DeleteForkVertex(a_gid);
-    ASSERT_TRUE(deleted.has_value() && deleted->has_value());
-    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto deleted = branch_context_->OverlayMarkDeleted(a_gid);
+    ASSERT_TRUE(deleted.has_value() && *deleted);
+    ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto read_acc = branch_context_->diff_engine().Access(ms::READ);
@@ -483,7 +487,7 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
     auto cowed = branch_context_->CowEdge(fork_edge);
     ASSERT_TRUE(cowed.has_value());
     ASSERT_TRUE(cowed->SetProperty(prop_w, ms::PropertyValue(2)).has_value());
-    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   EXPECT_TRUE(fork_edge.MaybeBranchedHint()) << "CowEdge must set main's own Edge::branched() bit";
 
@@ -521,7 +525,7 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
       EXPECT_TRUE(*m_deleted);
     }
 
-    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto read_acc = branch_context_->diff_engine().Access(ms::READ);
@@ -624,7 +628,7 @@ TEST_F(VersioningBranchEngineTest, CowEdgeMaterializesEmptyStubThatSurvivesRollb
 
     EXPECT_TRUE(branch_context_->StubEdgeTouches(*stub, prop_w, ms::View::NEW));
     EXPECT_FALSE(branch_context_->StubEdgeTouches(*stub, prop_x, ms::View::NEW));
-    ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto read_acc = branch_context_->diff_engine().Access(ms::READ);
@@ -926,7 +930,7 @@ TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRemate
     auto stub = ctx_->CowEdge(fork_edge_of());
     ASSERT_TRUE(stub.has_value());
     ASSERT_TRUE(stub->SetProperty(prop_x_, ms::PropertyValue(7)).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
     ctx_->EndTransaction();
   }
   {
@@ -935,13 +939,13 @@ TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRemate
     auto deleted = ctx_->DeleteForkEdge(fork_edge_of());
     ASSERT_TRUE(deleted.has_value());
     EXPECT_TRUE(*deleted);
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
     ctx_->EndTransaction();
   }
-  EXPECT_GT(Deltas() - baseline_, 4) << "the reader must pin the stub's and the delete's deltas";
+  EXPECT_GE(Deltas() - baseline_, 4) << "the reader must pin the edge stub's deltas";
   pin_reader.reset();
   Collect();
-  EXPECT_LE(Deltas() - baseline_, 4) << "the stub's and the delete's deltas must be freed";
+  EXPECT_LT(Deltas() - baseline_, 4) << "the edge stub's deltas must be freed";
 
   auto acc = Diff().Access(ms::WRITE);
   ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
@@ -962,6 +966,93 @@ TEST_F(VersioningBranchGcTest, CollectedDeletedEdgeStubStaysHiddenAndCanBeRemate
   EXPECT_TRUE(fresh.Properties(ms::View::NEW)->empty());
   EXPECT_TRUE(ctx_->IsForkEdgeHidden(fork_edge, ms::View::NEW));
   acc->Abort();
+  ctx_->EndTransaction();
+}
+
+// An overlay-only commit takes a timestamp from the diff engine's clock that no diff commit owns: it must still be
+// finished in the commit log, or the diff engine's GC would stall behind it.
+TEST_F(VersioningBranchGcTest, OverlayOnlyCommitsAreVisibleAndDoNotStallDiffEngineGc) {
+  constexpr int64_t kCommits = 50;
+  for (int64_t i = 1; i <= kCommits; ++i) {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    ASSERT_TRUE(ctx_->PrepareForkWrite(v_gid_).has_value());
+    ASSERT_TRUE(ctx_->OverlaySetProperty(v_gid_, prop_x_, ms::PropertyValue(i)).has_value());
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  MaterializeVertexStub();
+  for (int64_t i = 1; i <= 20; ++i) CommitStubWrite(i);
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 4) << "the diff engine's deltas must still be collectable";
+
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  auto overlay = ctx_->ReadVertexOverlay(v_gid_, ms::View::NEW, {.properties = true});
+  ASSERT_TRUE(overlay.has_value() && overlay->has_value());
+  EXPECT_EQ((*overlay)->properties.at(prop_x_), ms::PropertyValue(kCommits));
+  ctx_->EndTransaction();
+}
+
+// A mixed transaction (overlay write + diff-engine create) commits or aborts both halves together.
+TEST_F(VersioningBranchGcTest, MixedTransactionCommitsAndAbortsOverlayAndDiffTogether) {
+  ms::Gid native;
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    ASSERT_TRUE(ctx_->PrepareForkWrite(v_gid_).has_value());
+    ASSERT_TRUE(ctx_->OverlaySetProperty(v_gid_, prop_x_, ms::PropertyValue(5)).has_value());
+    ctx_->CreateNativeVertex();
+    acc->Abort();
+    ctx_->EndTransaction();
+  }
+  {
+    auto acc = Diff().Access(ms::READ);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    EXPECT_FALSE(ctx_->HasVertexOverlay(v_gid_)) << "an aborted overlay write must be rolled back";
+    EXPECT_EQ(ctx_->core()->overlay_store().size(), 0U);
+    ctx_->EndTransaction();
+  }
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    ASSERT_TRUE(ctx_->PrepareForkWrite(v_gid_).has_value());
+    ASSERT_TRUE(ctx_->OverlaySetProperty(v_gid_, prop_x_, ms::PropertyValue(6)).has_value());
+    native = ctx_->CreateNativeVertex().Gid();
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_TRUE(ctx_->FindStub(native, ms::View::NEW).has_value());
+  auto overlay = ctx_->ReadVertexOverlay(v_gid_, ms::View::NEW, {.properties = true});
+  ASSERT_TRUE(overlay.has_value() && overlay->has_value());
+  EXPECT_EQ((*overlay)->properties.at(prop_x_), ms::PropertyValue(6));
+  ctx_->EndTransaction();
+}
+
+// Two branch transactions writing one fork vertex conflict, and the loser's diff transaction is poisoned like a storage
+// serialization error; the overlay of a concurrent snapshot reader is unaffected.
+TEST_F(VersioningBranchGcTest, ConcurrentOverlayWritersConflictAndReadersKeepTheirSnapshot) {
+  mv::BranchContext other{ctx_->core()};
+  auto first = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(ctx_->BeginTransaction(first.get()).has_value());
+  auto second = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+  auto reader = Diff().Access(ms::READ);
+  mv::BranchContext reading{ctx_->core()};
+  ASSERT_TRUE(reading.BeginTransaction(reader.get()).has_value());
+
+  ASSERT_TRUE(ctx_->OverlaySetProperty(v_gid_, prop_x_, ms::PropertyValue(1)).has_value());
+  auto conflict = other.OverlaySetProperty(v_gid_, prop_x_, ms::PropertyValue(2));
+  ASSERT_FALSE(conflict.has_value());
+  EXPECT_EQ(conflict.error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(second->TransactionHasSerializationError());
+
+  ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_FALSE(reading.HasVertexOverlay(v_gid_)) << "a snapshot older than the commit must not see it";
+  other.EndTransaction();
+  reading.EndTransaction();
   ctx_->EndTransaction();
 }
 

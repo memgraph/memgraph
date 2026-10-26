@@ -602,20 +602,21 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
 
 // A branch touching one of two main vertices must copy-on-write only that one; the untouched vertex stays
 // un-materialized in the diff engine. Labels are filtered via labels(n) to stay independent of any label index.
-TEST_F(VersioningGatedTest, BranchWriteStubsOnlyTheTouchedVertex) {
+TEST_F(VersioningGatedTest, BranchWriteOverlaysOnlyTheTouchedVertex) {
   faker.Interpret("CREATE (:A {x:1}), (:B {y:9})");
   Fork();
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
 
   faker.Interpret("MATCH (n) WHERE 'A' IN labels(n) SET n.x = 2");
 
-  // Exactly one vertex (A) must have been COW'd, into the stub index rather than the diff engine's vertices_.
+  // Exactly one vertex (A) has an overlay record, and none was copied into the stub index or the diff engine.
   {
     auto *ctx = faker.interpreter.current_db_.branch_context();
     ASSERT_NE(ctx, nullptr);
     size_t stub_count = 0;
     ctx->core()->stub_index().ForEachStub([&](memgraph::storage::Vertex *) { ++stub_count; });
-    EXPECT_EQ(stub_count, 1U) << "only the touched vertex (A) should have been COW'd";
+    EXPECT_EQ(stub_count, 0U) << "a property write needs no anchor stub";
+    EXPECT_EQ(ctx->core()->overlay_store().size(), 1U) << "only the touched vertex (A) should have an overlay";
     auto acc = ctx->diff_engine().Access(memgraph::storage::StorageAccessType::READ);
     EXPECT_EQ(acc->ApproximateVertexCount(), 0U);
   }

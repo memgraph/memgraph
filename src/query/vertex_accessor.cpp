@@ -70,7 +70,6 @@ storage::Result<PropertyMap> MergedProperties(versioning::BranchContext &ctx, co
 storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchContext &ctx,
                                                           const storage::VertexAccessor &impl, storage::View view,
                                                           storage::PropertyId key) {
-  if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return storage::PropertyValue{};
   auto overlay = ctx.ReadVertexOverlay(impl.Gid(), view, {.properties = true});
   if (!overlay) return std::unexpected{overlay.error()};
   if (!*overlay) return impl.GetProperty(key, view);
@@ -80,7 +79,6 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
 
 storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::VertexAccessor &impl,
                                                 storage::PropertyId key, storage::View view) {
-  if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return uint64_t{0};
   const auto gid = impl.Gid();
   auto overlay = ctx.ReadVertexOverlay(gid, view, {.properties = true});
   if (!overlay) return std::unexpected{overlay.error()};
@@ -109,8 +107,8 @@ bool MayHaveOverlay(versioning::BranchContext &ctx, const storage::VertexAccesso
 }
 
 // Checks values about to be written (`find` returns the value or nullptr) against main's type constraints on the
-// reconstructed labels, BEFORE the stub is mutated. `require_no_properties`: skip if properties exist (InitProperties
-// no-op).
+// reconstructed labels, BEFORE the overlay is written. `require_no_properties`: skip if properties exist
+// (InitProperties no-op).
 template <typename FindWritten>
 std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                         FindWritten &&find, bool require_no_properties = false) {
@@ -138,7 +136,7 @@ std::optional<storage::Error> CheckTypesOnPropertyWrite(versioning::BranchContex
   return std::nullopt;
 }
 
-// Validates the vertex's existing properties against `label`'s type constraints BEFORE the stub is mutated.
+// Validates the vertex's existing properties against `label`'s type constraints BEFORE the overlay is written.
 std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ctx, const VertexAccessor &vertex,
                                                    storage::LabelId label) {
   auto const types = versioning::MainConstraints{ctx}.Types();
@@ -209,12 +207,17 @@ storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId ke
 
 // Pre-condition: branch_ctx_ != nullptr.
 void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
-  auto cowed = branch_ctx_->CowVertex(impl_.Gid());
-  if (!cowed) {
-    throw QueryRuntimeException(cowed.error().message);
+  // A fork vertex keeps its fork accessor: the branch's changes are addressed by gid through the overlay API, so it
+  // needs no diff-engine copy.
+  if (branch_ctx_->IsForkVertexGid(impl_.Gid())) {
+    if (auto prepared = branch_ctx_->PrepareForkWrite(impl_.Gid()); !prepared) {
+      throw QueryRuntimeException(prepared.error().message);
+    }
+  } else {
+    auto cowed = branch_ctx_->CowVertex(impl_.Gid());
+    if (!cowed) throw QueryRuntimeException(cowed.error().message);
+    impl_ = *cowed;
   }
-  // A fork vertex keeps its fork accessor: the branch's changes are addressed by gid through the overlay API.
-  if (!branch_ctx_->IsForkVertexGid(impl_.Gid())) impl_ = *cowed;
   branch_ctx_->RecordVertexChange(impl_.Gid(), kind);
 }
 
@@ -298,6 +301,7 @@ storage::Result<PropertyMap> VertexAccessor::BranchClearProperties() {
 // Call after CowIfNeeded.
 void VertexAccessor::RecordPropertyFieldChange(storage::PropertyId pid) {
   branch_ctx_->RecordPropertyFieldChange(impl_.Gid(), pid);
+  if (branch_ctx_->IsForkVertexGid(impl_.Gid())) branch_ctx_->RecordPropertyTouched(pid, impl_.Gid());
 }
 
 void VertexAccessor::RecordPropertyFieldChanges(
@@ -305,6 +309,7 @@ void VertexAccessor::RecordPropertyFieldChanges(
   const auto gid = impl_.Gid();
   for (const auto &[pid, _] : properties) {
     branch_ctx_->RecordPropertyFieldChange(gid, pid);
+    if (branch_ctx_->IsForkVertexGid(gid)) branch_ctx_->RecordPropertyTouched(pid, gid);
   }
 }
 
@@ -313,7 +318,7 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   storage::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    // Deleting an edge or vertex flags the edge bit (DeleteForkEdge/DeleteForkVertex), sending it to ResolveEdges.
+    // Deleting an edge or vertex flags the edge bit (DeleteForkEdge/OverlayMarkDeleted), sending it to ResolveEdges.
     // A neighbour of a deleted vertex is not flagged; the fast path filters its edges via IsForkVertexDeleted.
     if (impl_.storage_ != &branch_ctx_->diff_engine() &&
         (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {

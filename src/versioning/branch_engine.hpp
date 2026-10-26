@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -37,10 +39,11 @@
 #include "versioning/branch_change_kind.hpp"
 #include "versioning/stub_index.hpp"
 #include "versioning/vertex_overlay.hpp"
+#include "versioning/vertex_overlay_store.hpp"
 
 namespace memgraph::versioning {
 
-// Visits the ints of a list-valued marker property, stored either as a generic list or a packed int list.
+// Visits the ints of a list-valued property, stored either as a generic list or a packed int list.
 template <typename PV, typename F>
 void ForEachListedInt(PV const &value, F &&visit) {
   if (value.IsList()) {
@@ -63,8 +66,14 @@ void ForEachRemovedPid(PV const &value, F &&visit) {
 // The diff engine shares main's NameIdMapper because not-yet-stubbed fork vertices carry main's label/property ids.
 // Enum-type ids differ (the enum store is mirrored, not shared); stubs copy no fork values, so none cross over.
 //
+// A branch's changes to fork vertices (labels, properties, deletes, deleted incident fork edges) live in the
+// VertexOverlayStore, a small MVCC of its own that shares the diff engine's clock: a branch transaction's overlay
+// snapshot is its diff transaction's start timestamp. The overlay is stamped by the diff commit (a commit callback
+// under engine_lock_) or, for an overlay-only transaction, by BranchContext::CommitTransaction under the same lock.
+//
 // Vertex stubs are empty, delta-less Vertex objects owned by the StubIndex, not entries of the diff engine's vertices_
-// (which holds only branch-native vertices); their changes are recorded as ordinary diff-engine deltas.
+// (which holds only branch-native vertices). They are anchors only: the adjacency of fork vertices that got a
+// branch-created edge. They carry no labels, properties or markers.
 //
 // Edge stubs mirror vertex stubs: an empty delta-less diff edge with the fork edge's gid, holding only changed
 // properties plus the `__mg_removed` pid list for removed ones.
@@ -73,8 +82,8 @@ void ForEachRemovedPid(PV const &value, F &&visit) {
 // records main's counters as floors: a gid below the vertex (edge) floor is a fork vertex (edge), at or above it is
 // native.
 //
-// Deleted fork objects are recorded in the diff engine: the vertex stub carries label `__mg_deleted`; a deleted fork
-// edge's gid is listed in property `__mg_deleted_edges` on both endpoint stubs.
+// A deleted fork vertex is an overlay version with the delete flag; a deleted fork edge's gid is listed in the overlay
+// version of both endpoints.
 //
 // Must not outlive the Database's storage (the owning registry is destroyed before storage_).
 class BranchCore {
@@ -84,12 +93,10 @@ class BranchCore {
     std::string message;
   };
 
-  // Removal markers on a fork stub: label L removed => stub label `__mg_rm:L`; properties removed => stub property
-  // `__mg_removed` listing their ids. The `__mg_` prefix is reserved: query writes of it on a branch are rejected.
+  // Edge stubs record removed properties in property `__mg_removed`. The `__mg_` prefix is reserved: query writes of
+  // it on a branch are rejected.
   struct LabelInfo {
     bool reserved{false};
-    // Set iff the label is a removal marker: the label it removes.
-    std::optional<storage::LabelId> removed_label;
   };
 
   // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions.
@@ -109,14 +116,9 @@ class BranchCore {
   uint64_t fork_ts() const { return fork_ts_; }
 
   LabelInfo ClassifyLabel(storage::LabelId label);
-  storage::LabelId RemovalMarker(storage::LabelId label);
   bool IsReservedProperty(storage::PropertyId property);
 
   storage::PropertyId RemovedPropsKey() const { return removed_props_key_; }
-
-  storage::LabelId DeletedLabel() const { return deleted_label_; }
-
-  storage::PropertyId DeletedEdgesKey() const { return deleted_edges_key_; }
 
   // Main's vertex/edge counters at Build: gids below are fork objects, gids at or above are branch-native.
   uint64_t vertex_gid_floor() const { return vertex_gid_floor_; }
@@ -130,14 +132,18 @@ class BranchCore {
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
 
-  // Also feeds the exact deleted-gid set read by LabelTouchedSnapshot. Call before the marker write.
+  // Also feeds the exact deleted-gid set read by LabelTouchedSnapshot. Call before the overlay write.
   void RecordVertexDeleted(storage::Gid gid);
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
 
   // Exact, insert-only record of fork gids whose membership of `label` may differ on this branch. Call before the
-  // label/marker write; a rolled-back write leaves the gid recorded (superset, never a miss).
+  // overlay write; a rolled-back write leaves the gid recorded (superset, never a miss).
   void RecordLabelTouched(storage::LabelId label, storage::Gid gid);
+
+  // Labels the branch has added to or removed from a fork vertex (a rolled-back write leaves its label listed), for
+  // metadata that must list labels the diff engine never sees.
+  std::vector<storage::LabelId> TouchedLabels();
 
   // Immutable set of fork gids that a scan of `label` must resolve: the label's touched gids plus every deleted gid.
   // Cached per label until the next insert, so repeated scans share one copy.
@@ -147,6 +153,13 @@ class BranchCore {
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     change_filters_.RecordPropertyField(gid, pid);
   }
+
+  // Exact, insert-only record of fork gids whose value of `pid` the branch may have written. Call before the overlay
+  // write; a rolled-back write leaves the gid recorded.
+  void RecordPropertyTouched(storage::PropertyId pid, storage::Gid gid);
+
+  // Immutable set of fork gids that a scan on `pid` must resolve, cached per property until the next insert.
+  std::shared_ptr<const LabelTouchedSet> PropertyTouchedSnapshot(storage::PropertyId pid);
 
   bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
     return change_filters_.MayHavePropertyFieldChange(gid, pid);
@@ -160,7 +173,23 @@ class BranchCore {
 
   StubIndex &stub_index() { return stub_index_; }
 
+  VertexOverlayStore &overlay_store() { return overlay_store_; }
+
+  // Snapshot registry for overlay GC. A branch transaction pins a lower bound of its start timestamp BEFORE its diff
+  // transaction starts, so GC never samples a horizon above a snapshot that is about to read. All three are called
+  // from the session thread; the registry mutex ranks before engine_lock_ (the sampler reads the clock under it).
+  uint64_t PinSnapshot();
+  void RepinSnapshot(uint64_t from, uint64_t to);
+  void UnpinSnapshot(uint64_t ts);
+
+  // Counts a finished overlay-writing transaction; every kGcEveryTxns-th one runs CollectOverlayGarbage. Commit and
+  // abort are the only places versions become garbage, so this keeps pace with them without a thread of its own.
+  void OnOverlayTxnEnded() noexcept;
+  void CollectOverlayGarbage();
+
  private:
+  static constexpr uint64_t kGcEveryTxns = 64;
+
   BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts, std::unique_ptr<storage::InMemoryStorage> diff_engine,
              uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
 
@@ -172,13 +201,10 @@ class BranchCore {
 
   // Resolved once in the constructor so hot read paths take no lock.
   storage::PropertyId removed_props_key_;
-  storage::LabelId deleted_label_;
-  storage::PropertyId deleted_edges_key_;
 
   // Lazy caches over the shared NameIdMapper; entries are immutable once inserted.
   std::mutex marker_mutex_;
   std::unordered_map<storage::LabelId, LabelInfo> label_info_;
-  std::unordered_map<storage::LabelId, storage::LabelId> removal_marker_;
   std::unordered_map<storage::PropertyId, bool> reserved_property_;
 
   BranchChangeFilters change_filters_;
@@ -195,18 +221,29 @@ class BranchCore {
   LabelTouchedSet deleted_exact_;
   uint64_t touched_version_{1};
   absl::flat_hash_map<storage::LabelId, CachedLabelSnapshot> label_snapshots_;
+  absl::flat_hash_map<storage::PropertyId, LabelTouchedSet> property_touched_;
+  absl::flat_hash_map<storage::PropertyId, CachedLabelSnapshot> property_snapshots_;
+
+  VertexOverlayStore overlay_store_;
+  std::mutex snapshot_mutex_;
+  std::multiset<uint64_t> snapshot_pins_;
+  std::atomic<uint64_t> overlay_txns_ended_{0};
 
   // Owns the fork-vertex stubs; ~BranchCore resets diff_engine_ first, so they outlive it.
   StubIndex stub_index_;
 };
 
 // One session's view of a branch: a shared BranchCore plus per-transaction state. Reads resolve diff-engine-first,
-// falling back to the historical base (main at fork_ts). A write first materializes an empty stub of the touched
-// object in the diff engine (`CowVertex`/`CowEdge`), then mutates it.
+// falling back to the historical base (main at fork_ts). A fork vertex's changes are written to the overlay store by
+// gid; an edge change, or a branch-created edge on a fork vertex, first materializes an empty stub in the diff engine
+// (`CowVertex`/`CowEdge`), then mutates it.
 //
-// The per-transaction slots (`current_diff_txn_`, `historical_`) are opened by CurrentDB::SetupDatabaseTransaction
-// and released by CleanupDBTransaction. Owned by one session and used by one transaction at a time; concurrent
-// sessions each hold their own BranchContext over the same core.
+// The per-transaction slots (`current_diff_txn_`, `historical_`, `overlay_txn_`) are opened by
+// CurrentDB::SetupDatabaseTransaction and released by CleanupDBTransaction. The overlay transaction commits only
+// through CommitTransaction/PeriodicCommitTransaction; EndTransaction aborts it if it never did, so an abort, a failed
+// commit and a dropped context all roll the overlay back exactly once, and a committed overlay is never rolled back.
+// Owned by one session and used by one transaction at a time; concurrent sessions each hold their own BranchContext
+// over the same core.
 //
 // historical_ holds main's READ storage guard only while a branch transaction is open.
 class BranchContext {
@@ -227,7 +264,7 @@ class BranchContext {
   BranchContext(BranchContext &&) = delete;
   BranchContext &operator=(BranchContext &&) = delete;
 
-  ~BranchContext() = default;
+  ~BranchContext() { EndTransaction(); }
 
   const std::shared_ptr<BranchCore> &core() const { return core_; }
 
@@ -241,11 +278,13 @@ class BranchContext {
     return *historical_;
   }
 
-  // Opens a historical accessor on main at fork_ts (holding main's READ guard). Fails, leaving nothing open, if
-  // fork_ts is no longer pinned. Call BEFORE opening the diff-engine accessor: lock order is main READ -> diff engine.
+  // Opens a historical accessor on main at fork_ts (holding main's READ guard) and pins an overlay snapshot lower
+  // bound. Fails, leaving nothing open, if fork_ts is no longer pinned. Call BEFORE opening the diff-engine accessor:
+  // lock order is main READ -> diff engine, and the pin must precede the diff transaction's start timestamp.
   std::expected<void, BuildError> OpenHistorical();
 
-  void SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) { current_diff_txn_ = diff_txn; }
+  // Starts the overlay transaction at the diff transaction's snapshot.
+  void SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn);
 
   // OpenHistorical + SetCurrentDiffTxn, for callers that already hold the diff-engine accessor (tests).
   std::expected<void, BuildError> BeginTransaction(storage::Storage::Accessor *diff_txn) {
@@ -254,12 +293,18 @@ class BranchContext {
     return {};
   }
 
-  // Clears both slots and releases main's READ guard. Idempotent.
-  void EndTransaction() noexcept {
-    current_diff_txn_ = nullptr;
-    historical_.reset();
-    stub_cursor_.Reset();
-  }
+  // Aborts the overlay transaction unless it committed, unpins its snapshot, clears both slots and releases main's
+  // READ guard. Idempotent.
+  void EndTransaction() noexcept;
+
+  // Commits the diff transaction and the overlay as one unit; same results as Accessor::PrepareForCommitPhase.
+  std::expected<void, storage::StorageManipulationError> CommitTransaction(storage::CommitArgs commit_args);
+
+  // As Accessor::PeriodicCommit; on success the overlay continues in a fresh transaction at the new snapshot.
+  std::expected<void, storage::StorageManipulationError> PeriodicCommitTransaction(storage::CommitArgs commit_args);
+
+  // Fork gids this transaction has written in the overlay.
+  std::vector<uint64_t> OverlayWrittenGids() const;
 
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
 
@@ -267,19 +312,18 @@ class BranchContext {
     std::string message;
   };
 
-  // Returns the diff engine's vertex for `gid`, materializing an empty delta-less stub if none exists (fork
-  // labels/properties stay in historical_). CowError if deleted on the branch.
+  // Returns the diff engine's vertex for `gid`, materializing an empty delta-less anchor stub if none exists (a fork
+  // vertex's labels/properties stay in historical_ and the overlay). CowError if deleted on the branch.
   std::expected<storage::VertexAccessor, CowError> CowVertex(storage::Gid gid);
+
+  // Before an overlay write of fork vertex `gid`: CowError if it is deleted on the branch or missing from the fork
+  // state, else sets main's `branched()` hint bit. Allocates no stub.
+  std::expected<void, CowError> PrepareForkWrite(storage::Gid gid);
 
   // Per-session memo over the core's locked caches (entries are immutable there), so hot reads skip its mutex.
   LabelInfo ClassifyLabel(storage::LabelId label) {
     if (auto it = label_info_.find(label); it != label_info_.end()) return it->second;
     return label_info_.emplace(label, core_->ClassifyLabel(label)).first->second;
-  }
-
-  storage::LabelId RemovalMarker(storage::LabelId label) {
-    if (auto it = removal_marker_.find(label); it != removal_marker_.end()) return it->second;
-    return removal_marker_.emplace(label, core_->RemovalMarker(label)).first->second;
   }
 
   bool IsReservedProperty(storage::PropertyId property) {
@@ -289,38 +333,26 @@ class BranchContext {
 
   storage::PropertyId RemovedPropsKey() { return core_->RemovedPropsKey(); }
 
-  storage::LabelId DeletedLabel() { return core_->DeletedLabel(); }
-
-  storage::PropertyId DeletedEdgesKey() { return core_->DeletedEdgesKey(); }
-
-  // Read from the stub as visible at `view`, so deletion follows diff-engine MVCC (own writes, snapshots, rollback).
-  bool IsStubDeleted(const storage::VertexAccessor &stub, storage::View view);
-  // False for native gids (their deletes are ordinary diff-engine deletes) and for fork vertices without a stub.
+  // Deletion follows the overlay's MVCC at `view` (own writes, snapshots, rollback). False for native gids (their
+  // deletes are ordinary diff-engine deletes) and for fork vertices the branch never deleted.
   bool IsVertexDeleted(storage::Gid gid, storage::View view);
-  // `fork_vertex` is a main@fork accessor; a clear branched() bit means no stub exists, so the lookup is skipped.
+  // `fork_vertex` is a main@fork accessor; a clear branched() bit means the overlay is empty, so the lookup is skipped.
   bool IsForkVertexDeleted(const storage::VertexAccessor &fork_vertex, storage::View view);
-  // True when the fork edge is deleted on the branch (gid listed on its FROM stub) or either fork endpoint is.
+  // True when the fork edge is deleted on the branch (gid listed on its FROM or TO overlay) or either fork endpoint is.
   // `fork_edge` may also be the edge's diff-engine copy.
   bool IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view);
-  // Ascending gids of the fork edges listed as deleted on `stub`.
-  std::vector<uint64_t> DeletedEdgeGids(const storage::VertexAccessor &stub, storage::View view);
-  storage::Result<bool> StoreDeletedEdgeGids(storage::VertexAccessor &stub, const std::vector<uint64_t> &gids);
-
-  // Marks the fork vertex's stub (materialized if needed) with `__mg_deleted`; returns nullopt if already deleted.
-  // Edges are NOT touched: incident fork edges are hidden by the marker, diff-engine edges are the caller's to delete.
-  storage::Result<std::optional<storage::VertexAccessor>> DeleteForkVertex(storage::Gid gid);
 
   // Gid-keyed access to a fork vertex's branch-side changes. Callers hold the fork accessor (historical_, View::OLD)
   // and never see how the changes are stored; an optional on the read side is empty when the branch changed nothing.
-  // The writes materialize the overlay if needed, and a caller that must report a failed COW (a delete on this branch)
-  // calls CowVertex first.
+  // Each write is one overlay write; a caller that must report a failed prepare (a delete on this branch) calls
+  // PrepareForkWrite first.
 
   // The changes visible to the current diff txn at `view`; only the `parts` requested are decoded.
   storage::Result<std::optional<VertexOverlayView>> ReadVertexOverlay(storage::Gid gid, storage::View view,
                                                                       OverlayRead parts = kOverlayReadAll);
   // Encoded size of the overlay's own value for `key`; 0 if it has none.
   storage::Result<uint64_t> ReadOverlayPropertySize(storage::Gid gid, storage::View view, storage::PropertyId key);
-  // True when the branch ever materialized an overlay for the fork vertex (writes, even rolled back, create it).
+  // True when the overlay has a version of the fork vertex visible to this transaction.
   bool HasVertexOverlay(storage::Gid gid);
 
   // The writes return what the matching storage::VertexAccessor call returns, so the query layer wraps them 1:1.
@@ -333,13 +365,16 @@ class BranchContext {
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   OverlayUpdateProperties(storage::Gid gid, std::map<storage::PropertyId, storage::PropertyValue> &properties);
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> OverlayClearProperties(storage::Gid gid);
-  // False if the vertex was already deleted on the branch. Same marker semantics as DeleteForkVertex.
+  // False if the vertex was already deleted on the branch. Edges are NOT touched: incident fork edges are hidden by the
+  // delete flag, diff-engine edges are the caller's to delete.
   storage::Result<bool> OverlayMarkDeleted(storage::Gid gid);
+  // Claims the fork vertex's overlay with a no-op version, so a concurrent delete of it conflicts with the caller.
+  storage::Result<bool> OverlayTouch(storage::Gid gid);
 
   // The fork accessor for a stub accessor (`v` itself for anything else). Only for results that surface a stub, e.g.
   // the endpoints of a branch-native edge or hits of the diff engine's indexes.
   storage::VertexAccessor ForkIdentity(const storage::VertexAccessor &v);
-  // Lists the fork edge's gid on both endpoint stubs and deletes its diff-engine copy, if any. False if already
+  // Lists the fork edge's gid in both endpoints' overlay and deletes its diff-engine copy, if any. False if already
   // deleted.
   storage::Result<bool> DeleteForkEdge(const storage::EdgeAccessor &fork_edge);
 
@@ -351,7 +386,7 @@ class BranchContext {
   // Creates a branch-native edge at a gid taken from main's counter; endpoints must already be diff-engine vertices.
   storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor *from, storage::VertexAccessor *to,
                                                           storage::EdgeTypeId edge_type);
-  // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when recorded, else historical_.
+  // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when an anchor recorded it.
   std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
   // The current diff txn's vertex for `gid`: a fork gid resolves only through the stub index, a native gid only
   // through the diff engine's skiplist.
@@ -445,7 +480,7 @@ class BranchContext {
 
   // Union of historical_'s incident edges (always View::OLD) with branch-native ones from the diff engine. Edge stubs
   // are skipped: the fork edge is emitted from historical_ and reads overlay the stub. Eager (degree-bounded).
-  // Fork edges listed as deleted on `vertex_gid`'s stub, or whose other endpoint is deleted at `view`, are dropped.
+  // Fork edges listed as deleted in `vertex_gid`'s overlay, or whose other endpoint is deleted at `view`, are dropped.
   // A deleted vertex yields no edges and sets `*vertex_deleted`.
   std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
                                                   storage::View view, bool *vertex_deleted = nullptr);
@@ -458,6 +493,12 @@ class BranchContext {
   void RecordVertexDeleted(storage::Gid gid) { core_->RecordVertexDeleted(gid); }
 
   void RecordLabelTouched(storage::LabelId label, storage::Gid gid) { core_->RecordLabelTouched(label, gid); }
+
+  void RecordPropertyTouched(storage::PropertyId pid, storage::Gid gid) { core_->RecordPropertyTouched(pid, gid); }
+
+  std::shared_ptr<const BranchCore::LabelTouchedSet> PropertyTouchedSnapshot(storage::PropertyId pid) {
+    return core_->PropertyTouchedSnapshot(pid);
+  }
 
   std::shared_ptr<const BranchCore::LabelTouchedSet> LabelTouchedSnapshot(storage::LabelId label) {
     return core_->LabelTouchedSnapshot(label);
@@ -483,21 +524,32 @@ class BranchContext {
   // Sets the monotonic `branched()` hint bit on `main_vertex` under its lock; callers hold no diff-engine lock.
   void MarkMainObjectBranched(storage::Vertex *main_vertex);
 
-  // The vertex's overlay stub for a write: the existing one, else a fresh COW. Empty if the vertex cannot be COW'd.
-  std::optional<storage::VertexAccessor> StubForWrite(storage::Gid gid);
+  // The overlay version of `gid` visible to this transaction at `view`, or null. Valid until EndTransaction.
+  const OverlayVersion *ReadVersion(storage::Gid gid, storage::View view);
+
+  // One store write; a serialization error also poisons the diff transaction, as storage's PrepareForWrite does.
+  template <typename Mutator>
+  storage::Result<bool> WriteOverlay(storage::Gid gid, Mutator &&mutate);
+
+  // Advances the overlay command id to the diff transaction's.
+  void SyncOverlayCommand() noexcept;
+
+  void StartOverlayTransaction();
 
   // Sets the `branched()` bit on a main@fork edge (its Edge* is main's live object); no-op without properties_on_edges.
   void MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge);
 
   std::shared_ptr<BranchCore> core_;
   std::string name_;
-  // Session-local memos for ClassifyLabel/RemovalMarker/IsReservedProperty; unsynchronized (one thread at a time).
+  // Session-local memos for ClassifyLabel/IsReservedProperty; unsynchronized (one thread at a time).
   std::unordered_map<storage::LabelId, LabelInfo> label_info_;
-  std::unordered_map<storage::LabelId, storage::LabelId> removal_marker_;
   std::unordered_map<storage::PropertyId, bool> reserved_property_;
   // current_diff_txn_ is not owned: it points into CurrentDB::db_transactional_accessor_ for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;
+  // Lives from SetCurrentDiffTxn to EndTransaction; `snapshot_pin_` is its GC pin.
+  std::unique_ptr<OverlayTransaction> overlay_txn_;
+  std::optional<uint64_t> snapshot_pin_;
   // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor never yields a wrong
   // pointer; reset per transaction.
   StubIndex::Cursor stub_cursor_;

@@ -96,7 +96,7 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
                                                           const storage::EdgeAccessor &stub,
                                                           const storage::EdgeAccessor &fork, storage::View view,
                                                           storage::PropertyId key) {
-  if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return storage::PropertyValue{};
+  if (key == ctx.RemovedPropsKey()) return storage::PropertyValue{};
   auto in_fork = fork.GetProperty(key, storage::View::OLD);
   if (!in_fork) return in_fork;
   if (in_fork->IsNull()) return stub.GetProperty(key, view);
@@ -106,7 +106,7 @@ storage::Result<storage::PropertyValue> MergedGetProperty(versioning::BranchCont
 storage::Result<uint64_t> MergedGetPropertySize(versioning::BranchContext &ctx, const storage::EdgeAccessor &stub,
                                                 const storage::EdgeAccessor &fork, storage::PropertyId key,
                                                 storage::View view) {
-  if (key == ctx.RemovedPropsKey() || key == ctx.DeletedEdgesKey()) return uint64_t{0};
+  if (key == ctx.RemovedPropsKey()) return uint64_t{0};
   auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
   if (!in_fork) return in_fork;
   if (*in_fork == 0) return stub.GetPropertySize(key, view);

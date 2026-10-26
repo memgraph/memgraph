@@ -46,17 +46,29 @@ ms::PropertyId Prop(uint32_t id) { return ms::PropertyId::FromUint(id); }
 
 // Stands in for the engine: one clock for start and commit timestamps, the active set GC needs.
 struct Env {
+  // Rolls back what a test leaves unfinished, as an OverlayTransaction with writes must end in Commit or Abort.
+  struct TxnEnd {
+    Env *env;
+
+    void operator()(OverlayTransaction *txn) const {
+      if (txn->has_writes() && !txn->finished()) env->store.Abort(*txn);
+      delete txn;
+    }
+  };
+
+  using TxnPtr = std::unique_ptr<OverlayTransaction, TxnEnd>;
+
   VertexOverlayStore store;
   std::mutex mutex;
   uint64_t clock{1};
   uint64_t next_txn_id{ms::kTransactionInitialId};
   std::multiset<uint64_t> active;
 
-  std::unique_ptr<OverlayTransaction> Begin(IsolationLevel isolation = kSI) {
+  TxnPtr Begin(IsolationLevel isolation = kSI) {
     std::lock_guard guard{mutex};
     uint64_t const start = clock++;
     active.insert(start);
-    return std::make_unique<OverlayTransaction>(start, next_txn_id++, isolation);
+    return TxnPtr{new OverlayTransaction(start, next_txn_id++, isolation), TxnEnd{this}};
   }
 
   void Release(const OverlayTransaction &txn) {
@@ -78,15 +90,13 @@ struct Env {
     Release(txn);
   }
 
+  VertexOverlayStore::Horizon Sample() {
+    std::lock_guard guard{mutex};
+    return {active.empty() ? clock : *active.begin(), clock};
+  }
+
   void Gc() {
-    uint64_t oldest = 0;
-    uint64_t now = 0;
-    {
-      std::lock_guard guard{mutex};
-      now = clock;
-      oldest = active.empty() ? now : *active.begin();
-    }
-    store.CollectGarbage(oldest, now);
+    store.CollectGarbage([this] { return Sample(); });
   }
 
   std::expected<bool, ms::Error> AddLabel(OverlayTransaction &txn, uint64_t gid, uint32_t label) {
@@ -177,6 +187,7 @@ TEST(VersioningVertexOverlayStore, OwnWritesFollowCommandIdForOldAndNew) {
   ASSERT_TRUE(noop.has_value());
   EXPECT_FALSE(*noop);
   EXPECT_EQ(env.store.ChainLength(1), 3U);
+  env.Abort(*txn);
 }
 
 TEST(VersioningVertexOverlayStore, WriteWriteConflictsInBothOrderings) {
@@ -202,6 +213,7 @@ TEST(VersioningVertexOverlayStore, WriteWriteConflictsInBothOrderings) {
 
     auto third = env.Begin(isolation);
     EXPECT_TRUE(env.AddLabel(*third, 2, 3).has_value());  // started after the commit
+    env.Abort(*third);
   }
 }
 
@@ -225,9 +237,9 @@ TEST(VersioningVertexOverlayStore, AbortRestoresPreviousHeads) {
   EXPECT_EQ(env.store.Read(2, *reader, View::NEW), nullptr);
   EXPECT_TRUE(env.AddLabel(*reader, 1, 5).has_value());  // no leftover uncommitted head
 
-  env.Release(*reader);
+  env.Abort(*reader);
   env.Gc();
-  EXPECT_EQ(env.store.live_versions(), 2U);  // the committed head and the reader's own version
+  EXPECT_EQ(env.store.live_versions(), 1U);  // only the committed head remains
 }
 
 TEST(VersioningVertexOverlayStore, GcCollapsesChainsBehindPinnedSnapshots) {
@@ -257,6 +269,37 @@ TEST(VersioningVertexOverlayStore, GcCollapsesChainsBehindPinnedSnapshots) {
   EXPECT_EQ(env.store.live_versions(), 1U);
   auto reader = env.Begin();
   EXPECT_EQ(Added(env.store.Read(1, *reader, View::NEW)), (Labels{1, 2, 3}));
+}
+
+// A reader that begins after GC's first clock sample must keep the version an abort unlinks meanwhile: garbage is
+// marked with a clock read after the unlink, never with the first sample.
+TEST(VersioningVertexOverlayStore, GcMarksGarbageWithAClockSampledAfterTheUnlink) {
+  Env env;
+  env.CommitLabel(1, 1);
+  Env::TxnPtr writer;
+  Env::TxnPtr reader;
+  OverlayVersion const *held = nullptr;
+  int calls = 0;
+
+  env.store.CollectGarbage([&] {
+    auto const horizon = env.Sample();  // nothing active: oldest == now
+    if (calls++ == 0) {
+      writer = env.Begin();
+      EXPECT_TRUE(env.AddLabel(*writer, 1, 2).has_value());
+      reader = env.Begin(kRU);
+      held = env.store.Read(1, *reader, View::NEW);
+      env.Abort(*writer);
+    }
+    return horizon;
+  });
+  ASSERT_EQ(calls, 2);
+  ASSERT_NE(held, nullptr);
+  EXPECT_EQ(Added(held), (Labels{1, 2}));  // still readable
+  EXPECT_EQ(env.store.live_versions(), 2U);
+
+  env.Release(*reader);
+  env.Gc();
+  EXPECT_EQ(env.store.live_versions(), 1U);
 }
 
 TEST(VersioningVertexOverlayStore, VersionsRoundTripEveryPart) {
@@ -356,6 +399,7 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
   std::atomic<int> writers_left{kWriters};
   std::atomic<bool> torn{false};
   std::atomic<bool> unstable{false};
+  std::atomic<uint64_t> gc_cycles{0};
 
   auto check = [&](const OverlayVersion *version) {
     if (version == nullptr) return;
@@ -372,13 +416,21 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
       for (int i = 0; i < kWritesPerWriter; ++i) {
         auto txn = env.Begin(i % 2 == 0 ? kSI : kRC);
         auto const gid = static_cast<uint64_t>(i * 7 + w) % kGids;
-        ++value;
-        auto const result = env.store.Write(gid, *txn, [&](OverlayState &state) {
-          state.SetProperty(Prop(1), ms::PropertyValue(static_cast<int64_t>(value)));
-          state.SetProperty(Prop(2), ms::PropertyValue(static_cast<int64_t>(value)));
-          return true;
-        });
-        if (result.has_value() && i % 8 != 0) {
+        auto const write = [&] {
+          ++value;
+          return env.store.Write(gid, *txn, [&](OverlayState &state) {
+            state.SetProperty(Prop(1), ms::PropertyValue(static_cast<int64_t>(value)));
+            state.SetProperty(Prop(2), ms::PropertyValue(static_cast<int64_t>(value)));
+            return true;
+          });
+        };
+        bool ok = write().has_value();
+        if (ok) {
+          static_cast<void>(write());  // same command: replaces the head
+          txn->AdvanceCommand();
+          ok = write().has_value();  // later command: a second version
+        }
+        if (ok && i % 4 != 0) {
           env.Commit(*txn);
         } else {
           env.Abort(*txn);
@@ -398,6 +450,14 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
           check(second);
           if (r == 0 && first != second) unstable = true;
         }
+        // Hold a pointer across a GC cycle, then verify it still reads whole.
+        auto const *held = env.store.Read(static_cast<uint64_t>(r), *txn, View::NEW);
+        auto const before = held == nullptr ? int64_t{-1} : held->properties().GetProperty(Prop(1)).ValueInt();
+        for (uint64_t const seen = gc_cycles.load(); writers_left.load() > 0 && gc_cycles.load() < seen + 2;) {
+          std::this_thread::yield();
+        }
+        check(held);
+        if (held != nullptr && held->properties().GetProperty(Prop(1)).ValueInt() != before) unstable = true;
         env.Release(*txn);
       }
     });
@@ -405,6 +465,7 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
   threads.emplace_back([&] {
     while (writers_left.load() > 0) {
       env.Gc();
+      ++gc_cycles;
       std::this_thread::yield();
     }
   });

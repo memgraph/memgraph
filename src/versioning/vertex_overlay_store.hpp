@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -36,6 +37,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/db_aware_allocator.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 // Versioned per-vertex changes of a branch over its fork vertices, with a small MVCC of their own that follows the
@@ -276,7 +278,9 @@ class OverlayTransaction {
   OverlayTransaction(OverlayTransaction &&) = delete;
   OverlayTransaction &operator=(OverlayTransaction &&) = delete;
 
+  // A transaction that wrote must end in VertexOverlayStore::Commit or Abort, else its heads stay on the chains.
   ~OverlayTransaction() {
+    DMG_ASSERT(writes_.empty(), "overlay transaction with writes destroyed without Commit or Abort");
     if (stamp_ != nullptr) stamp_->Unref();
   }
 
@@ -296,7 +300,13 @@ class OverlayTransaction {
 
   bool has_writes() const noexcept { return stamp_ != nullptr; }
 
+  // Committed or aborted.
+  bool finished() const noexcept { return finished_; }
+
   size_t write_count() const noexcept { return writes_.size(); }
+
+  // Gids this transaction put a head on, in first-write order; empty once it has ended.
+  std::span<const uint64_t> writes() const noexcept { return writes_; }
 
  private:
   friend class VertexOverlayStore;
@@ -316,7 +326,8 @@ class OverlayTransaction {
 // scheme as the storage engine's garbage_undo_buffers_: any transaction that could hold a pointer to it started before
 // the mark. Every reader must therefore be a transaction that CollectGarbage's `oldest_active_start_ts` accounts for.
 //
-// Lock order: gc_mutex_ -> shard lock -> garbage_mutex_.
+// Lock order: gc_mutex_ -> shard lock -> garbage_mutex_. The sampler runs under gc_mutex_ only, so it may take
+// engine_lock_ (Commit holds engine_lock_ -> garbage_mutex_).
 class VertexOverlayStore {
  public:
   VertexOverlayStore() = default;
@@ -359,6 +370,10 @@ class VertexOverlayStore {
     if (!own) txn.writes_.reserve(txn.writes_.size() + 1);
 
     bool const replace = own && head->command_id_ == txn.command_id_;
+    if (replace) {  // Retire below must not allocate
+      std::lock_guard garbage_guard{garbage_mutex_};
+      unmarked_.reserve(unmarked_.size() + 1);
+    }
     OverlayVersion *const created =
         OverlayVersion::Create(std::move(state), txn.stamp_, replace ? head->older() : head, txn.command_id_);
     try {
@@ -386,10 +401,24 @@ class VertexOverlayStore {
   // writes.
   void Abort(OverlayTransaction &txn);
 
-  // Collapses committed chains below the newest version visible at `oldest_active_start_ts`, and frees garbage whose
-  // mark has been passed. `now_ts` is the clock's next timestamp (greater than every started transaction's start).
-  // Calls are serialized.
-  void CollectGarbage(uint64_t oldest_active_start_ts, uint64_t now_ts);
+  // The clock state GC works from, sampled by the caller's registry of active snapshots and clock:
+  // `oldest_active` is the smallest start timestamp of any transaction that may hold a version pointer (the clock's
+  // next timestamp when none), `now` the clock's next timestamp, read together.
+  struct Horizon {
+    uint64_t oldest_active;
+    uint64_t now;
+  };
+
+  // Collapses committed chains below the newest version visible at the oldest active snapshot, and frees garbage whose
+  // mark has been passed. `sample` is called without any store lock but gc_mutex_ held, once before collapsing and once
+  // after everything to be marked has been unlinked: garbage is marked with the second sample, so a reader that began
+  // after an unlink was sampled can never be freed under. `sample` may take the engine's lock. Calls are serialized.
+  void CollectGarbage(const std::function<Horizon()> &sample);
+
+  // For a caller whose clock cannot change during the call (tests): one fixed horizon for both samples.
+  void CollectGarbage(uint64_t oldest_active_start_ts, uint64_t now_ts) {
+    CollectGarbage([=] { return Horizon{oldest_active_start_ts, now_ts}; });
+  }
 
   // Gids with a chain.
   size_t size() const;

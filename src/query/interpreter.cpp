@@ -8003,8 +8003,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
-      // On a branch: main's labels plus those used on the branch (the diff engine's metadata), minus the reserved
-      // `__mg_*` removal/delete markers. Both are metadata sets, so no graph scan.
+      // On a branch: main's labels plus those used on the branch (the diff engine's metadata and the labels written on
+      // fork vertices), minus reserved `__mg_*` labels. Both are metadata sets, so no graph scan.
       handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
@@ -8016,6 +8016,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto const seen = std::unordered_set<storage::LabelId>(node_labels.begin(), node_labels.end());
           for (auto const label : branch->diff_engine().ListAllPossiblyPresentVertexLabels()) {
             if (!seen.contains(label) && !branch->ClassifyLabel(label).reserved) node_labels.push_back(label);
+          }
+          for (auto const label : branch->TouchedLabels()) {
+            if (std::ranges::find(node_labels, label) == node_labels.end()) node_labels.push_back(label);
           }
         }
         std::vector<std::vector<TypedValue>> results;
@@ -12282,6 +12285,12 @@ void Interpreter::Commit() {
       if (auto valid = current_db_.execution_db_accessor_->ValidateBranchConstraints(); !valid) {
         current_db_.db_transactional_accessor_->Abort();
         return std::unexpected{storage::StorageManipulationError{valid.error()}};
+      }
+    }
+    // A branch commits its overlay together with the diff transaction.
+    if (current_db_.execution_db_accessor_) {
+      if (auto *branch = current_db_.execution_db_accessor_->branch_context()) {
+        return branch->CommitTransaction(make_commit_arg(is_main, *current_db_.db_acc_));
       }
     }
     return current_db_.db_transactional_accessor_->PrepareForCommitPhase(

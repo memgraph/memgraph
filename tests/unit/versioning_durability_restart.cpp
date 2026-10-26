@@ -199,16 +199,15 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
     {
       auto diff_acc = (*ctx)->diff_engine().Access(ms::WRITE);
       ASSERT_TRUE((*ctx)->BeginTransaction(diff_acc.get()).has_value());
-      auto stub = (*ctx)->CowVertex(fork_vertex);
-      ASSERT_TRUE(stub.has_value());
-      ASSERT_TRUE(stub->AddLabel(branch_label).has_value());
-      ASSERT_TRUE(stub->SetProperty(x, ms::PropertyValue(2)).has_value());
+      ASSERT_TRUE((*ctx)->PrepareForkWrite(fork_vertex).has_value());
+      ASSERT_TRUE((*ctx)->OverlayAddLabel(fork_vertex, branch_label).has_value());
+      ASSERT_TRUE((*ctx)->OverlaySetProperty(fork_vertex, x, ms::PropertyValue(2)).has_value());
       auto c = (*ctx)->CreateNativeVertex();
       auto d = (*ctx)->CreateNativeVertex();
       ASSERT_TRUE(c.AddLabel(branch_label).has_value());
       ASSERT_TRUE(c.SetProperty(branch_prop, ms::PropertyValue(7)).has_value());
       ASSERT_TRUE((*ctx)->CreateNativeEdge(&c, &d, edge_type).has_value());
-      ASSERT_TRUE(diff_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ASSERT_TRUE((*ctx)->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
       (*ctx)->EndTransaction();
     }
   }
