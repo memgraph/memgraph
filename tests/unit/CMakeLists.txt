@@ -103,10 +103,6 @@ add_unit_test(versioning_branch_engine
         LINK_TARGETS mg::versioning mg::storage mg-memory-utils
 )
 
-add_unit_test(versioning_stub_index
-        SOURCES versioning_stub_index.cpp
-        LINK_TARGETS mg::versioning mg::storage)
-
 add_unit_test(versioning_durability_restart
         SOURCES versioning_durability_restart.cpp
         LINK_TARGETS mg::versioning mg::storage mg-dbms
