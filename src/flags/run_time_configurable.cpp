@@ -28,6 +28,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
 
 #include "croncpp.h"
 #include "flags/coord_flag_env_handler.hpp"
@@ -262,6 +263,8 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
     observer->Update(*periodic_locked);
   }
 
+  bool IsCron() const { return std::holds_alternative<std::string>(periodic_.ReadLock()->period_or_cron); }
+
   void Modify(std::chrono::seconds pause) {
     *periodic_.Lock() = memgraph::utils::SchedulerInterval(pause, std::nullopt);
     Notify();
@@ -349,7 +352,8 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
           "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by "
           "running SHOW LICENSE INFO.";
       if constexpr (FATAL) {
-        LOG_FATAL(msg);
+        spdlog::error("{} Scheduled snapshots are skipped until the license is valid.", msg);
+        return true;
       }
       spdlog::error(msg);
       return false;
@@ -393,7 +397,8 @@ void Initialize(utils::Settings &settings) {
                            Durability durability,
                            std::function<void(const std::string &)> post_update = [](auto) {},
                            utils::Settings::Validation validator =
-                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
+                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; },
+                           bool validate_startup_value = true) {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
@@ -430,7 +435,12 @@ void Initialize(utils::Settings &settings) {
         spdlog::warn("Ignoring the stored value of setting '{}': {}", key, e.what());
       }
     }
-    settings.SetValue(key, info.current_value);
+    if (validate_startup_value) {
+      settings.SetValue(key, info.current_value);
+    } else {
+      settings.SetValueForce(key, info.current_value);
+      callback();
+    }
   };
 
   /*
@@ -596,7 +606,8 @@ void Initialize(utils::Settings &settings) {
                 "Please note that a valid license is needed in order to use cron expressions."};
           }
           return {};
-        });
+        },
+        /*validate_startup_value=*/false);
   }
 
   // AWS Section
@@ -739,6 +750,10 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
+}
+
+bool SnapshotScheduleLicensed() {
+  return !snapshot_periodic_.IsCron() || license::global_license_checker.IsEnterpriseValidFast();
 }
 
 int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }
