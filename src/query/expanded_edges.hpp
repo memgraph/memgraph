@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <iterator>
 #include <utility>
@@ -69,6 +70,22 @@ class ExpandedEdges {
   auto size() const -> std::size_t { return storage_edges_.size(); }
 
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
+
+  /// Builds every edge into `out`, replacing what it held.
+  ///
+  /// An expansion builds each edge only as it is looked at, so a caller doing work per edge
+  /// interleaves the two. Collecting first pays where visiting an edge waits on memory, since
+  /// several of those waits can then be outstanding at once. `out` keeps its capacity, so
+  /// expanding many vertices into one collection stops allocating once it has taken the widest
+  /// degree met.
+  template <typename Collection>
+    requires std::same_as<typename Collection::value_type, EdgeAccessor>
+  void MaterialiseInto(Collection &out) const {
+    auto const count = size();
+    out.clear();
+    out.reserve(count);
+    for (auto index = std::size_t{0}; index != count; ++index) out.push_back(At(index));
+  }
 
  private:
   auto At(std::size_t index) const -> EdgeAccessor { return EdgeAccessor{storage_edges_.At(index)}; }

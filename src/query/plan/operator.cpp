@@ -2855,40 +2855,31 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
     };
 
-    // The range's iterator reports itself as an input iterator, because dereferencing builds an
-    // edge rather than exposing one, so a generic copy cannot size the result up front.
-    auto collect = [this](auto const &edges) {
-      expansion_.clear();
-      expansion_.reserve(edges.size());
-      for (auto const &edge : edges) expansion_.push_back(edge);
-    };
-
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex =
-        [this, &expand_pair, &restore_frame_state_after_expansion, &context, &collect](const auto &vertex) {
-          if (self_.common_.direction != EdgeAtom::Direction::IN) {
-            auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += out_edges_result.expanded_count;
-            collect(out_edges_result.edges);
-            for (const auto &edge : expansion_) {
-              bool was_expanded = expand_pair(edge, edge.To());
-              restore_frame_state_after_expansion(was_expanded);
-            }
-          }
-          if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-            auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += in_edges_result.expanded_count;
-            collect(in_edges_result.edges);
-            for (const auto &edge : expansion_) {
-              bool was_expanded = expand_pair(edge, edge.From());
-              restore_frame_state_after_expansion(was_expanded);
-            }
-          }
-        };
+    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        auto out_edges_result =
+            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+        context.number_of_hops += out_edges_result.expanded_count;
+        out_edges_result.edges.MaterialiseInto(expansion_);
+        for (const auto &edge : expansion_) {
+          bool was_expanded = expand_pair(edge, edge.To());
+          restore_frame_state_after_expansion(was_expanded);
+        }
+      }
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        auto in_edges_result =
+            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+        context.number_of_hops += in_edges_result.expanded_count;
+        in_edges_result.edges.MaterialiseInto(expansion_);
+        for (const auto &edge : expansion_) {
+          bool was_expanded = expand_pair(edge, edge.From());
+          restore_frame_state_after_expansion(was_expanded);
+        }
+      }
+    };
 
     // do it all in a loop because we skip some elements
     while (true) {
@@ -3013,10 +3004,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
-  // One vertex's edges, collected before any of them is visited. Visiting an edge looks up the
-  // vertex at its far end, and having the edges to hand lets several of those lookups be in
-  // flight together, where taking one edge at a time leaves each of them waiting on the last.
-  // Refilled per vertex and given back when the walk ends.
+  // One vertex's edges, refilled per vertex and given back when the walk ends.
   utils::pmr::vector<EdgeAccessor> expansion_;
 };
 

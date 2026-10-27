@@ -22,7 +22,7 @@ namespace memgraph::test {
 ///
 /// An expansion builds each edge as it is looked at, so there is nothing to sort and no element
 /// whose address can be taken. A test asserting on edges by position needs both, because adjacency
-/// comes back in no order it can rely on. Nothing outside a test does.
+/// comes back in no order it can rely on.
 inline auto Materialise(storage::ExpandedEdges const &edges) -> std::vector<storage::EdgeAccessor> {
   auto built = std::vector<storage::EdgeAccessor>{};
   built.reserve(edges.size());
