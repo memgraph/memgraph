@@ -27,7 +27,6 @@
 #include <iostream>
 #include <limits>
 #include <nlohmann/json.hpp>
-#include <random>
 #include <span>
 #include <sstream>
 #include <string>
@@ -90,8 +89,8 @@ namespace {
 constexpr auto kSha256DigestName = "SHA2-256";
 
 /// Salt from OpenSSL's DRBG, which SP 800-132 requires for an approved KDF.
-/// The legacy SHA algorithms still salt from `std::mt19937`; they are not
-/// FIPS-approvable regardless, so that path is deliberately left alone.
+/// The legacy SHA algorithms use it too, so their 128-bit salt carries 128
+/// bits of entropy rather than the 32 bits of a single `std::random_device` seed.
 template <std::size_t N>
 auto GenerateSalt() -> std::array<char, N> {
   auto salt = std::array<char, N>{};
@@ -374,10 +373,7 @@ HashedPassword HashPassword(const std::string &password, std::optional<PasswordH
       }
       case PasswordHashAlgorithm::SHA256:
       case PasswordHashAlgorithm::SHA256_MULTIPLE: {
-        auto gen = std::mt19937(std::random_device{}());
-        auto salt = std::array<char, SHA::SALT_SIZE>{};
-        auto dis = std::uniform_int_distribution<unsigned char>(0, 255);
-        std::generate(salt.begin(), salt.end(), [&]() { return dis(gen); });
+        auto const salt = GenerateSalt<SHA::SALT_SIZE>();
         auto iterations = (hash_algo == PasswordHashAlgorithm::SHA256) ? ONE_SHA_ITERATION : MULTIPLE_SHA_ITERATIONS;
         return SHA::HashPassword(password, iterations, {salt.data(), salt.size()});
       }
