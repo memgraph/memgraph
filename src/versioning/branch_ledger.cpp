@@ -158,7 +158,9 @@ std::expected<void, std::string> BranchLedger::Write(const LedgerContents &conte
 
 std::expected<std::optional<LedgerContents>, std::string> BranchLedger::Read() const {
   std::error_code ec;
-  if (!std::filesystem::exists(file_, ec)) return std::optional<LedgerContents>{};
+  const bool present = std::filesystem::exists(file_, ec);
+  if (ec) return std::unexpected(fmt::format("Branch ledger: cannot stat '{}': {}.", file_.string(), ec.message()));
+  if (!present) return std::optional<LedgerContents>{};
 
   std::ifstream in(file_, std::ios::binary);
   if (!in) return std::unexpected(fmt::format("Branch ledger: cannot open '{}'.", file_.string()));

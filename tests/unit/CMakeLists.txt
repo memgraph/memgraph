@@ -100,7 +100,7 @@ add_unit_test(versioning_version_store
 
 add_unit_test(versioning_ledger
         SOURCES versioning_ledger.cpp
-        LINK_TARGETS mg::versioning mg-kvstore
+        LINK_TARGETS mg::versioning mg::storage mg-dbms mg-kvstore
 )
 
 add_unit_test(versioning_branch_engine

@@ -12,6 +12,8 @@
 #include "dbms/database.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <charconv>
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -139,6 +141,21 @@ std::string BranchNames(const versioning::LedgerContents &ledger) {
   return names;
 }
 
+// One past the highest numeric directory name under branches/; ignores non-numeric entries such as the ledger file.
+uint64_t NextFreeBranchNumber(const std::filesystem::path &branches_directory) {
+  uint64_t next = 0;
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it{branches_directory, ec}, end; !ec && it != end; it.increment(ec)) {
+    const auto name = it->path().filename().string();
+    if (name.empty() || !std::ranges::all_of(name, [](unsigned char c) { return std::isdigit(c) != 0; })) continue;
+    uint64_t number = 0;
+    const auto [ptr, parse_ec] = std::from_chars(name.data(), name.data() + name.size(), number);
+    if (parse_ec != std::errc{} || ptr != name.data() + name.size()) continue;
+    next = std::max(next, number + 1);
+  }
+  return next;
+}
+
 // Runs before the storage exists; branches can only be rebuilt from the WAL.
 BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::filesystem::path &ledger_file) {
   BranchRecoveryPlan plan;
@@ -224,6 +241,9 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                                       &db_embedding_memory_tracker_);
   } else {
     branch_plan = PlanBranchRecovery(config, branch_ledger_file);
+    // Never reuse the number of a branch directory that is still on disk.
+    branch_plan.ledger.next_number =
+        std::max(branch_plan.ledger.next_number, NextFreeBranchNumber(branch_ledger_file.parent_path()));
     const auto create_storage = [&](storage::Config storage_config, storage::PlanInvalidatorPtr plan_invalidator) {
       return dbms::CreateInMemoryStorage(std::move(storage_config),
                                          std::move(plan_invalidator),
