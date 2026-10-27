@@ -5484,10 +5484,10 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     auto const reads_a_record = reads_a_vertex || input_value.type() == TypedValue::Type::Edge;
 
     if (!reads_a_record && !input_value.IsNull()) {
-      // The symbol is typed as a node or a relationship but holds something else, which a variable
-      // length match inside an EXISTS, a COUNT or a COLLECT does: it binds the list of relationships
-      // it matched. A lookup refuses that rather than answering, so reading a set of them refuses
-      // too, in the same words.
+      // Only a symbol typed as a node or a relationship is read here, so holding neither means the
+      // type and the value disagree. A lookup refuses such a value rather than answering, so reading
+      // a set of them refuses too, in the same words: whether the set is read in one pass must not
+      // decide whether the query is valid.
       throw QueryRuntimeException(
           "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
     }
