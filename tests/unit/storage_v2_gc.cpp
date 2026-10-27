@@ -1599,17 +1599,37 @@ TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
 // Light-edge GC routing tests (storage_light_edge=true).
 
 namespace {
-auto MakeLightEdgeGcStorage() {
+auto MakeLightEdgeGcStorage(std::filesystem::path durability_directory) {
   return std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)},
+                 .durability = {.storage_directory = std::move(durability_directory)},
                  .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}}});
 }
 }  // namespace
 
+// Leaving analytical mode writes a snapshot, and a storage given no durability directory writes
+// it under a relative path that every test binary sharing a working directory shares. A sibling
+// clearing that path between the write and the finalize fails whichever test is switching mode.
+class StorageV2GcLightEdge : public ::testing::Test {
+ protected:
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+  void Clear() const {
+    if (std::filesystem::exists(storage_directory)) std::filesystem::remove_all(storage_directory);
+  }
+
+  std::filesystem::path storage_directory{
+      std::filesystem::temp_directory_path() /
+      ("MG_test_unit_storage_v2_gc_light_edge_" +
+       std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()))};
+};
+
 // Mirrors StorageV2Gc/Sanity: GC running while a transaction is still alive must not free live data.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2GcLightEdge, Sanity) {
-  auto storage = MakeLightEdgeGcStorage();
+TEST_F(StorageV2GcLightEdge, Sanity) {
+  auto storage = MakeLightEdgeGcStorage(storage_directory);
 
   ms::Gid v1_gid, v2_gid;
   {
@@ -1665,8 +1685,8 @@ TEST(StorageV2GcLightEdge, Sanity) {
 // Mirrors StorageV2Gc/ConcurrentEdgeOperationsAbortDeleteRepeat:
 // two transactions each create an edge, both abort; GC must not crash.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2GcLightEdge, ConcurrentEdgeOperationsAbortDeleteRepeat) {
-  auto storage = MakeLightEdgeGcStorage();
+TEST_F(StorageV2GcLightEdge, ConcurrentEdgeOperationsAbortDeleteRepeat) {
+  auto storage = MakeLightEdgeGcStorage(storage_directory);
 
   ms::Gid v1_gid, v2_gid;
   {
@@ -1711,8 +1731,8 @@ TEST(StorageV2GcLightEdge, ConcurrentEdgeOperationsAbortDeleteRepeat) {
 
 // Mirrors StorageV2Gc/Indices: index GC correctness with light edges.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2GcLightEdge, Indices) {
-  auto storage = MakeLightEdgeGcStorage();
+TEST_F(StorageV2GcLightEdge, Indices) {
+  auto storage = MakeLightEdgeGcStorage(storage_directory);
 
   {
     auto unique_acc = storage->UniqueAccess();
@@ -1765,8 +1785,8 @@ TEST(StorageV2GcLightEdge, Indices) {
 //   - ~Edge() is called (catches PropertyStore heap-allocation leak under ASan)
 //   - graveyard is drained correctly after mode switch back to transactional
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
-  auto storage = MakeLightEdgeGcStorage();
+TEST_F(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
+  auto storage = MakeLightEdgeGcStorage(storage_directory);
   auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
 
   ms::Gid v1_gid, v2_gid;
