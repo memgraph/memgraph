@@ -151,6 +151,22 @@ TEST(PropertyManifest, FindReportsTheStoredType) {
   EXPECT_EQ(manifest.Find(Prop(2))->stored_type, String());
 }
 
+TEST(PropertyManifest, LocationAtAgreesWithFindForEveryEntry) {
+  ManifestRegistry registry;
+  auto const id = registry.Intern(Shape({{1, Int(2)}, {2, String()}, {3, Bool()}, {4, String()}, {5, Double()}}));
+  auto const &manifest = registry.Resolve(id);
+
+  auto const entries = manifest.entries();
+  for (size_t position = 0; position != entries.size(); ++position) {
+    auto const found = manifest.Find(entries[position].property);
+    ASSERT_TRUE(found.has_value());
+    auto const at = manifest.LocationAt(position);
+    EXPECT_EQ(at.is_fixed, found->is_fixed);
+    EXPECT_EQ(at.offset, found->offset);
+    EXPECT_EQ(at.stored_type, found->stored_type);
+  }
+}
+
 TEST(PropertyManifest, FindReturnsNulloptForAbsentProperty) {
   ManifestRegistry registry;
   auto const id = registry.Intern(Shape({{2, Int(4)}}));

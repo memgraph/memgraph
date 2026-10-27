@@ -71,16 +71,21 @@ PropertyManifest::PropertyManifest(RecordShape const &shape) {
   }
 }
 
+auto PropertyManifest::LocationAt(size_t position) const -> Location {
+  DMG_ASSERT(position < entries_.size(), "Asking a shape where an entry it does not have sits");
+  auto const &stored_type = entries_[position].stored_type;
+  return Location{
+      .is_fixed = stored_type.is_fixed_width(),
+      .offset = offsets_[position],
+      .stored_type = stored_type,
+  };
+}
+
 auto PropertyManifest::Find(PropertyId property) const -> std::optional<Location> {
   auto const it = r::lower_bound(entries_, property, {}, &ManifestEntry::property);
   if (it == entries_.end() || it->property != property) return std::nullopt;
 
-  auto const position = static_cast<size_t>(it - entries_.begin());
-  return Location{
-      .is_fixed = it->stored_type.is_fixed_width(),
-      .offset = offsets_[position],
-      .stored_type = it->stored_type,
-  };
+  return LocationAt(static_cast<size_t>(it - entries_.begin()));
 }
 
 void ManifestRegistry::Publish(uint32_t id, PropertyManifest *manifest) {

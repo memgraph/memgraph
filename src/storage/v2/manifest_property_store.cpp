@@ -464,8 +464,10 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
   if (!manifest_) return properties;
 
   auto const &layout = registry.Resolve(*manifest_);
-  for (auto const &entry : layout.entries()) {
-    properties.emplace(entry.property, ValueAt(layout, *layout.Find(entry.property)));
+  auto const entries = layout.entries();
+  for (size_t position = 0; position != entries.size(); ++position) {
+    // Entries come out in property order, so each one goes straight on the end of the map.
+    properties.emplace_hint(properties.end(), entries[position].property, ValueAt(layout, layout.LocationAt(position)));
   }
   return properties;
 }
@@ -489,13 +491,16 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
 
   // Encoded once, because how many bytes a variable value takes is only known by encoding it
   // and the record has to be sized before anything is written into it.
+  // The shape was interned from these same properties, so its entries and they are in the
+  // same order and walking them together needs no search.
   auto payloads = std::map<PropertyId, std::vector<uint8_t>>{};
   auto payload_bytes = uint32_t{};
+  auto position = size_t{};
   for (auto const &[property, value] : properties) {
-    if (layout.Find(property)->is_fixed) continue;
+    if (layout.LocationAt(position++).is_fixed) continue;
     auto encoded = EncodePayload(value);
     payload_bytes += static_cast<uint32_t>(encoded.size());
-    payloads.emplace(property, std::move(encoded));
+    payloads.emplace_hint(payloads.end(), property, std::move(encoded));
   }
 
   size_ = regions.payload_begin + payload_bytes;
@@ -505,19 +510,21 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
   // order fills the table in order and the payloads follow one another.
   auto cursor = regions.payload_begin;
   [[maybe_unused]] auto next_variable = uint32_t{};
+  position = 0;
   for (auto const &[property, value] : properties) {
-    auto const location = layout.Find(property);
-    if (location->is_fixed) {
-      WriteFixed(buffer_.get() + location->offset, location->stored_type, value);
+    DMG_ASSERT(layout.entries()[position].property == property, "A shape is in the order its properties were in");
+    auto const location = layout.LocationAt(position++);
+    if (location.is_fixed) {
+      WriteFixed(buffer_.get() + location.offset, location.stored_type, value);
       continue;
     }
 
-    DMG_ASSERT(location->offset == next_variable, "A shape numbers its variable values in property order");
+    DMG_ASSERT(location.offset == next_variable, "A shape numbers its variable values in property order");
     ++next_variable;
     auto const &payload = payloads.at(property);
     std::memcpy(buffer_.get() + cursor, payload.data(), payload.size());
     cursor += static_cast<uint32_t>(payload.size());
-    WriteEndOffset(buffer_.get(), regions, location->offset, cursor);
+    WriteEndOffset(buffer_.get(), regions, location.offset, cursor);
   }
   manifest_ = id;
 }
