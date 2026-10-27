@@ -12086,6 +12086,11 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
+void Interpreter::RefreshLogUser() {
+  session_log_ctx_.SetUser(user_or_role_ && user_or_role_->username() ? *user_or_role_->username()
+                                                                      : session_info_.username);
+}
+
 #ifdef MG_ENTERPRISE
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
