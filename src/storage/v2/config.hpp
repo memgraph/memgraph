@@ -124,6 +124,11 @@ struct Config {
     // When set (and recover_on_startup is on), recovery stops at this durable timestamp instead of at the end of the
     // WAL chain; the files holding the rest are handed back through InMemoryStorage::TakeRecoveryTail.
     std::optional<uint64_t> recovery_history_bound{std::nullopt};  // PER DATABASE
+
+    // When set, files an earlier run left in the snapshot and WAL directories stay in place instead of being moved to
+    // .backup because recover_on_startup is off. For an owner that reads them itself before use (a branch diff engine
+    // replaying its own WAL).
+    bool keep_existing_files{false};  // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 

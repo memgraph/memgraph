@@ -381,6 +381,21 @@ class VertexOverlayStore {
   // sample is the mark, so a reader that began after an unlink cannot be freed under. Calls are serialized.
   void CollectGarbage(const std::function<Horizon()> &sample);
 
+  // Recovery only, no concurrent user of the store: makes `state` the sole, committed version of `key`, visible to
+  // every transaction that starts after `commit_ts`. A previous chain of the key is freed.
+  // @throw std::bad_alloc
+  void InstallCommittedState(uint64_t key, OverlayState &&state, uint64_t commit_ts);
+
+  // Calls `fn(key, version)` for the newest version of every key, in unspecified order. Recovery only: `fn` must not
+  // call back into the store.
+  template <typename Fn>
+  void ForEachHead(Fn &&fn) const {
+    for (const Shard &shard : shards_) {
+      std::shared_lock guard{shard.lock};
+      for (const auto &[key, head] : shard.map) fn(key, *head);
+    }
+  }
+
   // Gids with a chain.
   size_t size() const;
 

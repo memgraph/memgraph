@@ -466,8 +466,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       }
     }
 
-  } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
-             config_.durability.snapshot_on_exit) {
+  } else if (!config_.durability.keep_existing_files &&
+             (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+              config_.durability.snapshot_on_exit)) {
     bool files_moved = false;
     auto backup_root = config_.durability.storage_directory / durability::kBackupDirectory;
     for (const auto &[path, dirname, what] :

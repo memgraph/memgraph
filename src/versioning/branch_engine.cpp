@@ -140,7 +140,8 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 }  // namespace
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number,
+    std::optional<RecordedFloors> recorded) {
   // Attribute the diff engine's allocations to main's tenant arena pool.
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
@@ -172,6 +173,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // The branch WAL is never snapshotted: the disabled interval keeps the periodic snapshot from ever firing.
   config.durability.snapshot_interval = utils::SchedulerInterval{};
   config.durability.recover_on_startup = false;
+  // A branch with recorded floors continues its own WAL; the engine must not move those files aside.
+  config.durability.keep_existing_files = recorded.has_value();
   config.durability.snapshot_on_exit = false;
   config.durability.restore_replication_state_on_startup = false;
   // Without durability, a stale path is one flip away from aliasing main's live data, so it is unique per build.
@@ -218,11 +221,12 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
 
   // After the fork pin: every gid visible at fork_ts is below these floors, every later allocation (main or any
   // branch) is at or above them.
-  return std::shared_ptr<BranchCore>(new BranchCore(&main,
-                                                    fork_ts,
-                                                    std::move(diff_engine),
-                                                    main.vertex_id_.load(std::memory_order_acquire),
-                                                    main.edge_id_.load(std::memory_order_acquire)));
+  return std::shared_ptr<BranchCore>(
+      new BranchCore(&main,
+                     fork_ts,
+                     std::move(diff_engine),
+                     recorded ? recorded->vertex_gid_floor : main.vertex_id_.load(std::memory_order_acquire),
+                     recorded ? recorded->edge_gid_floor : main.edge_id_.load(std::memory_order_acquire)));
 }
 
 BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,

@@ -40,6 +40,7 @@
 #include "storage/v2/ttl.hpp"
 #include "utils/file.hpp"
 #include "versioning/branch_ledger.hpp"
+#include "versioning/branch_recovery.hpp"
 #include "versioning/version_store.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
@@ -294,6 +295,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     if (branch_plan.bound) {
       version_store_->Restore(branch_plan.ledger, branch_pins);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
+      versioning::RecoverBranchContents(*version_store_, *in_memory_storage);
     } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {
       version_store_->ResetLedger(branch_plan.ledger.next_number);
     } else {

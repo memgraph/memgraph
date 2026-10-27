@@ -173,6 +173,46 @@ void VertexOverlayStore::Abort(OverlayTransaction &txn) {
   txn.writes_.clear();
 }
 
+void VertexOverlayStore::InstallCommittedState(uint64_t key, OverlayState &&state, uint64_t commit_ts) {
+  OverlayStamp *const stamp = OverlayStamp::Create(storage::kTransactionInitialId);
+  stamp->Commit(commit_ts);
+  OverlayVersion *created = nullptr;
+  try {
+    created = OverlayVersion::Create(std::move(state), stamp, nullptr, 0);
+  } catch (...) {
+    stamp->Unref();
+    throw;
+  }
+  stamp->Unref();  // the version holds its own reference
+
+  OverlayVersion *replaced = nullptr;
+  {
+    Shard &shard = ShardFor(key);
+    std::unique_lock guard{shard.lock};
+    try {
+      auto const it = shard.map.find(key);
+      if (it == shard.map.end()) {
+        shard.map.emplace(key, created);
+      } else {
+        replaced = it->second;
+        it->second = created;
+      }
+    } catch (...) {
+      OverlayVersion::Destroy(created);
+      throw;
+    }
+  }
+  live_versions_.fetch_add(1, std::memory_order_relaxed);
+
+  size_t freed = 0;
+  for (OverlayVersion *version = replaced; version != nullptr; ++freed) {
+    OverlayVersion *const older = version->older();
+    OverlayVersion::Destroy(version);
+    version = older;
+  }
+  live_versions_.fetch_sub(freed, std::memory_order_relaxed);
+}
+
 void VertexOverlayStore::Retire(OverlayVersion *version) noexcept {
   const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
   std::lock_guard guard{garbage_mutex_};

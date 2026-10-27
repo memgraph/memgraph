@@ -75,11 +75,21 @@ class BranchCore {
     std::string message;
   };
 
+  // The gid floors a branch was built with before a restart. Passing them to Build also says that the branch's WAL
+  // directory holds its own history: Build leaves those files in place for the caller to replay
+  // (RecoverBranchContents).
+  struct RecordedFloors {
+    uint64_t vertex_gid_floor;
+    uint64_t edge_gid_floor;
+  };
+
   // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions. With a
   // `branch_number` and a WAL-enabled main, the diff engine writes a WAL of the branch's commits (native deltas and
   // overlay records) to <main storage dir>/branches/<branch_number>/; otherwise the branch has no durability.
+  // The floors are main's counters unless `recorded` supplies them.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
-      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
+      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt,
+      std::optional<RecordedFloors> recorded = std::nullopt);
 
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;

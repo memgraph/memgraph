@@ -10,6 +10,7 @@ target_sources(mg-versioning
         branch_info.hpp
         branch_ledger.hpp
         branch_engine.hpp
+        branch_recovery.hpp
         gate.hpp
         main_constraints.hpp
         name.hpp
@@ -22,10 +23,11 @@ target_sources(mg-versioning
         PRIVATE
         branch_engine.cpp
         branch_ledger.cpp
+        branch_recovery.cpp
         gate.cpp
         name.cpp
         version_store.cpp
         vertex_overlay_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics)
+target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics mg-memory-utils)
