@@ -303,6 +303,17 @@ test_fips_unlicensed_accepts_only_license_settings() {
   return $rc
 }
 
+# Runs a container that should exit on its own. If it's still running after 60s
+# (the refusal regressed and it started), it's removed and the status is 124.
+# $1: container name, the rest: docker run arguments.
+docker_run_expecting_exit() {
+  local name="$1" status
+  shift
+  timeout 60 docker run --rm --name "$name" "$@" && status=0 || status=$?
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  return $status
+}
+
 # The init queries run at startup, before a license can arrive over Bolt, so an
 # unlicensed FIPS instance would refuse and lose every one of them (users an init
 # file creates among them). It must refuse to start instead.
@@ -310,8 +321,8 @@ test_fips_unlicensed_accepts_only_license_settings() {
 # $MEMGRAPH_ENTERPRISE_DOCKER_ENVS: the instance has no license.
 fips_unlicensed_refuses_to_start_with() {
   local out status
-  out="$(docker run --rm $1 "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS --fips-mode=true $2 2>&1)" \
-    && status=0 || status=$?
+  out="$(docker_run_expecting_exit memgraph_fips_init_refusal $1 "$MEMGRAPH_DOCKERHUB_IMAGE" \
+    $MEMGRAPH_GENERAL_FLAGS --fips-mode=true $2 2>&1)" && status=0 || status=$?
   # 16 is ExitCode::FipsModeRequiresEnterprise.
   if [ "$status" -ne 16 ]; then
     echo "FAIL: expected exit 16 with '$1 $2', got $status. Output: $out"
@@ -336,8 +347,8 @@ test_fips_unlicensed_refuses_init_queries() {
 test_fips_refuses_non_approved_algorithm() {
   echo "FEATURE: FIPS - refuses a non-approved password algorithm"
   local out status
-  out="$(docker run --rm $MEMGRAPH_ENTERPRISE_DOCKER_ENVS "$MEMGRAPH_DOCKERHUB_IMAGE" \
-    --fips-mode=true --password-encryption-algorithm=bcrypt 2>&1)" && status=0 || status=$?
+  out="$(docker_run_expecting_exit memgraph_fips_algorithm_refusal $MEMGRAPH_ENTERPRISE_DOCKER_ENVS \
+    "$MEMGRAPH_DOCKERHUB_IMAGE" --fips-mode=true --password-encryption-algorithm=bcrypt 2>&1)" && status=0 || status=$?
   echo "$out"
 
   # 15 is ExitCode::FipsModeUnsupportedPasswordAlgorithm; the value is part of
