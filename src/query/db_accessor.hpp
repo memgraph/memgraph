@@ -669,6 +669,18 @@ class DbAccessor final {
         [order](BranchKey const &a, BranchKey const &b) { return order == storage::IndexOrder::ASC ? a < b : b < a; });
   }
 
+  // Nothing relevant changed on the branch (caller checked its touched snapshots and deletes) and the diff engine's
+  // index has no hit: the answer is main's index stream at fork, in index order, yielded lazily. `index_size` is the
+  // diff engine's index skiplist size (counts uncommitted/un-GC'd entries, so 0 means nothing visible to anyone).
+  template <typename DiffScan, typename ForkScan>
+  std::optional<VerticesIterable> LazyForkOnlyScan(uint64_t index_size, DiffScan &&diff_scan, ForkScan &&fork_scan) {
+    if (accessor_->ApproximateVertexCount() != 0 && index_size != 0) {
+      auto diff = diff_scan();
+      if (diff.begin() != diff.end()) return std::nullopt;
+    }
+    return VerticesIterable(fork_scan(), branch_ctx_);
+  }
+
   VerticesIterable BranchLabelPropertyScan(storage::View view, storage::LabelId label,
                                            std::span<storage::PropertyPath const> properties,
                                            std::span<storage::PropertyValueRange const> property_ranges,
@@ -684,21 +696,34 @@ class DbAccessor final {
       return VerticesIterable(std::make_shared<std::vector<VertexAccessor>>());
     }
 
-    BranchTouchedSet touched{branch_ctx_};
-
     // One snapshot up front: any txn visible to this scan recorded its gids before this point.
     auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
+    // A null-excluding range anchors the match, so only constrained positions can have turned into a match; otherwise
+    // every key position is enumerated.
+    bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
+    std::vector<std::shared_ptr<const versioning::BranchCore::LabelTouchedSet>> property_touched;
+    property_touched.reserve(properties.size());
+    for (size_t i = 0; i < properties.size(); ++i) {
+      if (anchored && i >= property_ranges.size()) continue;
+      property_touched.push_back(branch_ctx_->PropertyTouchedSnapshot(properties[i].front()));
+    }
+
+    // The label snapshot includes every deleted fork gid, so an empty one also means no deletes.
+    if (label_touched->empty() && std::ranges::all_of(property_touched, [](auto const &t) { return t->empty(); })) {
+      if (auto lazy = LazyForkOnlyScan(
+              accessor_->ApproximateVertexCount(label, properties),
+              [&] { return accessor_->Vertices(label, properties, property_ranges, view, order); },
+              [&] { return historical.Vertices(label, properties, property_ranges, storage::View::OLD, order); })) {
+        return std::move(*lazy);
+      }
+    }
+
+    BranchTouchedSet touched{branch_ctx_};
 
     // Candidates the fork index cannot contain: branch-native hits, vertices that gained `label` or SET a key property.
     for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) touched.Add(raw);
     AddTouchedForkVertices(touched, *label_touched);
-    // A null-excluding range anchors the match, so only constrained positions can have turned into a match; otherwise
-    // every key position is enumerated.
-    bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
-    for (size_t i = 0; i < properties.size(); ++i) {
-      if (anchored && i >= property_ranges.size()) continue;
-      AddTouchedForkVertices(touched, *branch_ctx_->PropertyTouchedSnapshot(properties[i].front()));
-    }
+    for (auto const &t : property_touched) AddTouchedForkVertices(touched, *t);
 
     auto untouched =
         SplitBranchForkStream(historical.Vertices(label, properties, property_ranges, storage::View::OLD, order),
@@ -730,9 +755,16 @@ class DbAccessor final {
           },
           [](storage::PropertyValue const &a, storage::PropertyValue const &b) { return a < b; });
     }
+    // Snapshot first: any txn visible to this scan recorded its gids before this point.
+    auto const property_touched = branch_ctx_->PropertyTouchedSnapshot(property);
+    if (property_touched->empty() && !branch_ctx_->MayHaveAnyVertexDeleted()) {
+      if (auto lazy = LazyForkOnlyScan(accessor_->ApproximateVertexCount(property), diff_scan, fork_scan)) {
+        return std::move(*lazy);
+      }
+    }
     BranchTouchedSet touched{branch_ctx_};
     for (auto raw : diff_scan()) touched.Add(raw);
-    AddTouchedForkVertices(touched, *branch_ctx_->PropertyTouchedSnapshot(property));
+    AddTouchedForkVertices(touched, *property_touched);
     auto untouched = SplitBranchForkStream(fork_scan(), touched);
     return MergeBranchOverlay(
         std::move(untouched),

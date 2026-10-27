@@ -2352,6 +2352,27 @@ TEST_F(VersioningGatedTest, BranchLabelPropertyRangeOverlayIsOrderedAcrossForkAn
             (V{"B", "D", "N1", "C", "F", "A"}));
 }
 
+// No label/key-property change on the branch: the seek is main's index stream, yielded lazily. An unrelated property
+// write must still be read through the overlay, and a later key change must leave the fast path.
+TEST_F(VersioningGatedTest, BranchLabelPropertySeekUnaffectedByUnrelatedPropertyChange) {
+  faker.Interpret("CREATE INDEX ON :P(v)");
+  faker.Interpret("CREATE (:P {v: 10, note: 'a'}), (:P {v: 20, note: 'b'}), (:P {v: 30, note: 'c'})");
+  Fork();
+
+  using V = std::vector<std::string>;
+  ExpectPlanUses(
+      faker, "MATCH (n:P) WHERE n.v >= 10 RETURN n.note ORDER BY n.v DESC LIMIT 2", "ScanAllByLabelProperties");
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 RETURN n.note ORDER BY n.v"), (V{"a", "b", "c"}));
+
+  faker.Interpret("MATCH (n:P {v: 20}) SET n.note = 'B2'");
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 RETURN n.note ORDER BY n.v"), (V{"a", "B2", "c"}));
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 RETURN n.note ORDER BY n.v DESC LIMIT 2"),
+            (V{"c", "B2"}));
+
+  faker.Interpret("MATCH (n:P {v: 20}) SET n.v = 40");
+  EXPECT_EQ(BranchScanStrings(faker, "MATCH (n:P) WHERE n.v >= 10 RETURN n.note ORDER BY n.v"), (V{"a", "c", "B2"}));
+}
+
 TEST_F(VersioningGatedTest, BranchCompositeLabelPropertyPrefixOverlay) {
   faker.Interpret("CREATE INDEX ON :L(a, b)");
   faker.Interpret("CREATE (:L {a: 1, b: 1, t: 'x1'})");
