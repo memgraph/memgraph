@@ -39,6 +39,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
+#include "versioning/reserve_for_append.hpp"
 
 // Per-object MVCC of a branch's changes over fork vertices and edges, following storage's visibility/conflict rules.
 // A key (vertex gid or EdgeKey) has a newest-first chain of full-state versions; none visible: the fork's own state.
@@ -336,12 +337,12 @@ class VertexOverlayStore {
     if (!mutate(state)) return false;
 
     if (txn.stamp_ == nullptr) txn.stamp_ = OverlayStamp::Create(txn.txn_id_);
-    if (!own) txn.writes_.reserve(txn.writes_.size() + 1);
+    if (!own) ReserveForAppend(txn.writes_, 1);
 
     bool const replace = own && head->command_id_ == txn.command_id_;
     if (replace) {  // so Retire below cannot allocate
       std::lock_guard garbage_guard{garbage_mutex_};
-      unmarked_.reserve(unmarked_.size() + 1);
+      ReserveForAppend(unmarked_, 1);
     }
     OverlayVersion *const created =
         OverlayVersion::Create(std::move(state), txn.stamp_, replace ? head->older() : head, txn.command_id_);

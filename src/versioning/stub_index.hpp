@@ -25,6 +25,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/db_aware_allocator.hpp"
 #include "utils/rw_spin_lock.hpp"
+#include "versioning/reserve_for_append.hpp"
 
 namespace memgraph::versioning {
 
@@ -293,7 +294,7 @@ class StubIndex {
     grown->Append(off, stub, fork);
     const Found result = grown->Read(off);
     if (page != nullptr) {
-      shard.retired.reserve(shard.retired.size() + 1);  // before publishing so retiring cannot throw
+      ReserveForAppend(shard.retired, 1);  // before publishing so retiring cannot throw
       it->second = grown.release();
       shard.retired.push_back(page);
     } else {

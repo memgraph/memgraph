@@ -140,7 +140,7 @@ void VertexOverlayStore::Commit(OverlayTransaction &txn, uint64_t commit_ts) {
   if (txn.stamp_ != nullptr) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;  // a tracked OOM must not fail a late commit
     std::lock_guard guard{garbage_mutex_};
-    dirty_.reserve(dirty_.size() + txn.writes_.size());  // before the stamp flips: nothing below throws
+    ReserveForAppend(dirty_, txn.writes_.size());  // before the stamp flips: nothing below throws
     txn.stamp_->Commit(commit_ts);
     dirty_.insert(dirty_.end(), txn.writes_.begin(), txn.writes_.end());
   }
