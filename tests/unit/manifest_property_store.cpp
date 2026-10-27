@@ -149,3 +149,61 @@ TEST(ManifestPropertyStore, AnswersAsThePropertyStoreDoesForIntegers) {
     EXPECT_EQ(manifest.Properties(registry), current.Properties()) << "the whole record after " << step.what;
   }
 }
+
+// A string's encoded width varies with the value, so the shape cannot give it a byte offset.
+// It gives it an index into a table the record carries, and the record holds the bytes after
+// the values whose width the shape does know.
+TEST(ManifestPropertyStore, AStringIsReadBackAsItWasSet) {
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+
+  EXPECT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{"hello"}));
+  EXPECT_EQ(store.GetProperty(registry, Prop(1)), PropertyValue{"hello"});
+}
+
+// The same comparison against the old store, over a record whose strings and integers are
+// interleaved. A string's bytes sit after the values whose width the shape knows, so changing
+// one moves every string after it and none of the integers, which is the part a record holding
+// only one kind never exercises.
+TEST(ManifestPropertyStore, AnswersAsThePropertyStoreDoesForStringsAmongIntegers) {
+  struct Step {
+    uint32_t property;
+    PropertyValue value;
+    char const *what;
+  };
+
+  auto const script = std::vector<Step>{
+      {2, PropertyValue{"beta"}, "a string"},
+      {4, PropertyValue{"delta"}, "a second string after it"},
+      {1, PropertyValue{int64_t{1}}, "an integer before both"},
+      {3, PropertyValue{int64_t{1} << 40}, "a wide integer between the strings"},
+      {2, PropertyValue{"beta-but-much-longer"}, "growing the first string"},
+      {2, PropertyValue{"b"}, "shrinking it again"},
+      {5, PropertyValue{""}, "an empty string last"},
+      {0, PropertyValue{""}, "an empty string first"},
+      {4, PropertyValue{}, "removing a string from the middle"},
+      {3, PropertyValue{}, "removing the integer between them"},
+      {2, PropertyValue{int64_t{9}}, "replacing a string with an integer"},
+      {1, PropertyValue{"was-an-integer"}, "replacing an integer with a string"},
+      {0, PropertyValue{}, "removing the empty one"},
+      {5, PropertyValue{}, "removing the other empty one"},
+      {1, PropertyValue{}, "removing what is left"},
+      {2, PropertyValue{}, "leaving nothing"},
+  };
+
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+
+  for (auto const &step : script) {
+    auto const property = Prop(step.property);
+    EXPECT_EQ(manifest.SetProperty(registry, property, step.value), current.SetProperty(property, step.value))
+        << "setting " << step.property << ", " << step.what;
+
+    for (uint32_t probe = 0; probe <= 6; ++probe) {
+      EXPECT_EQ(manifest.GetProperty(registry, Prop(probe)), current.GetProperty(Prop(probe)))
+          << "reading " << probe << " after " << step.what;
+    }
+    EXPECT_EQ(manifest.Properties(registry), current.Properties()) << "the whole record after " << step.what;
+  }
+}
