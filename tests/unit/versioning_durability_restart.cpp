@@ -10,8 +10,7 @@
 // licenses/APL.txt.
 
 // Branches survive a restart of a dbms::Database on the same directory: their fork base is rebuilt by recovering main
-// up to the oldest fork point and replaying the rest of its WAL under per-branch fork pins. Branch contents are not
-// durable yet, only the registry and each branch's view of main at its fork.
+// up to the oldest fork point and replaying the rest of its WAL under per-branch fork pins.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -226,34 +225,6 @@ TEST_F(VersioningDurabilityRestartTest, BranchReadsMainAtItsForkAfterRestart) {
   }
 }
 
-TEST_F(VersioningDurabilityRestartTest, TwoBranchesEachSeeTheirOwnForkAfterRestart) {
-  Gids gids{};
-  {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    gids = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
-    SetV1(db, gids, 2);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b2", "b1", std::nullopt).has_value());
-    SetV1(db, gids, 3);
-  }
-
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto names = ResolveNames(db);
-
-  ASSERT_EQ(db.version_store()->List().size(), 2u);
-  const auto value_at = [&](std::string_view branch) {
-    auto acc = ReadBranch(db, branch);
-    EXPECT_NE(acc, nullptr);
-    return acc ? *acc->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD) : ms::PropertyValue();
-  };
-  EXPECT_EQ(value_at("b1"), ms::PropertyValue(1));
-  EXPECT_EQ(value_at("b2"), ms::PropertyValue(2));
-  EXPECT_EQ(*db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD),
-            ms::PropertyValue(3));
-}
-
 TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTheOtherBranch) {
   Gids gids{};
   uint64_t b2_recorded_fork_ts = 0;
@@ -269,10 +240,19 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
     SetV1(db, gids, 3);
   }
 
+  const auto value_at = [&gids](memgraph::dbms::Database &db, std::string_view branch) {
+    auto acc = ReadBranch(db, branch);
+    EXPECT_NE(acc, nullptr);
+    return acc ? *acc->FindVertex(gids.v1, ms::View::OLD)->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD)
+               : ms::PropertyValue();
+  };
+
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     ASSERT_EQ(db.version_store()->List().size(), 2u);
+    EXPECT_EQ(value_at(db, "b1"), ms::PropertyValue(1));
+    EXPECT_EQ(value_at(db, "b2"), ms::PropertyValue(2));
 
     ASSERT_TRUE(db.version_store()->DropBranch("b1").value_or(false));
     auto ledger = ReadLedger();
@@ -290,15 +270,10 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   const auto names = ResolveNames(db);
-  const auto value_at = [&](std::string_view branch) {
-    auto acc = ReadBranch(db, branch);
-    EXPECT_NE(acc, nullptr);
-    return acc ? *acc->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD) : ms::PropertyValue();
-  };
   EXPECT_FALSE(db.version_store()->Exists("b1"));
   EXPECT_EQ(db.version_store()->List().size(), 2u);
-  EXPECT_EQ(value_at("b2"), ms::PropertyValue(2));
-  EXPECT_EQ(value_at("b3"), ms::PropertyValue(4));
+  EXPECT_EQ(value_at(db, "b2"), ms::PropertyValue(2));
+  EXPECT_EQ(value_at(db, "b3"), ms::PropertyValue(4));
   EXPECT_EQ(db.version_store()->Get("b3")->number, 4u) << "branch numbers are never reused";
   EXPECT_EQ(*db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD),
             ms::PropertyValue(5));
@@ -404,8 +379,8 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkIsReplayedUnderTheF
   EXPECT_FALSE(branch->FindVertex(post_fork_vertex, ms::View::OLD).has_value());
 }
 
-// Branch writes live only in the in-memory diff engine; after restart main holds only its own data.
-TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart) {
+// A diff engine's writes never enter main's WAL or recovery; after restart main holds only its own data.
+TEST_F(VersioningDurabilityRestartTest, MainRecoveryNeverAbsorbsADiffEnginesWrites) {
   constexpr auto kForkLabel = "ForkLabel";
   constexpr auto kBranchLabel = "BranchOnlyLabel";
   constexpr auto kBranchProp = "BranchOnlyProp";
@@ -482,24 +457,29 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
   ASSERT_TRUE(x_val.has_value());
   EXPECT_EQ(*x_val, ms::PropertyValue(1)) << "the branch's property change must not reach main";
 
-  // The diff engine runs with durability off, so it must leave no regular files under its directory.
-  auto const diff_dir = kStorageDirectory / "versioning_diff_engine";
-  if (std::filesystem::exists(diff_dir)) {
+  // A context built without a branch number runs with durability off, so it must leave no regular files.
+  size_t diff_engine_files = 0;
+  if (auto const diff_dir = kStorageDirectory / "versioning_diff_engine"; std::filesystem::exists(diff_dir)) {
     for (auto const &entry : std::filesystem::recursive_directory_iterator(diff_dir)) {
-      EXPECT_FALSE(entry.is_regular_file()) << "diff engine persisted " << entry.path();
+      diff_engine_files += entry.is_regular_file() ? 1 : 0;
     }
   }
+  EXPECT_EQ(diff_engine_files, 0u) << "a diff engine without a branch number persisted files";
 }
 
-// Retention keeps only the newest snapshot, yet the branch's fork base (the snapshot below the fork and the WAL after
-// it) must stay recoverable.
-TEST_F(VersioningDurabilityRestartTest, BranchSurvivesSnapshotRetentionWithASnapshotBelowTheFork) {
+// Retention keeps only the newest snapshot, yet the branch's fork base must stay recoverable: the snapshot below the
+// fork plus the WAL after it, or, when no snapshot exists below the fork, every WAL file back to the first one.
+class BranchSnapshotRetentionTest : public VersioningDurabilityRestartTest,
+                                    public ::testing::WithParamInterface<bool> {};
+
+TEST_P(BranchSnapshotRetentionTest, BranchSurvivesSnapshotRetention) {
+  const bool snapshot_below_fork = GetParam();
   Gids gids{};
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/1)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
-    Snapshot(db);
+    if (snapshot_below_fork) Snapshot(db);
     ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
     gids = MoveMainOn(db, gids);
     Snapshot(db);
@@ -507,7 +487,8 @@ TEST_F(VersioningDurabilityRestartTest, BranchSurvivesSnapshotRetentionWithASnap
     Snapshot(db);
     SetV1(db, gids, 12);
     Snapshot(db);
-    EXPECT_EQ(CountFiles("snapshots"), 2u) << "the newest snapshot and the one below the fork";
+    EXPECT_EQ(CountFiles("snapshots"), snapshot_below_fork ? 2u : 1u)
+        << (snapshot_below_fork ? "the newest snapshot and the one below the fork" : "only the newest snapshot");
   }
 
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/true, /*retention=*/1)};
@@ -518,30 +499,9 @@ TEST_F(VersioningDurabilityRestartTest, BranchSurvivesSnapshotRetentionWithASnap
   ExpectForkState(*branch, ResolveNames(db), gids, 1);
 }
 
-// No snapshot exists below the fork, so every WAL file back to the first one is the fork base.
-TEST_F(VersioningDurabilityRestartTest, BranchSurvivesSnapshotRetentionWithoutASnapshotBelowTheFork) {
-  Gids gids{};
-  {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/1)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    gids = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
-    gids = MoveMainOn(db, gids);
-    Snapshot(db);
-    SetV1(db, gids, 11);
-    Snapshot(db);
-    SetV1(db, gids, 12);
-    Snapshot(db);
-    EXPECT_EQ(CountFiles("snapshots"), 1u);
-  }
-
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/true, /*retention=*/1)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  ASSERT_EQ(db.version_store()->List().size(), 1u) << "the branch must not have been dropped";
-  auto branch = ReadBranch(db, "b");
-  ASSERT_NE(branch, nullptr);
-  ExpectForkState(*branch, ResolveNames(db), gids, 1);
-}
+INSTANTIATE_TEST_SUITE_P(Retention, BranchSnapshotRetentionTest, ::testing::Bool(), [](const auto &info) {
+  return info.param ? "WithASnapshotBelowTheFork" : "WithoutASnapshotBelowTheFork";
+});
 
 TEST_F(VersioningDurabilityRestartTest, DroppingTheLastBranchLetsRetentionCleanUpAgain) {
   Gids gids{};

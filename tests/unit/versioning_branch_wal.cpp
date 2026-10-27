@@ -214,6 +214,10 @@ TEST_F(VersioningBranchWalTest, MixedTransactionIsOneWalTransactionWithNativeDel
   auto expected = Put(base.v1.AsUint());
   expected.properties.emplace_back("p", Int(2));
   EXPECT_THAT(txns[0].Of<dur::WalOverlayPut>(), ::testing::ElementsAre(expected));
+
+  auto const main_txns = ReadWalTxns(kStorageDirectory / "wal");
+  EXPECT_FALSE(main_txns.empty()) << "main's own commits are in its WAL";
+  EXPECT_EQ(CountOverlayPuts(main_txns), 0u);
 }
 
 TEST_F(VersioningBranchWalTest, OverlayOnlyTransactionWritesItsOwnWalTransaction) {
@@ -355,33 +359,15 @@ TEST_F(VersioningBranchWalTest, RolledBackTransactionWritesNothing) {
       ASSERT_TRUE((*ctx)->OverlaySetProperty(base.v1, p, ms::PropertyValue(9)).has_value());
       (*ctx)->EndTransaction();
     }
-    ctx->reset();
-  }
-
-  EXPECT_TRUE(ReadWalTxns(BranchWalDir(number)).empty());
-}
-
-TEST_F(VersioningBranchWalTest, MainWalNeverContainsOverlayPut) {
-  {
-    memgraph::dbms::Database db{MakeConfig()};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    auto const base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
-    ASSERT_TRUE(info.has_value());
-    auto ctx = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);
-    ASSERT_TRUE(ctx.has_value());
-    const auto p = db.storage()->NameToProperty("p");
+    // Positive control: the branch WAL is live, so the aborted blocks above provably wrote nothing.
     BranchTxn(**ctx, [&](mv::BranchContext &c) {
-      static_cast<void>(c.CreateNativeVertex());
       ASSERT_TRUE(c.PrepareForkWrite(base.v1).has_value());
-      ASSERT_TRUE(c.OverlaySetProperty(base.v1, p, ms::PropertyValue(2)).has_value());
+      ASSERT_TRUE(c.OverlaySetProperty(base.v1, p, ms::PropertyValue(4)).has_value());
     });
     ctx->reset();
   }
 
-  auto const main_txns = ReadWalTxns(kStorageDirectory / "wal");
-  EXPECT_FALSE(main_txns.empty()) << "main's own commits are in its WAL";
-  EXPECT_EQ(CountOverlayPuts(main_txns), 0u);
+  EXPECT_EQ(ReadWalTxns(BranchWalDir(number)).size(), 1u) << "only the committed control transaction is in the WAL";
 }
 
 TEST_F(VersioningBranchWalTest, BranchOfAMainWithoutWalWritesNoBranchWal) {

@@ -1498,11 +1498,6 @@ TEST_P(WalFileTest, OverlayPutRoundTrip) {
   // ReadWalInfo skips every delta (and verifies the transaction CRC), AssertWalDataEqual decodes them.
   AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
   AssertWalDataEqual(data, wal_files.front());
-
-  auto const &edge_delta = std::get<memgraph::storage::durability::WalOverlayPut>(data[2].second.data_);
-  ASSERT_EQ(edge_delta.key, kOverlayEdgeBit | 7);
-  ASSERT_EQ(edge_delta.from_gid, 3);
-  ASSERT_EQ(edge_delta.to_gid, 4);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

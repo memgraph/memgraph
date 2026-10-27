@@ -13,9 +13,6 @@
 // ending in the middle of a transaction. The tests build that state from a cleanly closed database: a copy of the files
 // is truncated inside the last transaction and its summary is reset to the placeholder an unfinalized file carries.
 // Recovery must land on the last complete transaction, never on a half-applied one, and the database must start.
-//
-// Tests marked KNOWN GAP assert the intended behaviour that the code at this commit does not have; they are expected to
-// fail until branch_recovery.cpp's ListWalFiles tolerates a file without a complete transaction.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -554,6 +551,24 @@ std::string CutTrace(uint64_t cut, const TxnSpan &txn) {
          "))";
 }
 
+std::string TxnLabel(const TxnSpan &txn) {
+  return "txn bytes [" + std::to_string(txn.begin) + ", " + std::to_string(txn.end) + ")";
+}
+
+// Crashes `wal` at every cut in `cuts`: each restart must recover `want`, move the file aside, and recover `want`
+// again.
+void ExpectTornNewestFileIsSkipped(const fs::path &wal, const std::vector<uint64_t> &cuts, const Expected &want,
+                                   const std::string &what) {
+  for (const auto cut : cuts) {
+    SCOPED_TRACE(what + ", cut " + std::to_string(cut));
+    ASSERT_NO_FATAL_FAILURE(RestoreImage());
+    ASSERT_NO_FATAL_FAILURE(CrashAt(wal, cut));
+    ASSERT_NO_FATAL_FAILURE(ExpectRecovers(want));
+    ASSERT_NO_FATAL_FAILURE(ExpectTornFileRenamed(wal));
+    ASSERT_NO_FATAL_FAILURE(ExpectRecovers(want));
+  }
+}
+
 void ExpectTornLastTransactionIsDropped(LastTxn kind) {
   Scenario s;
   ASSERT_NO_FATAL_FAILURE(BuildScenario(kind, s));
@@ -600,29 +615,37 @@ class VersioningCrashRecoveryTest : public ::testing::Test {
 
 // ---- 1. Branch WAL torn inside its last transaction -------------------------------------------------------------
 //
-// Expected to pass. A crash image has no summary, so ListWalFiles (branch_recovery.cpp:74) calls ReadWalContents, which
-// parses the deltas (wal.cpp:1096 ScanWalDeltas). The scan adds a transaction's deltas to num_deltas only when its end
-// marker passed the CRC check (wal.cpp:1136-1147), so a torn tail contributes nothing. ReplayFile then consumes exactly
-// num_deltas deltas (branch_recovery.cpp:128), and the overlay puts of a transaction are held back until its commit
-// (branch_recovery.cpp:272-276, 307-315), so a transaction is applied whole or not at all. The previous transaction is
+// Expected to pass. A crash image has no summary, so ListWalFiles (branch_recovery.cpp) calls ReadWalContents, which
+// parses the deltas (ScanWalDeltas in wal.cpp). The scan adds a transaction's deltas to num_deltas only when its end
+// marker passed the CRC check (wal.cpp), so a torn tail contributes nothing. ReplayFile then consumes exactly
+// num_deltas deltas (branch_recovery.cpp), and the overlay puts of a transaction are held back until its commit
+// (branch_recovery.cpp), so a transaction is applied whole or not at all. The previous transaction is
 // in the same file, so the file has a complete transaction and is not the case of test 6.
 
-TEST_F(VersioningCrashRecoveryTest, BranchWalTornInAMixedLastTransactionRecoversThePreviousOne) {
-  ExpectTornLastTransactionIsDropped(LastTxn::kMixed);
+class TornLastTransactionTest : public VersioningCrashRecoveryTest, public ::testing::WithParamInterface<LastTxn> {};
+
+TEST_P(TornLastTransactionTest, BranchWalTornInTheLastTransactionRecoversThePreviousOne) {
+  ExpectTornLastTransactionIsDropped(GetParam());
 }
 
-TEST_F(VersioningCrashRecoveryTest, BranchWalTornInAnOverlayOnlyLastTransactionRecoversThePreviousOne) {
-  ExpectTornLastTransactionIsDropped(LastTxn::kOverlayOnly);
-}
-
-TEST_F(VersioningCrashRecoveryTest, BranchWalTornInAForkEdgeLastTransactionRecoversThePreviousOne) {
-  ExpectTornLastTransactionIsDropped(LastTxn::kForkEdge);
-}
+INSTANTIATE_TEST_SUITE_P(Kinds, TornLastTransactionTest,
+                         ::testing::Values(LastTxn::kMixed, LastTxn::kOverlayOnly, LastTxn::kForkEdge),
+                         [](const ::testing::TestParamInfo<LastTxn> &info) {
+                           switch (info.param) {
+                             case LastTxn::kMixed:
+                               return "Mixed";
+                             case LastTxn::kOverlayOnly:
+                               return "OverlayOnly";
+                             case LastTxn::kForkEdge:
+                               return "ForkEdge";
+                           }
+                           return "Unknown";
+                         });
 
 // Recovery must be repeatable, and the torn file must not get in the way of later runs: the next run writes a new file,
 // so the torn one becomes a middle file whose complete prefix is replayed before the new file.
-// Expected to pass: the torn file keeps its (from_timestamp, seq) position (branch_recovery.cpp:78-80), and the new
-// run's clock starts past the replayed timestamps (BranchWalReplayer::Run, branch_recovery.cpp:112).
+// Expected to pass: the torn file keeps its (from_timestamp, seq) position (branch_recovery.cpp), and the new
+// run's clock starts past the replayed timestamps (BranchWalReplayer::Run, branch_recovery.cpp).
 TEST_F(VersioningCrashRecoveryTest, RecoveryAfterATornTransactionIsRepeatableAndLaterWritesSurvive) {
   Scenario s;
   ASSERT_NO_FATAL_FAILURE(BuildScenario(LastTxn::kMixed, s));
@@ -717,10 +740,10 @@ void BuildMiddleScenario(MiddleScenario &out) {
 }
 
 // Finalized file (the summary is intact) with the middle transaction's CRC damaged.
-// Expected to pass: ListWalFiles trusts the summary (wal.cpp:1181-1191, no scan), so replay runs into t2's end marker
-// and the CRC check throws (branch_recovery.cpp:174-176). ReplayBranchWal turns it into an error
-// (branch_recovery.cpp:469-482) and RecoverBranchContents drops that branch only, with a warning
-// (branch_recovery.cpp:548-558); the files stay on disk. Branch "c" and main are untouched.
+// Expected to pass: ListWalFiles trusts the summary (wal.cpp, no scan), so replay runs into t2's end marker
+// and the CRC check throws (branch_recovery.cpp). ReplayBranchWal turns it into an error
+// (branch_recovery.cpp) and RecoverBranchContents drops that branch only, with a warning
+// (branch_recovery.cpp); the files stay on disk. Branch "c" and main are untouched.
 TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAFinalizedBranchWalDropsThatBranchOnly) {
   MiddleScenario s;
   ASSERT_NO_FATAL_FAILURE(BuildMiddleScenario(s));
@@ -741,7 +764,7 @@ TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAFinalizedBranchWa
 }
 
 // The same damage in a file that was never finalized (a crash image): the scan stops at the first transaction whose CRC
-// fails (wal.cpp:1111-1114, then the loop breaks), so the file reports only t1 and the replay lands on the state after
+// fails (wal.cpp, then the loop breaks), so the file reports only t1 and the replay lands on the state after
 // t1, losing t2 and t3 without dropping the branch. This is a consistent prefix (never a mix) and is how main's WAL
 // recovery treats the same damage; the loss of t3, which is intact, is only visible in the log.
 TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAnUnfinalizedBranchWalRecoversThePrefixBeforeIt) {
@@ -768,10 +791,10 @@ TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAnUnfinalizedBranc
 
 // ---- 3. Main WAL torn in its last transaction while a branch exists ----------------------------------------------
 //
-// Expected to pass. Main's last file has no summary, so GetWalFiles (durability.cpp:194) derives num_deltas from the
-// complete transactions only (wal.cpp:1096), and the bounded recovery and the tail replay both consume exactly that
-// many deltas (durability.cpp:775, replication_handlers.cpp:1221). The branch's WAL is a separate file set and is
-// replayed on the rebuilt fork base (branch_recovery.cpp:97-100), which does not contain the torn transaction because
+// Expected to pass. Main's last file has no summary, so GetWalFiles (durability.cpp) derives num_deltas from the
+// complete transactions only (wal.cpp), and the bounded recovery and the tail replay both consume exactly that
+// many deltas (durability.cpp, replication_handlers.cpp). The branch's WAL is a separate file set and is
+// replayed on the rebuilt fork base (branch_recovery.cpp), which does not contain the torn transaction because
 // it was committed after the fork.
 
 TEST_F(VersioningCrashRecoveryTest, MainWalTornInItsLastTransactionKeepsMainAtThePreviousOneAndTheBranchIntact) {
@@ -832,11 +855,10 @@ TEST_F(VersioningCrashRecoveryTest, MainWalTornInItsLastTransactionKeepsMainAtTh
 }
 
 // The branch is forked after main's last transaction, and that transaction is torn: main's recovery loses a commit the
-// ledger's fork point already includes (fork_durable_ts is recorded in the ledger but nothing compares it with what
-// recovered). The branch has an overlay record for a vertex that only the lost transaction created.
-// Expected: the database starts, main is at its previous transaction, and the branch is either dropped or reads nothing
-// of the lost transaction. By the code, the replay of the overlay record for the missing fork vertex throws
-// (branch_recovery.cpp:430, reached from DeriveVertex), so the branch is dropped with a warning.
+// ledger's fork point already includes (nothing compares the ledger's fork point with what main recovered). The branch
+// has an overlay record for a vertex that only the lost transaction created.
+// Expected: the database starts, main is at its previous transaction, and the branch is dropped: replaying the overlay
+// record for the missing fork vertex throws (DeriveVertex), so the branch is dropped with a warning.
 TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNeverLeavesTheBranchOverLostState) {
   std::vector<VertexDump> main_prev;
   ms::Gid late;
@@ -876,49 +898,14 @@ TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNever
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     EXPECT_EQ(DumpMain(db), main_prev);
-    if (!db.version_store()->Exists("b")) continue;
-    auto ctx = Checkout(db, "b");
-    ASSERT_NE(ctx, nullptr);
-    const auto dump = DumpBranch(db, *ctx);
-    EXPECT_EQ(FindVertex(dump, late), nullptr) << "the branch reads a vertex main lost";
+    EXPECT_FALSE(db.version_store()->Exists("b")) << "the branch's overlay record names a vertex main lost";
   }
 }
 
-// ---- 4. Ledger written, branch WAL missing or empty -------------------------------------------------------------
-
-// Expected to pass. No WAL files means HasRegularFiles is false (branch_recovery.cpp:55-62, :536), so the core is not
-// built at startup and is built empty on the first checkout, reading main at the fork.
-TEST_F(VersioningCrashRecoveryTest, LedgerWithoutABranchWalDirectoryRecoversEmptyAtTheFork) {
-  uint64_t number = 0;
-  Expected expected;
-  {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    static_cast<void>(CreateBase(db));
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
-    ASSERT_TRUE(info.has_value());
-    number = info->number;
-    auto ctx = Checkout(db, "b");
-    ASSERT_NE(ctx, nullptr);
-    expected = Capture(db, *ctx);
-  }
-  fs::remove_all(kStorageDirectory / "branches" / std::to_string(number));
-  ASSERT_FALSE(fs::exists(BranchWalDir(number)));
-  ASSERT_TRUE(fs::exists(kStorageDirectory / "branches" / "ledger"));
-
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  ASSERT_TRUE(db.version_store()->Exists("b"));
-  bool built = false;
-  auto ctx = Checkout(db, "b", &built);
-  ASSERT_NE(ctx, nullptr);
-  EXPECT_TRUE(built);
-  EXPECT_EQ(DumpBranch(db, *ctx), expected.branch);
-  EXPECT_EQ(DumpMain(db), expected.main);
-}
+// ---- 4. Ledger written, branch WAL empty ------------------------------------------------------------------------
 
 // Expected to pass: the crash left a zero-length WAL file (created, nothing written). ListWalFiles skips a file of size
-// zero (branch_recovery.cpp:73) and ReplayBranchWal returns with the freshly built core (branch_recovery.cpp:473).
+// zero (branch_recovery.cpp) and ReplayBranchWal returns with the freshly built core (branch_recovery.cpp).
 TEST_F(VersioningCrashRecoveryTest, EmptyBranchWalFileRecoversEmptyAtTheFork) {
   uint64_t number = 0;
   Expected before;
@@ -941,45 +928,15 @@ TEST_F(VersioningCrashRecoveryTest, EmptyBranchWalFileRecoversEmptyAtTheFork) {
   fs::resize_file(wal, 0);
   ASSERT_EQ(CountFiles(BranchWalDir(number)), 1u);
   ASSERT_NO_FATAL_FAILURE(ExpectRecovers(before));
-}
-
-// Crash while the WAL file's header is being written: the file exists and is neither empty nor readable. Nothing was
-// committed to it, so, as with main's GetWalFiles, recovery skips it (ListWalFiles catches the RecoveryFailure of
-// ReadWalContents) and renames it aside with a ".torn" suffix; a second restart recovers identically.
-TEST_F(VersioningCrashRecoveryTest, PartiallyWrittenBranchWalHeaderRecoversEmptyAtTheFork) {
-  Scenario s;
-  ASSERT_NO_FATAL_FAILURE(BuildScenario(LastTxn::kOverlayOnly, s));
-  ASSERT_NO_FATAL_FAILURE(SaveImage());
-  const auto wal = NewestWalFile(BranchWalDir(s.number));
-  const auto header = dur::ReadWalHeader(wal);
-  for (const uint64_t keep : {uint64_t{10}, header.offset_metadata + 3, header.offset_deltas - 1}) {
-    SCOPED_TRACE("header cut at byte " + std::to_string(keep));
-    ASSERT_NO_FATAL_FAILURE(RestoreImage());
-    ASSERT_NO_FATAL_FAILURE(CrashAt(wal, keep));
-    {
-      memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      ASSERT_TRUE(db.version_store()->Exists("b")) << "nothing was committed to the damaged file";
-      auto ctx = Checkout(db, "b");
-      ASSERT_NE(ctx, nullptr);
-      const auto dump = DumpBranch(db, *ctx);
-      const auto *v1 = FindVertex(dump, s.base.v1);
-      ASSERT_NE(v1, nullptr);
-      EXPECT_EQ(v1->props.at("p"), ms::PropertyValue(1)) << "the branch is empty at the fork";
-      EXPECT_EQ(dump.size(), 5u) << "only the five fork vertices";
-    }
-    ASSERT_NO_FATAL_FAILURE(ExpectTornFileRenamed(wal));
-    memgraph::dbms::Database db2{MakeConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope2{&db2.Arena()};
-    auto ctx2 = Checkout(db2, "b");
-    ASSERT_NE(ctx2, nullptr);
-    EXPECT_EQ(DumpBranch(db2, *ctx2).size(), 5u) << "a second restart recovers identically";
-  }
+  auto torn = wal;
+  torn += ".torn";
+  EXPECT_TRUE(fs::exists(wal)) << "a zero-length file is skipped, not treated as torn";
+  EXPECT_FALSE(fs::exists(torn));
 }
 
 // ---- 5. Restarting twice with no writes in between ---------------------------------------------------------------
 
-// Expected to pass: replay runs under SuppressWalScope (branch_recovery.cpp:473), so a restart writes no branch WAL,
+// Expected to pass: replay runs under SuppressWalScope (branch_recovery.cpp), so a restart writes no branch WAL,
 // and the ledger keeps the original fork point (BranchInfo::recorded_fork_ts is what every ledger write persists).
 TEST_F(VersioningCrashRecoveryTest, RestartingTwiceWithoutWritesIsIdempotent) {
   Scenario s;
@@ -1009,19 +966,45 @@ TEST_F(VersioningCrashRecoveryTest, RestartingTwiceWithoutWritesIsIdempotent) {
 
 // ---- 6. A WAL file without a complete transaction ----------------------------------------------------------------
 
-// A branch whose only WAL file has its only transaction torn, and the sharper case: a later run's new file is torn in
-// its first transaction while the earlier run's file is intact. In both, nothing was ever committed to the torn file,
-// so the branch must recover from the other files (or empty at the fork).
-//
+// Nothing was ever committed to the torn file, so the branch must recover from the other files (or empty at the fork).
 // ScanWalDeltas throws RecoveryFailure for such a file; ListWalFiles catches it per file and, when the file is the
 // newest one (a crash tail), skips it and renames it aside with a ".torn" suffix. An unreadable file followed by newer
 // data is real corruption and still drops the branch.
 
-TEST_F(VersioningCrashRecoveryTest, TornOnlyTransactionOfTheOnlyBranchWalFileRecoversEmptyAtTheFork) {
+// The branch's only WAL file has its only transaction torn, or its header torn (a crash while the header is written).
+TEST_F(VersioningCrashRecoveryTest, TornOnlyBranchWalFileRecoversEmptyAtTheFork) {
+  uint64_t number = 0;
+  Expected before;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto n = ResolveNames(db);
+    const auto base = CreateBase(db);
+    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    ASSERT_TRUE(info.has_value());
+    number = info->number;
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    before = Capture(db, *ctx);
+    RunLast(LastTxn::kOverlayOnly, *ctx, base, n);
+    ASSERT_NE(DumpBranch(db, *ctx), before.branch);
+  }
+  ASSERT_NO_FATAL_FAILURE(SaveImage());
+  const auto wal = NewestWalFile(BranchWalDir(number));
+  const auto txns = ParseTransactions(wal);
+  ASSERT_EQ(txns.size(), 1u);
+  const auto header = dur::ReadWalHeader(wal);  // before the cuts below tear and rename the file
+  ASSERT_NO_FATAL_FAILURE(ExpectTornNewestFileIsSkipped(wal, CutPoints(txns.back(), 8), before, TxnLabel(txns.back())));
+
+  ASSERT_NO_FATAL_FAILURE(ExpectTornNewestFileIsSkipped(
+      wal, {uint64_t{10}, header.offset_metadata + 3, header.offset_deltas - 1}, before, "header"));
+}
+
+// A later run's new file is torn in its first transaction while the earlier run's file is intact.
+TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarlierRunsData) {
   uint64_t number = 0;
   Base base{};
-  Expected before;
-  Expected full;
+  Expected before_last;
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1032,39 +1015,7 @@ TEST_F(VersioningCrashRecoveryTest, TornOnlyTransactionOfTheOnlyBranchWalFileRec
     number = info->number;
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
-    before = Capture(db, *ctx);
-    RunLast(LastTxn::kOverlayOnly, *ctx, base, n);
-    full = Capture(db, *ctx);
-  }
-  ASSERT_NO_FATAL_FAILURE(SaveImage());
-  const auto wal = NewestWalFile(BranchWalDir(number));
-  const auto txns = ParseTransactions(wal);
-  ASSERT_EQ(txns.size(), 1u);
-  for (const auto cut : CutPoints(txns.back(), 8)) {
-    SCOPED_TRACE(CutTrace(cut, txns.back()));
-    ASSERT_NO_FATAL_FAILURE(RestoreImage());
-    ASSERT_NO_FATAL_FAILURE(CrashAt(wal, cut));
-    ASSERT_NO_FATAL_FAILURE(ExpectRecovers(before));
-    ASSERT_NO_FATAL_FAILURE(ExpectTornFileRenamed(wal));
-    ASSERT_NO_FATAL_FAILURE(ExpectRecovers(before));
-  }
-}
-
-TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarlierRunsData) {
-  Scenario s;
-  s.number = 0;
-  Expected before_last;
-  {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    const auto n = ResolveNames(db);
-    s.base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
-    ASSERT_TRUE(info.has_value());
-    s.number = info->number;
-    auto ctx = Checkout(db, "b");
-    ASSERT_NE(ctx, nullptr);
-    RunPrior(*ctx, s.base, n);
+    RunPrior(*ctx, base, n);
   }
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
@@ -1073,21 +1024,15 @@ TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarli
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     before_last = Capture(db, *ctx);
-    RunLast(LastTxn::kOverlayOnly, *ctx, s.base, n);
+    RunLast(LastTxn::kOverlayOnly, *ctx, base, n);
     ASSERT_NE(DumpBranch(db, *ctx), before_last.branch);
   }
-  ASSERT_EQ(CountFiles(BranchWalDir(s.number)), 2u) << "one file per run";
+  ASSERT_EQ(CountFiles(BranchWalDir(number)), 2u) << "one file per run";
   ASSERT_NO_FATAL_FAILURE(SaveImage());
 
-  const auto newest = NewestWalFile(BranchWalDir(s.number));
+  const auto newest = NewestWalFile(BranchWalDir(number));
   const auto txns = ParseTransactions(newest);
   ASSERT_EQ(txns.size(), 1u);
-  for (const auto cut : CutPoints(txns.back(), 8)) {
-    SCOPED_TRACE(CutTrace(cut, txns.back()));
-    ASSERT_NO_FATAL_FAILURE(RestoreImage());
-    ASSERT_NO_FATAL_FAILURE(CrashAt(newest, cut));
-    ASSERT_NO_FATAL_FAILURE(ExpectRecovers(before_last));
-    ASSERT_NO_FATAL_FAILURE(ExpectTornFileRenamed(newest));
-    ASSERT_NO_FATAL_FAILURE(ExpectRecovers(before_last));
-  }
+  ASSERT_NO_FATAL_FAILURE(
+      ExpectTornNewestFileIsSkipped(newest, CutPoints(txns.back(), 8), before_last, TxnLabel(txns.back())));
 }

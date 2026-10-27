@@ -531,3 +531,32 @@ TEST(VersioningVertexOverlayStore, ConcurrentWritersReadersAndGc) {
   for (uint64_t gid = 0; gid < kGids; ++gid) EXPECT_LE(env.store.ChainLength(gid), 1U);
   EXPECT_EQ(env.store.live_versions(), env.store.size());
 }
+
+TEST(VersioningVertexOverlayStore, InstallCommittedStateReplacesTheChainAndIsVisibleToLaterSnapshotsOnly) {
+  VertexOverlayStore store;
+  OverlayState first;
+  first.AddLabel(ms::LabelId::FromUint(1));
+  store.InstallCommittedState(7, std::move(first), 10);
+  OverlayState second;
+  second.SetProperty(ms::PropertyId::FromUint(2), ms::PropertyValue(5));
+  store.InstallCommittedState(7, std::move(second), 20);
+
+  EXPECT_EQ(store.ChainLength(7), 1u) << "full-state records: the last one replaces the key's chain";
+  EXPECT_EQ(store.live_versions(), 1u);
+
+  const OverlayTransaction not_after(20, ms::kTransactionInitialId, kSI);
+  EXPECT_EQ(store.Read(7, not_after, View::OLD), nullptr);
+  const OverlayTransaction after(21, ms::kTransactionInitialId + 1, kSI);
+  const auto *version = store.Read(7, after, View::OLD);
+  ASSERT_NE(version, nullptr);
+  EXPECT_TRUE(version->added_labels().empty());
+  EXPECT_EQ(version->properties().GetProperty(ms::PropertyId::FromUint(2)), ms::PropertyValue(5));
+
+  size_t heads = 0;
+  store.ForEachHead([&](uint64_t key, const OverlayVersion &head) {
+    ++heads;
+    EXPECT_EQ(key, 7u);
+    EXPECT_FALSE(head.deleted());
+  });
+  EXPECT_EQ(heads, 1u);
+}
