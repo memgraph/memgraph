@@ -9,8 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Branches are in-memory only: after restarting a dbms::Database on the same directory no branch or fork pin
-// survives, while main's data and schema are intact.
+// Branches survive a restart of a dbms::Database on the same directory: their fork base is rebuilt by recovering main
+// up to the oldest fork point and replaying the rest of its WAL under per-branch fork pins. Branch contents are not
+// durable yet, only the registry and each branch's view of main at its fork.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -18,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <string>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
@@ -26,23 +28,135 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
+
+namespace ms = memgraph::storage;
 
 namespace {
 constexpr auto kTestSuite = "versioning_durability_restart";
 const std::filesystem::path kStorageDirectory{std::filesystem::temp_directory_path() / kTestSuite};
 
-memgraph::storage::Config MakeConfig(bool recover_on_startup) {
-  return memgraph::storage::Config{
+ms::Config MakeConfig(bool recover_on_startup, bool wal = true) {
+  return ms::Config{
       .durability = {.storage_directory = kStorageDirectory,
                      .recover_on_startup = recover_on_startup,
-                     .snapshot_wal_mode =
-                         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_wal_mode = wal ? ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
+                                              : ms::Config::Durability::SnapshotWalMode::DISABLED,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
   };
 }
 
+void Commit(ms::Storage::Accessor &acc) {
+  ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+auto *Mem(memgraph::dbms::Database &db) { return static_cast<ms::InMemoryStorage *>(db.storage()); }
+
+// v1(:L {p}) -e1-> v2, v3, then main moves on past each fork.
+struct Gids {
+  ms::Gid v1, v2, v3, e1;
+  ms::Gid v4;
+};
+
+struct Names {
+  ms::LabelId l;
+  ms::PropertyId p;
+};
+
+Names ResolveNames(memgraph::dbms::Database &db) {
+  return {db.storage()->NameToLabel("L"), db.storage()->NameToProperty("p")};
+}
+
+Gids CreateBase(memgraph::dbms::Database &db) {
+  const auto [l, p] = ResolveNames(db);
+  const auto edge_type = db.storage()->NameToEdgeType("T");
+  Gids gids{};
+  auto acc = db.Access(ms::WRITE);
+  auto v1 = acc->CreateVertex();
+  auto v2 = acc->CreateVertex();
+  auto v3 = acc->CreateVertex();
+  EXPECT_TRUE(v1.AddLabel(l).has_value());
+  EXPECT_TRUE(v1.SetProperty(p, ms::PropertyValue(1)).has_value());
+  auto e1 = acc->CreateEdge(&v1, &v2, edge_type);
+  EXPECT_TRUE(e1.has_value());
+  gids = {v1.Gid(), v2.Gid(), v3.Gid(), e1->Gid(), ms::kInvalidGid};
+  Commit(*acc);
+  return gids;
+}
+
+void SetV1(memgraph::dbms::Database &db, const Gids &g, int64_t value) {
+  const auto p = db.storage()->NameToProperty("p");
+  auto acc = db.Access(ms::WRITE);
+  auto v1 = acc->FindVertex(g.v1, ms::View::OLD);
+  ASSERT_TRUE(v1.has_value());
+  ASSERT_TRUE(v1->SetProperty(p, ms::PropertyValue(value)).has_value());
+  Commit(*acc);
+}
+
+// update v1.p, detach-delete v2, delete v3, create v4.
+Gids MoveMainOn(memgraph::dbms::Database &db, Gids g) {
+  SetV1(db, g, 10);
+  auto acc = db.Access(ms::WRITE);
+  auto v2 = acc->FindVertex(g.v2, ms::View::OLD);
+  auto v3 = acc->FindVertex(g.v3, ms::View::OLD);
+  EXPECT_TRUE(v2.has_value() && v3.has_value());
+  EXPECT_TRUE(acc->DetachDeleteVertex(&*v2).has_value());
+  EXPECT_TRUE(acc->DeleteVertex(&*v3).has_value());
+  g.v4 = acc->CreateVertex().Gid();
+  Commit(*acc);
+  return g;
+}
+
+bool HasEdge(ms::Storage::Accessor &acc, ms::Gid from, ms::Gid edge) {
+  auto v = acc.FindVertex(from, ms::View::OLD);
+  if (!v) return false;
+  auto out = v->OutEdges(ms::View::OLD);
+  if (!out) return false;
+  for (auto &e : out->edges) {
+    if (e.Gid() == edge) return true;
+  }
+  return false;
+}
+
+// The state main had when the branch was created, before MoveMainOn.
+void ExpectForkState(ms::Storage::Accessor &acc, const Names &n, const Gids &g, int64_t v1_value) {
+  auto v1 = acc.FindVertex(g.v1, ms::View::OLD);
+  ASSERT_TRUE(v1.has_value());
+  EXPECT_EQ(*v1->GetProperty(n.p, ms::View::OLD), ms::PropertyValue(v1_value));
+  EXPECT_TRUE(*v1->HasLabel(n.l, ms::View::OLD));
+  EXPECT_TRUE(acc.FindVertex(g.v2, ms::View::OLD).has_value()) << "vertex deleted after the fork must be present";
+  EXPECT_TRUE(acc.FindVertex(g.v3, ms::View::OLD).has_value());
+  EXPECT_TRUE(HasEdge(acc, g.v1, g.e1));
+  EXPECT_FALSE(acc.FindVertex(g.v4, ms::View::OLD).has_value()) << "vertex created after the fork must be absent";
+}
+
+void ExpectLatestState(ms::Storage::Accessor &acc, const Names &n, const Gids &g) {
+  auto v1 = acc.FindVertex(g.v1, ms::View::OLD);
+  ASSERT_TRUE(v1.has_value());
+  EXPECT_EQ(*v1->GetProperty(n.p, ms::View::OLD), ms::PropertyValue(10));
+  EXPECT_FALSE(acc.FindVertex(g.v2, ms::View::OLD).has_value());
+  EXPECT_FALSE(acc.FindVertex(g.v3, ms::View::OLD).has_value());
+  EXPECT_FALSE(HasEdge(acc, g.v1, g.e1));
+  EXPECT_TRUE(acc.FindVertex(g.v4, ms::View::OLD).has_value());
+}
+
+// Reads `branch` the way a checkout does: main's history at the branch's runtime fork pin.
+std::unique_ptr<ms::Storage::Accessor> ReadBranch(memgraph::dbms::Database &db, std::string_view branch) {
+  auto info = db.version_store()->Get(branch);
+  EXPECT_TRUE(info.has_value()) << "branch " << branch << " is not listed";
+  if (!info) return nullptr;
+  auto acc = Mem(db)->HistoricalAccess(info->fork_ts);
+  EXPECT_TRUE(acc.has_value()) << "fork pin of branch " << branch << " is not held";
+  return acc ? std::move(*acc) : nullptr;
+}
+
+std::optional<memgraph::versioning::LedgerContents> ReadLedger() {
+  auto read = memgraph::versioning::BranchLedger{kStorageDirectory / "branches" / "ledger"}.Read();
+  EXPECT_TRUE(read.has_value());
+  return read.has_value() ? *read : std::nullopt;
+}
 }  // namespace
 
 class VersioningDurabilityRestartTest : public ::testing::Test {
@@ -52,88 +166,203 @@ class VersioningDurabilityRestartTest : public ::testing::Test {
   void TearDown() override { std::filesystem::remove_all(kStorageDirectory); }
 };
 
-namespace {
-struct Gids {
-  memgraph::storage::Gid pre_fork;
-  memgraph::storage::Gid post_fork;
-};
+TEST_F(VersioningDurabilityRestartTest, BranchReadsMainAtItsForkAfterRestart) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", "described").has_value());
+    gids = MoveMainOn(db, gids);
+  }
 
-// `with_stray_branch_dir` leaves a legacy versioning/ directory behind, as an older build would.
-Gids PopulateWithBranches(bool with_stray_branch_dir) {
-  Gids gids;
-  auto config = MakeConfig(/*recover_on_startup=*/false);
-  memgraph::dbms::Database db{config};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto names = ResolveNames(db);
+
+  ASSERT_NE(db.version_store(), nullptr);
+  const auto listed = db.version_store()->List();
+  ASSERT_EQ(listed.size(), 1u);
+  EXPECT_EQ(listed[0].first, "b");
+  EXPECT_EQ(listed[0].second.number, 2u);
+  EXPECT_EQ(listed[0].second.parent, "main");
+  EXPECT_EQ(listed[0].second.description, std::optional<std::string>{"described"});
+  EXPECT_TRUE(Mem(db)->OldestForkPin().has_value());
 
   {
-    auto acc = db.Access(memgraph::storage::WRITE);
-    gids.pre_fork = acc->CreateVertex().Gid();
-    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto branch = ReadBranch(db, "b");
+    ASSERT_NE(branch, nullptr);
+    ExpectForkState(*branch, names, gids, 1);
+  }
+  {
+    auto main = db.Access(ms::READ);
+    ExpectLatestState(*main, names, gids);
   }
 
-  EXPECT_NE(db.version_store(), nullptr);
-  EXPECT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
-  EXPECT_TRUE(db.version_store()->CreateBranch("b2", "b1", std::nullopt).has_value());
-  EXPECT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->OldestForkPin().has_value());
+  // A commit after the restart must not collide with the replayed timestamps, and stays out of the fork's view.
+  ms::Gid v5;
+  {
+    auto acc = db.Access(ms::WRITE);
+    v5 = acc->CreateVertex().Gid();
+    Commit(*acc);
+  }
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(v5, ms::View::OLD).has_value());
+  {
+    auto branch = ReadBranch(db, "b");
+    ASSERT_NE(branch, nullptr);
+    EXPECT_FALSE(branch->FindVertex(v5, ms::View::OLD).has_value());
+    ExpectForkState(*branch, names, gids, 1);
+  }
+}
+
+TEST_F(VersioningDurabilityRestartTest, TwoBranchesEachSeeTheirOwnForkAfterRestart) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
+    SetV1(db, gids, 2);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b2", "b1", std::nullopt).has_value());
+    SetV1(db, gids, 3);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto names = ResolveNames(db);
+
+  ASSERT_EQ(db.version_store()->List().size(), 2u);
+  const auto value_at = [&](std::string_view branch) {
+    auto acc = ReadBranch(db, branch);
+    EXPECT_NE(acc, nullptr);
+    return acc ? *acc->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD) : ms::PropertyValue();
+  };
+  EXPECT_EQ(value_at("b1"), ms::PropertyValue(1));
+  EXPECT_EQ(value_at("b2"), ms::PropertyValue(2));
+  EXPECT_EQ(*db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD),
+            ms::PropertyValue(3));
+}
+
+TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTheOtherBranch) {
+  Gids gids{};
+  uint64_t b2_recorded_fork_ts = 0;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
+    SetV1(db, gids, 2);
+    auto b2 = db.version_store()->CreateBranch("b2", "main", std::nullopt);
+    ASSERT_TRUE(b2.has_value());
+    b2_recorded_fork_ts = b2->fork_ts;
+    SetV1(db, gids, 3);
+  }
 
   {
-    auto acc = db.Access(memgraph::storage::WRITE);
-    gids.post_fork = acc->CreateVertex().Gid();
-    EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    ASSERT_EQ(db.version_store()->List().size(), 2u);
+
+    ASSERT_TRUE(db.version_store()->DropBranch("b1"));
+    auto ledger = ReadLedger();
+    ASSERT_TRUE(ledger.has_value());
+    ASSERT_EQ(ledger->branches.size(), 1u);
+    EXPECT_EQ(ledger->branches[0].name, "b2");
+    EXPECT_EQ(ledger->branches[0].info.fork_ts, b2_recorded_fork_ts) << "the ledger must keep the original fork_ts";
+
+    // A new commit and a new branch after the restart.
+    SetV1(db, gids, 4);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b3", "main", std::nullopt).has_value());
+    SetV1(db, gids, 5);
   }
 
-  if (with_stray_branch_dir) {
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto names = ResolveNames(db);
+  const auto value_at = [&](std::string_view branch) {
+    auto acc = ReadBranch(db, branch);
+    EXPECT_NE(acc, nullptr);
+    return acc ? *acc->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD) : ms::PropertyValue();
+  };
+  EXPECT_FALSE(db.version_store()->Exists("b1"));
+  EXPECT_EQ(db.version_store()->List().size(), 2u);
+  EXPECT_EQ(value_at("b2"), ms::PropertyValue(2));
+  EXPECT_EQ(value_at("b3"), ms::PropertyValue(4));
+  EXPECT_EQ(db.version_store()->Get("b3")->number, 4u) << "branch numbers are never reused";
+  EXPECT_EQ(*db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD)->GetProperty(names.p, ms::View::OLD),
+            ms::PropertyValue(5));
+}
+
+TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedWithoutAWal) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_TRUE(db.version_store()->Empty());
+  EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
+  auto ledger = ReadLedger();
+  ASSERT_TRUE(ledger.has_value());
+  EXPECT_TRUE(ledger->branches.empty());
+  EXPECT_EQ(ledger->next_number, 3u);
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
+}
+
+TEST_F(VersioningDurabilityRestartTest, UnreadableLedgerDropsBranchesAndTheDatabaseStarts) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
+  }
+  std::ofstream{kStorageDirectory / "branches" / "ledger", std::ios::trunc} << "garbage";
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_TRUE(db.version_store()->Empty());
+  EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
+  ASSERT_TRUE(ReadLedger().has_value());
+}
+
+TEST_F(VersioningDurabilityRestartTest, LegacyBranchDirectoryIsRemovedAndNewBranchesContinueTheNumbering) {
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b2", "b1", std::nullopt).has_value());
     auto const stray = kStorageDirectory / "versioning" / "branches" / "b1";
     std::filesystem::create_directories(stray);
     std::ofstream{stray / "leftover"} << "x";
   }
-  return gids;
-}
 
-void ExpectNoBranchState(memgraph::dbms::Database &db) {
-  ASSERT_NE(db.version_store(), nullptr);
-  EXPECT_TRUE(db.version_store()->Empty());
-  EXPECT_TRUE(db.version_store()->List().empty());
-  EXPECT_FALSE(db.version_store()->Exists("b1"));
-  EXPECT_FALSE(db.version_store()->Exists("b2"));
-  EXPECT_FALSE(db.version_store()->TryAcquireCheckout("b1").has_value());
-  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  EXPECT_FALSE(storage->OldestForkPin().has_value());
-  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning"));
-}
-}  // namespace
-
-TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedOnRestartAndMainIsIntact) {
-  auto const gids = PopulateWithBranches(/*with_stray_branch_dir=*/true);
-
-  auto config = MakeConfig(/*recover_on_startup=*/true);
-  memgraph::dbms::Database db{config};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning"));
+  ASSERT_EQ(db.version_store()->List().size(), 2u);
+  EXPECT_EQ(db.version_store()->Get("b2")->parent, "b1");
 
-  ExpectNoBranchState(db);
-
-  {
-    auto acc = db.Access(memgraph::storage::READ);
-    EXPECT_TRUE(acc->FindVertex(gids.pre_fork, memgraph::storage::View::OLD).has_value());
-    EXPECT_TRUE(acc->FindVertex(gids.post_fork, memgraph::storage::View::OLD).has_value());
-  }
-
-  auto branch = db.version_store()->CreateBranch("b1", "main", std::nullopt);
-  ASSERT_TRUE(branch.has_value()) << (branch.has_value() ? std::string{} : branch.error());
-  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  ASSERT_TRUE(storage->OldestForkPin().has_value());
-  EXPECT_EQ(*storage->OldestForkPin(), branch->fork_ts);
-  ASSERT_TRUE(db.version_store()->DropBranch("b1"));
-  EXPECT_FALSE(storage->OldestForkPin().has_value());
+  auto b3 = db.version_store()->CreateBranch("b3", "main", std::nullopt);
+  ASSERT_TRUE(b3.has_value());
+  EXPECT_EQ(b3->number, 4u);
+  for (const auto *name : {"b1", "b2", "b3"}) ASSERT_TRUE(db.version_store()->DropBranch(name));
+  EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
 }
 
-TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkSurvivesRestart) {
-  memgraph::storage::Gid post_fork_vertex;
-  memgraph::storage::LabelId indexed_label{};
+TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkIsReplayedUnderTheFork) {
+  ms::Gid post_fork_vertex;
+  ms::LabelId indexed_label{};
 
   {
-    auto config = MakeConfig(/*recover_on_startup=*/false);
-    memgraph::dbms::Database db{config};
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     ASSERT_NE(db.version_store(), nullptr);
@@ -143,38 +372,38 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkSurvivesRestart) {
       auto acc = db.UniqueAccess();
       indexed_label = acc->NameToLabel("PostForkLabel");
       ASSERT_TRUE(acc->CreateIndex(indexed_label).has_value());
-      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      Commit(*acc);
     }
     {
-      auto acc = db.Access(memgraph::storage::WRITE);
+      auto acc = db.Access(ms::WRITE);
       post_fork_vertex = acc->CreateVertex().Gid();
-      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      Commit(*acc);
     }
   }
 
-  auto config = MakeConfig(/*recover_on_startup=*/true);
-  memgraph::dbms::Database db{config};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  ExpectNoBranchState(db);
-  auto acc = db.Access(memgraph::storage::READ);
+  ASSERT_TRUE(db.version_store()->Exists("b1"));
+  auto acc = db.Access(ms::READ);
   EXPECT_THAT(acc->ListAllIndices().label, ::testing::Contains(indexed_label));
-  EXPECT_TRUE(acc->FindVertex(post_fork_vertex, memgraph::storage::View::OLD).has_value());
+  EXPECT_TRUE(acc->FindVertex(post_fork_vertex, ms::View::OLD).has_value());
+  auto branch = ReadBranch(db, "b1");
+  ASSERT_NE(branch, nullptr);
+  EXPECT_FALSE(branch->FindVertex(post_fork_vertex, ms::View::OLD).has_value());
 }
 
 // Branch writes live only in the in-memory diff engine; after restart main holds only its own data.
 TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart) {
-  namespace ms = memgraph::storage;
   constexpr auto kForkLabel = "ForkLabel";
   constexpr auto kBranchLabel = "BranchOnlyLabel";
   constexpr auto kBranchProp = "BranchOnlyProp";
   ms::Gid fork_vertex;
 
   {
-    auto config = MakeConfig(/*recover_on_startup=*/false);
-    memgraph::dbms::Database db{config};
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+    auto *storage = Mem(db);
     const auto fork_label = db.storage()->NameToLabel(kForkLabel);
     const auto branch_label = db.storage()->NameToLabel(kBranchLabel);
     const auto x = db.storage()->NameToProperty("x");
@@ -189,7 +418,7 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
       ASSERT_TRUE(a.SetProperty(x, ms::PropertyValue(1)).has_value());
       auto b = acc->CreateVertex();
       ASSERT_TRUE(acc->CreateEdge(&a, &b, edge_type).has_value());
-      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      Commit(*acc);
     }
 
     auto info = db.version_store()->CreateBranch("b1", "main", std::nullopt);
@@ -212,10 +441,9 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
     }
   }
 
-  auto config = MakeConfig(/*recover_on_startup=*/true);
-  memgraph::dbms::Database db{config};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  ExpectNoBranchState(db);
+  EXPECT_TRUE(db.version_store()->Exists("b1"));
 
   auto acc = db.Access(ms::READ);
   size_t vertices = 0;

@@ -21,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -34,8 +35,9 @@ namespace memgraph::versioning {
 
 class BranchCore;
 
-// Per-Database registry of branches. Starts empty on every startup; once a BranchLedger is attached, every
-// CREATE/DROP (and the first gid-floor record per branch) is also persisted to it.
+// Per-Database registry of branches. Starts empty; Database restores it from the ledger at startup (Restore/
+// ResetLedger). Once a BranchLedger is attached, every CREATE/DROP (and the first gid-floor record per branch) is also
+// persisted to it.
 //
 // The GC fork pin held for each branch is injected as callbacks (Database binds them to
 // InMemoryStorage::RegisterForkPin/ReleaseForkPin), so tests need no storage engine.
@@ -66,6 +68,16 @@ class VersionStore {
 
   // Parsed ledger contents (for recovery); nullopt if no ledger is attached or no file exists yet.
   std::expected<std::optional<LedgerContents>, std::string> Load() const;
+
+  // Startup only, before any other call. Installs `contents` as the registry without writing the ledger: the branch at
+  // index i gets `pins[i]` as its runtime fork_ts (already registered with the storage by the caller; DropBranch
+  // releases it) and keeps its recorded fork_ts as `ledger_fork_ts`, so later ledger writes persist the recorded value.
+  // Restores next_number. `pins` must have exactly one entry per branch.
+  void Restore(const LedgerContents &contents, std::span<const uint64_t> pins);
+
+  // Startup only, before any other call. Discards unrecoverable branches: persists an empty registry that keeps
+  // `next_number` so branch numbers are still never reused. A write failure is logged, not fatal.
+  void ResetLedger(uint64_t next_number);
 
   // `name` must be new and `parent` must be "main" or an existing branch. On success acquires the fork pin; on
   // failure (including a ledger write failure) returns a user-facing message and changes no state (no pin held).

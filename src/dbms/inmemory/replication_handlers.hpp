@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <filesystem>
+#include <functional>
+
 #include "dbms/dbms_handler_fwd.hpp"
 #include "replication/statefwd.hpp"
 #include "storage/v2/inmemory/storagefwd.hpp"
@@ -20,6 +23,10 @@
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
+
+namespace memgraph::storage::durability {
+struct WalInfo;
+}  // namespace memgraph::storage::durability
 
 namespace memgraph::rpc {
 class FileReplicationHandler;
@@ -65,6 +72,15 @@ class InMemoryReplicationHandlers {
   // a different tenant.
   static void AbortTwoPCForTenant(utils::UUID const &uuid);
 
+  // Startup history replay: applies, as MVCC transactions, the transactions of the existing WAL file `wal_path` that
+  // are newer than the storage's last durable timestamp. Unlike the replica's WAL loading it leaves the storage's uuid,
+  // epoch and current WAL untouched. `on_txn_begin`, when set, is called with the durable timestamp of each transaction
+  // before its first delta is applied. Returns false on a read or apply failure; the storage is then left
+  // partially replayed, and the caller must discard it.
+  static bool ReplayWalFile(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
+                            rpc::ProgressHeartbeat &heartbeat,
+                            std::function<void(uint64_t)> const *on_txn_begin = nullptr);
+
  private:
   friend struct HistoryReplayTestAccess;
 
@@ -108,11 +124,17 @@ class InMemoryReplicationHandlers {
   static LoadWalStatus LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
                                rpc::ProgressHeartbeat &heartbeat);
 
+  static LoadWalStatus ApplyWalDeltas(std::filesystem::path const &wal_path,
+                                      storage::durability::WalInfo const &wal_info, storage::InMemoryStorage *storage,
+                                      rpc::ProgressHeartbeat &heartbeat,
+                                      std::function<void(uint64_t)> const *on_txn_begin);
+
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
 
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version,
-      rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal);
+      rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal,
+      std::function<void(uint64_t)> const *on_txn_begin = nullptr);
 
   static TwoPCCache two_pc_cache_;
 };

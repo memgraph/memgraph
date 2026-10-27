@@ -11,11 +11,21 @@
 
 #include "dbms/database.hpp"
 
+#include <algorithm>
+#include <exception>
+#include <filesystem>
+#include <functional>
 #include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <fmt/format.h>
 
 #include "spdlog/spdlog.h"
 
 #include "dbms/database_info.hpp"
+#include "dbms/inmemory/history_replay.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
@@ -29,6 +39,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
 #include "utils/file.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
@@ -110,6 +121,57 @@ auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetric
   return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
 }
 
+// What the branch ledger asks of this startup.
+struct BranchRecoveryPlan {
+  // The ledger as read, branches ordered by fork_ts. Empty when there is no ledger file or it is unreadable.
+  versioning::LedgerContents ledger;
+  bool ledger_unreadable{false};
+  // Set when the branches can be rebuilt: main is recovered up to this durable timestamp, the rest replayed.
+  std::optional<uint64_t> bound;
+};
+
+std::string BranchNames(const versioning::LedgerContents &ledger) {
+  std::string names;
+  for (const auto &branch : ledger.branches) {
+    if (!names.empty()) names += ", ";
+    names += branch.name;
+  }
+  return names;
+}
+
+// Reads the ledger of an in-memory database before its storage exists. Branches can only be rebuilt from the
+// WAL, so without recovery on startup and WAL they are reported lost.
+BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::filesystem::path &ledger_file) {
+  BranchRecoveryPlan plan;
+  auto read = versioning::BranchLedger{ledger_file}.Read();
+  if (!read) {
+    spdlog::warn("Graph Versioning: the branch ledger '{}' cannot be read ({}); all branches are dropped.",
+                 ledger_file.string(),
+                 read.error());
+    plan.ledger_unreadable = true;
+    return plan;
+  }
+  if (!read->has_value()) return plan;
+
+  plan.ledger = std::move(**read);
+  std::ranges::stable_sort(plan.ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
+  if (plan.ledger.branches.empty()) return plan;
+
+  const bool can_replay =
+      config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
+      config.durability.recover_on_startup &&
+      config.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  if (can_replay) {
+    plan.bound = BranchRecoveryBound(plan.ledger);
+  } else {
+    spdlog::warn(
+        "Graph Versioning: branches [{}] cannot be recovered without recovery on startup and a write-ahead log; they "
+        "are dropped.",
+        BranchNames(plan.ledger));
+  }
+  return plan;
+}
+
 }  // namespace
 
 Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
@@ -148,6 +210,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     db_total_memory_tracker_.SetHardLimit(0);
   }
 
+  BranchRecoveryPlan branch_plan;
+  // Runtime fork pins of the restored branches, parallel to branch_plan.ledger.branches.
+  std::vector<uint64_t> branch_pins;
+
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
@@ -158,12 +224,58 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                                       db_arena_.get(),
                                                       &db_embedding_memory_tracker_);
   } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config),
-                                           std::move(invalidator),
-                                           metrics_.handles(),
-                                           database_protector_factory,
-                                           db_arena_.get(),
-                                           &db_embedding_memory_tracker_);
+    branch_plan = PlanBranchRecovery(config, branch_ledger_file);
+    const auto create_storage = [&](storage::Config storage_config, storage::PlanInvalidatorPtr plan_invalidator) {
+      return dbms::CreateInMemoryStorage(std::move(storage_config),
+                                         std::move(plan_invalidator),
+                                         metrics_.handles(),
+                                         database_protector_factory,
+                                         db_arena_.get(),
+                                         &db_embedding_memory_tracker_);
+    };
+
+    if (!branch_plan.bound) {
+      storage_ = create_storage(std::move(config), std::move(invalidator));
+    } else {
+      // Anything below that goes wrong drops the branches and recovers main as it would without them.
+      auto unbounded_config = config;
+      config.durability.recovery_history_bound = branch_plan.bound;
+      std::string failure;
+      try {
+        storage_ = create_storage(std::move(config), std::move(invalidator));
+        if (storage_->IsBroken()) failure = "recovery up to the oldest fork point failed";
+      } catch (const std::exception &e) {
+        failure = fmt::format("recovery up to the oldest fork point failed: {}", e.what());
+      }
+
+      if (failure.empty()) {
+        auto &recovered = static_cast<storage::InMemoryStorage &>(*storage_);
+        std::vector<uint64_t> fork_ts;
+        fork_ts.reserve(branch_plan.ledger.branches.size());
+        for (const auto &branch : branch_plan.ledger.branches) fork_ts.push_back(branch.info.fork_ts);
+        auto tail = recovered.TakeRecoveryTail().value_or(storage::durability::RecoveryTail{});
+        auto pins = ReplayHistoryTail(recovered, tail, fork_ts);
+        if (pins) {
+          branch_pins = std::move(*pins);
+        } else {
+          failure = std::move(pins.error());
+        }
+      }
+
+      if (!failure.empty()) {
+        spdlog::warn("Graph Versioning: {}; branches [{}] are dropped and main is recovered without them.",
+                     failure,
+                     BranchNames(branch_plan.ledger));
+        if (storage_) {
+          // The discarded storage holds a partial state that an exit snapshot must not persist.
+          storage_->config_.durability.snapshot_on_exit = false;
+          storage_.reset();
+        }
+        branch_plan.bound.reset();
+        storage_ =
+            create_storage(std::move(unbounded_config), std::make_unique<PlanInvalidatorForDatabase>(plan_cache_));
+      }
+    }
   }
 
   // Branches need IN_MEMORY_TRANSACTIONAL; InMemoryStorage is the only Storage reporting that mode.
@@ -176,6 +288,15 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
         },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
     version_store_->AttachLedger(branch_ledger_file);
+
+    if (branch_plan.bound) {
+      version_store_->Restore(branch_plan.ledger, branch_pins);
+      spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
+    } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {
+      version_store_->ResetLedger(branch_plan.ledger.next_number);
+    } else {
+      version_store_->Restore(branch_plan.ledger, {});
+    }
   }
 
   // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the

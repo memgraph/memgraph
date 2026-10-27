@@ -18,6 +18,7 @@
 #include <spdlog/spdlog.h>
 
 #include "metrics/prometheus_metrics.hpp"
+#include "utils/logging.hpp"
 #include "versioning/branch_engine.hpp"
 
 namespace memgraph::versioning {
@@ -44,7 +45,11 @@ LedgerContents VersionStore::SnapshotLocked() const {
   LedgerContents out;
   out.next_number = next_number_;
   out.branches.reserve(branches_.size());
-  for (const auto &[name, info] : branches_) out.branches.push_back({name, info});
+  for (const auto &[name, info] : branches_) {
+    auto &entry = out.branches.emplace_back(name, info);
+    if (info.ledger_fork_ts) entry.info.fork_ts = *info.ledger_fork_ts;
+    entry.info.ledger_fork_ts.reset();
+  }
   std::ranges::sort(out.branches, std::less{}, [](const auto &b) { return b.info.number; });
   return out;
 }
@@ -57,6 +62,30 @@ std::expected<void, std::string> VersionStore::WriteLedger(const LedgerContents 
     return std::unexpected(fmt::format("Cannot persist the branch registry: {}", res.error()));
   }
   return {};
+}
+
+void VersionStore::Restore(const LedgerContents &contents, std::span<const uint64_t> pins) {
+  MG_ASSERT(pins.size() == contents.branches.size(), "Restore needs one fork pin per branch");
+  std::lock_guard guard{lock_};
+  next_number_ = contents.next_number;
+  for (size_t i = 0; i < pins.size(); ++i) {
+    const auto &recorded = contents.branches[i];
+    BranchInfo info = recorded.info;
+    info.ledger_fork_ts = recorded.info.fork_ts;
+    info.fork_ts = pins[i];
+    branches_.emplace(recorded.name, std::move(info));
+  }
+  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+}
+
+void VersionStore::ResetLedger(uint64_t next_number) {
+  std::lock_guard ledger_guard{ledger_mutex_};
+  {
+    std::lock_guard guard{lock_};
+    next_number_ = next_number;
+  }
+  // WriteLedger logs the failure; the registry is empty either way.
+  (void)WriteLedger(LedgerContents{.next_number = next_number, .branches = {}});
 }
 
 std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent,

@@ -1175,6 +1175,32 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     spdlog::trace("WAL file {} finalized successfully", wal_path);
   }
 
+  return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, /*on_txn_begin*/ nullptr);
+}
+
+bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
+                                                storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
+                                                std::function<void(uint64_t)> const *on_txn_begin) {
+  storage::durability::WalInfo wal_info{};
+  try {
+    wal_info = storage::durability::ReadWalContents(wal_path);
+  } catch (const utils::BasicException &e) {
+    spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
+    return false;
+  }
+
+  if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
+    spdlog::trace("WAL file {} holds nothing newer than the recovered state.", wal_path);
+    return true;
+  }
+  return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, on_txn_begin).success;
+}
+
+// Decodes and applies the transactions of one WAL file, shared by LoadWal and ReplayWalFile.
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::ApplyWalDeltas(
+    std::filesystem::path const &wal_path, storage::durability::WalInfo const &wal_info,
+    storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
+    std::function<void(uint64_t)> const *on_txn_begin) {
   spdlog::trace("Loading WAL deltas from {}", wal_path);
   storage::durability::Decoder wal_decoder;
   const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
@@ -1205,7 +1231,8 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
                                                *version,
                                                heartbeat,
                                                /*two_phase_commit*/ false,
-                                               /*loading_wal*/ true);
+                                               /*loading_wal*/ true,
+                                               on_txn_begin);
     } catch (const utils::BasicException &e) {
       spdlog::error("Aborting WAL file {} at delta {} and skipping the rest of the chain because of: {}",
                     wal_path,
@@ -1241,7 +1268,8 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal) {
+    rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal,
+    std::function<void(uint64_t)> const *const on_txn_begin) {
   constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
@@ -1363,6 +1391,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   };
 
   decoder->ResetCrcAcc();
+  bool txn_begin_notified{false};
   // A DDL delta below can occupy the handler for minutes on its own, so index population and constraint validation
   // report progress per vertex through this. Returning true also abandons that work once the main is gone, instead of
   // finishing a build whose result can no longer be delivered.
@@ -1390,6 +1419,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     if (delta_timestamp <= current_durable_commit_timestamp) {
       spdlog::trace("Skipping delta with timestamp: {}", delta_timestamp);
       continue;
+    }
+
+    if (on_txn_begin && !txn_begin_notified) {
+      txn_begin_notified = true;
+      (*on_txn_begin)(delta_timestamp);
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)

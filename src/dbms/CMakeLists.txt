@@ -7,6 +7,7 @@ target_sources(mg-dbms
     database_info.cpp
     tenant_profiles.cpp
     coordinator_handler.cpp
+    inmemory/history_replay.cpp
     inmemory/replication_handlers.cpp
     replication_handlers.cpp
     rpc.cpp
