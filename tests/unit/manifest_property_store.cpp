@@ -13,12 +13,15 @@
 
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 #include "storage/v2/manifest_property_store.hpp"
+#include "storage/v2/property_store.hpp"
 
 using memgraph::storage::ManifestPropertyStore;
 using memgraph::storage::ManifestRegistry;
 using memgraph::storage::PropertyId;
+using memgraph::storage::PropertyStore;
 using memgraph::storage::PropertyValue;
 
 namespace {
@@ -63,5 +66,86 @@ TEST(ManifestPropertyStore, AnIntegerIsReadBackAtEveryWidth) {
 
     ASSERT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{value}));
     EXPECT_EQ(store.GetProperty(registry, Prop(1)), PropertyValue{value}) << "value " << value;
+  }
+}
+
+// A record holding several properties gives them one shape between them, so setting a second
+// one changes the shape the record names and moves the first value to wherever the new shape
+// puts it. Both have to read back.
+TEST(ManifestPropertyStore, SeveralIntegersAreReadBackAfterTheShapeChanges) {
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+
+  EXPECT_TRUE(store.SetProperty(registry, Prop(2), PropertyValue{int64_t{1}}));
+  // Wider than the first and ordered before it, so neither its width nor its offset is what
+  // it would have been had it been set alone.
+  EXPECT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{int64_t{1} << 40}));
+
+  EXPECT_EQ(store.GetProperty(registry, Prop(1)), PropertyValue{int64_t{1} << 40});
+  EXPECT_EQ(store.GetProperty(registry, Prop(2)), PropertyValue{int64_t{1}});
+  EXPECT_EQ(registry.size(), 2) << "one shape for the first property, one for the pair";
+}
+
+// Setting a property the record already carries replaces the value rather than adding it, and
+// says so by answering false.
+TEST(ManifestPropertyStore, ReplacingAValueKeepsOneProperty) {
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+
+  EXPECT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{int64_t{7}}));
+  EXPECT_FALSE(store.SetProperty(registry, Prop(1), PropertyValue{int64_t{8}}));
+
+  EXPECT_EQ(store.GetProperty(registry, Prop(1)), PropertyValue{int64_t{8}});
+}
+
+// A property the record does not carry reads as Null, as asking the current store for one does.
+TEST(ManifestPropertyStore, AnAbsentPropertyReadsAsNull) {
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+
+  EXPECT_TRUE(store.GetProperty(registry, Prop(1)).IsNull()) << "an empty record carries nothing";
+
+  ASSERT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{int64_t{1}}));
+  EXPECT_TRUE(store.GetProperty(registry, Prop(2)).IsNull());
+}
+
+// The store that exists today is the specification. A record given the same properties in the
+// same order has to answer every question the same way, including what setting a property
+// reports and what the record holds afterwards. Where the two part, this one is wrong.
+TEST(ManifestPropertyStore, AnswersAsThePropertyStoreDoesForIntegers) {
+  struct Step {
+    uint32_t property;
+    PropertyValue value;
+    char const *what;
+  };
+
+  auto const script = std::vector<Step>{
+      {1, PropertyValue{int64_t{7}}, "a first property"},
+      {3, PropertyValue{int64_t{1} << 40}, "a wider one after it"},
+      {2, PropertyValue{int64_t{-1}}, "one ordered between them"},
+      {1, PropertyValue{int64_t{1} << 20}, "widening one already there"},
+      {1, PropertyValue{int64_t{1}}, "narrowing it again"},
+      {2, PropertyValue{}, "removing one with a Null"},
+      {2, PropertyValue{}, "removing one that is already gone"},
+      {2, PropertyValue{int64_t{5}}, "putting it back"},
+      {1, PropertyValue{}, "removing the first"},
+      {3, PropertyValue{}, "removing the next"},
+      {2, PropertyValue{}, "removing the last, leaving nothing"},
+  };
+
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+
+  for (auto const &step : script) {
+    auto const property = Prop(step.property);
+    EXPECT_EQ(manifest.SetProperty(registry, property, step.value), current.SetProperty(property, step.value))
+        << "setting " << step.property << ", " << step.what;
+
+    for (uint32_t probe = 1; probe <= 4; ++probe) {
+      EXPECT_EQ(manifest.GetProperty(registry, Prop(probe)), current.GetProperty(Prop(probe)))
+          << "reading " << probe << " after " << step.what;
+    }
+    EXPECT_EQ(manifest.Properties(registry), current.Properties()) << "the whole record after " << step.what;
   }
 }

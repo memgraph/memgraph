@@ -12,7 +12,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_manifest.hpp"
@@ -39,13 +41,21 @@ class ManifestPropertyStore {
   /// Null when the record does not carry `property`.
   auto GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue;
 
-  /// True when this gave the record a property it did not carry.
+  /// Every property the record carries, in property order.
+  auto Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue>;
+
+  /// True when this gave the record a property it did not carry. A Null value removes the
+  /// property, as it does for the store this replaces.
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
 
   /// The shape this record names, absent while it carries nothing.
   auto manifest() const -> std::optional<ManifestId> { return manifest_; }
 
  private:
+  /// Gives the record the shape `properties` needs and writes them into it. Every value is
+  /// rewritten because a changed shape moves the ones that were already there.
+  void Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties);
+
   std::unique_ptr<uint8_t[]> buffer_;
   uint32_t size_{};
   std::optional<ManifestId> manifest_;
