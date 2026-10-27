@@ -198,7 +198,6 @@ TEST_F(SettingsTest, RuntimeOnlyNeverWritesTheStore) {
     ASSERT_TRUE(settings.SetValue("name", "changed"));
     settings.SetValueForce("name", "forced");
     CheckSettingValue(settings, "name", "forced");
-    ASSERT_FALSE(settings.StoredValue("name"));
   }
   ASSERT_FALSE(ReadStore("name"));
   {
@@ -208,45 +207,26 @@ TEST_F(SettingsTest, RuntimeOnlyNeverWritesTheStore) {
   }
 }
 
-TEST_F(SettingsTest, RuntimeOnlyDeletesLeftover) {
-  SeedStore("name", "from-older-version");
-  Settings settings(settings_directory);
-  settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, DummyCallback);
-  CheckSettingValue(settings, "name", "default");
-  ASSERT_FALSE(settings.StoredValue("name"));
-}
-
-TEST_F(SettingsTest, DeprecatedRestoreExposesLeftoverWithoutApplyingIt) {
+TEST_F(SettingsTest, RuntimeOnlyDiscardsLeftover) {
   SeedStore("name", "from-older-version");
   {
     Settings settings(settings_directory);
-    settings.RegisterSetting("name", "default", Persistence::kDeprecatedRestore, DummyCallback);
-    // the caller decides whether the leftover applies
+    const auto discarded = settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, DummyCallback);
+    ASSERT_EQ(discarded, "from-older-version");
     CheckSettingValue(settings, "name", "default");
-    ASSERT_EQ(settings.StoredValue("name"), "from-older-version");
-
-    // run-time changes no longer reach the store
-    ASSERT_TRUE(settings.SetValue("name", "changed"));
-    settings.SetValueForce("name", "forced");
-    ASSERT_EQ(settings.StoredValue("name"), "from-older-version");
-  }
-  // the leftover is kept across reopens until it is dropped
-  ASSERT_EQ(ReadStore("name"), "from-older-version");
-  {
-    Settings settings(settings_directory);
-    settings.RegisterSetting("name", "default", Persistence::kDeprecatedRestore, DummyCallback);
-    settings.DropStoredValue("name");
-    ASSERT_FALSE(settings.StoredValue("name"));
   }
   ASSERT_FALSE(ReadStore("name"));
+  {
+    Settings settings(settings_directory);
+    ASSERT_FALSE(settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, DummyCallback));
+  }
 }
 
-TEST_F(SettingsTest, DeprecatedRestoreWithoutLeftover) {
+TEST_F(SettingsTest, PersistedReportsNoDiscard) {
+  SeedStore("name", "stored");
   Settings settings(settings_directory);
-  settings.RegisterSetting("name", "default", Persistence::kDeprecatedRestore, DummyCallback);
-  CheckSettingValue(settings, "name", "default");
-  ASSERT_FALSE(settings.StoredValue("name"));
-  ASSERT_NO_FATAL_FAILURE(settings.DropStoredValue("name"));
+  ASSERT_FALSE(settings.RegisterSetting("name", "default", Persistence::kPersisted, DummyCallback));
+  CheckSettingValue(settings, "name", "stored");
 }
 
 TEST_F(SettingsTest, PersistedAndRuntimeOnlyShareOneStore) {

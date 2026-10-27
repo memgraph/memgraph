@@ -22,9 +22,10 @@ namespace memgraph::utils {
 
 Settings::Settings(std::filesystem::path storage_path) : storage_(std::move(storage_path)) {}
 
-void Settings::RegisterSetting(std::string name, const std::string &default_value, Persistence persistence,
-                               OnChangeCallback callback, Validation validation) {
-  std::lock_guard settings_guard{settings_lock_};
+std::optional<std::string> Settings::RegisterSetting(std::string name, const std::string &default_value,
+                                                     Persistence persistence, OnChangeCallback callback,
+                                                     Validation validation) {
+  const std::scoped_lock settings_guard{settings_lock_};
   MG_ASSERT(
       validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.", name);
 
@@ -35,28 +36,28 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
                                                     .validation = std::move(validation)});
   MG_ASSERT(inserted, "Setting '{}' is already registered", name);
 
+  auto stored = storage_.Get(name);
   switch (persistence) {
     case Persistence::kPersisted: {
-      if (const auto stored = storage_.Get(name); stored) {
+      if (stored) {
         it->second.value = *stored;
       } else {
         MG_ASSERT(storage_.Put(name, default_value), "Failed to register a setting");
       }
-      break;
+      return std::nullopt;
     }
     case Persistence::kRuntimeOnly: {
-      if (storage_.Get(name)) {
+      if (stored) {
         MG_ASSERT(storage_.Delete(name), "Failed to delete a stale setting");
       }
-      break;
+      return stored;
     }
-    case Persistence::kDeprecatedRestore:
-      break;
   }
+  return std::nullopt;
 }
 
 std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {
-  std::shared_lock settings_guard{settings_lock_};
+  const std::shared_lock settings_guard{settings_lock_};
   const auto it = settings_.find(setting_name);
   if (it == settings_.end()) return std::nullopt;
   return it->second.value;
@@ -64,7 +65,7 @@ std::optional<std::string> Settings::GetValue(const std::string &setting_name) c
 
 bool Settings::SetValue(const std::string &setting_name, const std::string &new_value) {
   const auto settings_change_callback = std::invoke([&, this]() -> std::optional<OnChangeCallback> {
-    std::lock_guard settings_guard{settings_lock_};
+    const std::scoped_lock settings_guard{settings_lock_};
     const auto it = settings_.find(setting_name);
     if (it == settings_.end()) return std::nullopt;
 
@@ -89,7 +90,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 }
 
 void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
-  const std::lock_guard settings_guard{settings_lock_};
+  const std::scoped_lock settings_guard{settings_lock_};
   const auto it = settings_.find(setting_name);
   if (it == settings_.end()) {
     spdlog::error("SetValueForce called for unregistered setting '{}'", setting_name);
@@ -104,7 +105,7 @@ void Settings::SetValueForce(const std::string &setting_name, const std::string 
 }
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
-  std::shared_lock settings_guard{settings_lock_};
+  const std::shared_lock settings_guard{settings_lock_};
 
   std::vector<std::pair<std::string, std::string>> settings;
   settings.reserve(settings_.size());
@@ -113,21 +114,6 @@ std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
   }
   std::ranges::sort(settings);
   return settings;
-}
-
-std::optional<std::string> Settings::StoredValue(const std::string &setting_name) const {
-  const std::shared_lock settings_guard{settings_lock_};
-  return storage_.Get(setting_name);
-}
-
-void Settings::DropStoredValue(const std::string &setting_name) {
-  const std::scoped_lock settings_guard{settings_lock_};
-  const auto it = settings_.find(setting_name);
-  MG_ASSERT(it != settings_.end() && it->second.persistence != Persistence::kPersisted,
-            "Only a non-persisted setting can drop its stored value");
-  if (!storage_.Delete(setting_name)) {
-    spdlog::error("Failed to delete the stored value of setting '{}'", setting_name);
-  }
 }
 
 }  // namespace memgraph::utils

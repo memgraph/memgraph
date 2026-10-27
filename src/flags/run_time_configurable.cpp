@@ -340,23 +340,18 @@ namespace memgraph::flags::run_time {
 void Initialize(utils::Settings &settings) {
   // Run-time changes never survive a restart; the flag is the only durable source of a value.
   constexpr auto kRuntimeOnly = utils::Settings::Persistence::kRuntimeOnly;
-  // Settings that older versions restored from the data directory keep doing so for one deprecation release, with a
-  // warning. Afterwards they become kRuntimeOnly.
-  constexpr auto kDeprecatedRestore = utils::Settings::Persistence::kDeprecatedRestore;
 
   /**
    * @brief Helper function that registers a run-time flag
    *
    * @param flag - GFlag name
    * @param key - Settings key used to store the flag
-   * @param persistence - how the setting relates to the on-disk store
    * @param post_update - user defined callback executed post flag update
    * @param validator - user defined value correctness checker
    */
   auto register_flag = [&](
                            const std::string &flag,
                            const std::string &key,
-                           utils::Settings::Persistence persistence,
                            std::function<void(const std::string &)> post_update = [](auto) {},
                            utils::Settings::Validation validator =
                                [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
@@ -370,28 +365,19 @@ void Initialize(utils::Settings &settings) {
       post_update(val);
     };
     // Register setting
-    settings.RegisterSetting(key, info.default_value, persistence, callback, std::move(validator));
-
-    if (persistence == kDeprecatedRestore) {
-      if (!info.is_default) {
-        // The flag carries the value now; the leftover from an older version is obsolete.
-        settings.DropStoredValue(key);
-      } else if (const auto stored = settings.StoredValue(key); stored && *stored != info.current_value) {
-        auto cli_flag = flag;
-        std::ranges::replace(cli_flag, '_', '-');
-        spdlog::warn(
-            "Setting '{}' was restored from the data directory. Restoring run-time settings across restarts is "
-            "deprecated and will be removed in a future release; pass --{}={} to keep this value.",
-            key,
-            cli_flag,
-            *stored);
-        try {
-          settings.SetValue(key, *stored);
-          return;
-        } catch (const utils::BasicException &e) {
-          spdlog::warn("Ignoring the stored value of setting '{}': {}", key, e.what());
-        }
-      }
+    const auto discarded =
+        settings.RegisterSetting(key, info.default_value, kRuntimeOnly, callback, std::move(validator));
+    if (discarded && *discarded != info.current_value) {
+      // Older versions restored this value from the data directory; the flag is the only durable source now.
+      auto cli_flag = flag;
+      std::ranges::replace(cli_flag, '_', '-');
+      spdlog::warn(
+          "Setting '{}' is no longer restored from the data directory; its stored value '{}' was discarded. Pass "
+          "--{}={} to keep it.",
+          key,
+          *discarded,
+          cli_flag,
+          *discarded);
     }
     settings.SetValue(key, info.current_value);
   };
@@ -399,12 +385,12 @@ void Initialize(utils::Settings &settings) {
   /*
    * Register bolt server name settings
    */
-  register_flag(kServerNameGFlagsKey, kServerNameSettingKey, kDeprecatedRestore);
+  register_flag(kServerNameGFlagsKey, kServerNameSettingKey);
 
   /*
    * Register query timeout
    */
-  register_flag(kQueryTxGFlagsKey, kQueryTxSettingKey, kRuntimeOnly, [&](const std::string &val) {
+  register_flag(kQueryTxGFlagsKey, kQueryTxSettingKey, [&](const std::string &val) {
     execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
   });
 
@@ -414,7 +400,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kHopsLimitPartialResultsGFlagsKey,
       kHopsLimitPartialResultsSettingKey,
-      kDeprecatedRestore,
       [](const std::string &val) { hops_limit_partial_results = val == "true"; },
       ValidBoolStr);
 
@@ -424,7 +409,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kLogLevelGFlagsKey,
       kLogLevelSettingKey,
-      kRuntimeOnly,
       [](const std::string &val) {
         const auto ll_enum = ToLLEnum(val);
         spdlog::set_level(ll_enum);
@@ -443,7 +427,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kLogToStderrGFlagsKey,
       kLogToStderrSettingKey,
-      kRuntimeOnly,
       [](const std::string &val) {
         if (val == "true") {
           TurnOnStdErr();
@@ -459,7 +442,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kCartesianProductEnabledGFlagsKey,
       kCartesianProductEnabledSettingKey,
-      kRuntimeOnly,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; },
       ValidBoolStr);
 
@@ -469,7 +451,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kDebugQueryPlansGFlagsKey,
       kDebugQueryPlansSettingKey,
-      kRuntimeOnly,
       [](const std::string &val) { debug_query_plans_ = val == "true"; },
       ValidBoolStr);
 
@@ -479,7 +460,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kStorageGcAggressiveGFlagsKey,
       kStorageGcAggressiveSettingKey,
-      kDeprecatedRestore,
       [](const std::string &val) { storage_gc_aggressive_ = val == "true"; },
       ValidBoolStr);
 
@@ -489,7 +469,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kOmitVectorIndexPropertiesOnReturnGFlagsKey,
       kOmitVectorIndexPropertiesOnReturnSettingKey,
-      kDeprecatedRestore,
       [](const std::string &val) { omit_vector_index_properties_on_return_ = val == "true"; },
       ValidBoolStr);
 
@@ -499,7 +478,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kTimezoneGFlagsKey,
       kTimezoneSettingKey,
-      kDeprecatedRestore,
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
         utils::SetTimezone(timezone_);   // Propagate to utils layer
@@ -536,7 +514,6 @@ void Initialize(utils::Settings &settings) {
     register_flag(
         kSnapshotPeriodicGFlagsKey,
         kSnapshotPeriodicSettingKey,
-        kRuntimeOnly,
         [](std::string_view val) {
           try {
             const auto period = ValidPeriod(val);
@@ -558,15 +535,14 @@ void Initialize(utils::Settings &settings) {
   }
 
   // AWS Section
-  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kDeprecatedRestore);
-  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kDeprecatedRestore);
-  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kDeprecatedRestore);
-  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kDeprecatedRestore);
+  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey);
+  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey);
+  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey);
+  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey);
 
   register_flag(
       kFileDownloadConnTimeoutSecGFlagsKey,
       kFileDownloadConnTimeoutSecSettingKey,
-      kDeprecatedRestore,
       [](std::string_view val) {
         file_download_conn_timeout_sec_ = utils::ParseStringToUint<uint64_t>(val);  // throw exception if not ok
       },
@@ -587,7 +563,6 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kStorageAccessTimeoutSecGFlagsKey,
       kStorageAccessTimeoutSecSettingKey,
-      kRuntimeOnly,
       [](std::string_view val) {
         storage_access_timeout_sec_.store(utils::ParseStringToUint<uint64_t>(val), std::memory_order_release);
       },
@@ -606,21 +581,18 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kLogMinDurationMsGFlagsKey,
       std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
-      kDeprecatedRestore,
       [](const std::string &val) { log_min_duration_ms_.store(utils::ParseInt(val), std::memory_order_release); },
       ValidInt64Str);
 
   register_flag(
       kLogFailedQueriesGFlagsKey,
       std::string{memgraph::flags::run_time::kLogFailedQueriesKey},
-      kDeprecatedRestore,
       [](const std::string &val) { log_failed_queries_.store(val == "true", std::memory_order_release); },
       ValidBoolStr);
 
   register_flag(
       kLogQueryPlanGFlagsKey,
       std::string{memgraph::flags::run_time::kLogQueryPlanKey},
-      kDeprecatedRestore,
       [](const std::string &val) { log_query_plan_.store(val == "true", std::memory_order_release); },
       ValidBoolStr);
 }

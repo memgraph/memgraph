@@ -39,14 +39,12 @@ struct Settings {
     kPersisted,
     /// Never touches the store; a leftover entry written by an older version is deleted at registration.
     kRuntimeOnly,
-    /// Never written to the store; a leftover entry is kept so the caller can apply it once at start.
-    /// Deprecated. This mode and the leftover accessors are removed in the release after the deprecation release.
-    kDeprecatedRestore,
   };
 
   explicit Settings(std::filesystem::path storage_path);
 
-  void RegisterSetting(
+  /// Returns the leftover store value that a run-time only registration discarded, if there was one.
+  std::optional<std::string> RegisterSetting(
       std::string name, const std::string &default_value, Persistence persistence, OnChangeCallback callback,
       Validation validation = [](auto) -> ValidatorResult { return {}; });
   std::optional<std::string> GetValue(const std::string &setting_name) const;
@@ -55,11 +53,6 @@ struct Settings {
   // Use only for internal system writes (e.g. persisting the winning license back to storage).
   void SetValueForce(const std::string &setting_name, const std::string &new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
-
-  /// Value left in the store by an older version for a setting that is no longer persisted.
-  std::optional<std::string> StoredValue(const std::string &setting_name) const;
-  /// Deletes the leftover store entry of a setting that is no longer persisted.
-  void DropStoredValue(const std::string &setting_name);
 
  private:
   struct Entry {
