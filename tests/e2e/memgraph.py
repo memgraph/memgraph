@@ -338,7 +338,38 @@ class MemgraphInstanceRunner:
                     state = fields["stat"].rpartition(")")[2].split()
                     print(f"{tid}\t{fields['comm']}\t{state[0] if state else '?'}\t{fields['wchan']}")
 
+            # wchan only says a thread waits on a futex; the user-space stacks say on which lock.
+            if shutil.which("gdb"):
+                try:
+                    bt = subprocess.run(
+                        ["gdb", "-p", str(self.proc_mg.pid), "-batch", "-ex", "thread apply all bt"],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    print("\ngdb thread apply all bt")
+                    print(bt.stdout)
+                    print(bt.stderr)
+                except Exception as e:
+                    print(f"\ngdb backtrace failed: {e}")
+
+        self._print_log_tail()
         print("=" * 80 + "\n")
+
+    def _print_log_tail(self, num_lines=200):
+        try:
+            log_file = self.args[self.args.index("--log-file") + 1]
+        except (TypeError, ValueError, IndexError):
+            log_file = next((arg.split("=", 1)[1] for arg in self.args or [] if arg.startswith("--log-file=")), None)
+        if not log_file or not os.path.exists(log_file):
+            return
+        try:
+            with open(log_file, "r", errors="replace") as f:
+                lines = f.readlines()[-num_lines:]
+        except Exception:
+            return
+        print(f"\nlast {len(lines)} lines of {log_file}")
+        print("".join(lines))
 
     # If the method with socket is ok, remove this TODO: (andi)
     def wait_for_succesful_connection(self, delay=0.1):
