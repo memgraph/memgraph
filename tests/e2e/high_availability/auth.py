@@ -1883,9 +1883,11 @@ def test_internal_system_user_doesnt_inherit_previous_users_resources(test_name,
     )
     try:
         with driver.session() as session:
-            session.run("RETURN 1").consume()
+            [connection_id] = [r["session_id"] for r in session.run("SHOW SESSIONS") if r["username"] == "alice"]
         with driver.session(auth=(INTERNAL_SYSTEM_USER, INTERNAL_SYSTEM_USER_PASSWORD)) as session:
-            session.run("RETURN 1").consume()
+            sessions = {r["session_id"]: r["username"] for r in session.run("SHOW SESSIONS")}
+        # The pooled connection was re-authenticated, not replaced: a new connection would free alice's slot anyway.
+        assert sessions.get(connection_id) == INTERNAL_SYSTEM_USER
         # The connection, now the internal system user's, must not hold alice's only session slot.
         assert connect_error(STANDALONE_DATA_PORT, username="alice", password="alice") is None
     finally:
