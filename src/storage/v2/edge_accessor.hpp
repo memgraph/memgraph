@@ -91,10 +91,8 @@ class EdgeAccessor final {
 
   /// Reads a fixed set of properties into `out`, one slot per property, in a single pass over the
   /// record. A property the edge does not carry reads as Null rather than being left out, so the
-  /// caller's slots line up with `ordered_properties` whatever the edge holds.
-  ///
-  /// `ordered_properties` has to be in the order the record holds its properties, which is the order
-  /// their ids sort. A caller that keeps a buffer between rows reads a row without allocating.
+  /// caller's slots line up with `ordered_properties` whatever the edge holds. A caller that keeps a
+  /// buffer between rows reads a row without allocating.
   ///
   /// Configured without properties on edges, every slot reads Null, which is what asking for one at
   /// a time answers.
