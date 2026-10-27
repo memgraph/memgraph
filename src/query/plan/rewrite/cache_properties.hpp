@@ -96,8 +96,7 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         auto const &symbol = symbol_table_->at(*identifier);
         // A vertex and an edge each keep their properties in a record the cursor can read in one pass. The cursor
         // fills its slots with Null for anything else, so an untyped symbol would silently lose its properties.
-        auto const reads_a_record = symbol.type() == Symbol::Type::VERTEX || symbol.type() == Symbol::Type::EDGE;
-        if (!reads_a_record) return;
+        if (!symbol.BindsOneRecord()) return;
         auto found = std::ranges::find_if(gathered_, [&symbol](auto const &g) { return g.symbol == symbol; });
         if (found == gathered_.end()) {
           gathered_.push_back(Gathered{.symbol = symbol, .properties = {}});
