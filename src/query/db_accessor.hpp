@@ -1096,6 +1096,11 @@ class DbAccessor final {
 
   VerticesIterable Vertices(storage::View view) {
     if (branch_ctx_ != nullptr) {
+      // No deletes and no branch-native vertices (skiplist size counts uncommitted/un-GC'd ones, so 0 means none
+      // visible to anyone): the union is exactly the fork stream, yielded lazily without the per-vertex merge.
+      if (!branch_ctx_->MayHaveAnyVertexDeleted() && accessor_->ApproximateVertexCount() == 0) {
+        return VerticesIterable(branch_ctx_->historical().Vertices(storage::View::OLD), branch_ctx_);
+      }
       return VerticesIterable(branch_ctx_->Vertices(view), branch_ctx_);
     }
     return VerticesIterable(accessor_->Vertices(view));

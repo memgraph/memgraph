@@ -1407,6 +1407,26 @@ TEST_F(VersioningGatedTest, BranchTypeConstraintViolationsRaiseAtTheStatement) {
 }
 
 // DELETE of a fork vertex: gone from scans, lookups and aggregates on the branch, untouched on main.
+// Full scan on a branch with no deletes and no native vertices takes the lazy fork-only path; it must still exclude
+// vertices main created after the fork and pick up a native vertex once one exists.
+TEST_F(VersioningGatedTest, BranchFullScanUntouchedBranchIsForkStreamOnly) {
+  faker.Interpret("CREATE (:K {i:1}), (:K {i:2})");
+  Fork();
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n) AS c"), (Rows{{2}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CREATE (:K {i:3})");
+  Fork("c2");
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CREATE (:K {i:4})");
+  faker.Interpret("CHECKOUT BRANCH 'c2'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n) AS c"), (Rows{{3}})) << "post-fork main vertex must not leak";
+
+  faker.Interpret("CREATE (:K {i:5})");
+  EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n) AS c"), (Rows{{4}}));
+}
+
 TEST_F(VersioningGatedTest, BranchDeleteForkVertexIsGoneOnBranchAndPresentOnMain) {
   faker.Interpret("CREATE (:K {i:1}), (:K {i:2}), (:K {i:3})");
   Fork();
