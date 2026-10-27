@@ -5481,8 +5481,20 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
     auto const &input_value = frame[group.input_symbol];
     auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
-    if (!reads_a_vertex && input_value.type() != TypedValue::Type::Edge) {
-      // Only this group's slots. A row where one symbol is Null says nothing about the others.
+    auto const reads_a_record = reads_a_vertex || input_value.type() == TypedValue::Type::Edge;
+
+    if (!reads_a_record && !input_value.IsNull()) {
+      // The symbol is typed as a node or a relationship but holds something else, which a variable
+      // length match inside an EXISTS, a COUNT or a COLLECT does: it binds the list of relationships
+      // it matched. A lookup refuses that rather than answering, so reading a set of them refuses
+      // too, in the same words.
+      throw QueryRuntimeException(
+          "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+    }
+
+    if (!reads_a_record) {
+      // Null, from an OPTIONAL MATCH that found nothing. Only this group's slots: a row where one
+      // symbol is Null says nothing about the others.
       for (const auto &cached : group.properties) {
         frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
       }
