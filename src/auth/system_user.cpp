@@ -81,7 +81,7 @@ InternalSystemUserLogin AuthenticateInternalSystemUser(std::string_view username
     spdlog::warn("Couldn't authenticate the internal system user {}: the password is not correct.", username);
     return InternalSystemUserLogin::kRejected;
   }
-  spdlog::info("The internal system user {} logged in.", username);
+  spdlog::debug("The internal system user {} logged in.", username);
   return InternalSystemUserLogin::kAccepted;
 }
 
