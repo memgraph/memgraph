@@ -63,13 +63,10 @@ class VersionStore {
   // Starts persisting to `file`. Call before the first CreateBranch; does not read or write the file itself.
   void AttachLedger(std::filesystem::path file);
 
-  // Parsed ledger contents (for recovery); nullopt if no ledger is attached or no file exists yet.
-  std::expected<std::optional<LedgerContents>, std::string> Load() const;
-
   // Startup only, before any other call. Installs `contents` as the registry without writing the ledger: the branch at
   // index i gets `pins[i]` as its runtime fork_ts (already registered with the storage by the caller; DropBranch
-  // releases it) and keeps its recorded fork_ts as `ledger_fork_ts`, so later ledger writes persist the recorded value.
-  // Restores next_number. `pins` must have exactly one entry per branch.
+  // releases it) and keeps its recorded fork_ts as `recorded_fork_ts`, so later ledger writes persist the recorded
+  // value. Restores next_number. `pins` must have exactly one entry per branch.
   void Restore(const LedgerContents &contents, std::span<const uint64_t> pins);
 
   // Startup only, before any other call. Discards unrecoverable branches: persists an empty registry that keeps
@@ -82,11 +79,8 @@ class VersionStore {
                                                       std::optional<std::string> description);
 
   // Returns false, changing nothing, if `name` doesn't exist or has an attached session. Otherwise releases the fork
-  // pin and retires the branch's core.
-  bool DropBranch(std::string_view name);
-
-  // As DropBranch, but a ledger write failure is reported as an error (nothing is dropped) instead of `false`.
-  std::expected<bool, std::string> TryDropBranch(std::string_view name);
+  // pin and retires the branch's core. A ledger write failure is reported as an error (nothing is dropped).
+  std::expected<bool, std::string> DropBranch(std::string_view name);
 
   // Records the branch's gid floors in the ledger the first time they are known; later calls are no-ops. Fails
   // only on a ledger write failure. Unknown `number` is a no-op.

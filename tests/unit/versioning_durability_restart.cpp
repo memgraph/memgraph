@@ -274,7 +274,7 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     ASSERT_EQ(db.version_store()->List().size(), 2u);
 
-    ASSERT_TRUE(db.version_store()->DropBranch("b1"));
+    ASSERT_TRUE(db.version_store()->DropBranch("b1").value_or(false));
     auto ledger = ReadLedger();
     ASSERT_TRUE(ledger.has_value());
     ASSERT_EQ(ledger->branches.size(), 1u);
@@ -364,7 +364,7 @@ TEST_F(VersioningDurabilityRestartTest, LegacyBranchDirectoryIsRemovedAndNewBran
   auto b3 = db.version_store()->CreateBranch("b3", "main", std::nullopt);
   ASSERT_TRUE(b3.has_value());
   EXPECT_EQ(b3->number, 4u);
-  for (const auto *name : {"b1", "b2", "b3"}) ASSERT_TRUE(db.version_store()->DropBranch(name));
+  for (const auto *name : {"b1", "b2", "b3"}) ASSERT_TRUE(db.version_store()->DropBranch(name).value_or(false));
   EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
 }
 
@@ -558,7 +558,7 @@ TEST_F(VersioningDurabilityRestartTest, DroppingTheLastBranchLetsRetentionCleanU
   EXPECT_TRUE(Mem(db)->RetentionFloor().has_value());
 
   const auto wal_files_with_branch = CountFiles("wal");
-  ASSERT_TRUE(db.version_store()->DropBranch("b"));
+  ASSERT_TRUE(db.version_store()->DropBranch("b").value_or(false));
   EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
   SetV1(db, gids, 4);
   Snapshot(db);

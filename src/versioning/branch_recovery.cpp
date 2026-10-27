@@ -11,7 +11,6 @@
 
 #include "versioning/branch_recovery.hpp"
 
-#include <fcntl.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -42,6 +41,7 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/version_store.hpp"
@@ -67,14 +67,6 @@ bool HasRegularFiles(const std::filesystem::path &dir) {
 }
 
 constexpr std::string_view kTornSuffix = ".torn";
-
-void SyncDirectory(const std::filesystem::path &dir) {
-  const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (fd < 0) throw utils::BasicException("Cannot open directory '{}' to sync it.", dir.string());
-  const int rc = ::fsync(fd);
-  ::close(fd);
-  if (rc != 0) throw utils::BasicException("Cannot fsync directory '{}'.", dir.string());
-}
 
 // The branch's WAL files, oldest first. A diff engine writes a new file (and a new UUID) per run, and the clock is
 // moved past every replayed timestamp before the next run writes, so the first timestamp orders files across runs.
@@ -120,7 +112,7 @@ std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
       throw utils::BasicException(
           "Cannot move the torn branch WAL '{}' aside: {}.", newest_unreadable.string(), ec.message());
     }
-    SyncDirectory(dir);
+    if (auto synced = utils::SyncDirectory(dir); !synced) throw utils::BasicException("{}", synced.error());
     spdlog::warn("Branch WAL '{}' is a torn crash tail with no complete transaction; skipped and renamed to '{}'.",
                  newest_unreadable.string(),
                  torn.string());
@@ -604,7 +596,11 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
             name,
             core.error(),
             (wal_dir.parent_path()).string());
-        if (!store.DropBranch(name)) spdlog::warn("Graph Versioning: branch '{}' could not be dropped.", name);
+        if (auto dropped = store.DropBranch(name); !dropped) {
+          spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, dropped.error());
+        } else if (!*dropped) {
+          spdlog::warn("Graph Versioning: branch '{}' could not be dropped.", name);
+        }
         continue;
       }
       recovered.push_back(std::move(*core));

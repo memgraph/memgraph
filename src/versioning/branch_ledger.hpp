@@ -46,8 +46,6 @@ class BranchLedger {
   // `file` is the ledger file; its parent directory is created on the first Write.
   explicit BranchLedger(std::filesystem::path file);
 
-  const std::filesystem::path &file() const { return file_; }
-
   // On failure the previous ledger (if any) is untouched.
   std::expected<void, std::string> Write(const LedgerContents &contents) const;
 

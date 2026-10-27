@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <expected>
 #include <fstream>
 #include <mutex>
 #include <ranges>
@@ -1068,6 +1069,23 @@ size_t NonConcurrentOutputFile::GetSize() {
   // For now, lseek should be good enough. If at any point this proves to
   // be a bottleneck, fstat should be considered.
   return SeekFile(Position::RELATIVE_TO_END, 0) + buffer_position_;
+}
+
+std::expected<void, std::string> SyncDirectory(const std::filesystem::path &dir) {
+  const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (fd < 0) {
+    return std::unexpected("cannot open directory '" + dir.string() + "': " + std::strerror(errno));
+  }
+  int rc = 0;
+  do {
+    rc = ::fsync(fd);
+  } while (rc != 0 && errno == EINTR);
+  const int fsync_errno = errno;
+  ::close(fd);  // a close failure after a successful fsync loses nothing
+  if (rc != 0) {
+    return std::unexpected("cannot fsync directory '" + dir.string() + "': " + std::strerror(fsync_errno));
+  }
+  return {};
 }
 
 }  // namespace memgraph::utils

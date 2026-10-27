@@ -13,7 +13,6 @@
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <zlib.h>
 
 #include <cerrno>
 #include <cstdio>
@@ -26,6 +25,7 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
+#include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::versioning {
@@ -35,8 +35,9 @@ namespace {
 constexpr std::string_view kMagic = "MGBL";
 
 uint32_t Crc32(std::string_view data) {
-  return static_cast<uint32_t>(
-      ::crc32(::crc32(0L, Z_NULL, 0), reinterpret_cast<const Bytef *>(data.data()), static_cast<uInt>(data.size())));
+  utils::CrcAccumulator crc;
+  crc.Update(reinterpret_cast<const unsigned char *>(data.data()), static_cast<uint32_t>(data.size()));
+  return crc.Value();
 }
 
 std::string Errno(std::string_view what, const std::filesystem::path &path) {
@@ -91,6 +92,7 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
       lb.info.number = b.at("number").get<uint64_t>();
       lb.info.parent = b.at("parent").get<std::string>();
       lb.info.fork_ts = b.at("fork_ts").get<uint64_t>();
+      lb.info.recorded_fork_ts = lb.info.fork_ts;
       if (auto it = b.find("description"); it != b.end()) lb.info.description = it->get<std::string>();
       if (auto it = b.find("vertex_gid_floor"); it != b.end()) lb.info.vertex_gid_floor = it->get<uint64_t>();
       if (auto it = b.find("edge_gid_floor"); it != b.end()) lb.info.edge_gid_floor = it->get<uint64_t>();
@@ -149,9 +151,9 @@ std::expected<void, std::string> BranchLedger::Write(const LedgerContents &conte
 
   // The rename is only durable once the directory entry is.
   const auto sync_dir = dir.empty() ? std::filesystem::path{"."} : dir;
-  Fd dir_fd{::open(sync_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
-  if (dir_fd.get() < 0) return std::unexpected("Branch ledger: " + Errno("cannot open directory", sync_dir));
-  if (::fsync(dir_fd.get()) != 0) return std::unexpected("Branch ledger: " + Errno("cannot fsync directory", sync_dir));
+  if (auto synced = utils::SyncDirectory(sync_dir); !synced) {
+    return std::unexpected("Branch ledger: " + synced.error());
+  }
   return {};
 }
 

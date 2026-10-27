@@ -980,7 +980,7 @@ TEST_F(VersioningCrashRecoveryTest, PartiallyWrittenBranchWalHeaderRecoversEmpty
 // ---- 5. Restarting twice with no writes in between ---------------------------------------------------------------
 
 // Expected to pass: replay runs under SuppressWalScope (branch_recovery.cpp:473), so a restart writes no branch WAL,
-// and the ledger keeps the original fork point (BranchInfo::ledger_fork_ts is what every ledger write persists).
+// and the ledger keeps the original fork point (BranchInfo::recorded_fork_ts is what every ledger write persists).
 TEST_F(VersioningCrashRecoveryTest, RestartingTwiceWithoutWritesIsIdempotent) {
   Scenario s;
   ASSERT_NO_FATAL_FAILURE(BuildScenario(LastTxn::kMixed, s));

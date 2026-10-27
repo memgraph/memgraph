@@ -20,16 +20,17 @@ namespace memgraph::versioning {
 // `number` is never reused, even across drops (main is implicit version 1, the first branch is 2).
 // `fork_ts` is the GC fork-pin timestamp, held until the branch is dropped.
 // The gid floors are unset until the branch's core is first built.
-// `ledger_fork_ts` is set only on a branch restored at startup: the original `fork_ts` as recorded in the ledger, while
-// `fork_ts` is then the pin taken on the rebuilt history. Every ledger write persists `ledger_fork_ts` when present.
+// `recorded_fork_ts` is the fork_ts as recorded in the ledger: equal to `fork_ts` for a branch created in this run, but
+// for a branch restored at startup `fork_ts` is the pin taken on the rebuilt history. Every ledger write and the
+// retention floor use `recorded_fork_ts`; visibility uses `fork_ts`.
 struct BranchInfo {
   uint64_t number;
   std::string parent;
   uint64_t fork_ts;
+  uint64_t recorded_fork_ts;
   std::optional<std::string> description;
   std::optional<uint64_t> vertex_gid_floor;
   std::optional<uint64_t> edge_gid_floor;
-  std::optional<uint64_t> ledger_fork_ts;
 };
 
 }  // namespace memgraph::versioning

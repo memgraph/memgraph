@@ -36,8 +36,7 @@ void VersionStore::PublishRetentionFloor() const {
   {
     std::lock_guard guard{lock_};
     for (const auto &[_, info] : branches_) {
-      const auto recorded = info.ledger_fork_ts.value_or(info.fork_ts);
-      oldest_fork_ts = oldest_fork_ts ? std::min(*oldest_fork_ts, recorded) : recorded;
+      oldest_fork_ts = oldest_fork_ts ? std::min(*oldest_fork_ts, info.recorded_fork_ts) : info.recorded_fork_ts;
     }
   }
   if (!oldest_fork_ts) return retention_floor_callback_(std::nullopt);
@@ -49,20 +48,13 @@ void VersionStore::AttachLedger(std::filesystem::path file) {
   ledger_.emplace(std::move(file));
 }
 
-std::expected<std::optional<LedgerContents>, std::string> VersionStore::Load() const {
-  // ledger_ is only set before use (AttachLedger contract), so reading it here needs no lock.
-  if (!ledger_) return std::optional<LedgerContents>{};
-  return ledger_->Read();
-}
-
 LedgerContents VersionStore::SnapshotLocked() const {
   LedgerContents out;
   out.next_number = next_number_;
   out.branches.reserve(branches_.size());
   for (const auto &[name, info] : branches_) {
     auto &entry = out.branches.emplace_back(name, info);
-    if (info.ledger_fork_ts) entry.info.fork_ts = *info.ledger_fork_ts;
-    entry.info.ledger_fork_ts.reset();
+    entry.info.fork_ts = info.recorded_fork_ts;
   }
   std::ranges::sort(out.branches, std::less{}, [](const auto &b) { return b.info.number; });
   return out;
@@ -86,7 +78,6 @@ void VersionStore::Restore(const LedgerContents &contents, std::span<const uint6
     for (size_t i = 0; i < pins.size(); ++i) {
       const auto &recorded = contents.branches[i];
       BranchInfo info = recorded.info;
-      info.ledger_fork_ts = recorded.info.fork_ts;
       info.fork_ts = pins[i];
       branches_.emplace(recorded.name, std::move(info));
     }
@@ -127,6 +118,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
       .number = next.next_number,
       .parent = std::move(parent),
       .fork_ts = fork_ts,
+      .recorded_fork_ts = fork_ts,
       .description = std::move(description),
   };
 
@@ -149,12 +141,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   return info;
 }
 
-bool VersionStore::DropBranch(std::string_view name) {
-  auto res = TryDropBranch(name);
-  return res.value_or(false);
-}
-
-std::expected<bool, std::string> VersionStore::TryDropBranch(std::string_view name) {
+std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name) {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;

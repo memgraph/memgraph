@@ -181,7 +181,7 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   auto b = store->CreateBranch("b", "a", std::nullopt);
   ASSERT_TRUE(b.has_value());
 
-  auto loaded = store->Load();
+  auto loaded = reader.Read();
   ASSERT_TRUE(loaded.has_value() && loaded->has_value());
   ASSERT_EQ((*loaded)->branches.size(), 2);
   EXPECT_EQ((*loaded)->next_number, 4);
@@ -192,15 +192,15 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   ASSERT_TRUE(store->RecordGidFloors(a->number, 7, 9).has_value());
   EXPECT_TRUE(store->RecordGidFloors(a->number, 99, 99).has_value()) << "second call is a no-op";
   EXPECT_EQ(store->Get("a")->vertex_gid_floor, 7);
-  loaded = store->Load();
+  loaded = reader.Read();
   ASSERT_TRUE(loaded.has_value() && loaded->has_value());
   EXPECT_EQ((*loaded)->branches[0].info.vertex_gid_floor, 7);
   EXPECT_EQ((*loaded)->branches[0].info.edge_gid_floor, 9);
 
-  auto dropped = store->TryDropBranch("a");
+  auto dropped = store->DropBranch("a");
   ASSERT_TRUE(dropped.has_value());
   EXPECT_TRUE(*dropped);
-  loaded = store->Load();
+  loaded = reader.Read();
   ASSERT_TRUE(loaded.has_value() && loaded->has_value());
   ASSERT_EQ((*loaded)->branches.size(), 1);
   EXPECT_EQ((*loaded)->branches[0].name, "b");
@@ -220,7 +220,7 @@ TEST_F(BranchLedgerTest, LedgerWriteFailureLeavesNoPinOrBranch) {
   EXPECT_FALSE(store->Exists("b"));
   EXPECT_EQ(live_.size(), live_before);
 
-  auto dropped = store->TryDropBranch("a");
+  auto dropped = store->DropBranch("a");
   EXPECT_FALSE(dropped.has_value());
   EXPECT_TRUE(store->Exists("a"));
   EXPECT_EQ(live_.size(), live_before);

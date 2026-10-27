@@ -103,7 +103,7 @@ TEST_F(VersionStoreTest, MonotonicNumberingNeverReusedAcrossDrop) {
   ASSERT_TRUE(a.has_value());
   EXPECT_EQ(a->number, 2);
 
-  ASSERT_TRUE(store->DropBranch("a"));
+  ASSERT_TRUE(store->DropBranch("a").value_or(false));
 
   auto b = store->CreateBranch("b", "main", std::nullopt);
   ASSERT_TRUE(b.has_value());
@@ -133,7 +133,7 @@ TEST_F(VersionStoreTest, DropUnknownBranchReturnsFalse) {
   auto live = store->CreateBranch("live", "main", std::nullopt);
   ASSERT_TRUE(live.has_value());
 
-  EXPECT_FALSE(store->DropBranch("nope"));
+  EXPECT_FALSE(store->DropBranch("nope").value_or(false));
   EXPECT_TRUE(store->Exists("live"));
   EXPECT_EQ(pins_.live_, std::vector<uint64_t>{live->fork_ts});
   EXPECT_TRUE(pins_.released_.empty());
@@ -149,7 +149,7 @@ TEST_F(VersionStoreTest, PinAcquiredOnCreateAndReleasedOnDrop) {
   EXPECT_EQ(pins_.live_.front(), created->fork_ts);
   EXPECT_TRUE(pins_.released_.empty());
 
-  ASSERT_TRUE(store->DropBranch("feature"));
+  ASSERT_TRUE(store->DropBranch("feature").value_or(false));
   EXPECT_TRUE(pins_.live_.empty());
   ASSERT_EQ(pins_.released_.size(), 1);
   EXPECT_EQ(pins_.released_.front(), created->fork_ts);
@@ -166,15 +166,15 @@ TEST_F(VersionStoreTest, CheckoutIsCountedAndBlocksDropUntilEverySessionDetached
   ASSERT_TRUE(store->TryAcquireCheckout("feature").has_value()) << "a second session may attach to the same branch";
   EXPECT_EQ(store->CheckoutCount("feature"), 2U);
 
-  EXPECT_FALSE(store->DropBranch("feature"));
+  EXPECT_FALSE(store->DropBranch("feature").value_or(false));
 
   store->ReleaseCheckout("feature");
   EXPECT_EQ(store->CheckoutCount("feature"), 1U);
-  EXPECT_FALSE(store->DropBranch("feature")) << "one session is still attached";
+  EXPECT_FALSE(store->DropBranch("feature").value_or(false)) << "one session is still attached";
 
   store->ReleaseCheckout("feature");
   EXPECT_EQ(store->CheckoutCount("feature"), 0U);
-  EXPECT_TRUE(store->DropBranch("feature"));
+  EXPECT_TRUE(store->DropBranch("feature").value_or(false));
   EXPECT_TRUE(pins_.live_.empty()) << "the fork pin is released exactly once, by the drop";
 }
 
@@ -266,11 +266,11 @@ TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   ASSERT_FALSE(a_core.expired());
   ASSERT_FALSE(b_core.expired());
 
-  ASSERT_TRUE(store->DropBranch("b"));
+  ASSERT_TRUE(store->DropBranch("b").value_or(false));
   EXPECT_TRUE(b_core.expired()) << "dropping a branch must release its cached core";
   EXPECT_FALSE(a_core.expired()) << "dropping b must not retire a's core";
 
-  ASSERT_TRUE(store->DropBranch("a"));
+  ASSERT_TRUE(store->DropBranch("a").value_or(false));
   EXPECT_TRUE(a_core.expired());
 
   auto a2 = store->CreateBranch("a", "main", std::nullopt);

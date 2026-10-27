@@ -9294,7 +9294,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               if (own_attachments != 0) {
                 current_db.SetCurrentVersion(std::nullopt);
               }
-              auto dropped = version_store->TryDropBranch(name);
+              auto dropped = version_store->DropBranch(name);
               if (!dropped) {
                 throw QueryRuntimeException(dropped.error());
               }
