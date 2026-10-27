@@ -12095,16 +12095,14 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   foreign_user_view_.store(user_or_role_, std::memory_order_release);
-  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                        : std::string{});
+  RefreshLogUser();
 }
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   foreign_user_view_.store(user_or_role_, std::memory_order_release);
-  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                        : std::string{});
+  RefreshLogUser();
 }
 #endif
 
@@ -12114,6 +12112,7 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
   foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_), std::memory_order_release);
+  RefreshLogUser();
 }
 
 void Interpreter::ResetUser() {

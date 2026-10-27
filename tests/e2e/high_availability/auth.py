@@ -11,6 +11,7 @@
 
 import base64
 import concurrent
+import glob
 import os
 import subprocess
 import sys
@@ -1791,6 +1792,30 @@ def test_internal_system_user_on_data_instance_without_users(test_name, tmp_path
     # ...but the internal system user with a wrong password is not.
     assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER, password="wrong") is not None
     assert connect_error(STANDALONE_DATA_PORT, username=INTERNAL_SYSTEM_USER.upper(), password="wrong") is not None
+
+
+def failed_query_log_users(test_name):
+    """The user= field of every [failed-query] line instance_1 has logged."""
+    # The log is a daily file, so its name carries the date: instance_1.log is written as instance_1_<date>.log.
+    stem = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name), "instance_1")
+    marker = "[failed-query] user="
+    users = []
+    for path in glob.glob(f"{glob.escape(stem)}*.log"):
+        with open(path) as f:
+            users += [line.split(marker, 1)[1].split(" ", 1)[0] for line in f if marker in line]
+    return users
+
+
+def test_internal_system_user_named_in_failed_query_log(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    cursor = internal_system_user_cursor(STANDALONE_DATA_PORT)
+    # Every RUN reconfigures the session's principal, which has no username; the logged name must survive it.
+    execute_and_fetch_all(cursor, 'SET SESSION SETTING "log.failed_queries" TO "true"')
+    assert query_error(cursor, "THIS IS NOT VALID CYPHER") is not None
+
+    mg_sleep_and_assert([INTERNAL_SYSTEM_USER], lambda: failed_query_log_users(test_name))
 
 
 def test_internal_system_user_on_data_instance_with_users(test_name, tmp_path):
