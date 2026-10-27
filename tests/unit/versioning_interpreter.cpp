@@ -1633,6 +1633,100 @@ TEST_F(VersioningGatedTest, BranchLabelFilterWithPropertyAndLabelWritesInOneQuer
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M RETURN count(n)"), (Rows{{0}}));
 }
 
+// Read-and-write of the same label per row over already-branched vertices: the incremental touched-label cache must
+// see the session's own label writes, removals inside an explicit transaction and their commit.
+TEST_F(VersioningGatedTest, BranchReadAndWriteSameLabelPerRowOverBranchedVertices) {
+  faker.Interpret("UNWIND range(1, 300) AS i CREATE (:Probe {i: i})");
+  Fork();
+
+  faker.Interpret("MATCH (n:Probe) SET n.touched = 1");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen SET n:Seen RETURN count(n)"), (Rows{{300}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen SET n:Seen RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Seen) RETURN count(n)"), (Rows{{300}}));
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:Probe) WHERE n.i <= 100 REMOVE n:Seen");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Seen) RETURN count(n)"), (Rows{{200}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:Seen RETURN count(n)"), (Rows{{200}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen RETURN count(n)"), (Rows{{100}}));
+  faker.Interpret("COMMIT");
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Seen) RETURN count(n)"), (Rows{{200}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen RETURN count(n)"), (Rows{{100}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen AND n.i > 100 RETURN count(n)"), (Rows{{0}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Seen) RETURN count(n)"), (Rows{{0}})) << "main must be untouched";
+}
+
+// HasLabel is exact regardless of the order vertices are probed in (ascending, descending, shuffled).
+TEST_F(VersioningGatedTest, BranchHasLabelExactMembershipInNonGidOrder) {
+  faker.Interpret("UNWIND range(0, 499) AS i CREATE (:Probe {i: i})");
+  Fork();
+  faker.Interpret("MATCH (n:Probe) WHERE n.i % 7 = 3 SET n:L");
+
+  Rows expected;
+  int64_t in_l = 0;
+  for (int64_t i = 0; i < 500; ++i) {
+    expected.push_back({i, i % 7 == 3 ? 1 : 0});
+    in_l += i % 7 == 3 ? 1 : 0;
+  }
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) RETURN n.i, CASE WHEN n:L THEN 1 ELSE 0 END ORDER BY n.i"), expected);
+
+  auto desc = IntRows(faker, "MATCH (n:Probe) RETURN n.i, CASE WHEN n:L THEN 1 ELSE 0 END ORDER BY n.i DESC");
+  std::ranges::reverse(desc);
+  EXPECT_EQ(desc, expected);
+
+  std::string ids;
+  Rows shuffled_expected;
+  for (int64_t k = 0; k < 500; ++k) {
+    const int64_t id = (k * 37) % 500;
+    ids += (k == 0 ? "" : ",") + std::to_string(id);
+    shuffled_expected.push_back({id, id % 7 == 3 ? 1 : 0});
+  }
+  EXPECT_EQ(
+      IntRows(faker, "UNWIND [" + ids + "] AS id MATCH (n:Probe {i: id}) RETURN id, CASE WHEN n:L THEN 1 ELSE 0 END"),
+      shuffled_expected);
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{in_l}}));
+}
+
+// A NEW-view scan inside a query must observe a delete made earlier in the same query, exactly like main does.
+TEST_F(VersioningGatedTest, BranchScanSeesSameQueryDeleteLikeMain) {
+  faker.Interpret("CREATE (:A {i:1}), (:A {i:2}), (:A {i:3}), (:A {i:4})");
+  Fork();
+
+  const std::string full_scan = "MATCH (z:A {i: 4}) MERGE (n) FOREACH (x IN [1] | DELETE z) RETURN count(n)";
+  const std::string label_scan = "MATCH (z:A {i: 4}) MERGE (n:A) FOREACH (x IN [1] | DELETE z) RETURN count(n)";
+
+  const auto branch_full = IntRows(faker, full_scan);
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  const auto main_full = IntRows(faker, full_scan);
+  EXPECT_EQ(branch_full, main_full) << "full-scan MERGE must see the same-query delete as main does";
+
+  // Both runs deleted vertex 4; recreate it on main and re-fork for the label-scan variant.
+  faker.Interpret("CREATE (:A {i:4})");
+  Fork("c2");
+  const auto branch_label = IntRows(faker, label_scan);
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  const auto main_label = IntRows(faker, label_scan);
+  EXPECT_EQ(branch_label, main_label) << "label-scan MERGE must see the same-query delete as main does";
+}
+
+// No touched label and no deletes, yet the label-property index still overlays branch-native vertices.
+TEST_F(VersioningGatedTest, BranchIndexHitMergesUntouchedForkAndNativeVertices) {
+  faker.Interpret("CREATE INDEX ON :P(v)");
+  faker.Interpret("CREATE (:P {v: 1}), (:P {v: 2}), (:P {v: 3})");
+  Fork();
+  faker.Interpret("CREATE (:P {v: 5})");
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:P) WHERE n.v > 0 RETURN n.v ORDER BY n.v"), (Rows{{1}, {2}, {3}, {5}}));
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:P) WHERE n.v > 0 RETURN n.v ORDER BY n.v"), (Rows{{1}, {2}, {3}}));
+}
+
 namespace {
 struct DeletedReadCase {
   const char *name;

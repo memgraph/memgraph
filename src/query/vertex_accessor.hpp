@@ -160,7 +160,7 @@ class VertexAccessor final {
   void RecordPropertyFieldChanges(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   // Branch-mode mutators: native vertices are written in the diff engine, fork vertices through BranchContext's
-  // Overlay* writes. Writes of reserved names are rejected.
+  // Overlay* writes.
   storage::Result<bool> BranchAddLabel(storage::LabelId label);
   storage::Result<bool> BranchRemoveLabel(storage::LabelId label);
   storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,

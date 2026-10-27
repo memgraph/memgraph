@@ -129,9 +129,9 @@ class BranchCore {
     return label_touched_versions_[label.AsUint() % kTouchedGateBits].load(std::memory_order_acquire);
   }
 
-  // Fills `out` with the sorted gids recorded for `label` (no deleted gids); returns the LabelTouchedVersion they are
-  // valid at.
-  uint64_t LabelTouchedSorted(storage::LabelId label, std::vector<uint64_t> &out);
+  // Replaces `out` with the gids recorded for `label` after the first `from` (insertion order, no deleted gids);
+  // returns the LabelTouchedVersion read under the same lock as the copy. O(new entries).
+  uint64_t LabelTouchedTail(storage::LabelId label, size_t from, std::vector<uint64_t> &out);
 
   // Labels the branch has added to or removed from a fork vertex (a rolled-back write leaves its label listed), for
   // metadata that must list labels the diff engine never sees.
@@ -236,11 +236,13 @@ class BranchCore {
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> property_touched_gate_{};
 
   // Per-label (id mod 256) so unrelated property/edge/delete touches do not invalidate label caches; collisions only
-  // cost an extra rebuild. Written under touched_mutex_.
+  // cost an extra tail fetch. Written under touched_mutex_.
   std::array<std::atomic<uint64_t>, kTouchedGateBits> label_touched_versions_{};
 
   std::mutex touched_mutex_;
   absl::flat_hash_map<storage::LabelId, LabelTouchedSet> label_touched_;
+  // Append-only insertion-order mirror of label_touched_ (one entry per new set insert), for incremental readers.
+  absl::flat_hash_map<storage::LabelId, std::vector<uint64_t>> label_touched_log_;
   LabelTouchedSet deleted_exact_;
   uint64_t touched_version_{1};
   absl::flat_hash_map<storage::LabelId, CachedLabelSnapshot> label_snapshots_;
@@ -640,12 +642,12 @@ class BranchContext {
   // pointer; reset per transaction.
   StubIndex::Cursor stub_cursor_;
 
-  // Per-label sorted copy of BranchCore's label-touched gids for LabelMayHaveChanged, with a scan-order cursor.
+  // Session-local mirror of BranchCore's label-touched gids for LabelMayHaveChanged, grown incrementally from the
+  // label's append-only log; `consumed` is the log prefix already merged into `gids`.
   struct LabelGidCache {
-    std::vector<uint64_t> gids;
-    uint64_t version{UINT64_MAX};
-    uint64_t last{0};
-    size_t cursor{0};
+    absl::flat_hash_set<uint64_t> gids;
+    size_t consumed{0};
+    uint64_t seen_slot{UINT64_MAX};
   };
 
   absl::flat_hash_map<storage::LabelId, LabelGidCache> label_gid_cache_;

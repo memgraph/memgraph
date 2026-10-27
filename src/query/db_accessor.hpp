@@ -700,6 +700,8 @@ class DbAccessor final {
     // A null-excluding range anchors the match, so only constrained positions can have turned into a match; otherwise
     // every key position is enumerated.
     bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
+    // Unenumerated trailing columns return main's order on the fast path; safe because ORDER BY elimination requires a
+    // range entry per sort column (order_by_elimination.hpp).
     auto const key_enumerated = [&](size_t i) { return !anchored || i < property_ranges.size(); };
 
     // Lock-free pre-check (gates are set before commit; clear = empty snapshot). The label snapshot also merges the
@@ -708,6 +710,8 @@ class DbAccessor final {
     for (size_t i = 0; !maybe_touched && i < properties.size(); ++i) {
       if (key_enumerated(i)) maybe_touched = branch_ctx_->MayHavePropertyTouched(properties[i].front());
     }
+    // A diff-index hit on the gate path is final: the snapshot path would hit too.
+    bool diff_has_hit = false;
     if (!maybe_touched) {
       if (auto lazy = LazyForkOnlyScan(
               [&] { return accessor_->ApproximateVertexCount(label, properties); },
@@ -715,6 +719,7 @@ class DbAccessor final {
               [&] { return historical.Vertices(label, properties, property_ranges, storage::View::OLD, order); })) {
         return std::move(*lazy);
       }
+      diff_has_hit = true;
     }
 
     // One snapshot up front: any txn visible to this scan recorded its gids before this point.
@@ -727,7 +732,8 @@ class DbAccessor final {
     }
 
     // The label snapshot includes every deleted fork gid, so an empty one also means no deletes.
-    if (label_touched->empty() && std::ranges::all_of(property_touched, [](auto const &t) { return t->empty(); })) {
+    if (!diff_has_hit && label_touched->empty() &&
+        std::ranges::all_of(property_touched, [](auto const &t) { return t->empty(); })) {
       if (auto lazy = LazyForkOnlyScan(
               [&] { return accessor_->ApproximateVertexCount(label, properties); },
               [&] { return accessor_->Vertices(label, properties, property_ranges, view, order); },
@@ -774,14 +780,16 @@ class DbAccessor final {
           [](storage::PropertyValue const &a, storage::PropertyValue const &b) { return a < b; });
     }
     // Lock-free pre-check first (gate set before commit; clear = empty snapshot), then the snapshot.
+    bool diff_has_hit = false;
     if (!branch_ctx_->MayHavePropertyTouched(property) && !branch_ctx_->MayHaveAnyVertexDeleted()) {
       if (auto lazy =
               LazyForkOnlyScan([&] { return accessor_->ApproximateVertexCount(property); }, diff_scan, fork_scan)) {
         return std::move(*lazy);
       }
+      diff_has_hit = true;
     }
     auto const property_touched = branch_ctx_->PropertyTouchedSnapshot(property);
-    if (property_touched->empty() && !branch_ctx_->MayHaveAnyVertexDeleted()) {
+    if (!diff_has_hit && property_touched->empty() && !branch_ctx_->MayHaveAnyVertexDeleted()) {
       if (auto lazy =
               LazyForkOnlyScan([&] { return accessor_->ApproximateVertexCount(property); }, diff_scan, fork_scan)) {
         return std::move(*lazy);
@@ -1098,7 +1106,9 @@ class DbAccessor final {
     if (branch_ctx_ != nullptr) {
       // No deletes and no branch-native vertices (skiplist size counts uncommitted/un-GC'd ones, so 0 means none
       // visible to anyone): the union is exactly the fork stream, yielded lazily without the per-vertex merge.
-      if (!branch_ctx_->MayHaveAnyVertexDeleted() && accessor_->ApproximateVertexCount() == 0) {
+      // OLD only: a NEW scan must see same-query deletes made while it iterates, which the per-vertex union checks.
+      if (view == storage::View::OLD && !branch_ctx_->MayHaveAnyVertexDeleted() &&
+          accessor_->ApproximateVertexCount() == 0) {
         return VerticesIterable(branch_ctx_->historical().Vertices(storage::View::OLD), branch_ctx_);
       }
       return VerticesIterable(branch_ctx_->Vertices(view), branch_ctx_);
@@ -1120,7 +1130,8 @@ class DbAccessor final {
       auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
 
       // Nothing touched and no branch-native hits: the fork stream is the answer, yielded lazily.
-      if (label_touched->empty()) {
+      // OLD only: a NEW scan must see same-query deletes made while it iterates.
+      if (view == storage::View::OLD && label_touched->empty()) {
         auto diff = accessor_->Vertices(label, view);
         if (diff.begin() == diff.end()) {
           return VerticesIterable(historical.Vertices(label, storage::View::OLD), branch_ctx_);
