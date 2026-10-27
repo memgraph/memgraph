@@ -595,6 +595,19 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
              : std::nullopt;
 }
 
+void RecordWalEpoch(ReplicationStorageState &repl_storage_state, std::string const &epoch_id, uint64_t ldt,
+                    std::string const &db_name) {
+  auto &epoch_history = repl_storage_state.history;
+  if (!epoch_history.empty() && epoch_history.back().first == epoch_id) {
+    epoch_history.back().second = ldt;
+    spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.", epoch_id, ldt);
+  } else {  // Update history with new epoch that contains new timestamp
+    epoch_history.emplace_back(epoch_id, ldt);
+    repl_storage_state.epoch_.SetEpoch(epoch_id);
+    spdlog::trace("Set epoch to {} for db {} with ldt {}", epoch_id, db_name, ldt);
+  }
+}
+
 std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
     utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
@@ -801,18 +814,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.num_committed_txns += info->num_committed_txns;
         }
 
-        if (wal_contains_changes) {
-          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
-            epoch_history->back().second = *last_loaded_timestamp;
-            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
-                          wal_file.epoch_id,
-                          *last_loaded_timestamp);
-          } else {  // Update history with new epoch that contains new timestamp
-            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
-          }
-        }
+        if (wal_contains_changes)
+          RecordWalEpoch(repl_storage_state, wal_file.epoch_id, *last_loaded_timestamp, db_name);
 
       } catch (const RecoveryFailure &e) {
         throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());

@@ -36,6 +36,8 @@
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/uuid.hpp"
+#include "versioning/version_store.hpp"
 
 namespace ms = memgraph::storage;
 
@@ -69,6 +71,30 @@ ms::Config MakeConfigB() {
   return config;
 }
 
+const std::filesystem::path kDirMain{kRoot / "main"};
+const std::filesystem::path kDirUnbounded{kRoot / "unbounded"};
+
+ms::Config MakeDurableConfig(const std::filesystem::path &dir, bool recover_on_startup) {
+  ms::Config config;
+  config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
+  config.durability = {.storage_directory = dir,
+                       .recover_on_startup = recover_on_startup,
+                       .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)},
+                       .wal_file_flush_every_n_tx = 1};
+  return config;
+}
+
+struct EpochState {
+  std::string epoch;
+  ms::EpochHistory history;
+};
+
+EpochState CaptureEpochState(memgraph::dbms::Database &db) {
+  auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+  return {std::string(storage->repl_storage_state_.epoch_.id()), storage->repl_storage_state_.history};
+}
+
 struct BaseGids {
   ms::Gid v1, v2, v3, e1, e2;
 };
@@ -79,6 +105,12 @@ struct TailGids {
 
 void Commit(ms::Storage::Accessor &acc) {
   ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+void CommitVertex(memgraph::dbms::Database &db) {
+  auto acc = db.Access(ms::WRITE);
+  acc->CreateVertex();
+  Commit(*acc);
 }
 
 // Same MVCC checks for both reads, parameterised on which of the two states is expected.
@@ -330,4 +362,60 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
     auto acc = db_b.Access(ms::READ);
     ExpectFullState(*acc, names, g, t);
   }
+}
+
+// A failover inside the replayed WAL tail must leave main with the same epoch and epoch history that an unbounded
+// recovery of the same files produces; replicas compare both on reconnect.
+TEST_F(VersioningHistoryReplayTest, TailReplayRestoresEpochAndHistory) {
+  std::string first_epoch;
+  std::string second_epoch;
+  {
+    memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+    first_epoch = std::string(storage->repl_storage_state_.epoch_.id());
+
+    CommitVertex(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    CommitVertex(db);
+  }
+  {
+    // Promotion after a restart (the WAL is already finalized): remember (epoch, ldt), switch the epoch. The next
+    // commit opens a WAL under the new epoch.
+    memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+    ASSERT_EQ(db.version_store()->List().size(), 1U);
+    storage->repl_storage_state_.SaveLatestHistory();
+    second_epoch = std::string(memgraph::utils::UUID{});
+    ASSERT_NE(first_epoch, second_epoch);
+    storage->repl_storage_state_.epoch_.SetEpoch(second_epoch);
+    CommitVertex(db);
+    CommitVertex(db);
+  }
+
+  std::filesystem::copy(kDirMain, kDirUnbounded, std::filesystem::copy_options::recursive);
+  std::filesystem::remove_all(kDirUnbounded / "branches");
+
+  // Reference: unbounded recovery (no ledger) of the same files.
+  EpochState expected;
+  {
+    memgraph::dbms::Database db{MakeDurableConfig(kDirUnbounded, /*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    expected = CaptureEpochState(db);
+  }
+  ASSERT_EQ(expected.epoch, second_epoch);
+  ASSERT_GE(expected.history.size(), 2U);
+  EXPECT_EQ(expected.history.front().first, first_epoch);
+  EXPECT_EQ(expected.history.back().first, second_epoch);
+
+  // Bounded recovery with the branch: the second-epoch WAL files are replayed from the tail.
+  memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_EQ(db.version_store()->List().size(), 1U);
+  ASSERT_TRUE(static_cast<ms::InMemoryStorage *>(db.storage())->OldestForkPin().has_value());
+
+  const auto actual = CaptureEpochState(db);
+  EXPECT_EQ(actual.epoch, expected.epoch);
+  EXPECT_EQ(actual.history, expected.history);
 }

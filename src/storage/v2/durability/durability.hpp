@@ -125,6 +125,11 @@ struct RecoveryTail {
   uint64_t reached_timestamp{0};
 };
 
+/// Records that a WAL file of epoch `epoch_id` brought the durable timestamp to `ldt`: extends the newest history
+/// entry when it is the same epoch, otherwise appends one and switches the current epoch.
+void RecordWalEpoch(ReplicationStorageState &repl_storage_state, std::string const &epoch_id, uint64_t ldt,
+                    std::string const &db_name);
+
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.

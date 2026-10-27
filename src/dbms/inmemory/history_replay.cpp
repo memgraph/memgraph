@@ -21,6 +21,7 @@
 
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "rpc/progress_heartbeat.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::dbms {
@@ -56,9 +57,18 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
       rpc::ProgressHeartbeat heartbeat{nullptr, std::chrono::hours{24}};
       const std::function<void(uint64_t)> on_txn_begin = pin_due;
       for (const auto &file : tail.wal_files) {
+        const auto ldt_before = storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
         if (!InMemoryReplicationHandlers::ReplayWalFile(file, &storage, heartbeat, &on_txn_begin)) {
           release_all();
           return std::unexpected(fmt::format("replaying WAL file '{}' failed", file.string()));
+        }
+        // Same per-file epoch bookkeeping as RecoverData.
+        const auto ldt_after = storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+        if (ldt_after != ldt_before) {
+          storage::durability::RecordWalEpoch(storage.repl_storage_state_,
+                                              storage::durability::ReadWalContents(file).epoch_id,
+                                              ldt_after,
+                                              storage.name());
         }
       }
     }
