@@ -890,6 +890,19 @@ TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNever
   const auto txns = ParseTransactions(wal);
   ASSERT_GE(txns.size(), 2u);
   const auto &last = txns.back();
+
+  {
+    SCOPED_TRACE("control: nothing torn");
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    ASSERT_TRUE(db.version_store()->Exists("b"));
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    const auto *v = FindVertex(DumpBranch(db, *ctx), late);
+    ASSERT_NE(v, nullptr);
+    EXPECT_EQ(v->props.at("p"), ms::PropertyValue(9));
+  }
+
   for (const auto cut : CutPoints(last, 8)) {
     SCOPED_TRACE(CutTrace(cut, last));
     ASSERT_NO_FATAL_FAILURE(RestoreImage());
@@ -902,7 +915,39 @@ TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNever
   }
 }
 
-// ---- 4. Ledger written, branch WAL empty ------------------------------------------------------------------------
+// ---- 4. Ledger written, branch WAL missing or empty
+// ------------------------------------------------------------------------
+
+// Expected to pass. No WAL files means the core is not built at startup and is built empty on the first checkout,
+// reading main at the fork.
+TEST_F(VersioningCrashRecoveryTest, LedgerWithoutABranchWalDirectoryRecoversEmptyAtTheFork) {
+  uint64_t number = 0;
+  Expected expected;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    static_cast<void>(CreateBase(db));
+    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    ASSERT_TRUE(info.has_value());
+    number = info->number;
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    expected = Capture(db, *ctx);
+  }
+  fs::remove_all(kStorageDirectory / "branches" / std::to_string(number));
+  ASSERT_FALSE(fs::exists(BranchWalDir(number)));
+  ASSERT_TRUE(fs::exists(kStorageDirectory / "branches" / "ledger"));
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_TRUE(db.version_store()->Exists("b"));
+  bool built = false;
+  auto ctx = Checkout(db, "b", &built);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_TRUE(built);
+  EXPECT_EQ(DumpBranch(db, *ctx), expected.branch);
+  EXPECT_EQ(DumpMain(db), expected.main);
+}
 
 // Expected to pass: the crash left a zero-length WAL file (created, nothing written). ListWalFiles skips a file of size
 // zero (branch_recovery.cpp) and ReplayBranchWal returns with the freshly built core (branch_recovery.cpp).

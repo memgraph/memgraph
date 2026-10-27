@@ -234,7 +234,7 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
     gids = CreateBase(db);
     ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main", std::nullopt).has_value());
     SetV1(db, gids, 2);
-    auto b2 = db.version_store()->CreateBranch("b2", "main", std::nullopt);
+    auto b2 = db.version_store()->CreateBranch("b2", "b1", std::nullopt);
     ASSERT_TRUE(b2.has_value());
     b2_recorded_fork_ts = b2->fork_ts;
     SetV1(db, gids, 3);
@@ -253,6 +253,10 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
     ASSERT_EQ(db.version_store()->List().size(), 2u);
     EXPECT_EQ(value_at(db, "b1"), ms::PropertyValue(1));
     EXPECT_EQ(value_at(db, "b2"), ms::PropertyValue(2));
+    EXPECT_EQ(*db.Access(ms::READ)
+                   ->FindVertex(gids.v1, ms::View::OLD)
+                   ->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD),
+              ms::PropertyValue(3));
 
     ASSERT_TRUE(db.version_store()->DropBranch("b1").value_or(false));
     auto ledger = ReadLedger();
@@ -457,14 +461,8 @@ TEST_F(VersioningDurabilityRestartTest, MainRecoveryNeverAbsorbsADiffEnginesWrit
   ASSERT_TRUE(x_val.has_value());
   EXPECT_EQ(*x_val, ms::PropertyValue(1)) << "the branch's property change must not reach main";
 
-  // A context built without a branch number runs with durability off, so it must leave no regular files.
-  size_t diff_engine_files = 0;
-  if (auto const diff_dir = kStorageDirectory / "versioning_diff_engine"; std::filesystem::exists(diff_dir)) {
-    for (auto const &entry : std::filesystem::recursive_directory_iterator(diff_dir)) {
-      diff_engine_files += entry.is_regular_file() ? 1 : 0;
-    }
-  }
-  EXPECT_EQ(diff_engine_files, 0u) << "a diff engine without a branch number persisted files";
+  // A context built without a branch number runs with durability off, so it never creates its directory.
+  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning_diff_engine"));
 }
 
 // Retention keeps only the newest snapshot, yet the branch's fork base must stay recoverable: the snapshot below the
