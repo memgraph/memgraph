@@ -556,6 +556,18 @@ int main(int argc, char **argv) {
   // served in approved mode without a valid licence.
   if (FLAGS_fips_mode) {
     if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
+      // The init queries run once, below, before a license can arrive over Bolt, so every one of them would be refused
+      // and lost -- users an init file creates among them, leaving the instance open once it is licensed.
+      if (!FLAGS_init_file.empty() || !FLAGS_init_data_file.empty() || std::getenv(kMgHaClusterInitQueries)) {
+        memgraph::utils::FailStartup(
+            memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
+            fmt::format("{}\nThe init queries (--init-file, --init-data-file, {}) run at startup, before a license can "
+                        "be set over Bolt. Provide the license at startup (--license-key and --organization-name, or "
+                        "MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME), or start without the init "
+                        "queries.",
+                        memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"),
+                        kMgHaClusterInitQueries));
+      }
       spdlog::warn(
           "{}\nUntil a valid license is set, only SHOW LICENSE INFO, SHOW DATABASE SETTINGS, SET DATABASE SETTING '{}' "
           "and SET DATABASE SETTING '{}' are accepted.",

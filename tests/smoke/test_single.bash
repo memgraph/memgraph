@@ -74,6 +74,7 @@ fi
 if [[ "$MODE" == "fips" ]]; then
   test_fips_refuses_non_approved_algorithm
   test_fips_unlicensed_accepts_only_license_settings
+  test_fips_unlicensed_refuses_init_queries
 fi
 
 # End timing and calculate execution time

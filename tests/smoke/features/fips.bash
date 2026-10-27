@@ -303,6 +303,32 @@ test_fips_unlicensed_accepts_only_license_settings() {
   return $rc
 }
 
+# The init queries run at startup, before a license can arrive over Bolt, so an
+# unlicensed FIPS instance would refuse and lose every one of them (users an init
+# file creates among them). It must refuse to start instead.
+# $1: extra docker run arguments, $2: extra memgraph flags. Deliberately no
+# $MEMGRAPH_ENTERPRISE_DOCKER_ENVS: the instance has no license.
+fips_unlicensed_refuses_to_start_with() {
+  local out status
+  out="$(docker run --rm $1 "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS --fips-mode=true $2 2>&1)" \
+    && status=0 || status=$?
+  # 16 is ExitCode::FipsModeRequiresEnterprise.
+  if [ "$status" -ne 16 ]; then
+    echo "FAIL: expected exit 16 with '$1 $2', got $status. Output: $out"
+    return 1
+  fi
+  echo "$out" | grep -q "The init queries" \
+    || { echo "FAIL: the error did not name the init queries. Output: $out"; return 1; }
+  echo "  refused with exit 16 as expected: $1 $2"
+}
+
+test_fips_unlicensed_refuses_init_queries() {
+  echo "FEATURE: FIPS - an unlicensed instance refuses to start with init queries"
+  fips_unlicensed_refuses_to_start_with "" "--init-file=/tmp/init.cypherl" || return 1
+  fips_unlicensed_refuses_to_start_with "" "--init-data-file=/tmp/init.cypherl" || return 1
+  fips_unlicensed_refuses_to_start_with "-e MEMGRAPH_HA_CLUSTER_INIT_QUERIES=/tmp/init.cypherl" "" || return 1
+}
+
 # Refusing to start under a non-approved password algorithm is a startup-time
 # guarantee, so it cannot be checked against the already-running container.
 # bcrypt is the default, so this is also what an operator hits first if they
