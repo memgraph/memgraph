@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <array>
+#include <atomic>
 #include <compare>
 #include <cstdint>
 #include <map>
@@ -109,6 +111,13 @@ class PropertyManifest {
 
 /// Interns record shapes. Manifests are never removed and never move, so a resolved
 /// reference stays valid for the lifetime of the registry.
+///
+/// Resolving takes no lock. Ids are dense from zero, so they index an array of chunks whose
+/// spine is fixed at construction and whose slots are filled once: a reader follows two
+/// loads to a manifest that another thread may be adding neighbours to, and never reads a
+/// container that is being grown underneath it. Recognising a shape still takes the lock,
+/// because that walks an ordered map, and it sits on the write path rather than on every
+/// property read.
 class ManifestRegistry {
  public:
   ManifestRegistry() = default;
@@ -118,7 +127,7 @@ class ManifestRegistry {
   ManifestRegistry(ManifestRegistry &&) = delete;
   ManifestRegistry &operator=(ManifestRegistry &&) = delete;
 
-  ~ManifestRegistry() = default;
+  ~ManifestRegistry();
 
   /// Interns `shape`. Keying by property id is what makes the order properties were written
   /// in unable to produce a second manifest for the same set.
@@ -130,14 +139,46 @@ class ManifestRegistry {
   auto size() const -> size_t;
 
  private:
+  static constexpr uint32_t kChunkBits = 6;
+  static constexpr uint32_t kChunkSize = 1U << kChunkBits;
+  static constexpr uint32_t kChunkMask = kChunkSize - 1;
+  static constexpr uint32_t kMaxChunks = 1024;
+  /// How many distinct shapes one registry can hold. Reaching it is refused rather than
+  /// wrapped, and means the data's types or widths vary far more per record than expected.
+  static constexpr uint32_t kMaxShapes = kChunkSize * kMaxChunks;
+
+  using Chunk = std::array<std::atomic<PropertyManifest *>, kChunkSize>;
+
+  /// A shape, named by the manifest that holds it rather than copied beside it.
+  struct ShapeKey {
+    PropertyManifest const *manifest;
+  };
+
+  /// Orders shapes by property and stored type, and does so for a `RecordShape` as well, so
+  /// recognising a shape needs neither a manifest built for it first nor a copy of it.
+  struct ShapeOrder {
+    using is_transparent = void;
+
+    bool operator()(ShapeKey lhs, ShapeKey rhs) const;
+    bool operator()(ShapeKey lhs, RecordShape const &rhs) const;
+    bool operator()(RecordShape const &lhs, ShapeKey rhs) const;
+  };
+
   struct State {
     /// Held by unique_ptr so growing the vector never moves a manifest.
     std::vector<std::unique_ptr<PropertyManifest>> manifests;
-    /// Shape to its id, for recognising a shape that has been seen before.
-    std::map<RecordShape, ManifestId> lookup;
+    /// Shape to its id, for recognising a shape that has been seen before. Keyed on the
+    /// manifest, so the shape itself is stored once.
+    std::map<ShapeKey, ManifestId, ShapeOrder> lookup;
   };
 
+  /// Makes `manifest` readable at `id`. The slot is written before the count that admits
+  /// it, so a reader that can see the id sees a manifest that is already built.
+  void Publish(uint32_t id, PropertyManifest *manifest);
+
   mutable utils::Synchronized<State, utils::RWSpinLock> state_;
+  std::array<std::atomic<Chunk *>, kMaxChunks> chunks_{};
+  std::atomic<uint32_t> count_{0};
 };
 
 }  // namespace memgraph::storage
