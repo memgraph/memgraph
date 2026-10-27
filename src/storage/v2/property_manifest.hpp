@@ -101,6 +101,10 @@ class PropertyManifest {
 
   auto Find(PropertyId property) const -> std::optional<Location>;
 
+  /// Where the entry at `position` in `entries()` sits. Reading a whole record walks the two
+  /// together, so it never searches for a property it is already holding.
+  auto LocationAt(size_t position) const -> Location;
+
  private:
   std::vector<ManifestEntry> entries_;
   /// Parallel to `entries_`: byte offset for fixed values, offset-table index for variable ones.
