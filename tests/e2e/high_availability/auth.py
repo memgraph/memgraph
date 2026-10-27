@@ -1866,6 +1866,25 @@ def test_internal_system_user_cant_own_definer_triggers_or_streams(test_name, tm
     assert [row[0] for row in execute_and_fetch_all(internal, "SHOW TRIGGERS")] == ["invoked"]
 
 
+def test_internal_system_user_sessions_hidden_from_userless_sessions(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    # Opened before the first user exists, so its principal is userless and holds no privileges once one does.
+    anonymous = connect(host="localhost", port=STANDALONE_DATA_PORT).cursor()
+    execute_and_fetch_all(anonymous, "CREATE USER admin IDENTIFIED BY 'admin'")
+    internal = internal_system_user_cursor(STANDALONE_DATA_PORT)
+    [internal_session_id] = [
+        row[0] for row in execute_and_fetch_all(internal, "SHOW SESSIONS") if row[1] == INTERNAL_SYSTEM_USER
+    ]
+
+    assert INTERNAL_SYSTEM_USER not in [row[1] for row in execute_and_fetch_all(anonymous, "SHOW SESSIONS")]
+    assert execute_and_fetch_all(anonymous, f"TERMINATE SESSIONS '{internal_session_id}'") == [
+        (internal_session_id, False)
+    ]
+    assert execute_and_fetch_all(internal, "RETURN 1") == [(1,)]
+
+
 def test_internal_system_user_doesnt_inherit_previous_users_resources(test_name, tmp_path):
     description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
     interactive_mg_runner.start_all(description, keep_directories=False)

@@ -32,7 +32,8 @@ namespace memgraph::query {
 
 bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
   if (lv.get() == rv) return true;
-  if (lv && rv) return *lv == *rv;
+  // The internal system user has no name or roles, so by value it would equal every userless principal.
+  if (lv && rv && !lv->IsInternalSystemUser() && !rv->IsInternalSystemUser()) return *lv == *rv;
   return false;
 }
 
