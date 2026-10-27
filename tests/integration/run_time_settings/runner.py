@@ -274,19 +274,19 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
     stop(memgraph)
 
-    # A value persisted by an older version is restored one last time and deleted. A leftover of a setting that was
-    # never restored is deleted without being applied.
+    # A value persisted by an older version is restored one last time and deleted
     store_put(store_binary, data_directory, "server.name", "Old Name")
     store_put(store_binary, data_directory, "query.timeout", "321")
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", "Old Name")
-    check_flag(flag_tester_binary, "query.timeout", "600")
+    check_flag(flag_tester_binary, "query.timeout", "321")
     stop(memgraph)
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover of server.name kept"
     assert store_get(store_binary, data_directory, "query.timeout") is None, "Leftover of query.timeout kept"
     assert store_get(store_binary, data_directory, "organization.name") == "Memgraph Ltd", "License entry lost"
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", default_server_name)
+    check_flag(flag_tester_binary, "query.timeout", "600")
     stop(memgraph)
 
     # A flag given on the command line wins over the leftover, which is deleted
