@@ -22,6 +22,7 @@
 #include <variant>
 #include <vector>
 
+#include "storage/v2/timezone_registry.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -76,6 +77,41 @@ auto ReadObject(uint8_t const *at) -> T {
   auto raw = std::array<std::byte, sizeof(T)>{};
   std::memcpy(raw.data(), at, sizeof(T));
   return std::bit_cast<T>(raw);
+}
+
+/// A zoned temporal value laid out flat: the kind, the moment, and the zone named either by
+/// the offset it is or by the id standing for it. Twelve bytes, so a shape knows where one
+/// sits and the record needs nothing else to read it.
+struct StoredZoned {
+  uint8_t type;
+  int64_t microseconds;
+  /// True when `zone` is an interned id rather than an offset in minutes.
+  uint8_t named;
+  int16_t zone;
+};
+
+auto StoredZonedFrom(ZonedTemporalData const &zoned) -> StoredZoned {
+  auto const offset = zoned.timezone.GetOffset();
+  if (zoned.timezone.InTzDatabase()) {
+    return StoredZoned{.type = static_cast<uint8_t>(zoned.type),
+                       .microseconds = zoned.IntMicroseconds(),
+                       .named = 1,
+                       .zone = static_cast<int16_t>(TimezoneRegistry::Instance().Intern(zoned.timezone))};
+  }
+  // Offsets run from -18:00 to +18:00, so the minutes fit and are written as themselves.
+  return StoredZoned{.type = static_cast<uint8_t>(zoned.type),
+                     .microseconds = zoned.IntMicroseconds(),
+                     .named = 0,
+                     .zone = static_cast<int16_t>(std::get<std::chrono::minutes>(offset).count())};
+}
+
+auto ZonedFrom(StoredZoned const &stored) -> ZonedTemporalData {
+  auto const timezone = stored.named == 1 ? TimezoneRegistry::Instance().Resolve(static_cast<uint16_t>(stored.zone))
+                                          : utils::Timezone{std::chrono::minutes{stored.zone}};
+  return ZonedTemporalData{
+      static_cast<ZonedTemporalType>(stored.type),
+      std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{stored.microseconds}},
+      timezone};
 }
 
 /// A shape takes the type tag off a record's properties. It says nothing about the values
@@ -165,25 +201,11 @@ void EncodeNested(std::vector<uint8_t> &out, PropertyValue const &value) {
     case PropertyValueType::TemporalData:
       AppendObject(out, value.ValueTemporalData());
       return;
-    case PropertyValueType::ZonedTemporalData: {
-      // A zone held in the time zone database is a pointer into it, which is no use in a
-      // record, so the zone is written the way it was given: an offset, or a name to look up
-      // again. That is the same split the old store's two type tags make.
-      auto const &zoned = value.ValueZonedTemporalData();
-      AppendObject(out, static_cast<uint8_t>(zoned.type));
-      AppendObject(out, zoned.IntMicroseconds());
-      auto const offset = zoned.timezone.GetOffset();
-      if (std::holds_alternative<std::chrono::minutes>(offset)) {
-        AppendObject(out, static_cast<uint8_t>(1));
-        AppendObject(out, static_cast<int64_t>(std::get<std::chrono::minutes>(offset).count()));
-      } else {
-        AppendObject(out, static_cast<uint8_t>(0));
-        auto const name = zoned.timezone.TimezoneName();
-        AppendCount(out, name.size());
-        AppendBytes(out, name.data(), name.size());
-      }
+    case PropertyValueType::ZonedTemporalData:
+      // The same flat twelve bytes a record holds one in, so there is one encoding of a zoned
+      // value rather than one for a property and another for an element of a list.
+      AppendObject(out, StoredZonedFrom(value.ValueZonedTemporalData()));
       return;
-    }
     case PropertyValueType::Enum:
       AppendObject(out, value.ValueEnum());
       return;
@@ -270,17 +292,8 @@ auto NestedReader::Value() -> PropertyValue {
       return PropertyValue{NumericListTag{}, Elements()};
     case PropertyValueType::TemporalData:
       return PropertyValue{Object<TemporalData>()};
-    case PropertyValueType::ZonedTemporalData: {
-      auto const type = static_cast<ZonedTemporalType>(Object<uint8_t>());
-      auto const microseconds = std::chrono::microseconds{Object<int64_t>()};
-      auto const timezone = [this] {
-        if (Object<uint8_t>() == 1) return utils::Timezone{std::chrono::minutes{Object<int64_t>()}};
-        auto const count = Count();
-        return utils::Timezone{std::string_view{Bytes(count), count}};
-      }();
-      return PropertyValue{
-          ZonedTemporalData{type, std::chrono::sys_time<std::chrono::microseconds>{microseconds}, timezone}};
-    }
+    case PropertyValueType::ZonedTemporalData:
+      return PropertyValue{ZonedFrom(Object<StoredZoned>())};
     case PropertyValueType::Enum:
       return PropertyValue{Object<Enum>()};
     case PropertyValueType::Point2d:
@@ -319,8 +332,9 @@ auto StoredTypeFor(PropertyValue const &value) -> StoredType {
   if (value.IsMap()) return StoredType::Variable(PropertyStoreType::MAP);
   if (value.IsEnum()) return StoredType::Fixed(PropertyStoreType::ENUM, sizeof(Enum));
   if (value.IsTemporalData()) return StoredType::Fixed(PropertyStoreType::TEMPORAL_DATA, sizeof(TemporalData));
-  // Not a known width: a named zone is as long as its name.
-  if (value.IsZonedTemporalData()) return StoredType::Variable(PropertyStoreType::ZONED_TEMPORAL_DATA);
+  if (value.IsZonedTemporalData()) {
+    return StoredType::Fixed(PropertyStoreType::ZONED_TEMPORAL_DATA, sizeof(StoredZoned));
+  }
   // One tag for both kinds of point, told apart by the width the shape carries.
   if (value.IsPoint2d()) return StoredType::Fixed(PropertyStoreType::POINT, sizeof(Point2d));
   if (value.IsPoint3d()) return StoredType::Fixed(PropertyStoreType::POINT, sizeof(Point3d));
@@ -356,6 +370,9 @@ void WriteFixed(uint8_t *at, StoredType stored_type, PropertyValue const &value)
         WriteObject(at, value.ValuePoint3d());
       }
       return;
+    case PropertyStoreType::ZONED_TEMPORAL_DATA:
+      WriteObject(at, StoredZonedFrom(value.ValueZonedTemporalData()));
+      return;
     default:
       LOG_FATAL("This kind of value is not stored at a known width");
   }
@@ -380,6 +397,8 @@ auto ReadFixed(uint8_t const *at, StoredType stored_type) -> PropertyValue {
     case PropertyStoreType::POINT:
       if (stored_type.width == sizeof(Point2d)) return PropertyValue{ReadObject<Point2d>(at)};
       return PropertyValue{ReadObject<Point3d>(at)};
+    case PropertyStoreType::ZONED_TEMPORAL_DATA:
+      return PropertyValue{ZonedFrom(ReadObject<StoredZoned>(at))};
     default:
       LOG_FATAL("This kind of value is not stored at a known width");
   }

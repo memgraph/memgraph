@@ -66,6 +66,7 @@ target_sources(mg-storage-v2
         point_functions.cpp
         manifest_property_store.cpp
         property_manifest.cpp
+        timezone_registry.cpp
         property_store.cpp
         property_value_utils.cpp
         replication/replication_client.cpp
@@ -140,6 +141,7 @@ target_sources(mg-storage-v2
         property_constants.hpp
         manifest_property_store.hpp
         property_manifest.hpp
+        timezone_registry.hpp
         property_store.hpp
         indexed_property_decoder.hpp
         property_value.hpp
