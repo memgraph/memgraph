@@ -420,9 +420,8 @@ TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
   EXPECT_EQ(mixed[0][2].ValueInt(), 1);
 }
 
-// AND stops on a false first operand and OR on a true one, so whether the second is read at all is
-// decided while the row is evaluated. A pass reads what it was asked for before that happens, so a
-// lookup reachable only through one of them is left to the lookup.
+// A lookup reachable only through an AND or an OR keeps its own lookup, while the same properties
+// read outside one still get their pass.
 TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
   this->Execute("CREATE (:Q {a: 1, b: 2}), (:G {t: true})");
 
@@ -444,8 +443,7 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
   EXPECT_NE(explained("EXPLAIN MATCH (n:Q) RETURN n.a AS r, n.b AS s").find("CacheProperties"), std::string::npos);
 }
 
-// The body of a reduce or an extract runs once per element of its list, so an empty or Null list
-// runs it no times. A lookup there is conditional in the same way as one behind an AND or an OR.
+// A lookup inside the body of a reduce or an extract keeps its own lookup.
 TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
   this->Execute("CREATE (:Q {a: 1, b: 2})");
 

@@ -173,18 +173,17 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   }
 
   // The expression each of these holds is a body run once per element of a list, so an empty or Null
-  // list runs it no times. That makes a lookup inside one conditional in the same way as one behind
-  // an AND or an OR, and it is left to its own lookup for the same reason.
+  // list runs it no times. A pass reads before any expression runs, so a lookup inside one is left
+  // to its own lookup rather than read for a row that was never going to ask for it.
   void Visit(Reduce &op) override {}
 
   void Visit(Extract &op) override {}
 
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
-  // These decide at runtime whether their second operand is evaluated at all: AND stops on a false
-  // first operand and OR on a true one. A pass reads what it was asked for before any expression
-  // runs, so caching a lookup reachable only through one would read a record the query never asked
-  // to be read, and answer with an error where the lookup was never going to happen.
+  // AND stops on a false first operand and OR on a true one, so whether the second is evaluated is
+  // decided as the row runs. Caching a lookup reachable only through one would read a record the
+  // query never asked to be read, and answer with an error where the lookup was never to happen.
   void Visit(AndOperator &op) override {}
 
   void Visit(OrOperator &op) override {}
