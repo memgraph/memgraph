@@ -479,14 +479,14 @@ int main(int argc, char **argv) {
           fmt::format("Max virtual memory areas vm.max_map_count {} is too low, increase to at least {}",
                       vm_max_map_count.value(),
                       kMgVmMaxMapCount);
-      std::cout << message << std::endl;
+      std::cout << message << '\n';
       spdlog::error("{}", message);
     }
   } else {
     auto const message =
         fmt::format("Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least {}",
                     kMgVmMaxMapCount);
-    std::cout << message << std::endl;
+    std::cout << message << '\n';
     spdlog::warn("{}", message);
   }
 
