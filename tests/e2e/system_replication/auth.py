@@ -16,7 +16,7 @@ from functools import partial
 import interactive_mg_runner
 import mgclient
 import pytest
-from common import execute_and_fetch_all, get_data_path, get_logs_path
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -1113,20 +1113,24 @@ def test_user_profile_replication(connection, test_name):
         mg_sleep_and_assert(expected_data, f(cursor_replica1))
         mg_sleep_and_assert(expected_data, f(cursor_replica2))
 
-    def resource_check(instance_name, instance_type, username, expected_usage):
-        cursor = connection(BOLT_PORTS[instance_name], instance_type, username).cursor()
-        usage = show_resource_usage_func(cursor, username)()
+    def resource_check(instance_name, username, expected_usage):
+        # Closed before returning so the session doesn't count against the user's limit in later checks.
+        conn = connect(host="localhost", port=BOLT_PORTS[instance_name], username=username, password="")
+        try:
+            usage = show_resource_usage_func(conn.cursor(), username)()
+        finally:
+            conn.close()
         assert expected_usage == usage
 
     def all_resource_check(user1_usage=None, user2_usage=None):
         if user1_usage is not None:
-            resource_check("main", "main", "user1", user1_usage)
-            resource_check("replica_1", "replica", "user1", user1_usage)
-            resource_check("replica_2", "replica", "user1", user1_usage)
+            resource_check("main", "user1", user1_usage)
+            resource_check("replica_1", "user1", user1_usage)
+            resource_check("replica_2", "user1", user1_usage)
         if user2_usage is not None:
-            resource_check("main", "main", "user2", user2_usage)
-            resource_check("replica_1", "replica", "user2", user2_usage)
-            resource_check("replica_2", "replica", "user2", user2_usage)
+            resource_check("main", "user2", user2_usage)
+            resource_check("replica_1", "user2", user2_usage)
+            resource_check("replica_2", "user2", user2_usage)
 
     # 1/
 
