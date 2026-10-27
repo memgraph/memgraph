@@ -697,6 +697,10 @@ class Interpreter final {
     return name.empty() ? std::string{"<none>"} : name;
   }
 
+  // The log user is the effective principal's name, or the name the session logged in with when the principal has
+  // none (the internal system user).
+  void RefreshLogUser();
+
   memgraph::logging::SessionLogContext session_log_ctx_{};
 
   void ResetInterpreter();

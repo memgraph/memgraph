@@ -46,6 +46,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/system_user.hpp"
 #include "communication/cluster_tls.hpp"
 #include "communication/v2/session_registry.hpp"
 #include "coordination/constants.hpp"
@@ -697,6 +698,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void CreateRole(std::string_view const role_name, bool const if_not_exists) override {
+    if (auth::IsInternalSystemUsername(role_name)) {
+      throw QueryRuntimeException("The name '{}' is reserved for the internal system user.", role_name);
+    }
     switch (coordinator_handler_.CreateRole(role_name)) {
       case coordination::CreateRoleStatus::SUCCESS:
         break;
@@ -1648,8 +1652,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.header = {"user"};
       callback.fn = [&interpreter] {
         const auto &username = interpreter.user_or_role_->username();
+        if (username.has_value()) return std::vector<std::vector<TypedValue>>{{TypedValue(username.value())}};
+        // The internal system user's principal carries no username (so fine-grained access control never applies to
+        // it); its name is the one recorded at login. Every other unnamed session recorded an empty one.
+        auto const &session_username = interpreter.session_info_.username;
         return std::vector<std::vector<TypedValue>>{
-            {username.has_value() ? TypedValue(username.value()) : TypedValue()}};
+            {session_username.empty() ? TypedValue() : TypedValue(session_username)}};
       };
       return callback;
     case AuthQuery::Action::SHOW_CURRENT_ROLE:
@@ -3174,6 +3182,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
+      // A stream runs as its owner, which is persisted by name; the internal system user has none to persist.
+      if (user_or_role && user_or_role->IsInternalSystemUser()) {
+        throw QueryRuntimeException("The internal system user can't own a stream. Create it as a named user.");
+      }
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
           callback.fn =
@@ -3457,6 +3469,48 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
     }
   }
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+// Whether an unlicensed instance in FIPS mode accepts the query: SHOW LICENSE INFO, so a client can tell why it is
+// refused, SHOW DATABASE SETTINGS, and setting one of the two settings that license it, so that a license delivered
+// over Bolt can still reach it and a client can read before it writes.
+bool AllowedUnlicensedInFipsMode(ParsedQuery const &parsed_query) {
+  if (auto const *info_query = utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+    return info_query->info_type_ == SystemInfoQuery::InfoType::LICENSE;
+  }
+  auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
+  if (!setting_query) {
+    return false;
+  }
+  if (setting_query->action_ == SettingQuery::Action::SHOW_ALL_SETTINGS) {
+    return true;
+  }
+  if (setting_query->action_ != SettingQuery::Action::SET_SETTING) {
+    return false;
+  }
+  EvaluationContext evaluation_context;
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  auto const setting_name = EvaluateOptionalExpression(setting_query->setting_name_, evaluator);
+  if (!setting_name.IsString()) {
+    return false;
+  }
+  auto const name = std::string{setting_name.ValueString()};
+  return name == license::kEnterpriseLicenseSettingKey || name == license::kOrganizationNameSettingKey;
+}
+
+bool UnlicensedInFipsMode() { return utils::FipsEnabled() && !license::global_license_checker.IsEnterpriseValidFast(); }
+
+[[noreturn]] void ThrowUnlicensedInFipsMode() {
+  throw QueryRuntimeException(
+      "FIPS mode requires a valid enterprise license. Until one is set, only SHOW LICENSE INFO, SHOW DATABASE "
+      "SETTINGS, SET DATABASE SETTING '{}' and SET DATABASE SETTING '{}' are accepted.",
+      license::kOrganizationNameSettingKey,
+      license::kEnterpriseLicenseSettingKey);
+}
+}  // namespace
+#endif
 
 Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
                               InterpreterContext *interpreter_context, Interpreter *interpreter) {
@@ -3920,6 +3974,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
       // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
       // becomes large.
       handler = [this, extras = extras] {
+#ifdef MG_ENTERPRISE
+        // None of the queries an unlicensed FIPS instance accepts can run in an explicit transaction.
+        if (UnlicensedInFipsMode()) {
+          ThrowUnlicensedInFipsMode();
+        }
+#endif
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
@@ -6300,6 +6360,12 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
                        metrics::DatabaseMetricHandles &metric_handles) {
+  // A DEFINER trigger runs as its owner, which is persisted by name; the internal system user has none to persist.
+  if (trigger_query->privilege_context_ == TriggerPrivilegeContext::DEFINER && user_or_role->IsInternalSystemUser()) {
+    throw QueryRuntimeException(
+        "The internal system user can't own a SECURITY DEFINER trigger. Create it with SECURITY INVOKER, or as a "
+        "named user.");
+  }
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {.header = {},
@@ -10676,6 +10742,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "PARALLEL EXECUTION"));
   }
 
+#ifdef MG_ENTERPRISE
+  // FIPS mode is enterprise only, but an instance may start without a license and receive it over Bolt, and a license
+  // may expire while it runs. Without one, nothing is served except the license info, reading the settings and the
+  // two settings that license it. BEGIN is refused in its handler.
+  if (UnlicensedInFipsMode() && !AllowedUnlicensedInFipsMode(parsed_query)) {
+    ThrowUnlicensedInFipsMode();
+  }
+#endif
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // SetupInterpreterTransaction selected the execution DB for data queries.
@@ -12011,6 +12086,11 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
+void Interpreter::RefreshLogUser() {
+  session_log_ctx_.SetUser(user_or_role_ && user_or_role_->username() ? *user_or_role_->username()
+                                                                      : session_info_.username);
+}
+
 #ifdef MG_ENTERPRISE
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
@@ -12033,16 +12113,14 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   foreign_user_view_.store(user_or_role_, std::memory_order_release);
-  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                        : std::string{});
+  RefreshLogUser();
 }
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   foreign_user_view_.store(user_or_role_, std::memory_order_release);
-  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                        : std::string{});
+  RefreshLogUser();
 }
 #endif
 
@@ -12052,6 +12130,7 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
   session_info_ = {
       .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
   foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_), std::memory_order_release);
+  RefreshLogUser();
 }
 
 void Interpreter::ResetUser() {

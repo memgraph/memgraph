@@ -41,6 +41,7 @@ void QueryUserOrRole::RefreshPrincipal(const auth::Auth &auth) const {
 
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                                    std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
+  if (internal_system_user_) return true;
   // The session-long policy only consults the cached principal; a dropped session only checks if auth is on.
   if (!policy->DoUpdate()) {
     if (dropped_) return !auth_->ReadLock()->AccessControlled();
@@ -84,6 +85,7 @@ std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string
 #ifdef MG_ENTERPRISE
 bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
                                      std::optional<std::string_view> db_name) const {
+  if (internal_system_user_) return false;
   auto locked_auth = auth_->ReadLock();
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) RefreshPrincipal(*locked_auth);
   if (dropped_) return false;

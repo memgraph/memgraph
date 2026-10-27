@@ -32,4 +32,5 @@ DECLARE_int32(auth_module_timeout_ms);
 DECLARE_string(auth_user_or_role_name_regex);
 DECLARE_bool(auth_password_permit_null);
 DECLARE_string(auth_password_strength_regex);
+DECLARE_string(system_user_internal_hash_file);
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)

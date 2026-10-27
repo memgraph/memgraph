@@ -218,23 +218,126 @@ test_fips_password_hashing() {
   run_query_admin "DROP USER fips_user;"
 }
 
-# FIPS mode is an enterprise feature. Run without a licence and startup must
-# refuse rather than quietly serve traffic in approved mode unlicensed.
-test_fips_requires_enterprise_licence() {
-  echo "FEATURE: FIPS - requires an enterprise licence"
-  local out status
-  # Deliberately no $MEMGRAPH_ENTERPRISE_DOCKER_ENVS.
-  out="$(docker run --rm "$MEMGRAPH_DOCKERHUB_IMAGE" --fips-mode=true 2>&1)" && status=0 || status=$?
-  echo "$out"
+FIPS_UNLICENSED_CONTAINER="memgraph_smoke_fips_unlicensed"
+FIPS_UNLICENSED_PORT="8004"
+FIPS_UNLICENSED_REFUSAL="FIPS mode requires a valid enterprise license"
 
+fips_unlicensed_query() {
+  echo "$1" | $MEMGRAPH_CONSOLE_BINARY --host "$MEMGRAPH_DEFAULT_HOST" --port "$FIPS_UNLICENSED_PORT" 2>&1
+}
+
+# Fails unless the query is refused by the unlicensed-FIPS gate.
+fips_unlicensed_refuses() {
+  local out
+  out="$(fips_unlicensed_query "$1")" && { echo "FAIL: '$1' was accepted unlicensed. Output: $out"; return 1; }
+  echo "$out" | grep -q "$FIPS_UNLICENSED_REFUSAL" \
+    || { echo "FAIL: '$1' failed, but not on the license gate. Output: $out"; return 1; }
+  echo "  refused unlicensed: $1"
+}
+
+fips_unlicensed_accepts() {
+  local out
+  out="$(fips_unlicensed_query "$1")" \
+    || { echo "FAIL: '$1' was refused. Output: $out"; return 1; }
+  echo "  accepted: ${2:-$1}"
+}
+
+fips_unlicensed_checks() {
+  # The instance is up once it answers at all; every answer before the license is the refusal.
+  local retries=0
+  until fips_unlicensed_query "RETURN 1;" | grep -q "$FIPS_UNLICENSED_REFUSAL"; do
+    retries=$((retries + 1))
+    if [ "$retries" -ge 100 ]; then
+      echo "FAIL: the unlicensed FIPS instance never answered with the license refusal"
+      docker logs "$FIPS_UNLICENSED_CONTAINER" 2>&1 | tail -20
+      return 1
+    fi
+    sleep 0.3
+  done
+
+  fips_unlicensed_refuses "RETURN 1;" || return 1
+  # Reading the settings is allowed, so a client can read before it writes the license.
+  fips_unlicensed_accepts "SHOW DATABASE SETTINGS;" || return 1
+  # So is the license info, so a client can tell why everything else is refused.
+  fips_unlicensed_accepts "SHOW LICENSE INFO;" || return 1
+  fips_unlicensed_refuses "SHOW DATABASE SETTING 'log.level';" || return 1
+  fips_unlicensed_refuses "SHOW FIPS INFO;" || return 1
+  fips_unlicensed_refuses "CREATE USER fips_unlicensed IDENTIFIED BY 'fips_unlicensed1234';" || return 1
+  # SET DATABASE SETTING itself is not enough; only the two license settings pass.
+  fips_unlicensed_refuses "SET DATABASE SETTING 'log.level' TO 'TRACE';" || return 1
+  fips_unlicensed_refuses "BEGIN;" || return 1
+
+  fips_unlicensed_accepts "SET DATABASE SETTING 'organization.name' TO '$MEMGRAPH_ORGANIZATION_NAME';" \
+    "SET DATABASE SETTING 'organization.name'" || return 1
+  # The organization name alone does not license the instance.
+  fips_unlicensed_refuses "RETURN 1;" || return 1
+  fips_unlicensed_accepts "SET DATABASE SETTING 'enterprise.license' TO '$MEMGRAPH_ENTERPRISE_LICENSE';" \
+    "SET DATABASE SETTING 'enterprise.license'" || return 1
+
+  fips_unlicensed_accepts "RETURN 1;" || return 1
+  local out
+  out="$(echo "SHOW FIPS INFO;" | $MEMGRAPH_CONSOLE_BINARY --host "$MEMGRAPH_DEFAULT_HOST" \
+    --port "$FIPS_UNLICENSED_PORT" --output-format=csv)" \
+    || { echo "FAIL: SHOW FIPS INFO failed once licensed. Output: $out"; return 1; }
+  fips_info_field_is "$out" enabled true \
+    || { echo "FAIL: the instance licensed over Bolt is not in approved mode. Output: $out"; return 1; }
+  echo "  licensed over Bolt, serving in approved mode"
+}
+
+# FIPS mode is an enterprise feature, but the license may only ever arrive over
+# Bolt: the Kubernetes operator delivers it with SET DATABASE SETTING, so a
+# fresh pod has none at startup. An unlicensed instance must start, refuse
+# everything except the license info, reading the settings (the operator reads
+# them before it sets them) and the two settings that license it, and serve
+# once they are set — never serve data in approved mode unlicensed.
+test_fips_unlicensed_accepts_only_license_settings() {
+  echo "FEATURE: FIPS - an unlicensed instance accepts only the license settings"
+  docker_stop_if_there "$FIPS_UNLICENSED_CONTAINER" >/dev/null 2>&1 || true
+  # Deliberately no $MEMGRAPH_ENTERPRISE_DOCKER_ENVS, and no data volume: nothing persisted may license it.
+  docker run -d --rm -p "$FIPS_UNLICENSED_PORT:7687" --name "$FIPS_UNLICENSED_CONTAINER" \
+    "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS --fips-mode=true >/dev/null \
+    || { echo "FAIL: could not start the unlicensed FIPS container"; return 1; }
+  local rc=0
+  fips_unlicensed_checks || rc=$?
+  docker_stop_if_there "$FIPS_UNLICENSED_CONTAINER" >/dev/null 2>&1 || true
+  return $rc
+}
+
+# Runs a container that should exit on its own. If it's still running after 60s
+# (the refusal regressed and it started), it's removed and the status is 124.
+# $1: container name, the rest: docker run arguments.
+docker_run_expecting_exit() {
+  local name="$1" status
+  shift
+  timeout 60 docker run --rm --name "$name" "$@" && status=0 || status=$?
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  return $status
+}
+
+# The init queries run at startup, before a license can arrive over Bolt, so an
+# unlicensed FIPS instance would refuse and lose every one of them (users an init
+# file creates among them). It must refuse to start instead.
+# $1: extra docker run arguments, $2: extra memgraph flags. Deliberately no
+# $MEMGRAPH_ENTERPRISE_DOCKER_ENVS: the instance has no license.
+fips_unlicensed_refuses_to_start_with() {
+  local out status
+  out="$(docker_run_expecting_exit memgraph_fips_init_refusal $1 "$MEMGRAPH_DOCKERHUB_IMAGE" \
+    $MEMGRAPH_GENERAL_FLAGS --fips-mode=true $2 2>&1)" && status=0 || status=$?
   # 16 is ExitCode::FipsModeRequiresEnterprise.
   if [ "$status" -ne 16 ]; then
-    echo "FAIL: expected exit 16, got $status"
+    echo "FAIL: expected exit 16 with '$1 $2', got $status. Output: $out"
     return 1
   fi
-  echo "$out" | grep -qi "license" \
-    || { echo "FAIL: the error did not mention the licence"; return 1; }
-  echo "  refused with exit 16 as expected"
+  echo "$out" | grep -q "The init queries" \
+    || { echo "FAIL: the error did not name the init queries. Output: $out"; return 1; }
+  echo "  refused with exit 16 as expected: $1 $2"
+}
+
+test_fips_unlicensed_refuses_init_queries() {
+  echo "FEATURE: FIPS - an unlicensed instance refuses to start with init queries"
+  fips_unlicensed_refuses_to_start_with "" "--init-file=/tmp/init.cypherl" || return 1
+  fips_unlicensed_refuses_to_start_with "" "--init-data-file=/tmp/init.cypherl" || return 1
+  fips_unlicensed_refuses_to_start_with "-e MEMGRAPH_HA_CLUSTER_INIT_QUERIES=/tmp/init.cypherl" "" || return 1
 }
 
 # Refusing to start under a non-approved password algorithm is a startup-time
@@ -244,8 +347,8 @@ test_fips_requires_enterprise_licence() {
 test_fips_refuses_non_approved_algorithm() {
   echo "FEATURE: FIPS - refuses a non-approved password algorithm"
   local out status
-  out="$(docker run --rm $MEMGRAPH_ENTERPRISE_DOCKER_ENVS "$MEMGRAPH_DOCKERHUB_IMAGE" \
-    --fips-mode=true --password-encryption-algorithm=bcrypt 2>&1)" && status=0 || status=$?
+  out="$(docker_run_expecting_exit memgraph_fips_algorithm_refusal $MEMGRAPH_ENTERPRISE_DOCKER_ENVS \
+    "$MEMGRAPH_DOCKERHUB_IMAGE" --fips-mode=true --password-encryption-algorithm=bcrypt 2>&1)" && status=0 || status=$?
   echo "$out"
 
   # 15 is ExitCode::FipsModeUnsupportedPasswordAlgorithm; the value is part of

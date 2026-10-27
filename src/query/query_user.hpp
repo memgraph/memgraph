@@ -51,6 +51,9 @@ struct QueryUserOrRole {
 
   virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
 
+  // The internal system user's principal, which has no stored user or role behind it.
+  virtual bool IsInternalSystemUser() const { return false; }
+
 #ifdef MG_ENTERPRISE
   virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;

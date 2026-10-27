@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -1109,6 +1111,18 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     ASSERT_TRUE(user);
     ASSERT_TRUE(Authenticate("test", "pass"));
     ASSERT_FALSE(Authenticate("test", "word"));
+    ASSERT_TRUE(auth->RemoveUser(user->username()));
+  }
+
+  {
+    auto user = AddUser(*auth,
+                        "test",
+                        "pbkdf2-sha256:600000:000102030405060708090a0b0c0d0e0f:"
+                        "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7" /* hello */);
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->PasswordHashAlgo(), PasswordHashAlgorithm::PBKDF2_SHA256);
+    ASSERT_TRUE(Authenticate("test", "hello"));
+    ASSERT_FALSE(Authenticate("test", "hellp"));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 }
@@ -2933,13 +2947,82 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256SaltIsRandomAndSized) {
   ASSERT_EQ(j.at("password_hash").get<std::string>().size(), 96);
 }
 
-// Unlike bcrypt/sha256, a pre-computed pbkdf2 hash is deliberately rejected:
-// it carries no iteration count, so accepting one would mean trusting an
-// unknown work factor. See the note on UserDefinedHash.
-TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256RejectsUserSuppliedHash) {
-  auto const supplied = std::string{"pbkdf2-sha256:000102030405060708090a0b0c0d0e0f"} +
-                        "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7";
-  ASSERT_FALSE(UserDefinedHash(supplied).has_value());
+namespace {
+// The known-answer vector above as a pre-computed literal. The stored hash
+// carries no iteration count, so the literal has to name it.
+constexpr auto kPbkdf2Salt = "000102030405060708090a0b0c0d0e0f"sv;
+constexpr auto kPbkdf2HelloKey = "0f2f8ea738901d7afee33ef32d3a4358619f9f6e24a1f1b6a6ca81310858fcd7"sv;
+auto const kPbkdf2HelloLiteral =
+    std::string{"pbkdf2-sha256:600000:"} + std::string{kPbkdf2Salt} + ":" + std::string{kPbkdf2HelloKey};
+}  // namespace
+
+// A literal derived anywhere else (Python's hashlib, Go's crypto/pbkdf2) reads
+// into the same hash Memgraph would have stored, and verifies like one.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256ReadsUserSuppliedHash) {
+  ASSERT_TRUE(IsUserDefinedHashFormat(kPbkdf2HelloLiteral));
+  auto hash = UserDefinedHash(kPbkdf2HelloLiteral);
+  ASSERT_TRUE(hash.has_value());
+  ASSERT_EQ(hash->HashAlgo(), PasswordHashAlgorithm::PBKDF2_SHA256);
+  ASSERT_EQ(
+      *hash,
+      (HashedPassword{PasswordHashAlgorithm::PBKDF2_SHA256, std::string{kPbkdf2Salt} + std::string{kPbkdf2HelloKey}}));
+  ASSERT_TRUE(hash->VerifyPassword("hello"));
+  ASSERT_FALSE(hash->VerifyPassword("hellp"));
+}
+
+// Accepting a literal without Memgraph's own iteration count would mean
+// verifying a possibly far weaker hash (the SP 800-132 floor is 1000) as
+// though it were as strong, so such literals stay unrecognised, as does any
+// other malformed one.
+TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256RejectsUserSuppliedHashWithoutMemgraphsIterationCount) {
+  auto const salt = std::string{kPbkdf2Salt};
+  auto const key = std::string{kPbkdf2HelloKey};
+  auto uppercase_key = key;
+  std::ranges::transform(uppercase_key, uppercase_key.begin(), [](unsigned char ch) { return std::toupper(ch); });
+  auto const cases = std::array{
+      "pbkdf2-sha256:" + salt + key,               // no iteration count
+      "pbkdf2-sha256:1000:" + salt + ":" + key,    // the SP 800-132 floor
+      "pbkdf2-sha256:600001:" + salt + ":" + key,  // anything but Memgraph's own
+      "pbkdf2-sha256:600000:" + salt + key,        // no separator
+      "pbkdf2-sha256:600000:" + salt + ":" + key.substr(1),
+      "pbkdf2-sha256:600000:" + salt + ":" + key + "0",
+      "pbkdf2-sha256:600000:" + salt + ":" + uppercase_key,
+      "pbkdf2-sha256:600000:" + salt + ":" + key.substr(1) + "g",
+      "PBKDF2-SHA256:600000:" + salt + ":" + key,
+  };
+  for (auto const &supplied : cases) {
+    EXPECT_FALSE(IsUserDefinedHashFormat(supplied)) << supplied;
+    EXPECT_FALSE(UserDefinedHash(supplied).has_value()) << supplied;
+  }
+}
+
+// A near-miss of a pre-hashed literal is refused rather than stored as a plaintext password equal to it.
+TEST_F(AuthWithStorage, MalformedUserDefinedHashIsRefused) {
+  auto const salt = std::string{kPbkdf2Salt};
+  auto const key = std::string{kPbkdf2HelloKey};
+  auto const malformed = std::array{
+      "PBKDF2-SHA256:600000:" + salt + ":" + key,
+      "pbkdf2-sha256:1000:" + salt + ":" + key,
+      "pbkdf2-sha256:600000:" + salt + ":" + key.substr(1),
+      std::string{"BCRYPT:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"},
+      std::string{"sha256:abc"},
+      std::string{"Sha256-Multiple:abc"},
+  };
+  for (auto const &supplied : malformed) {
+    EXPECT_THROW(auth->ValidatePassword(supplied), AuthException) << supplied;
+  }
+
+  // Valid literals and passwords that merely mention an algorithm are unaffected.
+  auto const accepted = std::array{
+      kPbkdf2HelloLiteral,
+      std::string{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"},
+      std::string{"bcrypt"},
+      std::string{"bcrypt-password"},
+      std::string{"my bcrypt:password"},
+  };
+  for (auto const &supplied : accepted) {
+    EXPECT_NO_THROW(auth->ValidatePassword(supplied)) << supplied;
+  }
 }
 
 // FIPS policy is process-global, so it must be reset even when a test fails.
@@ -3007,6 +3090,17 @@ TEST_F(AuthFipsMode, UserSuppliedLegacyHashIsRejected) {
 
   memgraph::utils::SetFipsStatus({.enabled = true});
   ASSERT_THROW(UserDefinedHash(supplied), AuthException);
+}
+
+// pbkdf2-sha256 is the approved algorithm, so its pre-computed hash is the one
+// FIPS mode accepts.
+TEST_F(AuthFipsMode, UserSuppliedPBKDF2HashIsAccepted) {
+  memgraph::utils::SetFipsStatus({.enabled = true});
+  auto hash = UserDefinedHash(kPbkdf2HelloLiteral);
+  ASSERT_TRUE(hash.has_value());
+  ASSERT_EQ(hash->HashAlgo(), PasswordHashAlgorithm::PBKDF2_SHA256);
+  ASSERT_TRUE(hash->VerifyPassword("hello"));
+  ASSERT_FALSE(hash->VerifyPassword("hellp"));
 }
 
 // Everything must behave exactly as before when the flag is off.

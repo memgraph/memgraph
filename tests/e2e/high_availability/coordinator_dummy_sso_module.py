@@ -19,6 +19,7 @@
 # comma-separated list of role names the "IdP" returns for the identity, which lets a test request any role set (or an
 # error) without a real IdP:
 #   - "bad_token" (or an empty / undecodable token) -> an authentication error response.
+#   - "as:<username>:<roles>"                        -> authenticated as <username> with the listed roles.
 #   - otherwise                                     -> authenticated with the listed roles.
 # Coordinator-side role existence and privileges are NOT decided here; the coordinator validates the returned role
 # names against its Raft-replicated role set.
@@ -39,11 +40,15 @@ def authenticate(scheme, response):
     if token in ("", "bad_token"):
         return {"authenticated": False, "errors": f"invalid identity provider token for scheme {scheme}"}
 
+    username = f"{scheme}-user"
+    if token.startswith("as:"):
+        _, username, token = token.split(":", 2)
+
     roles = [role.strip() for role in token.split(",") if role.strip()]
     if not roles:
         return {"authenticated": False, "errors": "no roles in identity provider token"}
 
-    return {"authenticated": True, "roles": roles, "username": f"{scheme}-user"}
+    return {"authenticated": True, "roles": roles, "username": username}
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@
 
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -28,6 +29,7 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
+#include "auth/system_user.hpp"
 #include "communication/cluster_tls.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
@@ -546,13 +548,31 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // FIPS mode engages much earlier (it has to precede the first SSL context and
   // password hash), but the license cannot be evaluated until here — it may come
-  // from settings, which need the data directory. Both are still well before the
-  // Bolt server starts, so no traffic is ever served in approved mode without a
-  // valid licence.
+  // from settings, which need the data directory. An unlicensed instance still
+  // starts, because the license may only arrive over Bolt (a Kubernetes operator
+  // delivers it that way, so a fresh pod has none at startup), but until it does
+  // the interpreter accepts nothing except the license info, reading the
+  // settings and setting the license and organization name, so no data is
+  // served in approved mode without a valid licence.
   if (FLAGS_fips_mode) {
     if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
-      memgraph::utils::FailStartup(memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
-                                   memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"));
+      // The init queries run once, below, before a license can arrive over Bolt, so every one of them would be refused
+      // and lost -- users an init file creates among them, leaving the instance open once it is licensed.
+      if (!FLAGS_init_file.empty() || !FLAGS_init_data_file.empty() || std::getenv(kMgHaClusterInitQueries)) {
+        memgraph::utils::FailStartup(
+            memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
+            fmt::format("The init queries (--init-file, --init-data-file, {}) run at startup, before a license can "
+                        "be set over Bolt. Provide the license at startup (--license-key and --organization-name, or "
+                        "MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME), or start without the init "
+                        "queries.",
+                        kMgHaClusterInitQueries));
+      }
+      spdlog::warn(
+          "{}\nUntil a valid license is set, only SHOW LICENSE INFO, SHOW DATABASE SETTINGS, SET DATABASE SETTING '{}' "
+          "and SET DATABASE SETTING '{}' are accepted.",
+          memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"),
+          memgraph::license::kOrganizationNameSettingKey,
+          memgraph::license::kEnterpriseLicenseSettingKey);
     }
   }
 #endif
@@ -784,7 +804,54 @@ int main(int argc, char **argv) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
     return EXIT_FAILURE;
   }
-  auth_glue(auth_.get(), auth_handler, auth_checker);
+  try {
+    auth_glue(auth_.get(), auth_handler, auth_checker);
+  } catch (std::exception const &e) {
+    spdlog::error(
+        "Couldn't create the user given by {} or {}, shutting down Memgraph. {}", kMgUser, kMgPassfile, e.what());
+    return EXIT_FAILURE;
+  }
+
+  // Only a version from before the name was reserved can have stored a user or role under it. Coordinators keep their
+  // roles in the Raft state, not the auth store, and are checked once that is restored.
+  if (!is_coordinator_instance) {
+    auto const reserved_name = std::string{memgraph::auth::kInternalSystemUsername};
+    auto const stored_kind = std::invoke([&]() -> std::optional<std::string_view> {
+      auto const locked = auth_->ReadLock();
+      if (locked->GetUser(reserved_name)) return "user";
+      if (locked->GetRole(reserved_name)) return "role";
+      return std::nullopt;
+    });
+    if (stored_kind) {
+      if (!FLAGS_system_user_internal_hash_file.empty()) {
+        spdlog::error(
+            "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Rename the "
+            "stored {} (create one under another name with the same privileges and drop this one) or leave "
+            "--system-user-internal-hash-file empty. Shutting down Memgraph.",
+            *stored_kind,
+            reserved_name,
+            *stored_kind);
+        return EXIT_FAILURE;
+      }
+      spdlog::warn(
+          "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Rename it: "
+          "create a {} under another name with the same privileges and drop this one. Until then Memgraph won't start "
+          "with --system-user-internal-hash-file set.",
+          *stored_kind,
+          reserved_name,
+          *stored_kind);
+    }
+  }
+
+  if (!FLAGS_system_user_internal_hash_file.empty()) {
+    try {
+      memgraph::auth::LoadInternalSystemUser(FLAGS_system_user_internal_hash_file);
+    } catch (memgraph::auth::AuthException const &e) {
+      spdlog::error("{} Shutting down Memgraph.", e.what());
+      return EXIT_FAILURE;
+    }
+    spdlog::info("Internal system user {} is enabled.", memgraph::auth::kInternalSystemUsername);
+  }
 
 #ifdef MG_ENTERPRISE
   if (FLAGS_fips_mode) {
@@ -891,6 +958,26 @@ int main(int argc, char **argv) {
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
     return EXIT_FAILURE;
+  }
+
+  // The coordinator counterpart of the auth store check above: its roles live in the Raft state, restored from disk by
+  // now. The role set is shared, so every coordinator started with the flag refuses alike.
+  if (is_coordinator_instance && std::ranges::any_of(coordinator_state->GetLocalRoles(),
+                                                     memgraph::auth::IsInternalSystemUsername,
+                                                     &memgraph::coordination::CoordinatorRole::name)) {
+    if (!FLAGS_system_user_internal_hash_file.empty()) {
+      spdlog::error(
+          "A coordinator role named {} exists, but the name is reserved for the internal system user. Start the "
+          "coordinators without --system-user-internal-hash-file and rename the role (create one under another name "
+          "with the same privileges and drop this one), then restart them with it. Shutting down Memgraph.",
+          memgraph::auth::kInternalSystemUsername);
+      return EXIT_FAILURE;
+    }
+    spdlog::warn(
+        "A coordinator role named {} exists, but the name is reserved for the internal system user. Rename it: create "
+        "a role under another name with the same privileges and drop this one. Until then the coordinators won't start "
+        "with --system-user-internal-hash-file set.",
+        memgraph::auth::kInternalSystemUsername);
   }
 
 #endif

@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "auth/system_user.hpp"
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
@@ -1179,8 +1180,9 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 
 auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
   // Validated before forwarding, so a malformed name is rejected on whichever coordinator received the query without
-  // an RPC round trip, and again on the leader when the request does arrive over RPC.
-  if (!RoleNameIsWellFormed(role_name)) {
+  // an RPC round trip, and again on the leader when the request does arrive over RPC. The reserved name is refused here
+  // too, not only by the interpreter, because a follower on an older version forwards it unchecked.
+  if (!RoleNameIsWellFormed(role_name) || auth::IsInternalSystemUsername(role_name)) {
     return CreateRoleStatus::INVALID_ROLE_NAME;
   }
 
@@ -1257,6 +1259,8 @@ auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<Coordina
 
   return std::nullopt;
 }
+
+auto CoordinatorInstance::GetLocalRoles() const -> std::vector<CoordinatorRole> { return raft_state_->GetRoles(); }
 
 auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> GrantPrivilegeStatus {

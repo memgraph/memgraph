@@ -196,6 +196,33 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     // covering a fresh boot with mappings and no roles, and dropping the last writable role on a live cluster. A
     // transient leader outage leaves the role set unknown; that case is fail-closed (passthrough denied), matching the
     // SSO path, since it is temporary and SSO is unavailable then too.
+    //
+    // Ahead of all of that, a basic or none login as the internal system user (--system-user-internal-hash-file) is
+    // decided on its password alone: accepted with full coordinator privileges whether or not SSO is configured, and
+    // rejected outright on a wrong password -- passthrough would otherwise admit it with any credentials. A missing
+    // principal or password counts as "", as it does on data instances, so leaving the password out is a wrong
+    // password rather than a way past this check.
+    //
+    // An empty scheme is rejected, as on data instances, rather than admitted as a passthrough.
+    if (schema.empty()) {
+      spdlog::warn("Client connected to this coordinator with an empty authentication scheme.");
+      HandleAuthFailure(session, "The authentication scheme can't be empty.");
+      return State::Close;
+    }
+    if (schema == "basic" || schema == "none") {
+      auto const string_field = [&data](std::string const &key) -> std::string {
+        auto const it = data.find(key);
+        return it != data.end() && it->second.IsString() ? it->second.ValueString() : std::string{};
+      };
+      if (auto const internal = session.CoordinatorInternalSystemUserAuthenticate(string_field("principal"),
+                                                                                  string_field("credentials"))) {
+        if (!*internal) {
+          HandleAuthFailure(session);
+          return State::Close;
+        }
+        return std::nullopt;
+      }
+    }
     if (scheme_in_module_mappings(schema)) {
       return CoordinatorSSOAuthentication(session, data);
     }

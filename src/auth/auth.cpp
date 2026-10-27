@@ -8,6 +8,7 @@
 
 #include "auth/auth.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
@@ -19,6 +20,7 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/replication_action.hpp"
 #include "auth/rules.hpp"
+#include "auth/system_user.hpp"
 #include "flags/auth.hpp"
 #include "license/license.hpp"
 #include "system/action.hpp"
@@ -394,6 +396,15 @@ std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nloh
     return std::nullopt;
   }
 
+  // A role by that name can only be a leftover from before the name was reserved; nothing may log in through it.
+  if (auto const reserved = std::ranges::find_if(role_names, IsInternalSystemUsername); reserved != role_names.end()) {
+    spdlog::warn(
+        "Couldn't authenticate user: the auth module returned the role {}, which is reserved for the internal "
+        "system user.",
+        *reserved);
+    return std::nullopt;
+  }
+
   return role_names;
 }
 
@@ -412,6 +423,12 @@ std::optional<auth::SSOIdentity> ExtractSSOIdentity(const std::string &scheme, c
     }
     return {};
   });
+  if (IsInternalSystemUsername(username)) {
+    spdlog::warn("Coordinator SSO login failed for scheme '{}': the name {} is reserved for the internal system user.",
+                 scheme,
+                 username);
+    return std::nullopt;
+  }
   if (username.empty()) {
     spdlog::warn(utils::MessageWithLink(
         "The coordinator SSO module returned no username; queries from this session will be recorded without a "
@@ -507,6 +524,14 @@ std::optional<UserOrRole> Auth::ResolveModuleResponse(const nlohmann::json &ret,
     spdlog::warn(utils::MessageWithLink(
         "Couldn't authenticate external user because the username was not returned by the auth module.",
         "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+
+  // An auth module (LDAP, SSO) can't hand out the internal system user's name: that identity is only ever proven by its
+  // hash file.
+  if (IsInternalSystemUsername(*username)) {
+    spdlog::warn("Couldn't authenticate external user because the name {} is reserved for the internal system user.",
+                 *username);
     return std::nullopt;
   }
 
@@ -633,6 +658,16 @@ bool Auth::Config::NameMatches(std::string const &user_or_role) const {
 
 void Auth::ValidatePassword(const std::optional<std::string> &password) const {
   if (password && IsUserDefinedHashFormat(*password)) return;
+  // Otherwise it would be stored as a plaintext password equal to the literal, which nobody would log in with.
+  if (auto const algo = password ? UserDefinedHashPrefix(*password) : std::nullopt) {
+    auto const expected_form =
+        *algo == PasswordHashAlgorithm::PBKDF2_SHA256
+            ? std::string{"\"pbkdf2-sha256:600000:<salt>:<key>\", with the salt and key in lowercase hex"}
+            : fmt::format("\"{}:\" followed by the {}-character hash", AsString(*algo), HashSize(*algo).unsalted);
+    throw AuthException("The password starts like a pre-hashed {} password but isn't a valid one. It must be {}.",
+                        AsString(*algo),
+                        expected_form);
+  }
   config_.ValidatePassword(password);
 }
 
@@ -646,6 +681,9 @@ std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std:
 
 void Auth::ValidateName(const std::string &name) const {
   if (!NameRegexMatch(name)) throw AuthException("Invalid user name.");
+  if (IsInternalSystemUsername(name)) {
+    throw AuthException("The name '{}' is reserved for the internal system user.", name);
+  }
 }
 
 std::optional<User> Auth::AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
@@ -898,6 +936,9 @@ void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
 std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transaction *system_tx) {
   if (!NameRegexMatch(rolename)) {
     throw AuthException("Invalid role name.");
+  }
+  if (IsInternalSystemUsername(rolename)) {
+    throw AuthException("The name '{}' is reserved for the internal system user.", rolename);
   }
   if (GetRole(rolename)) return std::nullopt;
   auto new_role = Role(rolename);

@@ -113,4 +113,8 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password);
 
 /// Format check only: true if password is a pre-hashed literal; FIPS is enforced by UserDefinedHash.
 bool IsUserDefinedHashFormat(std::string_view password);
+
+/// The algorithm whose pre-hashed literal prefix ("<algorithm>:", in any case) password starts with, if any. Such a
+/// password that isn't a pre-hashed literal is a malformed one, not a plaintext password.
+std::optional<PasswordHashAlgorithm> UserDefinedHashPrefix(std::string_view password);
 }  // namespace memgraph::auth
