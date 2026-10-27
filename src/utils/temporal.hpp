@@ -405,11 +405,32 @@ class Timezone {
 
   const Timezone *operator->() const { return this; }
 
+  // Compares the offset two timezones given as one hold, and the identity of two taken from the
+  // database, which is one object per zone so that an alias and the name it stands for are the
+  // same timezone.
   bool operator==(const Timezone &) const = default;
 
-  // Sole sensible comparison; can’t compare by offset since the same timezone may have varying offsets through the year
-  // (standard vs. daylight saving time)
-  auto operator<=>(const Timezone &other) const { return TimezoneName() <=> other.TimezoneName(); }
+  // A timezone given as an offset and one named in the database are different kinds of thing, so
+  // they are placed by kind before anything else. Within a kind they are placed by what
+  // distinguishes them: the offset itself, or the name.
+  //
+  // Not by name alone. Every timezone given as an offset answers "" to its name, so that would
+  // place all of them together while equality tells them apart, and two unequal timezones would
+  // compare equivalent. Not by the database pointer either, which would order them differently
+  // from one run to the next. The same zone always has the same pointer, so comparing names
+  // here agrees with equality comparing pointers.
+  //
+  // Comparing by the offset a zone is at right now would be wrong whichever way it is done: a
+  // named zone's offset moves through the year.
+  std::strong_ordering operator<=>(const Timezone &other) const {
+    if (auto const kind = InTzDatabase() <=> other.InTzDatabase(); kind != std::strong_ordering::equal) {
+      return kind;
+    }
+    if (!InTzDatabase()) {
+      return DefiningOffset() <=> other.DefiningOffset();
+    }
+    return TimezoneName() <=> other.TimezoneName();
+  }
 
   std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }
 

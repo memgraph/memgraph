@@ -87,6 +87,30 @@ inline bool operator==(const std::tm &lhs, const std::tm &rhs) {
 
 }  // namespace
 
+// Two timezones that are not equal must not compare equivalent, whichever pair they are. A
+// zone given as an offset has no name, so ordering by name alone puts every one of them in
+// the same place while equality tells them apart.
+TEST(TemporalTest, TimezoneOrderingAgreesWithEquality) {
+  auto const an_hour_east = memgraph::utils::Timezone{std::chrono::minutes{60}};
+  auto const two_hours_east = memgraph::utils::Timezone{std::chrono::minutes{120}};
+  auto const london = memgraph::utils::Timezone{"Europe/London"};
+  auto const new_york = memgraph::utils::Timezone{"America/New_York"};
+
+  auto const agree = [](auto const &left, auto const &right) {
+    EXPECT_EQ(left == right, (left <=> right) == std::strong_ordering::equivalent) << "equality and ordering disagree";
+  };
+
+  agree(an_hour_east, two_hours_east);
+  agree(an_hour_east, an_hour_east);
+  agree(london, new_york);
+  agree(london, london);
+  agree(an_hour_east, london);
+
+  // And the order among offsets is the order of the offsets themselves.
+  EXPECT_TRUE(an_hour_east < two_hours_east);
+  EXPECT_FALSE(two_hours_east < an_hour_east);
+}
+
 TEST(TemporalTest, DateConstruction) {
   std::optional<memgraph::utils::Date> test_date;
 
