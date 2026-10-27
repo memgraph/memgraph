@@ -14,7 +14,6 @@
 import argparse
 import atexit
 import fcntl
-import glob
 import os
 import subprocess
 import sys
@@ -254,13 +253,6 @@ def run_persistence_test(
     env = {
         k: v for k, v in os.environ.items() if k not in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
     }
-    # The daily log sink inserts the date into the file name
-    memgraph_args = memgraph_args + ["--log-file", os.path.join(data_directory, "memgraph.log")]
-
-    def read_log() -> str:
-        log_files = glob.glob(os.path.join(data_directory, "memgraph*.log"))
-        assert log_files, "No log file written"
-        return "".join(open(path).read() for path in log_files)
 
     def start(extra_args: List[str] = []):
         memgraph = start_memgraph(memgraph_args + extra_args, env)
@@ -282,33 +274,27 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
     stop(memgraph)
 
-    # A value persisted by an older version is restored one last time, with a warning naming the flag, and deleted.
-    # A leftover of a setting that was never restored is deleted silently.
+    # A value persisted by an older version is restored one last time and deleted. A leftover of a setting that was
+    # never restored is deleted without being applied.
     store_put(store_binary, data_directory, "server.name", "Old Name")
     store_put(store_binary, data_directory, "query.timeout", "321")
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", "Old Name")
     check_flag(flag_tester_binary, "query.timeout", "600")
     stop(memgraph)
-    log = read_log()
-    assert "Setting 'server.name' was restored from the data directory for the last time" in log, "Missing warning"
-    assert "--bolt-server-name-for-init=Old Name" in log, "Warning does not name the flag"
-    assert "Setting 'query.timeout' was restored" not in log, "query.timeout was never restorable"
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover of server.name kept"
     assert store_get(store_binary, data_directory, "query.timeout") is None, "Leftover of query.timeout kept"
     assert store_get(store_binary, data_directory, "organization.name") == "Memgraph Ltd", "License entry lost"
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", default_server_name)
     stop(memgraph)
-    assert read_log().count("Setting 'server.name' was restored") == 1, "Restored again after the leftover was gone"
 
-    # A flag given on the command line wins over the leftover, which is deleted without a warning
+    # A flag given on the command line wins over the leftover, which is deleted
     store_put(store_binary, data_directory, "server.name", "Old Name")
     memgraph = start(["--bolt-server-name-for-init", "Flag Name"])
     check_flag(flag_tester_binary, "server.name", "Flag Name")
     stop(memgraph)
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover kept when the flag was given"
-    assert read_log().count("Setting 'server.name' was restored") == 1, "Warned although the flag was given"
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", default_server_name)
     stop(memgraph)

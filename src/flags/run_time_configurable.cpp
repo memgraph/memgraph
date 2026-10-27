@@ -339,8 +339,8 @@ namespace memgraph::flags::run_time {
 // NOTE: settings needs to be stable for the duration of the program
 void Initialize(utils::Settings &settings) {
   // Run-time changes never survive a restart; the flag is the only durable source of a value. Older versions restored
-  // some settings from the data directory. A value they left there is applied one last time, with a warning naming
-  // the flag, and deleted. Settings that were never restored discard their leftover silently.
+  // some settings from the data directory. A value they left there is applied one last time and deleted. Settings
+  // that were never restored drop their leftover without applying it.
   constexpr bool kRestoreOnce = true;
 
   /**
@@ -374,15 +374,7 @@ void Initialize(utils::Settings &settings) {
 
     // Applying through SetValue validates the leftover and runs the callback that propagates it to the flag and the
     // caches. A flag given on the command line always wins over the leftover.
-    if (restore_once && info.is_default && leftover && *leftover != info.current_value) {
-      auto cli_flag = flag;
-      std::ranges::replace(cli_flag, '_', '-');
-      spdlog::warn(
-          "Setting '{}' was restored from the data directory for the last time; run-time settings are no longer "
-          "persisted. Pass --{}={} to keep this value.",
-          key,
-          cli_flag,
-          *leftover);
+    if (restore_once && info.is_default && leftover) {
       try {
         settings.SetValue(key, *leftover);
         return;
