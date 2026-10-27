@@ -282,25 +282,36 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
     stop(memgraph)
 
-    # A value persisted by an older version is discarded with a warning naming the flag; a leftover equal to the
-    # flag value is discarded silently
+    # A value persisted by an older version is restored one last time, with a warning naming the flag, and deleted.
+    # A leftover of a setting that was never restored is deleted silently.
     store_put(store_binary, data_directory, "server.name", "Old Name")
-    store_put(store_binary, data_directory, "query.timeout", "600")
+    store_put(store_binary, data_directory, "query.timeout", "321")
     memgraph = start()
-    check_flag(flag_tester_binary, "server.name", default_server_name)
+    check_flag(flag_tester_binary, "server.name", "Old Name")
     check_flag(flag_tester_binary, "query.timeout", "600")
     stop(memgraph)
     log = read_log()
-    assert "Setting 'server.name' is no longer restored from the data directory" in log, "Missing discard warning"
-    assert "--bolt-server-name-for-init=Old Name" in log, "Discard warning does not name the flag"
-    assert "Setting 'query.timeout' is no longer restored" not in log, "Warned about a leftover equal to the flag"
+    assert "Setting 'server.name' was restored from the data directory for the last time" in log, "Missing warning"
+    assert "--bolt-server-name-for-init=Old Name" in log, "Warning does not name the flag"
+    assert "Setting 'query.timeout' was restored" not in log, "query.timeout was never restorable"
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover of server.name kept"
     assert store_get(store_binary, data_directory, "query.timeout") is None, "Leftover of query.timeout kept"
     assert store_get(store_binary, data_directory, "organization.name") == "Memgraph Ltd", "License entry lost"
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", default_server_name)
     stop(memgraph)
-    assert read_log().count("Setting 'server.name' is no longer restored") == 1, "Warned again after the discard"
+    assert read_log().count("Setting 'server.name' was restored") == 1, "Restored again after the leftover was gone"
+
+    # A flag given on the command line wins over the leftover, which is deleted without a warning
+    store_put(store_binary, data_directory, "server.name", "Old Name")
+    memgraph = start(["--bolt-server-name-for-init", "Flag Name"])
+    check_flag(flag_tester_binary, "server.name", "Flag Name")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "server.name") is None, "Leftover kept when the flag was given"
+    assert read_log().count("Setting 'server.name' was restored") == 1, "Warned although the flag was given"
+    memgraph = start()
+    check_flag(flag_tester_binary, "server.name", default_server_name)
+    stop(memgraph)
 
 
 def execute_test(
