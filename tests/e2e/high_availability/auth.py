@@ -1866,6 +1866,32 @@ def test_internal_system_user_cant_own_definer_triggers_or_streams(test_name, tm
     assert [row[0] for row in execute_and_fetch_all(internal, "SHOW TRIGGERS")] == ["invoked"]
 
 
+def test_internal_system_user_doesnt_inherit_previous_users_resources(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    anonymous = connect(host="localhost", port=STANDALONE_DATA_PORT).cursor()
+    execute_and_fetch_all(anonymous, "CREATE USER admin IDENTIFIED BY 'admin'")
+    admin = connect(host="localhost", port=STANDALONE_DATA_PORT, username="admin", password="admin").cursor()
+    execute_and_fetch_all(admin, "CREATE USER alice IDENTIFIED BY 'alice'")
+    execute_and_fetch_all(admin, "CREATE PROFILE one_session LIMIT sessions 1")
+    execute_and_fetch_all(admin, "SET PROFILE FOR alice TO one_session")
+
+    # A pool of one connection makes the driver switch it from alice to the internal system user with LOGOFF+LOGON.
+    driver = GraphDatabase.driver(
+        f"bolt://localhost:{STANDALONE_DATA_PORT}", auth=("alice", "alice"), max_connection_pool_size=1, encrypted=False
+    )
+    try:
+        with driver.session() as session:
+            session.run("RETURN 1").consume()
+        with driver.session(auth=(INTERNAL_SYSTEM_USER, INTERNAL_SYSTEM_USER_PASSWORD)) as session:
+            session.run("RETURN 1").consume()
+        # The connection, now the internal system user's, must not hold alice's only session slot.
+        assert connect_error(STANDALONE_DATA_PORT, username="alice", password="alice") is None
+    finally:
+        driver.close()
+
+
 def test_internal_system_user_name_is_reserved_on_data_instance(test_name, tmp_path):
     description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
     interactive_mg_runner.start_all(description, keep_directories=False)

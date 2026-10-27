@@ -528,6 +528,9 @@ void SessionHL::LogOff() {
   // them (SSO or basic passthrough).
   interpreter_.SetCoordinatorPrivileges(0);
   interpreter_.SetCoordinatorRoles({});
+  // A LOGON without a stored user (the internal system user, or no access control) doesn't set it, and Configure would
+  // otherwise charge that session to the previous user's limits.
+  user_resource_.reset();
 #endif
   interpreter_.ResetUser();
   session_user_or_role_.reset();
