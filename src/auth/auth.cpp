@@ -658,6 +658,14 @@ bool Auth::Config::NameMatches(std::string const &user_or_role) const {
 
 void Auth::ValidatePassword(const std::optional<std::string> &password) const {
   if (password && IsUserDefinedHashFormat(*password)) return;
+  // Otherwise it would be stored as a plaintext password equal to the literal, which nobody would log in with.
+  if (auto const algo = password ? UserDefinedHashPrefix(*password) : std::nullopt) {
+    throw AuthException(
+        "The password starts like a pre-hashed {0} password (\"{0}:\") but isn't a valid one. The algorithm name "
+        "and hex digits must be lowercase, and a pbkdf2-sha256 hash must have the form "
+        "\"pbkdf2-sha256:600000:<salt>:<key>\".",
+        AsString(*algo));
+  }
   config_.ValidatePassword(password);
 }
 

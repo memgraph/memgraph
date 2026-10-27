@@ -2996,6 +2996,35 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, PBKDF2SHA256RejectsUserSuppliedHashW
   }
 }
 
+// A near-miss of a pre-hashed literal is refused rather than stored as a plaintext password equal to it.
+TEST_F(AuthWithStorage, MalformedUserDefinedHashIsRefused) {
+  auto const salt = std::string{kPbkdf2Salt};
+  auto const key = std::string{kPbkdf2HelloKey};
+  auto const malformed = std::array{
+      "PBKDF2-SHA256:600000:" + salt + ":" + key,
+      "pbkdf2-sha256:1000:" + salt + ":" + key,
+      "pbkdf2-sha256:600000:" + salt + ":" + key.substr(1),
+      std::string{"BCRYPT:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"},
+      std::string{"sha256:abc"},
+      std::string{"Sha256-Multiple:abc"},
+  };
+  for (auto const &supplied : malformed) {
+    EXPECT_THROW(auth->ValidatePassword(supplied), AuthException) << supplied;
+  }
+
+  // Valid literals and passwords that merely mention an algorithm are unaffected.
+  auto const accepted = std::array{
+      kPbkdf2HelloLiteral,
+      std::string{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"},
+      std::string{"bcrypt"},
+      std::string{"bcrypt-password"},
+      std::string{"my bcrypt:password"},
+  };
+  for (auto const &supplied : accepted) {
+    EXPECT_NO_THROW(auth->ValidatePassword(supplied)) << supplied;
+  }
+}
+
 // FIPS policy is process-global, so it must be reset even when a test fails.
 class AuthFipsMode : public ::testing::Test {
  protected:
