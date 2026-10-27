@@ -118,6 +118,11 @@ add_unit_test(versioning_durability_restart
         LINK_TARGETS mg::versioning mg::storage mg-dbms
 )
 
+add_unit_test(versioning_history_replay
+        SOURCES versioning_history_replay.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms storage_test_utils
+)
+
 add_unit_test(versioning_interpreter
         SOURCES versioning_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
         LINK_TARGETS mg-communication mg-query mg-glue mg::versioning

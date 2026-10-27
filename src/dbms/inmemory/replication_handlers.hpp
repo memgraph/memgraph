@@ -66,6 +66,8 @@ class InMemoryReplicationHandlers {
   static void AbortTwoPCForTenant(utils::UUID const &uuid);
 
  private:
+  friend struct HistoryReplayTestAccess;
+
   struct LoadWalStatus {
     bool success{false};
     uint64_t num_txns_committed{0};
