@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <optional>
 
-#include "query/branch_reserved.hpp"
 #include "query/exceptions.hpp"
 #include "query/vertex_accessor.hpp"
 #include "utils/logging.hpp"
@@ -162,7 +161,6 @@ storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAcces
 storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
                                                                         const storage::PropertyValue &value) {
   auto &ctx = *branch_ctx_;
-  if (ctx.IsReservedProperty(key)) ThrowReserved("property");
   if (impl_.storage_ == &ctx.diff_engine()) return impl_.SetProperty(key, value);
   PrepareForkEdge(ctx, impl_);
   RecordForkEdgeWrite(ctx, impl_, key);
@@ -171,7 +169,6 @@ storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage:
 
 storage::Result<bool> EdgeAccessor::BranchInitProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
-  RejectReservedProperties(ctx, properties);
   if (impl_.storage_ == &ctx.diff_engine()) return impl_.InitProperties(properties);
   PrepareForkEdge(ctx, impl_);
   RecordForkEdgeWrites(ctx, impl_, properties);
@@ -181,7 +178,6 @@ storage::Result<bool> EdgeAccessor::BranchInitProperties(PropertyMap &properties
 storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
 EdgeAccessor::BranchUpdateProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
-  RejectReservedProperties(ctx, properties);
   if (impl_.storage_ == &ctx.diff_engine()) return impl_.UpdateProperties(properties);
   PrepareForkEdge(ctx, impl_);
   RecordForkEdgeWrites(ctx, impl_, properties);

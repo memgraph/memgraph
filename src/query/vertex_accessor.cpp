@@ -17,7 +17,6 @@
 #include <tuple>
 #include <vector>
 
-#include "query/branch_reserved.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -209,7 +208,6 @@ void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
 
 storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
   auto &ctx = *branch_ctx_;
-  if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
   if (auto err = CheckTypesOnAddLabel(ctx, *this, label)) return std::unexpected{*err};
   const bool fork = ctx.IsForkVertexGid(impl_.Gid());
   if (fork) ctx.RecordLabelTouched(label, impl_.Gid());
@@ -220,7 +218,6 @@ storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
 
 storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) {
   auto &ctx = *branch_ctx_;
-  if (ctx.ClassifyLabel(label).reserved) ThrowReserved("label");
   const bool fork = ctx.IsForkVertexGid(impl_.Gid());
   if (fork) ctx.RecordLabelTouched(label, impl_.Gid());
   CowIfNeeded(versioning::BranchChangeKind::kLabel);
@@ -231,7 +228,6 @@ storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) 
 storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storage::PropertyId key,
                                                                           const storage::PropertyValue &value) {
   auto &ctx = *branch_ctx_;
-  if (ctx.IsReservedProperty(key)) ThrowReserved("property");
   if (auto err = CheckTypesOnPropertyWrite(
           ctx, *this, [&](storage::PropertyId pid) { return pid == key ? &value : nullptr; })) {
     return std::unexpected{*err};
@@ -244,7 +240,6 @@ storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storag
 
 storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
-  RejectReservedProperties(ctx, properties);
   if (auto err = CheckTypesOnPropertyWrite(
           ctx,
           *this,
@@ -264,7 +259,6 @@ storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properti
 storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
 VertexAccessor::BranchUpdateProperties(PropertyMap &properties) {
   auto &ctx = *branch_ctx_;
-  RejectReservedProperties(ctx, properties);
   if (auto err = CheckTypesOnPropertyWrite(ctx, *this, [&](storage::PropertyId pid) {
         auto const it = properties.find(pid);
         return it == properties.end() ? nullptr : &it->second;

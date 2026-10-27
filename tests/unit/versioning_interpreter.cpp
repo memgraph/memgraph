@@ -2062,7 +2062,7 @@ TEST_F(VersioningGatedTest, BranchRemoveThenReAddLabelLeaksNoMarker) {
   }
 }
 
-TEST_F(VersioningGatedTest, BranchStubMarkersAreNeverVisibleAndReservedNamesAreRejected) {
+TEST_F(VersioningGatedTest, BranchRemovalsLeaveNoTraceAndMgPrefixedNamesAreOrdinary) {
   faker.Interpret("CREATE (:P:L {id: 1, p: 7})");
   Fork();
 
@@ -2078,10 +2078,16 @@ TEST_F(VersioningGatedTest, BranchStubMarkersAreNeverVisibleAndReservedNamesAreR
     EXPECT_TRUE(row[idx].ValueMap().contains("id"));
   }
 
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:__mg_rm_x"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:`__mg_rm:x`"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n:`__mg_deleted`"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("MATCH (n:P) SET n.`__mg_removed` = 1"), memgraph::query::QueryRuntimeException);
+  faker.Interpret("MATCH (n:P) SET n:__mg_x, n.__mg_y = 1");
+  auto after = faker.Interpret("MATCH (n:P) RETURN labels(n), keys(n)");
+  ASSERT_EQ(after.GetResults().size(), 1U);
+  EXPECT_EQ(SortedNames(after.GetResults()[0][0]), (std::vector<std::string>{"P", "__mg_x"}));
+  EXPECT_EQ(SortedNames(after.GetResults()[0][1]), (std::vector<std::string>{"__mg_y", "id"}));
+
+  auto on_main = faker.Interpret("USING VERSION 'main' MATCH (n:P) RETURN labels(n), keys(n)");
+  ASSERT_EQ(on_main.GetResults().size(), 1U);
+  EXPECT_EQ(SortedNames(on_main.GetResults()[0][0]), (std::vector<std::string>{"L", "P"}));
+  EXPECT_EQ(SortedNames(on_main.GetResults()[0][1]), (std::vector<std::string>{"id", "p"}));
 }
 
 TEST_F(VersioningGatedTest, BranchNestedLabelPropertyIndexReflectsBranchMutations) {
@@ -2731,7 +2737,7 @@ TEST_F(VersioningGatedTest, BranchForkEdgeSetPropertyIsVisibleBothWaysAndIsolate
 }
 
 // REMOVE r.p, SET r.p = null, SET r = {...} and SET r += {...} on a fork edge: removed fork properties stay gone,
-// re-setting one brings it back, and no marker is ever visible.
+// re-setting one brings it back.
 TEST_F(VersioningGatedTest, BranchForkEdgeRemoveAndReplacePropertiesOverlayCorrectly) {
   faker.Interpret(
       "CREATE (:A {id:1})-[:R1 {w:1, x:7}]->(:B {id:2}), (:A {id:3})-[:R2 {w:1, x:7}]->(:B {id:4}), "
@@ -2741,7 +2747,6 @@ TEST_F(VersioningGatedTest, BranchForkEdgeRemoveAndReplacePropertiesOverlayCorre
   faker.Interpret("MATCH ()-[r:R1]->() REMOVE r.w");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R1]->() RETURN r.w, r.x"), (Rows{{kNullInt, 7}}));
   EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R1]->() RETURN properties(r)"), (std::set<std::string>{"x"}));
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R1]->() RETURN r.__mg_removed"), (Rows{{kNullInt}})) << "markers never show";
 
   faker.Interpret("MATCH ()-[r:R2]->() SET r = {x: 1}");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R2]->() RETURN r.w, r.x"), (Rows{{kNullInt, 1}}));

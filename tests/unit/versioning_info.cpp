@@ -201,7 +201,7 @@ TEST_F(VersioningInfoTest, NodeLabelsAndEdgeTypesAreMainPlusBranchWithoutMarkers
   BuildMain();
   ChangeBranch();
 
-  // Each name once (main/branch overlap deduped), no `__mg_*` markers.
+  // Each name once (main/branch overlap deduped).
   EXPECT_THAT(Column("SHOW NODE_LABELS INFO"),
               ::testing::UnorderedElementsAre("A", "B", "U", "BranchOnly", "BranchOnly2", "Added"));
   EXPECT_EQ(Show("SHOW NODE_LABELS INFO").size(), 6U);

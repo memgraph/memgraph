@@ -19,7 +19,6 @@
 #include <mutex>
 #include <optional>
 #include <tuple>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -33,8 +32,6 @@
 namespace memgraph::versioning {
 
 namespace {
-
-constexpr std::string_view kReservedPrefix = "__mg_";
 
 // Mirrors main's index definitions (not contents) so the planner can pick index scans on a checked-out branch. They
 // only ever index branch-native objects; a fork vertex's changes are found through the touched sets.
@@ -400,14 +397,6 @@ std::expected<void, storage::StorageManipulationError> BranchContext::PeriodicCo
   return res;
 }
 
-BranchCore::LabelInfo BranchCore::ClassifyLabel(storage::LabelId label) {
-  auto guard = std::lock_guard{marker_mutex_};
-  if (auto it = label_info_.find(label); it != label_info_.end()) return it->second;
-  LabelInfo info{.reserved = diff_engine_->LabelToName(label).starts_with(kReservedPrefix)};
-  label_info_.emplace(label, info);
-  return info;
-}
-
 void BranchCore::RecordVertexDeleted(storage::Gid gid) {
   change_filters_.RecordVertexDeleted(gid);
   std::lock_guard lock(touched_mutex_);
@@ -510,14 +499,6 @@ void BranchCore::CollectOverlayGarbage() {
     }
     return VertexOverlayStore::Horizon{snapshot_pins_.empty() ? now : std::min(now, *snapshot_pins_.begin()), now};
   });
-}
-
-bool BranchCore::IsReservedProperty(storage::PropertyId property) {
-  auto guard = std::lock_guard{marker_mutex_};
-  if (auto it = reserved_property_.find(property); it != reserved_property_.end()) return it->second;
-  const bool reserved = diff_engine_->PropertyToName(property).starts_with(kReservedPrefix);
-  reserved_property_.emplace(property, reserved);
-  return reserved;
 }
 
 void BranchContext::MarkMainObjectBranched(storage::Vertex *main_vertex) {

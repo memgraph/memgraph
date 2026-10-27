@@ -112,7 +112,6 @@ target_sources(mg-query
     PUBLIC
     FILE_SET HEADERS
     FILES
-    branch_reserved.hpp
     dependant_symbol_visitor.hpp
     plan_v2/rewrite/rewrites.hpp
     plan_v2/rewrite/fold.hpp

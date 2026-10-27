@@ -22,7 +22,6 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
-#include <unordered_map>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -73,11 +72,6 @@ class BranchCore {
     std::string message;
   };
 
-  // The `__mg_` prefix is reserved: query writes of it on a branch are rejected.
-  struct LabelInfo {
-    bool reserved{false};
-  };
-
   // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main, uint64_t fork_ts);
 
@@ -92,9 +86,6 @@ class BranchCore {
   storage::InMemoryStorage &main() { return *main_; }
 
   uint64_t fork_ts() const { return fork_ts_; }
-
-  LabelInfo ClassifyLabel(storage::LabelId label);
-  bool IsReservedProperty(storage::PropertyId property);
 
   // Main's vertex/edge counters at Build: gids below are fork objects, gids at or above are branch-native.
   uint64_t vertex_gid_floor() const { return vertex_gid_floor_; }
@@ -203,11 +194,6 @@ class BranchCore {
   uint64_t edge_gid_floor_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
-  // Lazy caches over the shared NameIdMapper; entries are immutable once inserted.
-  std::mutex marker_mutex_;
-  std::unordered_map<storage::LabelId, LabelInfo> label_info_;
-  std::unordered_map<storage::PropertyId, bool> reserved_property_;
-
   BranchChangeFilters change_filters_;
 
   // Exact per-label touched gids and deleted gids; memory grows with the number of recorded changes. Writes are rare
@@ -256,7 +242,6 @@ class BranchCore {
 class BranchContext {
  public:
   using BuildError = BranchCore::BuildError;
-  using LabelInfo = BranchCore::LabelInfo;
 
   // Builds a private, unregistered core and wraps it (unit tests; production attaches to the registry's core).
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
@@ -326,17 +311,6 @@ class BranchContext {
   // Before an overlay write of fork vertex `gid`: CowError if it is deleted on the branch or missing from the fork
   // state, else sets main's `branched()` hint bit. Allocates no stub.
   std::expected<void, CowError> PrepareForkWrite(storage::Gid gid);
-
-  // Per-session memo over the core's locked caches (entries are immutable there), so hot reads skip its mutex.
-  LabelInfo ClassifyLabel(storage::LabelId label) {
-    if (auto it = label_info_.find(label); it != label_info_.end()) return it->second;
-    return label_info_.emplace(label, core_->ClassifyLabel(label)).first->second;
-  }
-
-  bool IsReservedProperty(storage::PropertyId property) {
-    if (auto it = reserved_property_.find(property); it != reserved_property_.end()) return it->second;
-    return reserved_property_.emplace(property, core_->IsReservedProperty(property)).first->second;
-  }
 
   // Deletion follows the overlay's MVCC at `view` (own writes, snapshots, rollback). False for native gids (their
   // deletes are ordinary diff-engine deletes) and for fork vertices the branch never deleted.
@@ -612,9 +586,6 @@ class BranchContext {
 
   std::shared_ptr<BranchCore> core_;
   std::string name_;
-  // Session-local memos for ClassifyLabel/IsReservedProperty; unsynchronized (one thread at a time).
-  std::unordered_map<storage::LabelId, LabelInfo> label_info_;
-  std::unordered_map<storage::PropertyId, bool> reserved_property_;
   // current_diff_txn_ is not owned: it points into CurrentDB::db_transactional_accessor_ for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;

@@ -8003,7 +8003,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
-      // On a branch: main's labels plus the diff engine's (minus reserved `__mg_*` markers) and those touched on fork
+      // On a branch: main's labels plus the diff engine's and those touched on fork
       // vertices. All are metadata sets, so no graph scan.
       handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
@@ -8015,7 +8015,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         if (branch) {
           auto seen = std::unordered_set<storage::LabelId>(node_labels.begin(), node_labels.end());
           for (auto const label : branch->diff_engine().ListAllPossiblyPresentVertexLabels()) {
-            if (!branch->ClassifyLabel(label).reserved && seen.insert(label).second) node_labels.push_back(label);
+            if (seen.insert(label).second) node_labels.push_back(label);
           }
           for (auto const label : branch->TouchedLabels()) {
             if (seen.insert(label).second) node_labels.push_back(label);
