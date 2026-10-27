@@ -13,10 +13,12 @@
 
 #include <cstdint>
 #include <limits>
+#include <string_view>
 #include <vector>
 
 #include "storage/v2/manifest_property_store.hpp"
 #include "storage/v2/property_store.hpp"
+#include "tests/unit/value_shapes.hpp"
 
 using memgraph::storage::ManifestPropertyStore;
 using memgraph::storage::ManifestRegistry;
@@ -27,6 +29,53 @@ using memgraph::storage::PropertyValue;
 namespace {
 PropertyId Prop(uint32_t id) { return PropertyId::FromUint(id); }
 }  // namespace
+
+/// Gives both stores the same properties, the same replacements and the same removals, and
+/// requires them to answer alike throughout. The old store is the specification, so a
+/// disagreement is this store being wrong.
+void ExpectAgreesWithPropertyStore(std::vector<PropertyValue> const &values) {
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+
+  auto const probe_all = [&](std::string_view after) {
+    for (uint32_t probe = 0; probe <= values.size() + 1; ++probe) {
+      ASSERT_EQ(manifest.GetProperty(registry, Prop(probe)), current.GetProperty(Prop(probe)))
+          << "reading " << probe << " after " << after;
+    }
+    ASSERT_EQ(manifest.Properties(registry), current.Properties()) << "the whole record after " << after;
+  };
+
+  // One of each, so the record holds every shape at once and each one's bytes sit next to a
+  // neighbour's.
+  for (std::size_t at = 0; at != values.size(); ++at) {
+    auto const property = Prop(static_cast<uint32_t>(at + 1));
+    ASSERT_EQ(manifest.SetProperty(registry, property, values[at]), current.SetProperty(property, values[at]))
+        << "setting " << at + 1;
+    probe_all("setting them in turn");
+  }
+
+  // Then each property takes its neighbour's value, so every one changes type and the
+  // variable ones change length.
+  for (std::size_t at = 0; at != values.size(); ++at) {
+    auto const property = Prop(static_cast<uint32_t>(at + 1));
+    auto const &replacement = values[(at + 1) % values.size()];
+    ASSERT_EQ(manifest.SetProperty(registry, property, replacement), current.SetProperty(property, replacement))
+        << "replacing " << at + 1;
+    probe_all("shifting each value onto its neighbour");
+  }
+
+  // Then away one at a time, so the record shrinks through every intermediate shape.
+  for (std::size_t at = 0; at != values.size(); ++at) {
+    auto const property = Prop(static_cast<uint32_t>(at + 1));
+    ASSERT_EQ(manifest.SetProperty(registry, property, PropertyValue{}), current.SetProperty(property, PropertyValue{}))
+        << "removing " << at + 1;
+    probe_all("removing them one at a time");
+  }
+
+  ASSERT_TRUE(manifest.Properties(registry).empty());
+  ASSERT_TRUE(current.Properties().empty());
+}
 
 // A record describes itself by naming its shape, so reading a property back means resolving
 // that shape and reading the value from where the shape says it sits.
@@ -206,4 +255,45 @@ TEST(ManifestPropertyStore, AnswersAsThePropertyStoreDoesForStringsAmongIntegers
     }
     EXPECT_EQ(manifest.Properties(registry), current.Properties()) << "the whole record after " << step.what;
   }
+}
+
+// Booleans and doubles have one width each, so a shape knows where they sit as it does for
+// an integer. They go in beside the kinds already covered rather than on their own.
+TEST(ManifestPropertyStore, AgreesOverBooleansAndDoubles) {
+  ExpectAgreesWithPropertyStore({
+      PropertyValue{true},
+      PropertyValue{false},
+      PropertyValue{2.5},
+      PropertyValue{-0.0},
+      PropertyValue{int64_t{3}},
+      PropertyValue{"text"},
+  });
+}
+
+// Where this is going: every shape a record can hold, in one record, adjudicated by the store
+// that exists today. Null is left out because it removes a property rather than being one,
+// and a vector index id because only its ids are written.
+//
+// Disabled until every kind is encoded. Enabling it is what says this store is finished, and
+// running it names the next kind to do.
+TEST(ManifestPropertyStore, DISABLED_AgreesOverEveryShape) {
+  ExpectAgreesWithPropertyStore(memgraph::test::shapes::EveryShapeExcept(
+      {memgraph::storage::PropertyValueType::Null, memgraph::storage::PropertyValueType::VectorIndexId}));
+}
+
+// An enum, a temporal value and a point are each a small fixed object, so a shape knows the
+// width of all of them. The two kinds of point share one type tag and differ in width, which
+// is enough to tell them apart because the width is part of the shape.
+TEST(ManifestPropertyStore, AgreesOverEnumsTemporalsAndPoints) {
+  using memgraph::storage::PropertyValueType;
+  ExpectAgreesWithPropertyStore(memgraph::test::shapes::EveryShapeExcept({
+      PropertyValueType::Null,
+      PropertyValueType::VectorIndexId,
+      PropertyValueType::List,
+      PropertyValueType::Map,
+      PropertyValueType::IntList,
+      PropertyValueType::DoubleList,
+      PropertyValueType::NumericList,
+      PropertyValueType::ZonedTemporalData,
+  }));
 }
