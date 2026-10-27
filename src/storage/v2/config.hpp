@@ -120,6 +120,10 @@ struct Config {
 
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
+
+    // When set (and recover_on_startup is on), recovery stops at this durable timestamp instead of at the end of the
+    // WAL chain; the files holding the rest are handed back through InMemoryStorage::TakeRecoveryTail.
+    std::optional<uint64_t> recovery_history_bound{std::nullopt};  // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 

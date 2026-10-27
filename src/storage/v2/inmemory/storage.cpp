@@ -387,6 +387,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
+    durability::RecoveryTail recovery_tail;
     auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
@@ -407,7 +408,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             [this](Gid edge_gid) { return FindEdge(edge_gid); },
             name(),
             &ttl_,
-            &description_store_);
+            &description_store_,
+            config_.durability.recovery_history_bound,
+            config_.durability.recovery_history_bound ? &recovery_tail : nullptr);
       } catch (...) {
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and broken. RecoverData only reads durability files, so the
@@ -439,6 +442,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
+      if (config_.durability.recovery_history_bound) recovery_tail_ = std::move(recovery_tail);
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
@@ -3856,6 +3860,9 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
+  // The transaction being committed is already in an existing WAL file; the caller then only finalizes the commit.
+  if (suppress_wal_.load(std::memory_order_acquire)) return false;
+
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
       storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;
@@ -4970,6 +4977,19 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
+
+void InMemoryStorage::BumpClockPastDurable() {
+  auto guard = std::lock_guard{engine_lock_};
+  auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  if (timestamp_ > ldt) return;
+  // Ids in [timestamp_, ldt] were never handed out, so no transaction can hold them: mark them finished or the
+  // oldest-active id would stall at the gap and block GC.
+  auto const first_skipped = timestamp_;
+  timestamp_ = ldt + 1;
+  commit_log_->MarkFinishedInRange(first_skipped, ldt);
+}
+
+uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }
 
 void InMemoryStorage::PrepareForNewEpoch() {
   std::unique_lock engine_guard{engine_lock_};

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstdint>
 #include <functional>
@@ -949,6 +950,36 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
+  /// Files left out of the recovered state by `config.durability.recovery_history_bound`. Moves them out: the second
+  /// call, and any call without a bound, returns nullopt.
+  [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
+
+  /// While alive, commits skip the WAL append (but still advance the last durable timestamp). For replaying
+  /// transactions that are already in existing WAL files; the caller must ensure no other writer commits meanwhile.
+  class SuppressWalScope {
+   public:
+    explicit SuppressWalScope(InMemoryStorage &storage) : storage_{storage} {
+      MG_ASSERT(!storage_.suppress_wal_.exchange(true, std::memory_order_acq_rel), "WAL suppression is not nestable");
+    }
+
+    ~SuppressWalScope() { storage_.suppress_wal_.store(false, std::memory_order_release); }
+
+    SuppressWalScope(SuppressWalScope const &) = delete;
+    SuppressWalScope &operator=(SuppressWalScope const &) = delete;
+    SuppressWalScope(SuppressWalScope &&) = delete;
+    SuppressWalScope &operator=(SuppressWalScope &&) = delete;
+
+   private:
+    InMemoryStorage &storage_;
+  };
+
+  /// Moves the transaction clock past the last durable timestamp when it trails it (commits that carry a durable
+  /// timestamp, e.g. a replay, do not advance the clock). Skipped ids are marked finished in the commit log.
+  void BumpClockPastDurable();
+
+  /// Smallest transaction id that may still be active.
+  [[nodiscard]] uint64_t OldestActiveTimestamp();
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -1099,6 +1130,12 @@ class InMemoryStorage final : public Storage {
 
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+  // Read under engine_lock_ by InitializeWalFile; see SuppressWalScope.
+  std::atomic<bool> suppress_wal_{false};
+
+  // Set by the constructor when a recovery bound is configured.
+  std::optional<durability::RecoveryTail> recovery_tail_;
 
   utils::FileRetainer file_retainer_;
 

@@ -133,6 +133,11 @@ add_unit_test(versioning_bounded_recovery
         LINK_TARGETS mg::storage mg-dbms storage_test_utils
 )
 
+add_unit_test(versioning_history_hooks
+        SOURCES versioning_history_hooks.cpp
+        LINK_TARGETS mg::storage mg-dbms storage_test_utils
+)
+
 add_unit_test(versioning_interpreter
         SOURCES versioning_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
         LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
