@@ -133,6 +133,11 @@ add_unit_test(versioning_branch_recovery
         LINK_TARGETS mg::versioning mg::storage mg-dbms
 )
 
+add_unit_test(versioning_crash_recovery
+        SOURCES versioning_crash_recovery.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
 add_unit_test(versioning_history_replay
         SOURCES versioning_history_replay.cpp
         LINK_TARGETS mg::versioning mg::storage mg-dbms storage_test_utils

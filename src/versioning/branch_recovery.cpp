@@ -11,6 +11,9 @@
 
 #include "versioning/branch_recovery.hpp"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <exception>
 #include <expected>
@@ -18,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <tuple>
 #include <unordered_map>
@@ -29,6 +33,7 @@
 
 #include "memory/db_arena.hpp"
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -61,19 +66,64 @@ bool HasRegularFiles(const std::filesystem::path &dir) {
   return false;
 }
 
+constexpr std::string_view kTornSuffix = ".torn";
+
+void SyncDirectory(const std::filesystem::path &dir) {
+  const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (fd < 0) throw utils::BasicException("Cannot open directory '{}' to sync it.", dir.string());
+  const int rc = ::fsync(fd);
+  ::close(fd);
+  if (rc != 0) throw utils::BasicException("Cannot fsync directory '{}'.", dir.string());
+}
+
 // The branch's WAL files, oldest first. A diff engine writes a new file (and a new UUID) per run, and the clock is
 // moved past every replayed timestamp before the next run writes, so the first timestamp orders files across runs.
 // Empty files (a crash right after creation) and files without a complete transaction carry nothing.
-// @throw utils::BasicException a file cannot be read
+// A file that cannot be read at all is a crash tail only if no readable file with data is newer (file names start with
+// a zero-padded timestamp); it is then renamed aside so later runs do not append behind a torn file.
+// @throw utils::BasicException a file cannot be read and is not the crash tail
 std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   std::vector<WalFileEntry> files;
+  std::vector<std::filesystem::path> unreadable;
   for (const auto &entry : std::filesystem::directory_iterator(dir)) {
     if (!entry.is_regular_file()) continue;
+    if (entry.path().extension() == kTornSuffix) continue;
     std::error_code ec;
     if (entry.file_size(ec) == 0 && !ec) continue;
-    auto info = dur::ReadWalContents(entry.path());
-    if (info.num_deltas == 0) continue;
-    files.push_back({.path = entry.path(), .info = std::move(info)});
+    try {
+      auto info = dur::ReadWalContents(entry.path());
+      if (info.num_deltas == 0) continue;
+      files.push_back({.path = entry.path(), .info = std::move(info)});
+    } catch (const dur::RecoveryFailure &e) {
+      spdlog::warn("Branch WAL '{}' is unreadable: {}", entry.path().string(), e.what());
+      unreadable.push_back(entry.path());
+    }
+  }
+  if (!unreadable.empty()) {
+    const auto newest_unreadable =
+        *std::ranges::max_element(unreadable, [](const auto &a, const auto &b) { return a.filename() < b.filename(); });
+    const bool mid_stream = unreadable.size() > 1 || std::ranges::any_of(files, [&](const WalFileEntry &f) {
+                              return f.path.filename() > newest_unreadable.filename();
+                            });
+    if (mid_stream) {
+      throw utils::BasicException(
+          "Branch WAL corruption in the middle of the stream: unreadable file(s) in '{}' are followed by newer data "
+          "(newest unreadable: '{}').",
+          dir.string(),
+          newest_unreadable.filename().string());
+    }
+    auto torn = newest_unreadable;
+    torn += kTornSuffix;
+    std::error_code ec;
+    std::filesystem::rename(newest_unreadable, torn, ec);
+    if (ec) {
+      throw utils::BasicException(
+          "Cannot move the torn branch WAL '{}' aside: {}.", newest_unreadable.string(), ec.message());
+    }
+    SyncDirectory(dir);
+    spdlog::warn("Branch WAL '{}' is a torn crash tail with no complete transaction; skipped and renamed to '{}'.",
+                 newest_unreadable.string(),
+                 torn.string());
   }
   std::ranges::sort(files, [](const WalFileEntry &a, const WalFileEntry &b) {
     return std::tie(a.info.from_timestamp, a.info.seq_num) < std::tie(b.info.from_timestamp, b.info.seq_num);
