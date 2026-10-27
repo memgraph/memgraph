@@ -15,6 +15,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_manifest.hpp"
@@ -44,6 +45,14 @@ class ManifestPropertyStore {
   /// Every property the record carries, in property order.
   auto Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue>;
 
+  /// Whether the record's `property` equals `value`, answered without building the stored
+  /// value up again. A property the record does not carry equals Null and nothing else.
+  ///
+  /// This is what a constraint and an index ask, per record, so it is the comparison that has
+  /// to agree with how the decoded values compare: an integer equals a double of the same
+  /// number, and a NaN equals a NaN.
+  auto IsPropertyEqual(ManifestRegistry const &registry, PropertyId property, PropertyValue const &value) const -> bool;
+
   /// True when this gave the record a property it did not carry. A Null value removes the
   /// property, as it does for the store this replaces.
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
@@ -58,6 +67,9 @@ class ManifestPropertyStore {
 
   /// Reads one value out of the record, from where `layout` says it sits.
   auto ValueAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> PropertyValue;
+
+  /// The bytes of a value the shape does not know the width of. `location` must name one.
+  auto PayloadAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> std::span<uint8_t const>;
 
   std::unique_ptr<uint8_t[]> buffer_;
   uint32_t size_{};

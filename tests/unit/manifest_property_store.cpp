@@ -43,6 +43,16 @@ void ExpectAgreesWithPropertyStore(std::vector<PropertyValue> const &values) {
     for (uint32_t probe = 0; probe <= values.size() + 1; ++probe) {
       ASSERT_EQ(manifest.GetProperty(registry, Prop(probe)), current.GetProperty(Prop(probe)))
           << "reading " << probe << " after " << after;
+      // Every candidate against every property, so each stored kind is asked about a value of
+      // its own kind and of all the others, which is where a comparison gets equality wrong.
+      for (std::size_t candidate = 0; candidate != values.size(); ++candidate) {
+        ASSERT_EQ(manifest.IsPropertyEqual(registry, Prop(probe), values[candidate]),
+                  current.IsPropertyEqual(Prop(probe), values[candidate]))
+            << "comparing " << probe << " against candidate " << candidate << " after " << after;
+      }
+      ASSERT_EQ(manifest.IsPropertyEqual(registry, Prop(probe), PropertyValue{}),
+                current.IsPropertyEqual(Prop(probe), PropertyValue{}))
+          << "comparing " << probe << " against Null after " << after;
     }
     ASSERT_EQ(manifest.Properties(registry), current.Properties()) << "the whole record after " << after;
   };
@@ -80,6 +90,24 @@ void ExpectAgreesWithPropertyStore(std::vector<PropertyValue> const &values) {
 
 // A record describes itself by naming its shape, so reading a property back means resolving
 // that shape and reading the value from where the shape says it sits.
+// A constraint and an index ask whether a stored property equals a value, and do it per
+// record, so the answer must come without building the stored value up again.
+TEST(ManifestPropertyStore, AnIntegerComparesEqualWithoutBeingRead) {
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+  store.SetProperty(registry, Prop(1), PropertyValue{int64_t{300}});
+
+  EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{int64_t{300}}));
+  EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{int64_t{301}}));
+  // A stored integer and a double of the same number are equal, as the decoded values are.
+  EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{300.0}));
+  EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{300.5}));
+  EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{"300"}));
+  // A property the record does not hold reads as Null, so it equals Null and nothing else.
+  EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(2), PropertyValue{}));
+  EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{}));
+}
+
 TEST(ManifestPropertyStore, AnIntegerIsReadBackAsItWasSet) {
   ManifestRegistry registry;
   ManifestPropertyStore store;
