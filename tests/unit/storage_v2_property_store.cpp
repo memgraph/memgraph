@@ -1504,6 +1504,55 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
             (std::vector{true, true}));
 }
 
+// A path only goes on into a map, so one naming a key inside a value of any other kind names
+// nothing. That is not the record running out: the properties after that value are still
+// there, and a later path must still find what it names.
+TEST(PropertyStore, ArePropertiesEqual_APathIntoSomethingThatIsNotAMapLeavesLaterPathsAlone) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue{int64_t{300}}},
+      {p2, MakeMap(KVPair{p3, PropertyValue{"apple"}})},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  // On its own, the path into the map is found.
+  EXPECT_EQ(
+      EqualityMask(
+          store, std::array{PropertyPath{p2, p3}}, std::array{PropertyValue{"apple"}}, std::array<std::size_t, 1>{0}),
+      (std::vector{true}));
+
+  // And it is still found when a path into the integer is asked about first.
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p3}, PropertyPath{p2, p3}},
+                         std::array{PropertyValue{"apple"}},
+                         std::array<std::size_t, 2>{0, 0}),
+            (std::vector{false, true}));
+}
+
+// Reading the values at a set of paths walks the same scan, so a path into something that is
+// not a map must leave the paths after it readable there too.
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_APathIntoSomethingThatIsNotAMapLeavesLaterPathsAlone) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue{int64_t{300}}},
+      {p2, MakeMap(KVPair{p3, PropertyValue{"apple"}})},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p3}, PropertyPath{p2, p3}}),
+            (std::vector{PropertyValue(), PropertyValue("apple")}));
+}
+
 TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWithAnEmptyStore) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);

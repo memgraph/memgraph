@@ -2657,10 +2657,19 @@ class ReaderPropPositionHistory {
     for (auto inner_property_id : std::ranges::subrange(parent_map_fork_it, parent_map.end())) {
       auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
       if (info.status != ExpectedPropertyStatus::EQUAL) return info.status;
-      history_.emplace_back(inner_property_id, info.property_end);
 
       reader.SetPosition(info.property_begin);
       auto metadata = reader.ReadMetadata();
+      // A path goes on only into a map, since nothing else holds keys. Stepping into any other
+      // kind would read its payload as though it were a list of properties, and running off the
+      // end of that would be taken for the record itself running out, which stops every later
+      // path being read at all. The path names nothing, which is what GREATER says.
+      if (!metadata || metadata->type != Type::MAP) {
+        reader.SetPosition(info.property_end);
+        return ExpectedPropertyStatus::GREATER;
+      }
+      history_.emplace_back(inner_property_id, info.property_end);
+
       reader.SkipBytes(SizeToByteSize(metadata->id_size) + SizeToByteSize(metadata->payload_size));
     }
 
