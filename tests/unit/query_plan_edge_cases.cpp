@@ -469,6 +469,81 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
 // the body of an EXISTS, a COUNT or a COLLECT as anywhere else. Reading a property of a list is an
 // error, and reading two of them in one pass is the same error: answering Null instead would turn a
 // query the server refuses into one that quietly returns a row per element with nothing in it.
+// Asking one question two ways: in an ordinary MATCH, and with that MATCH inside a subquery body.
+// A symbol carries a declared type, and the pass that reads several properties of one record in a
+// single pass is chosen from it, so a type that disagreed with the value it binds would let the
+// position of a MATCH decide whether a query is refused. The two spellings answer alike, or one of
+// them is wrong.
+TYPED_TEST(QueryExecution, ASubqueryBodyAnswersAsAnOrdinaryMatchDoes) {
+  CachePropertiesFlagGuard guard{true};
+
+  this->Execute(
+      "CREATE (a:P {name: 'a', w: 1})-[:R {amount: 1, fee: 1, w: 1}]->(b:P {name: 'b', w: 2}), "
+      "(a)-[:R {amount: 2, fee: 2, w: 2}]->(c:P {name: 'c', w: 3}), "
+      "(b)-[:R {amount: 3, fee: 3, w: 3}]->(c);");
+
+  // A refusal and its wording, or an answer. The two spellings return different row shapes, so the
+  // rows themselves cannot be compared; how the query is answered can.
+  auto verdict = [this](std::string const &query) {
+    try {
+      this->Execute(query);
+      return std::string{"ANSWERED"};
+    } catch (const std::exception &e) {
+      return std::string{e.what()};
+    }
+  };
+
+  auto agree = [&verdict](std::string const &outside, std::string const &inside) {
+    EXPECT_EQ(verdict(outside), verdict(inside)) << "outside: " << outside << "\ninside:  " << inside;
+  };
+
+  // Each variable-length spelling binds the list of relationships it matched, so each refuses a
+  // property read. A fixed-length one binds a single relationship, so each answers.
+  agree("MATCH (p:P {name:'a'})-[r:R*1..2]->(q) RETURN r.amount + r.fee AS v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R*1..2]->(q) RETURN r.amount + r.fee AS v } AS z");
+  agree("MATCH (p:P {name:'a'})-[r:R *BFS 1..2]->(q) RETURN r.amount + r.fee AS v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R *BFS 1..2]->(q) RETURN r.amount + r.fee AS v } AS z");
+  agree("MATCH (p:P {name:'a'})-[r:R *WSHORTEST 2 (e, n | e.w) tw]->(q) RETURN r.amount + r.fee AS v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R *WSHORTEST 2 (e, n | e.w) tw]->(q) "
+        "RETURN r.amount + r.fee AS v } AS z");
+  agree("MATCH (p:P {name:'a'})-[r:R]->(q) RETURN r.amount + r.fee AS v ORDER BY v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R]->(q) RETURN r.amount + r.fee AS v } AS z");
+  agree("MATCH (p:P {name:'a'})-[:R]->(q) RETURN q.name + q.w AS v ORDER BY v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[:R]->(q) RETURN q.name + q.w AS v } AS z");
+
+  // A body nested one level deeper, and a body that is a CALL rather than a fold.
+  agree("MATCH (p:P {name:'a'})-[r:R*1..2]->(q) RETURN r.amount + r.fee AS v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p) RETURN COLLECT { MATCH (p)-[r:R*1..2]->(q) "
+        "RETURN r.amount + r.fee AS v } AS inner } AS z");
+  agree("MATCH (p:P {name:'a'})-[r:R*1..2]->(q) RETURN r.amount + r.fee AS v",
+        "MATCH (p:P {name:'a'}) CALL { WITH p MATCH (p)-[r:R*1..2]->(q) RETURN r.amount + r.fee AS v } RETURN v");
+
+  // A named path binds a path rather than a record, and a relationship matched over a variable
+  // length still counts its elements, inside a body as outside one.
+  agree("MATCH pp = (p:P {name:'a'})-[:R]->(q) RETURN pp.amount AS v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH pp = (p)-[:R]->(q) RETURN pp.amount AS v } AS z");
+  agree("MATCH (p:P {name:'a'})-[r:R*1..2]->(q) RETURN size(r) AS v ORDER BY v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R*1..2]->(q) RETURN size(r) AS v } AS z");
+
+  // Two branches out of one node, where each pair of relationships has to be distinct. An unnamed
+  // relationship is bound the same way a named one is, so it is counted the same.
+  agree("MATCH (p:P {name:'a'}), (p)-[r:R]->(x), (p)-[s:R]->(y) RETURN count(*) AS v",
+        "MATCH (p:P {name:'a'}) RETURN COUNT { MATCH (p)-[r:R]->(x), (p)-[s:R]->(y) RETURN x } AS v");
+  agree("MATCH (p:P {name:'a'}), (p)-[:R]->(x), (p)-[:R]->(y) RETURN count(*) AS v",
+        "MATCH (p:P {name:'a'}) RETURN COUNT { MATCH (p)-[:R]->(x), (p)-[:R]->(y) RETURN x } AS v");
+
+  // Bodies that run per element, which read a property one at a time wherever they sit.
+  agree("MATCH (p:P {name:'a'})-[r:R*1..2]->(q) UNWIND r AS e RETURN e.amount + e.fee AS v ORDER BY v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R*1..2]->(q) UNWIND r AS e "
+        "RETURN e.amount + e.fee AS v } AS z");
+  agree("MATCH (p:P {name:'a'})-[r:R*1..2]->(q) RETURN reduce(a = 0, e IN r | a + e.amount + e.fee) AS v ORDER BY v",
+        "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p)-[r:R*1..2]->(q) "
+        "RETURN reduce(a = 0, e IN r | a + e.amount + e.fee) AS v } AS z");
+  agree(
+      "MATCH (p:P {name:'a'}) RETURN [(p)-[r:R*1..2]->(q) | r.amount + r.fee] AS v",
+      "MATCH (p:P {name:'a'}) RETURN COLLECT { MATCH (p) RETURN [(p)-[r:R*1..2]->(q) | r.amount + r.fee] AS v } AS z");
+}
+
 TYPED_TEST(QueryExecution, ReadingTwoPropertiesOfAListOfRelationshipsIsRefused) {
   CachePropertiesFlagGuard guard{true};
 
