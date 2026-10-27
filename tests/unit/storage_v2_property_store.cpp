@@ -1401,6 +1401,72 @@ TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
   EXPECT_EQ(val7.ValueMap()[p8], PropertyValue("eight"));
 }
 
+// Comparing a set of properties is a second entry point, reached through a different reader
+// from the one that compares a single property, and it has its own answer for a property the
+// record does not hold. This asks both for the same single property over every shape, so the
+// two cannot drift apart. It says nothing about whether either is right: they share the
+// function that reads a stored value, and a fault in that shows in neither.
+TEST(PropertyStore, ArePropertiesEqualAnswersAsTheSingleComparisonDoes) {
+  auto const prop = PropertyId::FromInt(42);
+  // Null is left out because storing one removes the property, and a vector index id because
+  // only its ids are written, which is the same pair the single comparison leaves out.
+  auto const shapes =
+      memgraph::test::shapes::EveryShapeExcept({PropertyValueType::Null, PropertyValueType::VectorIndexId});
+
+  for (auto const &stored : shapes) {
+    PropertyStore store;
+    ASSERT_TRUE(store.SetProperty(prop, stored));
+    for (auto const &probe : shapes) {
+      auto const mask =
+          EqualityMask(store, std::array{PropertyPath{prop}}, std::array{probe}, std::array<std::size_t, 1>{0});
+      ASSERT_EQ(mask.size(), 1);
+      EXPECT_EQ(mask[0], store.IsPropertyEqual(prop, probe)) << "stored " << stored << ", probed with " << probe;
+    }
+  }
+}
+
+// Every shape in one record, compared in one pass. A reader that mis-advances over any one of
+// them corrupts the comparison of the properties after it rather than its own, which is
+// invisible when each type is stored in a record of its own.
+TEST(PropertyStore, ArePropertiesEqualComparesEveryShapeInOnePass) {
+  auto const shapes =
+      memgraph::test::shapes::EveryShapeExcept({PropertyValueType::Null, PropertyValueType::VectorIndexId});
+
+  PropertyStore store;
+  auto paths = std::vector<PropertyPath>{};
+  auto values = std::vector<PropertyValue>{};
+  auto lookup = std::vector<std::size_t>{};
+  for (std::size_t at = 0; at != shapes.size(); ++at) {
+    // Ascending ids, so the paths are in the order the record holds them.
+    auto const prop = PropertyId::FromUint(static_cast<uint32_t>(at + 1));
+    ASSERT_TRUE(store.SetProperty(prop, shapes[at]));
+    paths.emplace_back(prop);
+    values.push_back(shapes[at]);
+    lookup.push_back(at);
+  }
+
+  // Every property holds the value it is compared against, so the whole mask is true, and a
+  // single mis-step shows as a false somewhere after the type that caused it.
+  auto const all_equal = EqualityMask(store, paths, values, lookup);
+  ASSERT_EQ(all_equal.size(), shapes.size());
+  for (std::size_t at = 0; at != shapes.size(); ++at) {
+    EXPECT_TRUE(all_equal[at]) << "property " << at + 1 << " holding " << shapes[at] << " compared unequal to itself";
+  }
+
+  // Now shift every value onto the next property, so each comparison is asked about a value
+  // its property does not hold. Shapes that happen to be equal to their neighbour stay true,
+  // so this checks against the single comparison rather than against all-false.
+  auto rotated = values;
+  std::rotate(rotated.begin(), rotated.begin() + 1, rotated.end());
+  auto const shifted = EqualityMask(store, paths, rotated, lookup);
+  ASSERT_EQ(shifted.size(), shapes.size());
+  for (std::size_t at = 0; at != shapes.size(); ++at) {
+    auto const prop = PropertyId::FromUint(static_cast<uint32_t>(at + 1));
+    EXPECT_EQ(shifted[at], store.IsPropertyEqual(prop, rotated[at]))
+        << "property " << at + 1 << " compared against " << rotated[at];
+  }
+}
+
 TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
