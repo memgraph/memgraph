@@ -407,7 +407,50 @@ void BranchCore::RecordLabelTouched(storage::LabelId label, storage::Gid gid) {
   // Before the set insert and the commit: readers that see the commit see the bit.
   label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
   std::lock_guard lock(touched_mutex_);
-  if (label_touched_[label].insert(gid.AsUint()).second) ++touched_version_;
+  if (label_touched_[label].insert(gid.AsUint()).second) {
+    ++touched_version_;
+    auto &slot = label_touched_versions_[label.AsUint() % kTouchedGateBits];
+    slot.store(slot.load(std::memory_order_relaxed) + 1, std::memory_order_release);
+  }
+}
+
+uint64_t BranchCore::LabelTouchedSorted(storage::LabelId label, std::vector<uint64_t> &out) {
+  std::lock_guard lock(touched_mutex_);
+  out.clear();
+  if (auto const it = label_touched_.find(label); it != label_touched_.end()) {
+    out.assign(it->second.begin(), it->second.end());
+    std::ranges::sort(out);
+  }
+  return label_touched_versions_[label.AsUint() % kTouchedGateBits].load(std::memory_order_relaxed);
+}
+
+bool BranchContext::LabelMayHaveChanged(storage::LabelId label, storage::Gid gid) {
+  if (!core_->MayHaveLabelTouched(label)) return false;
+  auto &entry = label_gid_cache_[label];
+  // Acquire pairs with the release bump after the insert, so a visible write is in the rebuild. Per-label version:
+  // other touches (properties, other labels) must not force an O(K log K) rebuild per row.
+  if (auto const version = core_->LabelTouchedVersion(label); entry.version != version) {
+    entry.version = core_->LabelTouchedSorted(label, entry.gids);
+    entry.cursor = 0;
+    entry.last = 0;
+  }
+  auto const &gids = entry.gids;
+  auto const g = gid.AsUint();
+  if (g >= entry.last) {
+    // Scan order: a few linear steps, then a binary search over the rest.
+    for (int steps = 0; entry.cursor < gids.size() && gids[entry.cursor] < g; ++entry.cursor) {
+      if (++steps == 8) {
+        entry.cursor =
+            static_cast<size_t>(std::ranges::lower_bound(gids.begin() + entry.cursor, gids.end(), g) - gids.begin());
+        break;
+      }
+    }
+  } else {
+    entry.cursor =
+        static_cast<size_t>(std::ranges::lower_bound(gids.begin(), gids.begin() + entry.cursor, g) - gids.begin());
+  }
+  entry.last = g;
+  return entry.cursor < gids.size() && gids[entry.cursor] == g;
 }
 
 std::vector<storage::LabelId> BranchCore::TouchedLabels() {
@@ -1147,7 +1190,7 @@ void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
   while (hist_it_.has_value() && !(*hist_it_ == *hist_end_)) {
     const storage::VertexAccessor fork_vertex = **hist_it_;
     ++(*hist_it_);
-    if (fork_vertex.vertex_->branched() && ctx_->IsVertexDeleted(fork_vertex.Gid(), view_)) continue;
+    if (ctx_->IsForkVertexDeleted(fork_vertex, view_)) continue;
     current_ = fork_vertex;
     done_ = false;
     return;

@@ -1574,6 +1574,45 @@ TEST_F(VersioningGatedTest, BranchLabelScanExactTouchedRecordMatchesMembership) 
       << "main must be untouched";
 }
 
+// Unindexed label filter over many label writes: HasLabel resolves exactly the written gids, in scan order, and
+// re-reads after an own write in the same transaction, a removal and a delete.
+TEST_F(VersioningGatedTest, BranchHasLabelExactMembershipAcrossManyChanges) {
+  faker.Interpret("UNWIND range(1, 40) AS i CREATE (:Probe {i: i})");
+  Fork();
+
+  faker.Interpret("MATCH (n:Probe) WHERE n.i % 2 = 0 SET n:L");
+  faker.Interpret("MATCH (n:Probe) WHERE n.i % 4 = 0 REMOVE n:L");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{10}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n:L AND n.i > 30 RETURN n.i ORDER BY n.i"), (Rows{{34}, {38}}));
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:Probe {i: 1}) SET n:L");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{11}}));
+  faker.Interpret("MATCH (n:Probe {i: 2}) REMOVE n:L");
+  faker.Interpret("MATCH (n:Probe {i: 3}) DETACH DELETE n");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{10}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) RETURN count(n)"), (Rows{{39}}));
+  faker.Interpret("COMMIT");
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{10}}));
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{0}}));
+}
+
+TEST_F(VersioningGatedTest, BranchLabelFilterWithPropertyAndLabelWritesInOneQuery) {
+  faker.Interpret("UNWIND range(1, 40) AS i CREATE (:Probe {i: i})");
+  faker.Interpret("MATCH (n:Probe) WHERE n.i % 2 = 0 SET n:L");
+  Fork();
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L SET n.x = 1, n:M RETURN count(n)"), (Rows{{20}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{20}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M RETURN count(n)"), (Rows{{20}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M AND NOT n:L RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n.x = 1 RETURN count(n)"), (Rows{{20}}));
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M RETURN count(n)"), (Rows{{0}}));
+}
+
 namespace {
 struct DeletedReadCase {
   const char *name;

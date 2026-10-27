@@ -159,7 +159,10 @@ auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(v
 }
 
 storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::LabelId label) const {
-  if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) && branch_ctx_->MayHaveLabelChange(impl_.Gid())) {
+  // Merge only for a deleted fork vertex (must report DELETED_OBJECT) or one the branch wrote `label` on (exact).
+  if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) &&
+      ((branch_ctx_->MayHaveAnyVertexDeleted() && branch_ctx_->MayHaveVertexDeleted(impl_.Gid())) ||
+       branch_ctx_->LabelMayHaveChanged(label, impl_.Gid()))) {
     return MergedHasLabel(*branch_ctx_, impl_, view, label);
   }
   return impl_.HasLabel(label, view);

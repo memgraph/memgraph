@@ -124,6 +124,15 @@ class BranchCore {
   // overlay write; a rolled-back write leaves the gid recorded (superset, never a miss).
   void RecordLabelTouched(storage::LabelId label, storage::Gid gid);
 
+  // Bumped (release) by every RecordLabelTouched of a label hashing to this slot; label-cache validation token.
+  uint64_t LabelTouchedVersion(storage::LabelId label) const noexcept {
+    return label_touched_versions_[label.AsUint() % kTouchedGateBits].load(std::memory_order_acquire);
+  }
+
+  // Fills `out` with the sorted gids recorded for `label` (no deleted gids); returns the LabelTouchedVersion they are
+  // valid at.
+  uint64_t LabelTouchedSorted(storage::LabelId label, std::vector<uint64_t> &out);
+
   // Labels the branch has added to or removed from a fork vertex (a rolled-back write leaves its label listed), for
   // metadata that must list labels the diff engine never sees.
   std::vector<storage::LabelId> TouchedLabels();
@@ -211,7 +220,7 @@ class BranchCore {
   BranchChangeFilters change_filters_;
 
   // Exact per-label touched gids and deleted gids; memory grows with the number of recorded changes. Writes are rare
-  // next to scans, hence a plain mutex. Every insert bumps `touched_version_`, invalidating `label_snapshots_`.
+  // next to scans, hence a plain mutex. Every insert bumps `touched_version_`, invalidating the snapshot caches.
   struct CachedLabelSnapshot {
     uint64_t version;
     std::shared_ptr<const LabelTouchedSet> set;
@@ -225,6 +234,10 @@ class BranchCore {
 
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> label_touched_gate_{};
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> property_touched_gate_{};
+
+  // Per-label (id mod 256) so unrelated property/edge/delete touches do not invalidate label caches; collisions only
+  // cost an extra rebuild. Written under touched_mutex_.
+  std::array<std::atomic<uint64_t>, kTouchedGateBits> label_touched_versions_{};
 
   std::mutex touched_mutex_;
   absl::flat_hash_map<storage::LabelId, LabelTouchedSet> label_touched_;
@@ -547,6 +560,10 @@ class BranchContext {
 
   bool MayHaveLabelChange(storage::Gid gid) const noexcept { return core_->MayHaveLabelChange(gid); }
 
+  // Exact: true iff a branch write to `label` on fork vertex `gid` was recorded (superset after a rollback). Deletes
+  // are not included. Amortised O(1) for gid-ordered calls, O(log n) otherwise; rebuilds when the core's version moves.
+  bool LabelMayHaveChanged(storage::LabelId label, storage::Gid gid);
+
   bool MayHavePropertyChange(storage::Gid gid) const noexcept { return core_->MayHavePropertyChange(gid); }
 
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
@@ -622,6 +639,16 @@ class BranchContext {
   // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor never yields a wrong
   // pointer; reset per transaction.
   StubIndex::Cursor stub_cursor_;
+
+  // Per-label sorted copy of BranchCore's label-touched gids for LabelMayHaveChanged, with a scan-order cursor.
+  struct LabelGidCache {
+    std::vector<uint64_t> gids;
+    uint64_t version{UINT64_MAX};
+    uint64_t last{0};
+    size_t cursor{0};
+  };
+
+  absl::flat_hash_map<storage::LabelId, LabelGidCache> label_gid_cache_;
 };
 
 }  // namespace memgraph::versioning
