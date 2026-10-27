@@ -2906,6 +2906,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         to_visit_current_.clear();
         to_visit_next_.clear();
         processed_.clear();
+        ReleaseExpansion();
 
         const auto &vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
@@ -2985,9 +2986,18 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     processed_.clear();
     to_visit_next_.clear();
     to_visit_current_.clear();
+    ReleaseExpansion();
   }
 
  private:
+  /// Gives back what the widest vertex of one walk needed, so the next walk does not start out
+  /// holding it. Capacity is what makes the collecting pass free of allocation, and it is only
+  /// worth keeping for as long as the walk that earned it.
+  void ReleaseExpansion() {
+    expansion_.clear();
+    expansion_.shrink_to_fit();
+  }
+
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
 
@@ -3003,10 +3013,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
-  // One vertex's edges, built in a pass of their own before any of them is visited. Reading a
-  // vertex's adjacency and visiting what it leads to are both memory-bound, and interleaving them
-  // leaves the processor waiting on the next edge rather than fetching several. Refilled per
-  // vertex, so it stops allocating once it has reached the widest degree the walk has met.
+  // One vertex's edges, collected before any of them is visited. Visiting an edge looks up the
+  // vertex at its far end, and having the edges to hand lets several of those lookups be in
+  // flight together, where taking one edge at a time leaves each of them waiting on the last.
+  // Refilled per vertex and given back when the walk ends.
   utils::pmr::vector<EdgeAccessor> expansion_;
 };
 
