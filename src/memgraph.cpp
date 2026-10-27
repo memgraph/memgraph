@@ -793,7 +793,13 @@ int main(int argc, char **argv) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
     return EXIT_FAILURE;
   }
-  auth_glue(auth_.get(), auth_handler, auth_checker);
+  try {
+    auth_glue(auth_.get(), auth_handler, auth_checker);
+  } catch (std::exception const &e) {
+    spdlog::error(
+        "Couldn't create the user given by {} or {}, shutting down Memgraph. {}", kMgUser, kMgPassfile, e.what());
+    return EXIT_FAILURE;
+  }
 
   // Only a version from before the name was reserved can have stored a user or role under it. Coordinators keep their
   // roles in the Raft state, not the auth store, and are checked once that is restored.
