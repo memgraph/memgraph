@@ -18,6 +18,7 @@
 
 #include "storage/v2/manifest_property_store.hpp"
 #include "storage/v2/property_store.hpp"
+#include "storage/v2/temporal.hpp"
 #include "tests/unit/value_shapes.hpp"
 
 using memgraph::storage::ManifestPropertyStore;
@@ -305,4 +306,29 @@ TEST(ManifestPropertyStore, AgreesOverListsAndMaps) {
       PropertyValueType::VectorIndexId,
       PropertyValueType::ZonedTemporalData,
   }));
+}
+
+// A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a
+// number within a known range, and one taken from the database is named, so naming it by an
+// interned id makes the whole value one of a known width. Nothing about it then needs the
+// record's table of where variable values end.
+TEST(ManifestPropertyStore, AZonedTemporalIsStoredAtAKnownWidth) {
+  using memgraph::storage::ZonedTemporalData;
+  using memgraph::storage::ZonedTemporalType;
+  using memgraph::utils::Timezone;
+
+  auto const moment = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{1'700'000'000'000}};
+
+  for (auto const &zone : {Timezone{"Europe/London"}, Timezone{std::chrono::minutes{-330}}}) {
+    ManifestRegistry registry;
+    ManifestPropertyStore store;
+    auto const value = PropertyValue{ZonedTemporalData{ZonedTemporalType::ZonedDateTime, moment, zone}};
+
+    ASSERT_TRUE(store.SetProperty(registry, Prop(1), value));
+    EXPECT_EQ(store.GetProperty(registry, Prop(1)), value);
+
+    ASSERT_TRUE(store.manifest().has_value());
+    EXPECT_EQ(registry.Resolve(*store.manifest()).variable_count(), 0)
+        << "a zoned temporal value should not need the variable region";
+  }
 }
