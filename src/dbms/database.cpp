@@ -316,6 +316,14 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     } else {
       version_store_->Restore(branch_plan.ledger, {});
     }
+  } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {
+    // No VersionStore here to reset the ledger; a later transactional start must not restore the dropped branches.
+    if (auto written = versioning::BranchLedger{branch_ledger_file}.Write(
+            versioning::LedgerContents{.next_number = branch_plan.ledger.next_number, .branches = {}});
+        !written) {
+      spdlog::warn(
+          "Graph Versioning: failed to reset the branch ledger '{}': {}", branch_ledger_file.string(), written.error());
+    }
   }
 
   // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the

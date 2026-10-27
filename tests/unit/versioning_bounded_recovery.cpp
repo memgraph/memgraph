@@ -35,6 +35,8 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/branch_ledger.hpp"
+#include "versioning/version_store.hpp"
 
 namespace ms = memgraph::storage;
 namespace md = memgraph::storage::durability;
@@ -268,4 +270,39 @@ TEST_F(VersioningBoundedRecoveryTest, RecoversStateAsOfBoundAndReportsTail) {
     EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
     EXPECT_TRUE(tail.wal_files.empty());
   }
+}
+
+TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupDropsTheBranches) {
+  {
+    memgraph::dbms::Database db{MakeConfig(false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      Commit(*acc);
+    }
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+  }
+
+  auto const ledger_file = kRoot / "branches" / "ledger";
+  auto const before = memgraph::versioning::BranchLedger{ledger_file}.Read();
+  ASSERT_TRUE(before.has_value() && before->has_value());
+  ASSERT_EQ((*before)->branches.size(), 1U);
+  auto const next_number = (*before)->next_number;
+
+  {
+    auto config = MakeConfig(true);
+    config.salient.storage_mode = ms::StorageMode::IN_MEMORY_ANALYTICAL;
+    memgraph::dbms::Database db{std::move(config)};
+    EXPECT_EQ(db.version_store(), nullptr);
+  }
+
+  auto const after = memgraph::versioning::BranchLedger{ledger_file}.Read();
+  ASSERT_TRUE(after.has_value() && after->has_value());
+  EXPECT_TRUE((*after)->branches.empty());
+  EXPECT_EQ((*after)->next_number, next_number);
+
+  memgraph::dbms::Database db{MakeConfig(true)};
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_FALSE(db.version_store()->Exists("b"));
 }
