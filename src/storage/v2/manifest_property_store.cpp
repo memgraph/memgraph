@@ -13,10 +13,14 @@
 
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <variant>
+#include <vector>
 
 #include "utils/logging.hpp"
 
@@ -74,6 +78,234 @@ auto ReadObject(uint8_t const *at) -> T {
   return std::bit_cast<T>(raw);
 }
 
+/// A shape takes the type tag off a record's properties. It says nothing about the values
+/// nested inside one, so those are written self-describing: a tag, then a payload whose
+/// shape the tag decides. The tag is the `PropertyValue` kind rather than the stored kind,
+/// because that is what reading one has to reconstruct.
+void EncodeNested(std::vector<uint8_t> &out, PropertyValue const &value);
+
+void AppendBytes(std::vector<uint8_t> &out, void const *from, std::size_t count) {
+  auto const *bytes = static_cast<uint8_t const *>(from);
+  out.insert(out.end(), bytes, bytes + count);
+}
+
+template <typename T>
+void AppendObject(std::vector<uint8_t> &out, T const &value) {
+  static_assert(std::is_trivially_copyable_v<T>, "Only an object whose bytes are its value");
+  AppendBytes(out, &value, sizeof(T));
+}
+
+void AppendCount(std::vector<uint8_t> &out, std::size_t count) { AppendObject(out, static_cast<uint32_t>(count)); }
+
+void EncodeNested(std::vector<uint8_t> &out, PropertyValue const &value) {
+  AppendObject(out, static_cast<uint8_t>(value.type()));
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      return;
+    case PropertyValueType::Bool:
+      AppendObject(out, static_cast<uint8_t>(value.ValueBool() ? 1 : 0));
+      return;
+    case PropertyValueType::Int:
+      AppendObject(out, value.ValueInt());
+      return;
+    case PropertyValueType::Double:
+      AppendObject(out, value.ValueDouble());
+      return;
+    case PropertyValueType::String: {
+      auto const &text = value.ValueString();
+      AppendCount(out, text.size());
+      AppendBytes(out, text.data(), text.size());
+      return;
+    }
+    case PropertyValueType::List: {
+      auto const &list = value.ValueList();
+      AppendCount(out, list.size());
+      for (auto const &element : list) EncodeNested(out, PropertyValue{element});
+      return;
+    }
+    case PropertyValueType::Map: {
+      auto const &map = value.ValueMap();
+      AppendCount(out, map.size());
+      for (auto const &[property, element] : map) {
+        AppendObject(out, property.AsUint());
+        EncodeNested(out, PropertyValue{element});
+      }
+      return;
+    }
+    // A packed list holds its elements more compactly than a general one, but it is still a
+    // list of values, so it is written as one and the tag says how to pack it again.
+    case PropertyValueType::IntList: {
+      auto const &list = value.ValueIntList();
+      AppendCount(out, list.size());
+      for (auto const element : list) EncodeNested(out, PropertyValue{static_cast<int64_t>(element)});
+      return;
+    }
+    case PropertyValueType::DoubleList: {
+      auto const &list = value.ValueDoubleList();
+      AppendCount(out, list.size());
+      for (auto const element : list) EncodeNested(out, PropertyValue{element});
+      return;
+    }
+    case PropertyValueType::NumericList: {
+      auto const &list = value.ValueNumericList();
+      AppendCount(out, list.size());
+      for (auto const &element : list) {
+        std::visit(
+            [&out](auto const number) {
+              if constexpr (std::is_same_v<decltype(number), int const>) {
+                EncodeNested(out, PropertyValue{static_cast<int64_t>(number)});
+              } else {
+                EncodeNested(out, PropertyValue{number});
+              }
+            },
+            element);
+      }
+      return;
+    }
+    case PropertyValueType::TemporalData:
+      AppendObject(out, value.ValueTemporalData());
+      return;
+    case PropertyValueType::ZonedTemporalData: {
+      // A zone held in the time zone database is a pointer into it, which is no use in a
+      // record, so the zone is written the way it was given: an offset, or a name to look up
+      // again. That is the same split the old store's two type tags make.
+      auto const &zoned = value.ValueZonedTemporalData();
+      AppendObject(out, static_cast<uint8_t>(zoned.type));
+      AppendObject(out, zoned.IntMicroseconds());
+      auto const offset = zoned.timezone.GetOffset();
+      if (std::holds_alternative<std::chrono::minutes>(offset)) {
+        AppendObject(out, static_cast<uint8_t>(1));
+        AppendObject(out, static_cast<int64_t>(std::get<std::chrono::minutes>(offset).count()));
+      } else {
+        AppendObject(out, static_cast<uint8_t>(0));
+        auto const name = zoned.timezone.TimezoneName();
+        AppendCount(out, name.size());
+        AppendBytes(out, name.data(), name.size());
+      }
+      return;
+    }
+    case PropertyValueType::Enum:
+      AppendObject(out, value.ValueEnum());
+      return;
+    case PropertyValueType::Point2d:
+      AppendObject(out, value.ValuePoint2d());
+      return;
+    case PropertyValueType::Point3d:
+      AppendObject(out, value.ValuePoint3d());
+      return;
+    default:
+      LOG_FATAL("A nested value of type {} is not encoded yet", static_cast<unsigned>(value.type()));
+  }
+}
+
+/// Walks the bytes `EncodeNested` wrote, in step with how it wrote them.
+class NestedReader {
+ public:
+  explicit NestedReader(uint8_t const *at) : at_{at} {}
+
+  template <typename T>
+  auto Object() -> T {
+    static_assert(std::is_trivially_copyable_v<T>, "Only an object whose bytes are its value");
+    auto raw = std::array<std::byte, sizeof(T)>{};
+    std::memcpy(raw.data(), at_, sizeof(T));
+    at_ += sizeof(T);
+    return std::bit_cast<T>(raw);
+  }
+
+  auto Count() -> uint32_t { return Object<uint32_t>(); }
+
+  auto Bytes(std::size_t count) -> char const * {
+    auto const *from = reinterpret_cast<char const *>(at_);
+    at_ += count;
+    return from;
+  }
+
+  auto Value() -> PropertyValue;
+
+ private:
+  /// A counted run of values, which is what every kind of list is written as.
+  auto Elements() -> PropertyValue::list_t;
+
+  uint8_t const *at_;
+};
+
+auto NestedReader::Elements() -> PropertyValue::list_t {
+  auto const count = Count();
+  auto list = PropertyValue::list_t{};
+  list.reserve(count);
+  for (uint32_t at = 0; at != count; ++at) list.emplace_back(Value());
+  return list;
+}
+
+auto NestedReader::Value() -> PropertyValue {
+  switch (static_cast<PropertyValueType>(Object<uint8_t>())) {
+    case PropertyValueType::Null:
+      return PropertyValue{};
+    case PropertyValueType::Bool:
+      return PropertyValue{Object<uint8_t>() != 0};
+    case PropertyValueType::Int:
+      return PropertyValue{Object<int64_t>()};
+    case PropertyValueType::Double:
+      return PropertyValue{Object<double>()};
+    case PropertyValueType::String: {
+      auto const count = Count();
+      return PropertyValue{std::string{Bytes(count), count}};
+    }
+    case PropertyValueType::List:
+      return PropertyValue{Elements()};
+    case PropertyValueType::Map: {
+      auto const count = Count();
+      auto map = PropertyValue::map_t{};
+      for (uint32_t at = 0; at != count; ++at) {
+        auto const property = PropertyId::FromUint(Object<uint32_t>());
+        map.emplace(property, Value());
+      }
+      return PropertyValue{std::move(map)};
+    }
+    case PropertyValueType::IntList:
+      return PropertyValue{IntListTag{}, Elements()};
+    case PropertyValueType::DoubleList:
+      return PropertyValue{DoubleListTag{}, Elements()};
+    case PropertyValueType::NumericList:
+      return PropertyValue{NumericListTag{}, Elements()};
+    case PropertyValueType::TemporalData:
+      return PropertyValue{Object<TemporalData>()};
+    case PropertyValueType::ZonedTemporalData: {
+      auto const type = static_cast<ZonedTemporalType>(Object<uint8_t>());
+      auto const microseconds = std::chrono::microseconds{Object<int64_t>()};
+      auto const timezone = [this] {
+        if (Object<uint8_t>() == 1) return utils::Timezone{std::chrono::minutes{Object<int64_t>()}};
+        auto const count = Count();
+        return utils::Timezone{std::string_view{Bytes(count), count}};
+      }();
+      return PropertyValue{
+          ZonedTemporalData{type, std::chrono::sys_time<std::chrono::microseconds>{microseconds}, timezone}};
+    }
+    case PropertyValueType::Enum:
+      return PropertyValue{Object<Enum>()};
+    case PropertyValueType::Point2d:
+      return PropertyValue{Object<Point2d>()};
+    case PropertyValueType::Point3d:
+      return PropertyValue{Object<Point3d>()};
+    default:
+      LOG_FATAL("A nested value of this type is not encoded yet");
+  }
+}
+
+/// The bytes a variable-width value occupies. A string is its own bytes, since the span the
+/// record's table gives already says how many there are. Anything else describes itself.
+auto EncodePayload(PropertyValue const &value) -> std::vector<uint8_t> {
+  if (value.IsString()) {
+    auto const &text = value.ValueString();
+    auto payload = std::vector<uint8_t>{};
+    AppendBytes(payload, text.data(), text.size());
+    return payload;
+  }
+  auto payload = std::vector<uint8_t>{};
+  EncodeNested(payload, value);
+  return payload;
+}
+
 /// How a value is stored, which is what a shape is made of. The one place that decides what
 /// can be encoded, so a kind that is not handled is refused here rather than part way in.
 auto StoredTypeFor(PropertyValue const &value) -> StoredType {
@@ -81,8 +313,14 @@ auto StoredTypeFor(PropertyValue const &value) -> StoredType {
   if (value.IsInt()) return StoredType::Fixed(PropertyStoreType::INT, WidthFor(value.ValueInt()));
   if (value.IsDouble()) return StoredType::Fixed(PropertyStoreType::DOUBLE, sizeof(double));
   if (value.IsString()) return StoredType::Variable(PropertyStoreType::STRING);
+  if (value.IsList() || value.IsIntList() || value.IsDoubleList() || value.IsNumericList()) {
+    return StoredType::Variable(PropertyStoreType::LIST);
+  }
+  if (value.IsMap()) return StoredType::Variable(PropertyStoreType::MAP);
   if (value.IsEnum()) return StoredType::Fixed(PropertyStoreType::ENUM, sizeof(Enum));
   if (value.IsTemporalData()) return StoredType::Fixed(PropertyStoreType::TEMPORAL_DATA, sizeof(TemporalData));
+  // Not a known width: a named zone is as long as its name.
+  if (value.IsZonedTemporalData()) return StoredType::Variable(PropertyStoreType::ZONED_TEMPORAL_DATA);
   // One tag for both kinds of point, told apart by the width the shape carries.
   if (value.IsPoint2d()) return StoredType::Fixed(PropertyStoreType::POINT, sizeof(Point2d));
   if (value.IsPoint3d()) return StoredType::Fixed(PropertyStoreType::POINT, sizeof(Point3d));
@@ -180,12 +418,16 @@ auto ManifestPropertyStore::ValueAt(PropertyManifest const &layout, PropertyMani
     return ReadFixed(buffer_.get() + location.offset, location.stored_type);
   }
 
-  MG_ASSERT(location.stored_type.type == PropertyStoreType::STRING, "Only strings vary in width so far");
   auto const regions = RegionsOf(layout);
   auto const end = EndOffsetAt(buffer_.get(), regions, location.offset);
   auto const begin =
       location.offset == 0 ? regions.payload_begin : EndOffsetAt(buffer_.get(), regions, location.offset - 1);
-  return PropertyValue{std::string{reinterpret_cast<char const *>(buffer_.get() + begin), end - begin}};
+  auto const *payload = buffer_.get() + begin;
+
+  if (location.stored_type.type == PropertyStoreType::STRING) {
+    return PropertyValue{std::string{reinterpret_cast<char const *>(payload), end - begin}};
+  }
+  return NestedReader{payload}.Value();
 }
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
@@ -226,9 +468,15 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
   auto const &layout = registry.Resolve(id);
   auto const regions = RegionsOf(layout);
 
+  // Encoded once, because how many bytes a variable value takes is only known by encoding it
+  // and the record has to be sized before anything is written into it.
+  auto payloads = std::map<PropertyId, std::vector<uint8_t>>{};
   auto payload_bytes = uint32_t{};
   for (auto const &[property, value] : properties) {
-    if (value.IsString()) payload_bytes += static_cast<uint32_t>(value.ValueString().size());
+    if (layout.Find(property)->is_fixed) continue;
+    auto encoded = EncodePayload(value);
+    payload_bytes += static_cast<uint32_t>(encoded.size());
+    payloads.emplace(property, std::move(encoded));
   }
 
   size_ = regions.payload_begin + payload_bytes;
@@ -247,9 +495,9 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
 
     DMG_ASSERT(location->offset == next_variable, "A shape numbers its variable values in property order");
     ++next_variable;
-    auto const &text = value.ValueString();
-    std::memcpy(buffer_.get() + cursor, text.data(), text.size());
-    cursor += static_cast<uint32_t>(text.size());
+    auto const &payload = payloads.at(property);
+    std::memcpy(buffer_.get() + cursor, payload.data(), payload.size());
+    cursor += static_cast<uint32_t>(payload.size());
     WriteEndOffset(buffer_.get(), regions, location->offset, cursor);
   }
   manifest_ = id;
