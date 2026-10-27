@@ -310,8 +310,8 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(co
   interpreter_.ResetUser();
   switch (auth::AuthenticateInternalSystemUser(username, password)) {
     case auth::InternalSystemUserLogin::kAccepted:
-      // Unrestricted, like a session on an instance without users, but named, so SHOW SESSIONS and the audit log
-      // tell its queries apart from everyone else's.
+      // Unrestricted, like a session on an instance without users. The principal has no name; SHOW SESSIONS, the audit
+      // log and the query logs get it from the session info set below.
       session_user_or_role_ = std::make_shared<QueryUserOrRole>(QueryUserOrRole::InternalSystemUser(auth_));
 #ifdef MG_ENTERPRISE
       interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for the system user */});
