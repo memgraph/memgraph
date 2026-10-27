@@ -74,7 +74,7 @@ DEFINE_string(system_user_internal_hash_file, "",
               "Path to a file holding the bcrypt hash (\"bcrypt:$2a$...\") or pbkdf2-sha256 hash "
               "(\"pbkdf2-sha256:600000:<salt>:<key>\", required with --fips-mode) of the memgraph_internal system "
               "user, the identity cluster automation such as the Kubernetes operator logs in with. The user is "
-              "accepted on data "
-              "instances and coordinators whether or not other users or SSO are configured, and can't be created, "
-              "changed or dropped with queries. Empty (the default) means the user doesn't exist.");
+              "accepted on data instances and coordinators whether or not other users or SSO are configured, and "
+              "doesn't require an enterprise license, so automation can log in before it sets one. It can't be "
+              "created, changed or dropped with queries. Empty (the default) means the user doesn't exist.");
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
