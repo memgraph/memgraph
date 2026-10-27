@@ -144,7 +144,7 @@ struct SystemRecoveryReqV3 {
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
   std::vector<parameters::ParameterInfo> parameters;
-  // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
+  // One payload per COLD tenant (salient + as-of-suspend stats). Replaces
   // the earlier parallel cold_database_configs/cold_database_stats vectors.
   std::vector<storage::ColdTenantRecovery> cold_databases;
 };
@@ -195,7 +195,7 @@ struct SystemRecoveryReq {
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
   std::vector<parameters::ParameterInfo> parameters;
-  // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
+  // One payload per COLD tenant (salient + as-of-suspend stats). Replaces
   // the earlier parallel cold_database_configs/cold_database_stats vectors.
   std::vector<storage::ColdTenantRecovery> cold_databases;
 };
