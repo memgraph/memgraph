@@ -465,6 +465,38 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
             std::string::npos);
 }
 
+// A relationship matched over a variable length is typed as a relationship inside the body of an
+// EXISTS, a COUNT or a COLLECT, but the row holds the list of them it matched. Reading a property of
+// a list is an error, and stays one: answering Null instead would turn a query the server refuses
+// into one that quietly returns a row per element with nothing in it.
+TYPED_TEST(QueryExecution, CachePropertiesRefusesASymbolHoldingAListOfRelationships) {
+  this->Execute(
+      "CREATE (a:Person {name: 'alice'})-[:PAID {amount: 10, fee: 1}]->(b:Person {name: 'bob'}), "
+      "(b)-[:PAID {amount: 20, fee: 2}]->(:Person {name: 'carol'});");
+
+  auto threw = [this](bool on, const std::string &query) {
+    CachePropertiesFlagGuard guard{on};
+    try {
+      this->Execute(query);
+      return std::string{};
+    } catch (const std::exception &e) {
+      return std::string{e.what()};
+    }
+  };
+
+  // The two arms differ in their aliases so that the second does not reuse the plan cached for the
+  // first, which would hide any difference between them.
+  auto const without_cache = threw(false,
+                                   "MATCH (p:Person) RETURN p.name AS n1, "
+                                   "COLLECT { MATCH (p)-[r:PAID*1..2]->(q) RETURN r.amount + r.fee AS t1 } AS c1");
+  auto const with_cache = threw(true,
+                                "MATCH (p:Person) RETURN p.name AS n2, "
+                                "COLLECT { MATCH (p)-[r:PAID*1..2]->(q) RETURN r.amount + r.fee AS t2 } AS c2");
+
+  EXPECT_NE(without_cache, "") << "the query is expected to be refused whatever the flag says";
+  EXPECT_EQ(with_cache, without_cache);
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesReadsAGroupWhoseOrderIsNotTheRecordsOrder) {
   // One pass over a record finds each property from where the last one stopped, so it cannot go
   // back for one it has already passed. A projection names its properties in whatever order the
