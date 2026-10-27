@@ -17,14 +17,14 @@ namespace memgraph::versioning {
 
 class VersionStore;
 
-// Startup only, after VersionStore::Restore and with main fully recovered (fork pins held). For every restored branch
-// whose directory holds a diff-engine WAL: builds the branch's core with its recorded gid floors, replays the WAL into
-// the diff engine and the overlay store, rebuilds the filters, touched sets and `branched()` bits derived from the
-// overlay, and registers the core with `store`. Then raises main's gid counters above every recorded floor and every
-// branch-native gid so new objects never collide with a branch's.
+// Startup only, after VersionStore::Restore and with main fully recovered (fork pins held). Replays each restored
+// branch's diff-engine WAL into a core built with its recorded gid floors, rebuilds the filters, touched sets and
+// `branched()` bits derived from the overlay, and registers the core with `store`. Then raises main's gid counters
+// above every recorded floor and branch-native gid so new objects never collide with a branch's.
 //
-// A branch whose WAL cannot be replayed is logged and dropped (registry, ledger and fork pin); other branches and main
-// are unaffected. Never throws.
+// A torn newest WAL file is renamed `.torn` and skipped. Any other unreplayable WAL (mid-stream corruption, missing
+// floors) is logged and the branch dropped (registry, ledger, fork pin), since keeping it would show main@fork as its
+// contents. Other branches and main are unaffected. Never throws.
 void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main);
 
 }  // namespace memgraph::versioning

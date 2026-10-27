@@ -306,7 +306,7 @@ class Storage {
   // The durable timestamp that must stay recoverable: snapshot/WAL retention keeps the newest snapshot at or below it
   // and the WAL files that replay from there. Branches set it to the oldest fork point minus one.
   // The retention pass holds `retention_floor_mutex_` while it reads the floor and deletes files, so a floor that is
-  // raised under the same mutex cannot lose its base to a pass that read the old value.
+  // lowered under the same mutex cannot lose its base to a pass that read the old value.
   [[nodiscard]] std::optional<uint64_t> RetentionFloor() const {
     auto const guard = std::lock_guard{retention_floor_mutex_};
     return retention_floor_;

@@ -14356,7 +14356,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
                std::chrono::duration<double>(timer.Elapsed()).count());
 
   {
-    // Read the floor and delete under one lock: a branch raising the floor waits for this pass and then pins the new
+    // Read the floor and delete under one lock: a branch lowering the floor waits for this pass and then pins the new
     // snapshot, never a file this pass already decided to delete.
     auto const floor_guard = std::lock_guard{storage->retention_floor_mutex_};
     auto const retention_floor = storage->retention_floor_;

@@ -24,18 +24,14 @@
 
 namespace memgraph::dbms {
 
-// Durable timestamp up to which a restart must recover main so that every branch's fork base can be rebuilt: readers at
-// a fork_ts see exactly the commits with ts < fork_ts, and on main the MVCC commit ts is the durable ts. nullopt when
-// the ledger holds no branch.
+// Durable ts up to which main must be recovered so every branch's fork base can be rebuilt: fork_ts - 1, since readers
+// at a fork_ts see commits with ts < fork_ts. nullopt when the ledger holds no branch.
 std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &ledger);
 
-// Replays `tail` (the WAL files left out of a bounded recovery) into `storage` as MVCC transactions, WAL appends
-// suppressed, registering a fork pin for each entry of `fork_ts` right before the first transaction whose durable
-// timestamp is >= it (after all of them if none is). `fork_ts` must be ascending. Then moves the storage clock past
-// the last durable timestamp so new commits get fresh ids.
-//
-// Returns the pins in the order of `fork_ts`; the caller owns them. On failure no pin is held and `storage` is left
-// partially replayed, so it must be discarded.
+// Replays `tail` into `storage` as MVCC txns with WAL appends suppressed, registering a fork pin per (ascending)
+// `fork_ts` right before the first txn with durable ts >= it (after all if none), then bumps the clock past the last
+// durable ts. Returns the pins in `fork_ts` order, caller-owned. On failure no pin is held and `storage` is partially
+// replayed, so it must be discarded.
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts);

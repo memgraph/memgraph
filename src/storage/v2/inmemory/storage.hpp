@@ -845,9 +845,8 @@ class InMemoryStorage final : public Storage {
   // Lock order: engine_lock_ then version_fork_pin_lock_.
   uint64_t RegisterForkPin();
 
-  // RegisterForkPin for a branch: also lowers the retention floor to `fork_ts - 1`, atomically with respect
-  // to a snapshot's retention pass, so the snapshot and WAL files that rebuild the fork base are not deleted.
-  // Lock order: retention_floor_mutex_, then engine_lock_.
+  // RegisterForkPin that also lowers the retention floor to `fork_ts - 1` atomically with a snapshot's retention
+  // pass, so the files that rebuild the fork base survive. Lock order: retention_floor_mutex_, then engine_lock_.
   uint64_t RegisterBranchForkPin();
 
   // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
@@ -1132,10 +1131,9 @@ class InMemoryStorage final : public Storage {
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
-  // Read under engine_lock_ by InitializeWalFile; see SuppressWalScope.
+  // Set by SuppressWalScope; read by InitializeWalFile.
   std::atomic<bool> suppress_wal_{false};
 
-  // Set by the constructor when a recovery bound is configured.
   std::optional<durability::RecoveryTail> recovery_tail_;
 
   utils::FileRetainer file_retainer_;

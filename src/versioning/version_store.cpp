@@ -92,7 +92,6 @@ void VersionStore::ResetLedger(uint64_t next_number) {
     std::lock_guard guard{lock_};
     next_number_ = next_number;
   }
-  // WriteLedger logs the failure; the registry is empty either way.
   (void)WriteLedger(LedgerContents{.next_number = next_number, .branches = {}});
 }
 

@@ -122,12 +122,11 @@ auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetric
   return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
 }
 
-// What the branch ledger asks of this startup.
 struct BranchRecoveryPlan {
-  // The ledger as read, branches ordered by fork_ts. Empty when there is no ledger file or it is unreadable.
+  // Branches ordered by fork_ts; empty when the ledger is missing or unreadable.
   versioning::LedgerContents ledger;
   bool ledger_unreadable{false};
-  // Set when the branches can be rebuilt: main is recovered up to this durable timestamp, the rest replayed.
+  // Set when branches can be rebuilt: main is recovered up to this timestamp, the rest replayed.
   std::optional<uint64_t> bound;
 };
 
@@ -140,8 +139,7 @@ std::string BranchNames(const versioning::LedgerContents &ledger) {
   return names;
 }
 
-// Reads the ledger of an in-memory database before its storage exists. Branches can only be rebuilt from the
-// WAL, so without recovery on startup and WAL they are reported lost.
+// Runs before the storage exists; branches can only be rebuilt from the WAL.
 BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::filesystem::path &ledger_file) {
   BranchRecoveryPlan plan;
   auto read = versioning::BranchLedger{ledger_file}.Read();
@@ -200,7 +198,7 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const auto branch_ledger_file = config.durability.storage_directory / "branches" / "ledger";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-  // The branch ledger lives in branches/, not here; versioning/ is a legacy directory left by an older build.
+  // versioning/ is a legacy directory left by an older build.
   if (utils::DirExists(versioning_directory) && !utils::DeleteDir(versioning_directory)) {
     spdlog::warn("Graph Versioning: failed to remove legacy branch directory '{}'.", versioning_directory.string());
   }

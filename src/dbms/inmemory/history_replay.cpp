@@ -41,7 +41,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
     pins.clear();
   };
 
-  // Registers every pin whose fork_ts is <= `durable_ts`: all commits below it are already in.
+  // Runs before the txn committed at `durable_ts` is replayed: every fork at or below it already sees its full history.
   const auto pin_due = [&](uint64_t durable_ts) {
     while (pins.size() < fork_ts.size() && fork_ts[pins.size()] <= durable_ts) {
       pins.push_back(storage.RegisterForkPin());
@@ -49,7 +49,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
   };
 
   try {
-    // Branches forked at or before the recovered state need their pin before the first replayed transaction.
+    // Pins for forks at or before the recovered state must exist before the first replayed txn.
     pin_due(tail.reached_timestamp + 1);
     {
       const storage::InMemoryStorage::SuppressWalScope suppress_wal{storage};

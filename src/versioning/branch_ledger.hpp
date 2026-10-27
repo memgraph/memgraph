@@ -43,10 +43,11 @@ class BranchLedger {
  public:
   static constexpr uint32_t kVersion = 1;
 
-  // `file` is the ledger file; its parent directory is created on the first Write.
+  // The parent directory of `file` is created by Write if missing.
   explicit BranchLedger(std::filesystem::path file);
 
-  // On failure the previous ledger (if any) is untouched.
+  // A failure before the rename leaves the previous ledger untouched; a directory-fsync failure is reported after the
+  // new file is already in place.
   std::expected<void, std::string> Write(const LedgerContents &contents) const;
 
   // nullopt if the file does not exist; an error message if it exists but is unreadable or corrupt.

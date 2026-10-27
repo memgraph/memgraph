@@ -68,11 +68,9 @@ bool HasRegularFiles(const std::filesystem::path &dir) {
 
 constexpr std::string_view kTornSuffix = ".torn";
 
-// The branch's WAL files, oldest first. A diff engine writes a new file (and a new UUID) per run, and the clock is
-// moved past every replayed timestamp before the next run writes, so the first timestamp orders files across runs.
-// Empty files (a crash right after creation) and files without a complete transaction carry nothing.
-// A file that cannot be read at all is a crash tail only if no readable file with data is newer (file names start with
-// a zero-padded timestamp); it is then renamed aside so later runs do not append behind a torn file.
+// The branch's WAL files, oldest first (the clock is moved past replayed timestamps before the next run writes, so the
+// first timestamp orders files across runs). An unreadable file is a crash tail only if no readable file with data is
+// newer (names start with a zero-padded timestamp); it is renamed aside so later runs do not append behind it.
 // @throw utils::BasicException a file cannot be read and is not the crash tail
 std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   std::vector<WalFileEntry> files;
@@ -123,7 +121,6 @@ std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   return files;
 }
 
-// One WAL transaction being applied: the diff-engine accessor it runs in, and what is held back until it committed.
 struct TxnState {
   std::unique_ptr<storage::Storage::Accessor> holder;
   storage::ReplicationAccessor *acc{nullptr};
@@ -133,9 +130,9 @@ struct TxnState {
   std::unordered_map<uint64_t, storage::EdgeAccessor> created_edges;
 };
 
-// Replays a branch's diff-engine WAL into its freshly built core, as BranchContext wrote it: native objects through
-// the diff engine's own accessor, overlay records into the overlay store. Endpoints of branch-native edges that are
-// fork vertices are resolved to their anchors, as BranchContext::CowVertex resolves them at runtime.
+// Replays a branch's diff-engine WAL into its freshly built core: native objects through the diff engine's accessor,
+// overlay records into the overlay store; fork-vertex edge endpoints resolve to anchors as BranchContext::CowVertex
+// does.
 class BranchWalReplayer {
  public:
   BranchWalReplayer(BranchCore &core, storage::Storage::Accessor &historical)
@@ -144,7 +141,7 @@ class BranchWalReplayer {
   // @throw std::exception the WAL is corrupt or does not fit the fork base
   void Run(const std::vector<WalFileEntry> &files) {
     const storage::InMemoryStorage::SuppressWalScope no_wal{diff_};
-    // The mirror commits of Build left a durable timestamp of their own; the WAL's timestamps are what counts.
+    // Build's mirror commits left a durable timestamp of their own; the WAL's timestamps must win.
     auto info = diff_.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
     info.ldt_ = 0;
     diff_.repl_storage_state_.commit_ts_info_.store(info, std::memory_order_release);
@@ -177,7 +174,6 @@ class BranchWalReplayer {
     }
   }
 
-  // Applies the transaction at the decoder's position; returns the number of deltas it spans.
   uint64_t ReplayTransaction(dur::Decoder &decoder, uint64_t version) {
     decoder.ResetCrcAcc();
     TxnState txn;
@@ -343,9 +339,8 @@ class BranchWalReplayer {
     return acc.FindEdge(edge_gid, storage::View::NEW, acc.NameToEdgeType(edge_type), &*from, &*to);
   }
 
-  // Commits the diff transaction at the WAL's timestamp and installs the overlay records at the local timestamp it got.
-  // Overlay-only transactions have no diff commit; their stamp is the accessor's start timestamp, which is also past
-  // every earlier replayed commit and below the clock any later transaction starts from.
+  // Overlay-only transactions have no diff commit, so their local stamp is the accessor's start timestamp: past every
+  // earlier replayed commit and below the clock any later transaction starts from.
   void Commit(TxnState &txn) {
     auto &acc = *txn.acc;
     const uint64_t start_ts = acc.GetTransaction().start_timestamp;

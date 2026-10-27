@@ -35,9 +35,8 @@ namespace memgraph::versioning {
 
 class BranchCore;
 
-// Per-Database registry of branches. Starts empty; Database restores it from the ledger at startup (Restore/
-// ResetLedger). Once a BranchLedger is attached, every CREATE/DROP (and the first gid-floor record per branch) is also
-// persisted to it.
+// Per-Database registry of branches. Starts empty; Database restores it at startup (Restore/ResetLedger). Once a
+// BranchLedger is attached, every CREATE/DROP and the first gid-floor record per branch is persisted to it.
 //
 // The GC fork pin held for each branch is injected as callbacks (Database binds them to
 // InMemoryStorage::RegisterForkPin/ReleaseForkPin), so tests need no storage engine.
@@ -55,18 +54,17 @@ class VersionStore {
   VersionStore &operator=(VersionStore &&) = delete;
   ~VersionStore() = default;
 
-  // Called with the durable timestamp the branches still need recoverable (oldest recorded fork_ts - 1), or nullopt
-  // when no branch exists: after Restore, after a failed CREATE (its pin is released) and after a DROP. Set before use.
-  // Never called with lock_ held; may be called with the ledger mutex held, so it must not call back into this store.
+  // Receives the durable timestamp branches still need recoverable (oldest recorded_fork_ts - 1), or nullopt when no
+  // branch exists; invoked after Restore, a failed CREATE and a DROP. Set before use. Never called with lock_ held, but
+  // may be with ledger_mutex_ held, so it must not call back into this store.
   void SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback);
 
   // Starts persisting to `file`. Call before the first CreateBranch; does not read or write the file itself.
   void AttachLedger(std::filesystem::path file);
 
-  // Startup only, before any other call. Installs `contents` as the registry without writing the ledger: the branch at
-  // index i gets `pins[i]` as its runtime fork_ts (already registered with the storage by the caller; DropBranch
-  // releases it) and keeps its recorded fork_ts as `recorded_fork_ts`, so later ledger writes persist the recorded
-  // value. Restores next_number. `pins` must have exactly one entry per branch.
+  // Startup only, before any other call. Installs `contents` without writing the ledger: branch i gets `pins[i]` as its
+  // runtime fork_ts (already registered with the storage by the caller; DropBranch releases it) and keeps the recorded
+  // value in `recorded_fork_ts`. `pins` must have exactly one entry per branch.
   void Restore(const LedgerContents &contents, std::span<const uint64_t> pins);
 
   // Startup only, before any other call. Discards unrecoverable branches: persists an empty registry that keeps
@@ -82,8 +80,8 @@ class VersionStore {
   // pin and retires the branch's core. A ledger write failure is reported as an error (nothing is dropped).
   std::expected<bool, std::string> DropBranch(std::string_view name);
 
-  // Records the branch's gid floors in the ledger the first time they are known; later calls are no-ops. Fails
-  // only on a ledger write failure. Unknown `number` is a no-op.
+  // Persists the branch's gid floors the first time they are known; later calls and unknown `number` are no-ops.
+  // Fails only on a ledger write failure.
   std::expected<void, std::string> RecordGidFloors(uint64_t number, uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
 
   std::optional<BranchInfo> Get(std::string_view name) const;
@@ -136,10 +134,9 @@ class VersionStore {
 
   // Call with ledger_mutex_ held and lock_ NOT held. No-op if no ledger is attached.
   std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
-  // Call with lock_ held.
   LedgerContents SnapshotLocked() const;
 
-  // Reports the retention floor of the current branches. Call WITHOUT lock_ held. No-op without a callback.
+  // Call WITHOUT lock_ held (it takes lock_ itself).
   void PublishRetentionFloor() const;
 
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.

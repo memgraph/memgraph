@@ -75,18 +75,16 @@ class BranchCore {
     std::string message;
   };
 
-  // The gid floors a branch was built with before a restart. Passing them to Build also says that the branch's WAL
-  // directory holds its own history: Build leaves those files in place for the caller to replay
-  // (RecoverBranchContents).
+  // Gid floors recorded before a restart. Passing them to Build also means the branch's WAL directory holds its own
+  // history: Build keeps those files for RecoverBranchContents to replay.
   struct RecordedFloors {
     uint64_t vertex_gid_floor;
     uint64_t edge_gid_floor;
   };
 
-  // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions. With a
-  // `branch_number` and a WAL-enabled main, the diff engine writes a WAL of the branch's commits (native deltas and
-  // overlay records) to <main storage dir>/branches/<branch_number>/; otherwise the branch has no durability.
-  // The floors are main's counters unless `recorded` supplies them.
+  // Builds an empty diff engine, records the gid floors (main's counters unless `recorded` supplies them), and mirrors
+  // main's index and enum definitions. With a `branch_number` and a WAL-enabled main, branch commits (native deltas and
+  // overlay records) go to a WAL in <main storage dir>/branches/<branch_number>/; otherwise the branch is not durable.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt,
       std::optional<RecordedFloors> recorded = std::nullopt);
@@ -608,13 +606,13 @@ class BranchContext {
   // Appends one overlay record per key this overlay transaction wrote (its own newest version) to `wal`.
   void AppendOverlayRecords(storage::durability::WalFile &wal, uint64_t durable_ts);
 
-  // Sets the diff transaction's extra WAL writer to AppendOverlayRecords (when the diff engine has a WAL); the commit
-  // that follows runs it under engine_lock_. Callers pair it with ClearOverlayWalWriter once that commit returns.
+  // Sets the diff transaction's extra WAL writer to AppendOverlayRecords (only with a WAL); the diff commit runs it
+  // under engine_lock_. Callers pair it with ClearOverlayWalWriter once that commit returns.
   void InstallOverlayWalWriter();
   void ClearOverlayWalWriter() noexcept;
 
-  // Remembers the endpoints of fork edge `fork_edge` for this transaction's overlay record (edge records carry them;
-  // the fork's edge lookup by gid is not MVCC-aware, so they cannot be recovered at commit). No-op without a WAL.
+  // Remembers the endpoints of `fork_edge` for its overlay record: the fork's edge lookup by gid is not MVCC-aware, so
+  // they cannot be recovered at commit. No-op without a WAL.
   void RecordEdgeEnds(const storage::EdgeAccessor &fork_edge);
 
   // Overlay-only commit: stamps the diff accessor and the overlay under engine_lock_. Returns the overlay commit's

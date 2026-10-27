@@ -57,7 +57,6 @@ class Fd {
 
   int get() const { return fd_; }
 
-  // Returns the close(2) result and disarms the destructor.
   int Close() {
     const int rc = ::close(fd_);
     fd_ = -1;

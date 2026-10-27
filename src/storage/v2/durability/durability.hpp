@@ -116,22 +116,20 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
                                                                   const Config &config,
                                                                   memory::ArenaPool *db_arena_pool);
 
-/// Filled by Recovery::RecoverData when it is given a timestamp bound: what was left out of the recovered state.
+/// Filled by Recovery::RecoverData when given a timestamp bound: what was left out of the recovered state.
 struct RecoveryTail {
-  /// WAL files, in sequence order, holding at least one delta above the bound. The first one may straddle the bound,
-  /// so a caller replaying them has to skip the deltas it was already recovered.
+  /// WAL files, in sequence order, with a delta above the bound. The first may straddle it; replay must skip deltas
+  /// already recovered.
   std::vector<std::filesystem::path> wal_files;
-  /// Durable timestamp of the newest data recovered, which is at most the bound.
+  /// Durable timestamp of the newest data recovered (at most the bound).
   uint64_t reached_timestamp{0};
 };
 
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
-  /// With `max_delta_timestamp` the state recovered is the one as of that durable timestamp: the newest snapshot not
-  /// above it is loaded (WAL files alone are used when there is none, which requires the chain to start at sequence
-  /// 0), and only transactions up to it are replayed. `tail`, when given, then receives the files left to replay.
-  /// Without a bound the behaviour is unchanged.
+  /// With `max_delta_timestamp`, recovers the state as of that durable timestamp: newest snapshot not above it (else
+  /// WALs alone, which must start at sequence 0), replaying only transactions up to it. `tail` receives the rest.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(

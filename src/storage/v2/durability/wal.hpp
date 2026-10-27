@@ -454,8 +454,8 @@ struct WalDescriptionDelete {
   ExternalPropertyValue value;
 };
 
-// Full-state record of a main object changed on a versioning branch. Only ever written to a branch's diff-engine WAL;
-// main storage never emits it. Names (not ids) are stored so the record survives name-id remapping.
+// Full-state record of a main object changed on a versioning branch. Only in branch WALs; LoadWal rejects it in a main
+// WAL. Names (not ids) are stored so the record survives name-id remapping.
 struct WalOverlayPut {
   friend bool operator==(const WalOverlayPut &, const WalOverlayPut &) = default;
   uint64_t key;  //!< Vertex gid, or edge gid with bit 63 set
@@ -613,8 +613,7 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
-/// Id-based input for EncodeOverlayPut; mirrors WalOverlayPut. Defined here so that storage does not depend on the
-/// versioning layer, which converts its overlay state into this.
+/// Id-based input for EncodeOverlayPut; mirrors WalOverlayPut. Defined here so storage does not depend on versioning.
 struct OverlayPutData {
   uint64_t key{0};  //!< Vertex gid, or edge gid with bit 63 set
   bool deleted{false};
@@ -622,17 +621,16 @@ struct OverlayPutData {
   std::vector<LabelId> removed_labels;
   std::vector<PropertyId> removed_properties;
   std::vector<std::pair<PropertyId, PropertyValue>> properties;
-  uint64_t from_gid{0};  //!< Edge keys only; 0 for vertex keys
-  uint64_t to_gid{0};    //!< Edge keys only; 0 for vertex keys
+  uint64_t from_gid{0};
+  uint64_t to_gid{0};
 };
 
-/// Encodes a complete DELTA_OVERLAY_PUT delta (SECTION_DELTA, timestamp, marker, payload). Branch WALs only.
+/// Encodes a whole DELTA_OVERLAY_PUT delta, header included. Branch WALs only.
 void EncodeOverlayPut(BaseEncoder &encoder, NameIdMapper &name_id_mapper, OverlayPutData const &data,
                       uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
-/// Deltas with a durable timestamp above `max_delta_timestamp` (when set) are skipped, and a file that starts above
-/// it is not read at all.
+/// Deltas with a timestamp above `max_delta_timestamp` (when set) are skipped.
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -661,7 +659,7 @@ class WalFile {
   void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage, Gid in_vertex_gid,
                    EdgeTypeId edge_type_id);
 
-  /// Branch WALs only: appends an overlay record inside the current transaction.
+  /// Branch WALs only.
   void AppendOverlayPut(OverlayPutData const &data, uint64_t timestamp);
 
   // True means storage should use deltas associated with this txn, false means skip until

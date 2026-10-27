@@ -163,14 +163,13 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   config.salient.uuid = utils::UUID{};
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
-  // A branch has a WAL only when main does and the branch has a stable number to name its directory by.
   bool const durable =
       branch_number.has_value() && main.config_.durability.snapshot_wal_mode ==
                                        storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   config.durability.snapshot_wal_mode = durable
                                             ? storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
                                             : storage::Config::Durability::SnapshotWalMode::DISABLED;
-  // The branch WAL is never snapshotted: the disabled interval keeps the periodic snapshot from ever firing.
+  // The branch WAL is never snapshotted; a default (disabled) interval keeps the periodic snapshot from firing.
   config.durability.snapshot_interval = utils::SchedulerInterval{};
   config.durability.recover_on_startup = false;
   // A branch with recorded floors continues its own WAL; the engine must not move those files aside.
@@ -210,8 +209,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.DbEmbeddingMemoryTracker(),
                                                                 main.GetSharedNameIdMapper());
 
-  // Done before the core is visible to any session, so the diff engine never needs UNIQUE/READ_ONLY afterwards. The
-  // mirror commits are rebuilt from main on every build, so they stay out of the branch WAL.
+  // Done before the core is visible to any session, so the diff engine never needs UNIQUE/READ_ONLY afterwards.
+  // Mirror commits are rebuilt on every build, so they stay out of the branch WAL.
   {
     const storage::InMemoryStorage::SuppressWalScope no_wal{*diff_engine};
     MirrorMainIndexDefinitionsIntoDiffEngine(*diff_engine, historical->ListAllIndices());
@@ -350,7 +349,7 @@ void BranchContext::RecordEdgeEnds(const storage::EdgeAccessor &fork_edge) {
 }
 
 void BranchContext::AppendOverlayRecords(storage::durability::WalFile &wal, uint64_t durable_ts) {
-  // Own writes, read at View::NEW: the transaction's newest version of each key, whether or not it is published yet.
+  // View::NEW: the transaction's newest version of each key, published or not.
   for (auto const key : overlay_txn_->writes()) {
     auto const *version = core_->overlay_store().Read(key, *overlay_txn_, storage::View::NEW);
     if (version == nullptr) continue;
@@ -405,7 +404,7 @@ std::exception_ptr BranchContext::StampOverlayOnlyCommit() {
   uint64_t const commit_ts = diff_engine().timestamp_++;
   accessor.GetCommitTimestamp().emplace(commit_ts);
   try {
-    // Durable before visible, like a diff commit: the overlay is published only once its WAL transaction is written.
+    // Durable before visible: the overlay is published only after its WAL transaction is written.
     if (core_->wal_enabled()) {
       diff_engine().AppendWalOnlyTransaction(commit_ts, [this](storage::durability::WalFile &wal, uint64_t durable_ts) {
         AppendOverlayRecords(wal, durable_ts);
