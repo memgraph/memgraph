@@ -123,6 +123,11 @@ add_unit_test(versioning_durability_restart
         LINK_TARGETS mg::versioning mg::storage mg-dbms
 )
 
+add_unit_test(versioning_branch_wal
+        SOURCES versioning_branch_wal.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
 add_unit_test(versioning_history_replay
         SOURCES versioning_history_replay.cpp
         LINK_TARGETS mg::versioning mg::storage mg-dbms storage_test_utils

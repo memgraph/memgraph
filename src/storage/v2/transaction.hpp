@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -51,6 +52,10 @@
 namespace rocksdb {
 class Transaction;
 }  // namespace rocksdb
+
+namespace memgraph::storage::durability {
+class WalFile;
+}  // namespace memgraph::storage::durability
 
 namespace memgraph::storage {
 
@@ -328,6 +333,10 @@ struct Transaction {
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndicesPtr active_indices_;
   CommitCallbacks commit_callbacks_;
+  /// Optional: appends extra records to this transaction's WAL transaction, after its deltas and before the
+  /// transaction end, with the durable commit timestamp. Called under engine_lock_ and only when the transaction is
+  /// written to a WAL file; never replicated. The owner clears it once the commit call returns.
+  std::function<void(durability::WalFile &, uint64_t)> extra_wal_writer_;
   /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
   /// cleared on successful commit (see commit_callbacks_.RunAll site).
   AbortCallbacks abort_callbacks_;

@@ -23,11 +23,13 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -73,8 +75,11 @@ class BranchCore {
     std::string message;
   };
 
-  // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions.
-  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main, uint64_t fork_ts);
+  // Builds an empty diff engine, records the gid floors, and mirrors main's index and enum definitions. With a
+  // `branch_number` and a WAL-enabled main, the diff engine writes a WAL of the branch's commits (native deltas and
+  // overlay records) to <main storage dir>/branches/<branch_number>/; otherwise the branch has no durability.
+  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
+      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
@@ -87,6 +92,12 @@ class BranchCore {
   storage::InMemoryStorage &main() { return *main_; }
 
   uint64_t fork_ts() const { return fork_ts_; }
+
+  // Whether the diff engine writes a WAL, i.e. whether branch commits must carry their overlay records.
+  bool wal_enabled() const {
+    return diff_engine_->config_.durability.snapshot_wal_mode ==
+           storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  }
 
   // Main's vertex/edge counters at Build: gids below are fork objects, gids at or above are branch-native.
   uint64_t vertex_gid_floor() const { return vertex_gid_floor_; }
@@ -282,8 +293,8 @@ class BranchContext {
   using BuildError = BranchCore::BuildError;
 
   // Builds a private, unregistered core and wraps it (unit tests; production attaches to the registry's core).
-  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
-                                                                                 uint64_t fork_ts);
+  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
+      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
   // `name` is the branch this context was attached through (empty for test-built contexts); nested sessions use it.
   explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {})
@@ -584,6 +595,18 @@ class BranchContext {
   // Registers the overlay's commit as a callback of the diff commit.
   void AddOverlayCommitCallback();
 
+  // Appends one overlay record per key this overlay transaction wrote (its own newest version) to `wal`.
+  void AppendOverlayRecords(storage::durability::WalFile &wal, uint64_t durable_ts);
+
+  // Sets the diff transaction's extra WAL writer to AppendOverlayRecords (when the diff engine has a WAL); the commit
+  // that follows runs it under engine_lock_. Callers pair it with ClearOverlayWalWriter once that commit returns.
+  void InstallOverlayWalWriter();
+  void ClearOverlayWalWriter() noexcept;
+
+  // Remembers the endpoints of fork edge `fork_edge` for this transaction's overlay record (edge records carry them;
+  // the fork's edge lookup by gid is not MVCC-aware, so they cannot be recovered at commit). No-op without a WAL.
+  void RecordEdgeEnds(const storage::EdgeAccessor &fork_edge);
+
   // Overlay-only commit: stamps the diff accessor and the overlay under engine_lock_. Returns the overlay commit's
   // exception, if any, for the caller to rethrow after FinalizeTransaction.
   std::exception_ptr StampOverlayOnlyCommit();
@@ -638,6 +661,8 @@ class BranchContext {
   // Lives from SetCurrentDiffTxn to EndTransaction; `snapshot_pin_` is its GC pin.
   std::unique_ptr<OverlayTransaction> overlay_txn_;
   std::optional<uint64_t> snapshot_pin_;
+  // Edge overlay key -> (from gid, to gid) of the edges this transaction wrote; reset with the overlay transaction.
+  absl::flat_hash_map<uint64_t, std::pair<uint64_t, uint64_t>> edge_ends_;
   // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor never yields a wrong
   // pointer; reset per transaction.
   StubIndex::Cursor stub_cursor_;

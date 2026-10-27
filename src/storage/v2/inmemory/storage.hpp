@@ -982,6 +982,11 @@ class InMemoryStorage final : public Storage {
   /// timestamp, e.g. a replay, do not advance the clock). Skipped ids are marked finished in the commit log.
   void BumpClockPastDurable();
 
+  /// Writes a WAL transaction at `commit_ts` that holds only the records `writer` appends, and advances the last
+  /// durable timestamp. For commits with no deltas of their own; writes nothing when the WAL is off or suppressed.
+  /// The caller holds engine_lock_ and took `commit_ts` from the clock under it, so WAL order is commit order.
+  void AppendWalOnlyTransaction(uint64_t commit_ts, std::function<void(durability::WalFile &, uint64_t)> const &writer);
+
   /// Smallest transaction id that may still be active.
   [[nodiscard]] uint64_t OldestActiveTimestamp();
 

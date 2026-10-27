@@ -9078,12 +9078,12 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
 
   std::expected<std::shared_ptr<versioning::BranchCore>, std::string> core;
   try {
-    core = version_store->GetOrBuildCore(info->number,
-                                         [&]() -> std::expected<std::shared_ptr<versioning::BranchCore>, std::string> {
-                                           auto built = versioning::BranchCore::Build(*mem_storage, info->fork_ts);
-                                           if (!built) return std::unexpected(std::move(built.error().message));
-                                           return std::move(*built);
-                                         });
+    core = version_store->GetOrBuildCore(
+        info->number, [&]() -> std::expected<std::shared_ptr<versioning::BranchCore>, std::string> {
+          auto built = versioning::BranchCore::Build(*mem_storage, info->fork_ts, info->number);
+          if (!built) return std::unexpected(std::move(built.error().message));
+          return std::move(*built);
+        });
   } catch (...) {
     version_store->ReleaseCheckout(name);
     throw;
