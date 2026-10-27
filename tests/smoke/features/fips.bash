@@ -258,6 +258,8 @@ fips_unlicensed_checks() {
   fips_unlicensed_refuses "RETURN 1;" || return 1
   # Reading the settings is allowed, so a client can read before it writes the license.
   fips_unlicensed_accepts "SHOW DATABASE SETTINGS;" || return 1
+  # So is the license info, so a client can tell why everything else is refused.
+  fips_unlicensed_accepts "SHOW LICENSE INFO;" || return 1
   fips_unlicensed_refuses "SHOW DATABASE SETTING 'log.level';" || return 1
   fips_unlicensed_refuses "SHOW FIPS INFO;" || return 1
   fips_unlicensed_refuses "CREATE USER fips_unlicensed IDENTIFIED BY 'fips_unlicensed1234';" || return 1
@@ -285,9 +287,9 @@ fips_unlicensed_checks() {
 # FIPS mode is an enterprise feature, but the license may only ever arrive over
 # Bolt: the Kubernetes operator delivers it with SET DATABASE SETTING, so a
 # fresh pod has none at startup. An unlicensed instance must start, refuse
-# everything except reading the settings (the operator reads them before it
-# sets them) and the two settings that license it, and serve once they are
-# set — never serve data in approved mode unlicensed.
+# everything except the license info, reading the settings (the operator reads
+# them before it sets them) and the two settings that license it, and serve
+# once they are set — never serve data in approved mode unlicensed.
 test_fips_unlicensed_accepts_only_license_settings() {
   echo "FEATURE: FIPS - an unlicensed instance accepts only the license settings"
   docker_stop_if_there "$FIPS_UNLICENSED_CONTAINER" >/dev/null 2>&1 || true

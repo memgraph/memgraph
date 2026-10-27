@@ -3472,10 +3472,13 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
 #ifdef MG_ENTERPRISE
 namespace {
-// Whether an unlicensed instance in FIPS mode accepts the query: SHOW DATABASE SETTINGS, and setting one of the two
-// settings that license it, so that a license delivered over Bolt can still reach it and a client can read before it
-// writes.
+// Whether an unlicensed instance in FIPS mode accepts the query: SHOW LICENSE INFO, so a client can tell why it is
+// refused, SHOW DATABASE SETTINGS, and setting one of the two settings that license it, so that a license delivered
+// over Bolt can still reach it and a client can read before it writes.
 bool AllowedUnlicensedInFipsMode(ParsedQuery const &parsed_query) {
+  if (auto const *info_query = utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+    return info_query->info_type_ == SystemInfoQuery::InfoType::LICENSE;
+  }
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   if (!setting_query) {
     return false;
@@ -3501,8 +3504,8 @@ bool UnlicensedInFipsMode() { return utils::FipsEnabled() && !license::global_li
 
 [[noreturn]] void ThrowUnlicensedInFipsMode() {
   throw QueryRuntimeException(
-      "FIPS mode requires a valid enterprise license. Until one is set, only SHOW DATABASE SETTINGS, SET DATABASE "
-      "SETTING '{}' and SET DATABASE SETTING '{}' are accepted.",
+      "FIPS mode requires a valid enterprise license. Until one is set, only SHOW LICENSE INFO, SHOW DATABASE "
+      "SETTINGS, SET DATABASE SETTING '{}' and SET DATABASE SETTING '{}' are accepted.",
       license::kOrganizationNameSettingKey,
       license::kEnterpriseLicenseSettingKey);
 }
@@ -10740,9 +10743,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
 
 #ifdef MG_ENTERPRISE
-  // FIPS mode is enterprise only, but an instance may start without a license and receive it over Bolt. Until it
-  // does, nothing is served except reading the settings and the two settings that license it. BEGIN is refused in
-  // its handler.
+  // FIPS mode is enterprise only, but an instance may start without a license and receive it over Bolt, and a license
+  // may expire while it runs. Without one, nothing is served except the license info, reading the settings and the
+  // two settings that license it. BEGIN is refused in its handler.
   if (UnlicensedInFipsMode() && !AllowedUnlicensedInFipsMode(parsed_query)) {
     ThrowUnlicensedInFipsMode();
   }

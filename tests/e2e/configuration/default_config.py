@@ -100,9 +100,9 @@ startup_config_dict = {
     "fips_mode": (
         "false",
         "false",
-        "Run Memgraph in FIPS 140-3 approved mode. Enterprise only: an instance started without a valid license "
-        "accepts only SHOW DATABASE SETTINGS and SET DATABASE SETTING 'organization.name' and "
-        "'enterprise.license' until one is set. "
+        "Run Memgraph in FIPS 140-3 approved mode. Enterprise only: without a valid license, whether it started "
+        "without one or its license expired while running, an instance accepts only SHOW LICENSE INFO, SHOW "
+        "DATABASE SETTINGS and SET DATABASE SETTING 'organization.name' and 'enterprise.license' until one is set. "
         "Requires the validated OpenSSL FIPS provider to be available and restricts password hashing and TLS to "
         "FIPS-approved algorithms. Experimental: existing users whose passwords were hashed with bcrypt (the "
         "default) or sha256 are locked out, because only pbkdf2-sha256 is approved and their hashes cannot be "
