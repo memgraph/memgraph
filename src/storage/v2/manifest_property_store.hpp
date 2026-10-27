@@ -56,6 +56,9 @@ class ManifestPropertyStore {
   /// rewritten because a changed shape moves the ones that were already there.
   void Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties);
 
+  /// Reads one value out of the record, from where `layout` says it sits.
+  auto ValueAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> PropertyValue;
+
   std::unique_ptr<uint8_t[]> buffer_;
   uint32_t size_{};
   std::optional<ManifestId> manifest_;
