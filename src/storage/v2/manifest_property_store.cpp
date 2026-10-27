@@ -11,9 +11,12 @@
 
 #include "storage/v2/manifest_property_store.hpp"
 
+#include <array>
+#include <bit>
 #include <cstring>
 #include <limits>
 #include <string>
+#include <type_traits>
 
 #include "utils/logging.hpp"
 
@@ -53,11 +56,95 @@ auto ReadInt(uint8_t const *at, uint8_t width) -> int64_t {
   return static_cast<int64_t>(unsigned_value);
 }
 
-/// How a value is stored, which is what a shape is made of.
+/// A value that is nothing but a small object: its bytes are its value, so the shape knowing
+/// its width is all that reading it takes.
+template <typename T>
+void WriteObject(uint8_t *at, T const &value) {
+  static_assert(std::is_trivially_copyable_v<T>, "Only an object whose bytes are its value");
+  std::memcpy(at, &value, sizeof(T));
+}
+
+template <typename T>
+auto ReadObject(uint8_t const *at) -> T {
+  static_assert(std::is_trivially_copyable_v<T>, "Only an object whose bytes are its value");
+  // Through a byte array rather than a default-constructed T, because not all of these have a
+  // default constructor.
+  auto raw = std::array<std::byte, sizeof(T)>{};
+  std::memcpy(raw.data(), at, sizeof(T));
+  return std::bit_cast<T>(raw);
+}
+
+/// How a value is stored, which is what a shape is made of. The one place that decides what
+/// can be encoded, so a kind that is not handled is refused here rather than part way in.
 auto StoredTypeFor(PropertyValue const &value) -> StoredType {
+  if (value.IsBool()) return StoredType::Fixed(PropertyStoreType::BOOL, 1);
   if (value.IsInt()) return StoredType::Fixed(PropertyStoreType::INT, WidthFor(value.ValueInt()));
+  if (value.IsDouble()) return StoredType::Fixed(PropertyStoreType::DOUBLE, sizeof(double));
   if (value.IsString()) return StoredType::Variable(PropertyStoreType::STRING);
-  LOG_FATAL("Only integers and strings are encoded so far");
+  if (value.IsEnum()) return StoredType::Fixed(PropertyStoreType::ENUM, sizeof(Enum));
+  if (value.IsTemporalData()) return StoredType::Fixed(PropertyStoreType::TEMPORAL_DATA, sizeof(TemporalData));
+  // One tag for both kinds of point, told apart by the width the shape carries.
+  if (value.IsPoint2d()) return StoredType::Fixed(PropertyStoreType::POINT, sizeof(Point2d));
+  if (value.IsPoint3d()) return StoredType::Fixed(PropertyStoreType::POINT, sizeof(Point3d));
+  LOG_FATAL("A value of type {} is not encoded yet", static_cast<unsigned>(value.type()));
+}
+
+/// Writes a value whose width its shape knows.
+void WriteFixed(uint8_t *at, StoredType stored_type, PropertyValue const &value) {
+  switch (stored_type.type) {
+    case PropertyStoreType::BOOL:
+      *at = value.ValueBool() ? 1 : 0;
+      return;
+    case PropertyStoreType::INT:
+      WriteInt(at, value.ValueInt(), stored_type.width);
+      return;
+    case PropertyStoreType::DOUBLE: {
+      // The bytes rather than the number, so a negative zero and a NaN read back as the ones
+      // written rather than as some other value that compares the same.
+      auto const number = value.ValueDouble();
+      std::memcpy(at, &number, sizeof(number));
+      return;
+    }
+    case PropertyStoreType::ENUM:
+      WriteObject(at, value.ValueEnum());
+      return;
+    case PropertyStoreType::TEMPORAL_DATA:
+      WriteObject(at, value.ValueTemporalData());
+      return;
+    case PropertyStoreType::POINT:
+      if (stored_type.width == sizeof(Point2d)) {
+        WriteObject(at, value.ValuePoint2d());
+      } else {
+        WriteObject(at, value.ValuePoint3d());
+      }
+      return;
+    default:
+      LOG_FATAL("This kind of value is not stored at a known width");
+  }
+}
+
+/// Reads a value whose width its shape knows.
+auto ReadFixed(uint8_t const *at, StoredType stored_type) -> PropertyValue {
+  switch (stored_type.type) {
+    case PropertyStoreType::BOOL:
+      return PropertyValue{*at != 0};
+    case PropertyStoreType::INT:
+      return PropertyValue{ReadInt(at, stored_type.width)};
+    case PropertyStoreType::DOUBLE: {
+      auto number = double{};
+      std::memcpy(&number, at, sizeof(number));
+      return PropertyValue{number};
+    }
+    case PropertyStoreType::ENUM:
+      return PropertyValue{ReadObject<Enum>(at)};
+    case PropertyStoreType::TEMPORAL_DATA:
+      return PropertyValue{ReadObject<TemporalData>(at)};
+    case PropertyStoreType::POINT:
+      if (stored_type.width == sizeof(Point2d)) return PropertyValue{ReadObject<Point2d>(at)};
+      return PropertyValue{ReadObject<Point3d>(at)};
+    default:
+      LOG_FATAL("This kind of value is not stored at a known width");
+  }
 }
 
 /// A record lays out the values whose width its shape knows, then a table of where each of the
@@ -90,8 +177,7 @@ void WriteEndOffset(uint8_t *buffer, Regions regions, uint32_t index, uint32_t e
 auto ManifestPropertyStore::ValueAt(PropertyManifest const &layout, PropertyManifest::Location location) const
     -> PropertyValue {
   if (location.is_fixed) {
-    MG_ASSERT(location.stored_type.type == PropertyStoreType::INT, "Only integers are stored at a known width");
-    return PropertyValue{ReadInt(buffer_.get() + location.offset, location.stored_type.width)};
+    return ReadFixed(buffer_.get() + location.offset, location.stored_type);
   }
 
   MG_ASSERT(location.stored_type.type == PropertyStoreType::STRING, "Only strings vary in width so far");
@@ -155,7 +241,7 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
   for (auto const &[property, value] : properties) {
     auto const location = layout.Find(property);
     if (location->is_fixed) {
-      WriteInt(buffer_.get() + location->offset, value.ValueInt(), location->stored_type.width);
+      WriteFixed(buffer_.get() + location->offset, location->stored_type, value);
       continue;
     }
 
@@ -171,8 +257,6 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
 
 auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)
     -> bool {
-  MG_ASSERT(value.IsInt() || value.IsString() || value.IsNull(), "Only integers and strings are encoded so far");
-
   // A changed shape moves the values already in the record, so the record is read out, changed
   // and written back rather than edited in place.
   auto properties = Properties(registry);
