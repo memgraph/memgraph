@@ -77,8 +77,9 @@ class VersionStore {
                                                       std::optional<std::string> description);
 
   // Returns false, changing nothing, if `name` doesn't exist or has an attached session. Otherwise releases the fork
-  // pin and retires the branch's core. A ledger write failure is reported as an error (nothing is dropped).
-  std::expected<bool, std::string> DropBranch(std::string_view name);
+  // pin, retires the branch's core and, with `remove_files`, deletes its directory (recovery keeps the files of a
+  // branch it could not restore). A ledger write failure is reported as an error (nothing is dropped).
+  std::expected<bool, std::string> DropBranch(std::string_view name, bool remove_files = true);
 
   // Persists the branch's gid floors the first time they are known; later calls and unknown `number` are no-ops.
   // Fails only on a ledger write failure.
@@ -109,9 +110,8 @@ class VersionStore {
   // VersionStore, strictly before the storage they point into.
   using CoreBuilder = std::function<std::expected<std::shared_ptr<BranchCore>, std::string>()>;
 
-  // Returns the live core of `number`, building it on first use. `build` runs without the registry mutex, so racing
-  // first checkouts may both build and the loser is discarded. Caller must hold an attach, which keeps DropBranch
-  // from retiring the core mid-build.
+  // Returns the live core of `number`, building it on first use; racing first checkouts wait for one build. Caller must
+  // hold an attach, which keeps DropBranch from retiring the core mid-build.
   std::expected<std::shared_ptr<BranchCore>, std::string> GetOrBuildCore(uint64_t number, const CoreBuilder &build);
 
  private:
@@ -129,6 +129,8 @@ class VersionStore {
   // Lock order: ledger_mutex_ then lock_. Guards ledger_.
   std::mutex ledger_mutex_;
   std::optional<BranchLedger> ledger_;
+  // Parent of the ledger file: holds one directory per branch number. Empty without a ledger. Guarded by ledger_mutex_.
+  std::filesystem::path branches_root_;
   // Branches whose DROP is writing the ledger; TryAcquireCheckout refuses them. Guarded by lock_.
   std::set<std::string, std::less<>> dropping_;
 
@@ -140,7 +142,8 @@ class VersionStore {
   void PublishRetentionFloor() const;
 
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
-  void RetireCore(uint64_t number);
+  // Returns false if another holder still keeps the core (and its directory) alive.
+  bool RetireCore(uint64_t number);
 
   // Serializes builds so one branch directory is never built twice; order: build_mutex_ -> cores_mutex_.
   std::mutex build_mutex_;

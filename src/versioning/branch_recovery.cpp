@@ -585,7 +585,7 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
             reason,
             files_dir);
         try {
-          if (auto dropped = store.DropBranch(name); !dropped) {
+          if (auto dropped = store.DropBranch(name, /*remove_files=*/false); !dropped) {
             spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, dropped.error());
           } else if (!*dropped) {
             spdlog::warn("Graph Versioning: branch '{}' could not be dropped.", name);

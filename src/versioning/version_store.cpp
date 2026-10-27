@@ -45,6 +45,7 @@ void VersionStore::PublishRetentionFloor() const {
 
 void VersionStore::AttachLedger(std::filesystem::path file) {
   std::lock_guard guard{ledger_mutex_};
+  branches_root_ = file.parent_path();
   ledger_.emplace(std::move(file));
 }
 
@@ -140,7 +141,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   return info;
 }
 
-std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name) {
+std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name, bool remove_files) {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
@@ -177,12 +178,32 @@ std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name)
     memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   }
   PublishRetentionFloor();
-  RetireCore(number);
+  const bool retired = RetireCore(number);
+  if (remove_files && !branches_root_.empty()) {
+    const auto directory = branches_root_ / std::to_string(number);
+    if (!retired) {
+      spdlog::warn("Graph Versioning: branch directory {} kept, its engine is still referenced.", directory.string());
+    } else {
+      std::error_code ec;
+      std::filesystem::remove_all(directory, ec);
+      if (ec) {
+        spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
+      }
+    }
+  }
   return true;
 }
 
 std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, uint64_t vertex_gid_floor,
                                                                uint64_t edge_gid_floor) {
+  const auto already_settled = [&] {
+    std::lock_guard guard{lock_};
+    auto it = std::ranges::find(branches_, number, [](const auto &kv) { return kv.second.number; });
+    return it == branches_.end() || it->second.vertex_gid_floor.has_value();
+  };
+  // Fast path: skip ledger_mutex_, which CreateBranch holds across slow retention-floor I/O.
+  if (already_settled()) return {};
+
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
@@ -290,7 +311,7 @@ std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuild
   return winner;
 }
 
-void VersionStore::RetireCore(uint64_t number) {
+bool VersionStore::RetireCore(uint64_t number) {
   std::shared_ptr<BranchCore> retired;
   {
     std::lock_guard guard{cores_mutex_};
@@ -299,6 +320,9 @@ void VersionStore::RetireCore(uint64_t number) {
       cores_.erase(it);
     }
   }
+  const bool sole_owner = retired.use_count() <= 1;
+  retired.reset();
+  return sole_owner;
 }
 
 }  // namespace memgraph::versioning

@@ -31,6 +31,7 @@
 #include "versioning/version_store.hpp"
 
 namespace ms = memgraph::storage;
+namespace mv = memgraph::versioning;
 
 namespace {
 constexpr auto kTestSuite = "versioning_durability_restart";
@@ -357,6 +358,45 @@ TEST_F(VersioningDurabilityRestartTest, UnreadableLedgerDropsBranchesAndTheDatab
   EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
   EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
   ASSERT_TRUE(ReadLedger().has_value());
+}
+
+TEST_F(VersioningDurabilityRestartTest, DroppingABranchDeletesItsDirectory) {
+  Gids gids{};
+  std::filesystem::path branch_directory;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    auto *store = db.version_store();
+    auto info = store->CreateBranch("b", "main", std::nullopt);
+    ASSERT_TRUE(info.has_value());
+    branch_directory = kStorageDirectory / "branches" / std::to_string(info->number);
+    {
+      auto core =
+          store->GetOrBuildCore(info->number, [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
+            auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number);
+            if (!fresh) return std::unexpected(fresh.error().message);
+            return std::move(*fresh);
+          });
+      ASSERT_TRUE(core.has_value());
+      mv::BranchContext ctx{*core, "b"};
+      auto diff_acc = ctx.diff_engine().Access(ms::WRITE);
+      ASSERT_TRUE(ctx.BeginTransaction(diff_acc.get()).has_value());
+      ctx.CreateNativeVertex();
+      ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ctx.EndTransaction();
+    }
+    ASSERT_TRUE(std::filesystem::exists(branch_directory / "wal"));
+
+    ASSERT_TRUE(store->DropBranch("b").value_or(false));
+    EXPECT_FALSE(std::filesystem::exists(branch_directory));
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_FALSE(db.version_store()->Exists("b"));
+  EXPECT_FALSE(std::filesystem::exists(branch_directory));
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
 }
 
 TEST_F(VersioningDurabilityRestartTest, LegacyBranchDirectoryIsRemovedAndNewBranchesContinueTheNumbering) {
