@@ -2781,7 +2781,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         input_cursor_(self_.input()->MakeCursor(mem, metric_handles)),
         processed_(mem),
         to_visit_next_(mem),
-        to_visit_current_(mem) {
+        to_visit_current_(mem),
+        expansion_(mem) {
     DMG_ASSERT(!self_.common_.existing_node,
                "Single source shortest path algorithm "
                "should not be used when `existing_node` "
@@ -2857,26 +2858,38 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
-      if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += out_edges_result.expanded_count;
-        for (const auto &edge : out_edges_result.edges) {
-          bool was_expanded = expand_pair(edge, edge.To());
-          restore_frame_state_after_expansion(was_expanded);
-        }
-      }
-      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges_result =
-            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += in_edges_result.expanded_count;
-        for (const auto &edge : in_edges_result.edges) {
-          bool was_expanded = expand_pair(edge, edge.From());
-          restore_frame_state_after_expansion(was_expanded);
-        }
-      }
+    // The range's iterator reports itself as an input iterator, because dereferencing builds an
+    // edge rather than exposing one, so a generic copy cannot size the result up front and this
+    // reserves for itself.
+    auto collect = [this](auto const &edges) {
+      expansion_.clear();
+      expansion_.reserve(edges.size());
+      for (auto const &edge : edges) expansion_.push_back(edge);
     };
+
+    auto expand_from_vertex =
+        [this, &expand_pair, &restore_frame_state_after_expansion, &context, &collect](const auto &vertex) {
+          if (self_.common_.direction != EdgeAtom::Direction::IN) {
+            auto out_edges_result =
+                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += out_edges_result.expanded_count;
+            collect(out_edges_result.edges);
+            for (const auto &edge : expansion_) {
+              bool was_expanded = expand_pair(edge, edge.To());
+              restore_frame_state_after_expansion(was_expanded);
+            }
+          }
+          if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+            auto in_edges_result =
+                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += in_edges_result.expanded_count;
+            collect(in_edges_result.edges);
+            for (const auto &edge : expansion_) {
+              bool was_expanded = expand_pair(edge, edge.From());
+              restore_frame_state_after_expansion(was_expanded);
+            }
+          }
+        };
 
     // do it all in a loop because we skip some elements
     while (true) {
@@ -2991,6 +3004,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
+  // One vertex's edges, built in a pass of their own before any of them is visited. Reading a
+  // vertex's adjacency and visiting what it leads to are each memory-bound, and interleaving them
+  // leaves the processor waiting on one expansion's next edge rather than fetching several. Held
+  // by the cursor and refilled per vertex, so the pass costs no allocation after the first few.
+  utils::pmr::vector<EdgeAccessor> expansion_;
 };
 
 namespace {
