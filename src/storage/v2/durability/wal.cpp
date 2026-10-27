@@ -195,6 +195,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
     case DELTA_TRANSACTION_START:
+    case DELTA_OVERLAY_PUT:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
@@ -815,6 +816,67 @@ void SkipDescription(BaseDecoder *decoder, bool is_set) {
   }
 }
 
+auto ReadOverlayStrings(BaseDecoder *decoder) -> std::vector<std::string> {
+  auto count = decoder->ReadUint();
+  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  std::vector<std::string> out;
+  // Not reserved from the untrusted count; a corrupt value must fail on read, not allocate.
+  for (uint64_t i = 0; i < *count; ++i) {
+    auto str = decoder->ReadString();
+    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+    out.emplace_back(*std::move(str));
+  }
+  return out;
+}
+
+auto ReadOverlayPut(BaseDecoder *decoder) -> WalOverlayPut {
+  WalOverlayPut out;
+  auto key = decoder->ReadUint();
+  auto deleted = decoder->ReadBool();
+  if (!key || !deleted) throw RecoveryFailure(kInvalidWalErrorMessage);
+  out.key = *key;
+  out.deleted = *deleted;
+  out.added_labels = ReadOverlayStrings(decoder);
+  out.removed_labels = ReadOverlayStrings(decoder);
+  out.removed_properties = ReadOverlayStrings(decoder);
+  auto prop_count = decoder->ReadUint();
+  if (!prop_count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  for (uint64_t i = 0; i < *prop_count; ++i) {
+    auto name = decoder->ReadString();
+    if (!name) throw RecoveryFailure(kInvalidWalErrorMessage);
+    auto value = decoder->ReadExternalPropertyValue();
+    if (!value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    out.properties.emplace_back(*std::move(name), *std::move(value));
+  }
+  auto from_gid = decoder->ReadUint();
+  auto to_gid = decoder->ReadUint();
+  if (!from_gid || !to_gid) throw RecoveryFailure(kInvalidWalErrorMessage);
+  out.from_gid = *from_gid;
+  out.to_gid = *to_gid;
+  return out;
+}
+
+void SkipOverlayStrings(BaseDecoder *decoder) {
+  auto count = decoder->ReadUint();
+  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  for (uint64_t i = 0; i < *count; ++i) {
+    if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+}
+
+void SkipOverlayPut(BaseDecoder *decoder) {
+  if (!decoder->ReadUint() || !decoder->ReadBool()) throw RecoveryFailure(kInvalidWalErrorMessage);
+  SkipOverlayStrings(decoder);
+  SkipOverlayStrings(decoder);
+  SkipOverlayStrings(decoder);
+  auto prop_count = decoder->ReadUint();
+  if (!prop_count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  for (uint64_t i = 0; i < *prop_count; ++i) {
+    if (!decoder->SkipString() || !decoder->SkipExternalPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+  if (!decoder->ReadUint() || !decoder->ReadUint()) throw RecoveryFailure(kInvalidWalErrorMessage);
+}
+
 // Function used to either read or skip the current WAL delta data. The WAL
 // delta header must be read before calling this function. If the delta data is
 // read then the data returned is valid, if the delta data is skipped then the
@@ -896,6 +958,14 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         return {.data_ = ReadDescriptionDelete(decoder)};
       } else {
         SkipDescription(decoder, false);
+        return IsMarkerTransactionEnd(*action, version);
+      }
+    }
+    case Marker::DELTA_OVERLAY_PUT: {
+      if constexpr (read_data) {
+        return {.data_ = ReadOverlayPut(decoder)};
+      } else {
+        SkipOverlayPut(decoder);
         return IsMarkerTransactionEnd(*action, version);
       }
     }
@@ -1205,6 +1275,7 @@ bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta) {
                         [](WalDescriptionDelete const &) { return true; },
                         [](WalVertexPropertyIndexCreate const &) { return true; },
                         [](WalVertexPropertyIndexDrop const &) { return true; },
+                        [](WalOverlayPut const &) { return false; },
                     },
                     delta.data_);
 }
@@ -2221,6 +2292,9 @@ std::optional<RecoveryInfo> LoadWal(
             throw RecoveryFailure(kInvalidWalErrorMessage);
         }
       },
+      [&](WalOverlayPut const &) {
+        throw RecoveryFailure("Overlay record found in a main WAL! Overlay records belong to branch WALs only.");
+      },
   };
 
   for (uint64_t i = 0; i < num_deltas; ++i) {
@@ -2432,6 +2506,11 @@ void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
 
   // Restore the append position; seeking flushes the rewritten CRC to disk.
   wal_.SetPosition(end_pos);
+}
+
+void WalFile::AppendOverlayPut(OverlayPutData const &data, uint64_t timestamp) {
+  EncodeOverlayPut(wal_, *name_id_mapper_, data, timestamp);
+  UpdateStats(timestamp);
 }
 
 WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
@@ -2716,6 +2795,29 @@ void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
                              ExternalPropertyValue const &value) {
   EncodeDescriptionKindFields(
       encoder, name_id_mapper, kind, labels, edge_type, property, from_labels, to_labels, value);
+}
+
+void EncodeOverlayPut(BaseEncoder &encoder, NameIdMapper &name_id_mapper, OverlayPutData const &data,
+                      uint64_t timestamp) {
+  encoder.WriteMarker(Marker::SECTION_DELTA);
+  encoder.WriteUint(timestamp);
+  encoder.WriteMarker(Marker::DELTA_OVERLAY_PUT);
+  encoder.WriteUint(data.key);
+  encoder.WriteBool(data.deleted);
+  auto write_names = [&](auto const &ids) {
+    encoder.WriteUint(ids.size());
+    for (auto id : ids) encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  };
+  write_names(data.added_labels);
+  write_names(data.removed_labels);
+  write_names(data.removed_properties);
+  encoder.WriteUint(data.properties.size());
+  for (auto const &[property, value] : data.properties) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+    encoder.WriteExternalPropertyValue(ToExternalPropertyValue(value, &name_id_mapper));
+  }
+  encoder.WriteUint(data.from_gid);
+  encoder.WriteUint(data.to_gid);
 }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {

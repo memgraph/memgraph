@@ -2172,6 +2172,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               break;
           }
         },
+        [&](WalOverlayPut const &) {
+          throw utils::BasicException("Overlay record received on replication; it belongs to branch WALs only.");
+        },
         [&](WalDescriptionDelete const &data) {
           spdlog::trace("   Delta {}. Delete description (kind={})", current_delta_idx, static_cast<int>(data.kind));
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);

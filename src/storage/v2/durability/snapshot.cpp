@@ -12997,7 +12997,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    description_store,
                                    on_progress);
     }
-    case 37U: {
+    case 37U:
+    case 38U: {  // v38 only adds a branch-only WAL record; the snapshot format is unchanged
       return LoadCurrentVersionSnapshot(snapshot,
                                         path,
                                         vertices,

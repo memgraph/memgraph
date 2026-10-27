@@ -749,6 +749,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::SECTION_DESCRIPTIONS:
     case Marker::DELTA_DESCRIPTION_SET:
     case Marker::DELTA_DESCRIPTION_DELETE:
+    case Marker::DELTA_OVERLAY_PUT:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -908,6 +909,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::SECTION_DESCRIPTIONS:
     case Marker::DELTA_DESCRIPTION_SET:
     case Marker::DELTA_DESCRIPTION_DELETE:
+    case Marker::DELTA_OVERLAY_PUT:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;
