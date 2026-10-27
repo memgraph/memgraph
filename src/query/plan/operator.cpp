@@ -2981,9 +2981,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
  private:
-  /// Gives back what the widest vertex of one walk needed, so the next walk does not start out
-  /// holding it. Capacity is what makes the collecting pass free of allocation, and it is only
-  /// worth keeping for as long as the walk that earned it.
+  /// Capacity is what makes collecting free of allocation, and is only worth keeping for as long
+  /// as the walk that earned it.
   void ReleaseExpansion() {
     expansion_.clear();
     expansion_.shrink_to_fit();
@@ -3004,7 +3003,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
-  // One vertex's edges, refilled per vertex and given back when the walk ends.
   utils::pmr::vector<EdgeAccessor> expansion_;
 };
 
