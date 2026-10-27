@@ -74,7 +74,7 @@ void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
   }
 }
 
-auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
+auto SymbolGenerator::CreateAnonymousSymbol() { return symbol_table_->CreateAnonymousSymbol(); }
 
 // TODO: When is fetching from previous scopes ok?
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
