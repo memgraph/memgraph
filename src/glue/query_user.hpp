@@ -44,6 +44,8 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
     return principal;
   }
 
+  bool IsInternalSystemUser() const override { return internal_system_user_; }
+
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
   std::optional<auth::UserOrRole> GenAuthUserOrRole() const {

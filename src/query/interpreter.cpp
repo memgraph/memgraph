@@ -3182,6 +3182,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
+      // A stream runs as its owner, which is persisted by name; the internal system user has none to persist.
+      if (user_or_role && user_or_role->IsInternalSystemUser()) {
+        throw QueryRuntimeException("The internal system user can't own a stream. Create it as a named user.");
+      }
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
           callback.fn =
@@ -6353,6 +6357,12 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name,
                        metrics::DatabaseMetricHandles &metric_handles) {
+  // A DEFINER trigger runs as its owner, which is persisted by name; the internal system user has none to persist.
+  if (trigger_query->privilege_context_ == TriggerPrivilegeContext::DEFINER && user_or_role->IsInternalSystemUser()) {
+    throw QueryRuntimeException(
+        "The internal system user can't own a SECURITY DEFINER trigger. Create it with SECURITY INVOKER, or as a "
+        "named user.");
+  }
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {.header = {},

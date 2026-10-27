@@ -1839,6 +1839,33 @@ def test_internal_system_user_on_data_instance_with_users(test_name, tmp_path):
     assert connect_error(STANDALONE_DATA_PORT, username="admin", password="admin") is None
 
 
+def test_internal_system_user_cant_own_definer_triggers_or_streams(test_name, tmp_path):
+    description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    internal = internal_system_user_cursor(STANDALONE_DATA_PORT)
+    # A DEFINER trigger (the default) or a stream runs as its owner, persisted by name, and this user has none.
+    for security in ["SECURITY DEFINER ", ""]:
+        error = query_error(
+            internal,
+            f"CREATE TRIGGER owned {security}ON CREATE BEFORE COMMIT EXECUTE UNWIND createdVertices AS n SET n.x = 1",
+        )
+        assert error is not None and "can't own" in error, error
+    for stream in [
+        "CREATE KAFKA STREAM owned TOPICS topic TRANSFORM module.transform",
+        "CREATE PULSAR STREAM owned TOPICS topic TRANSFORM module.transform",
+    ]:
+        error = query_error(internal, stream)
+        assert error is not None and "can't own" in error, error
+
+    # An INVOKER trigger has no owner, so it can create one.
+    execute_and_fetch_all(
+        internal,
+        "CREATE TRIGGER invoked SECURITY INVOKER ON CREATE BEFORE COMMIT EXECUTE UNWIND createdVertices AS n SET n.x = 1",
+    )
+    assert [row[0] for row in execute_and_fetch_all(internal, "SHOW TRIGGERS")] == ["invoked"]
+
+
 def test_internal_system_user_name_is_reserved_on_data_instance(test_name, tmp_path):
     description = get_standalone_data_instance_description(test_name, internal_system_user_flag(tmp_path))
     interactive_mg_runner.start_all(description, keep_directories=False)
