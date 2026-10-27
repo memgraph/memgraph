@@ -52,6 +52,12 @@ auto ReadInt(uint8_t const *at, uint8_t width) -> int64_t {
   return static_cast<int64_t>(unsigned_value);
 }
 
+/// How a value is stored, which is what a shape is made of.
+auto StoredTypeFor(PropertyValue const &value) -> StoredType {
+  MG_ASSERT(value.IsInt(), "Only integers are encoded so far");
+  return StoredType::Fixed(PropertyStoreType::INT, WidthFor(value.ValueInt()));
+}
+
 }  // namespace
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
@@ -64,24 +70,64 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
   return PropertyValue{ReadInt(buffer_.get() + location->offset, location->stored_type.width)};
 }
 
-auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)
-    -> bool {
-  MG_ASSERT(value.IsInt(), "Only integers are encoded so far");
-  MG_ASSERT(!manifest_, "Only the first property of a record is encoded so far");
+auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue> {
+  auto properties = std::map<PropertyId, PropertyValue>{};
+  if (!manifest_) return properties;
+
+  auto const &layout = registry.Resolve(*manifest_);
+  for (auto const &entry : layout.entries()) {
+    auto const location = layout.Find(entry.property);
+    MG_ASSERT(location->stored_type.type == PropertyStoreType::INT, "Only integers are encoded so far");
+    properties.emplace(entry.property,
+                       PropertyValue{ReadInt(buffer_.get() + location->offset, location->stored_type.width)});
+  }
+  return properties;
+}
+
+void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) {
+  if (properties.empty()) {
+    buffer_.reset();
+    size_ = 0;
+    manifest_.reset();
+    return;
+  }
 
   auto shape = RecordShape{};
-  shape.emplace(property, StoredType::Fixed(PropertyStoreType::INT, WidthFor(value.ValueInt())));
+  for (auto const &[property, value] : properties) {
+    shape.emplace(property, StoredTypeFor(value));
+  }
 
   auto const id = registry.Intern(shape);
   auto const &layout = registry.Resolve(id);
 
   size_ = layout.fixed_region_size();
   buffer_ = std::make_unique<uint8_t[]>(size_);
-  auto const location = layout.Find(property);
-  WriteInt(buffer_.get() + location->offset, value.ValueInt(), location->stored_type.width);
+  for (auto const &[property, value] : properties) {
+    auto const location = layout.Find(property);
+    WriteInt(buffer_.get() + location->offset, value.ValueInt(), location->stored_type.width);
+  }
   manifest_ = id;
+}
 
-  return true;
+auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)
+    -> bool {
+  MG_ASSERT(value.IsInt() || value.IsNull(), "Only integers are encoded so far");
+
+  // A changed shape moves the values already in the record, so the record is read out, changed
+  // and written back rather than edited in place.
+  auto properties = Properties(registry);
+  // Insertion rather than assignment, which is what the record not already carrying the
+  // property means. A Null removes it, and removing one it never carried is still an insertion.
+  auto const inserted = !properties.contains(property);
+
+  if (value.IsNull()) {
+    properties.erase(property);
+  } else {
+    properties.insert_or_assign(property, value);
+  }
+  Rebuild(registry, properties);
+
+  return inserted;
 }
 
 }  // namespace memgraph::storage
