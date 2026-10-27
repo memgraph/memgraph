@@ -273,10 +273,7 @@ TEST(ManifestPropertyStore, AgreesOverBooleansAndDoubles) {
 // Where this is going: every shape a record can hold, in one record, adjudicated by the store
 // that exists today. Null is left out because it removes a property rather than being one,
 // and a vector index id because only its ids are written.
-//
-// Disabled until every kind is encoded. Enabling it is what says this store is finished, and
-// running it names the next kind to do.
-TEST(ManifestPropertyStore, DISABLED_AgreesOverEveryShape) {
+TEST(ManifestPropertyStore, AgreesOverEveryShape) {
   ExpectAgreesWithPropertyStore(memgraph::test::shapes::EveryShapeExcept(
       {memgraph::storage::PropertyValueType::Null, memgraph::storage::PropertyValueType::VectorIndexId}));
 }
@@ -294,6 +291,18 @@ TEST(ManifestPropertyStore, AgreesOverEnumsTemporalsAndPoints) {
       PropertyValueType::IntList,
       PropertyValueType::DoubleList,
       PropertyValueType::NumericList,
+      PropertyValueType::ZonedTemporalData,
+  }));
+}
+
+// A list or a map holds values of its own, so its payload has to say what each element is.
+// The shape takes the type tag off a record's properties, not off the values nested inside
+// one, so those carry their own.
+TEST(ManifestPropertyStore, AgreesOverListsAndMaps) {
+  using memgraph::storage::PropertyValueType;
+  ExpectAgreesWithPropertyStore(memgraph::test::shapes::EveryShapeExcept({
+      PropertyValueType::Null,
+      PropertyValueType::VectorIndexId,
       PropertyValueType::ZonedTemporalData,
   }));
 }
