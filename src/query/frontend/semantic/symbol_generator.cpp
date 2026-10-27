@@ -599,9 +599,10 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     if (!name_in_scope) {
       ident.user_declared_ = false;
       // A relationship matched over a variable length binds the list it matched, here as anywhere.
-      auto const type = scope.in_node_atom                  ? Symbol::Type::VERTEX
-                        : scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST
-                                                            : Symbol::Type::EDGE;
+      auto const type = [&scope] {
+        if (scope.in_node_atom) return Symbol::Type::VERTEX;
+        return scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
+      }();
       // Shadowed: GetOrCreateSymbol would find the outer symbol, so declare here.
       symbol = shadows_outer_name ? CreateSymbol(ident.name_, ident.user_declared_, type)
                                   : GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
