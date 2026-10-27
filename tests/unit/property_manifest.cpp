@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <barrier>
 #include <thread>
 #include <vector>
@@ -218,6 +219,57 @@ TEST(PropertyManifest, APropertyCanOnlyBeTypedOnceInAShape) {
   ASSERT_EQ(manifest.size(), 1);
   EXPECT_EQ(manifest.entries()[0].stored_type, Int(8));
   EXPECT_EQ(manifest.fixed_region_size(), 8) << "space for one value, not two";
+}
+
+// A resolved manifest is read while other threads are still interning, which is what makes
+// the registry's growth visible to a reader mid-read. Every id already issued has to keep
+// resolving to its own shape throughout.
+TEST(PropertyManifest, ResolvingWhileOtherThreadsInternKeepsEveryShape) {
+  ManifestRegistry registry;
+  constexpr auto kSeeded = 64;
+  constexpr auto kReaders = 4;
+  constexpr auto kWriters = 4;
+  constexpr auto kRounds = 2000;
+
+  auto seeded = std::vector<ManifestId>{};
+  for (auto i = 0; i != kSeeded; ++i) {
+    seeded.push_back(registry.Intern(Shape({{static_cast<uint32_t>(i + 1), Int(4)}})));
+  }
+
+  auto mismatches = std::atomic<int>{0};
+  auto start = std::barrier{kReaders + kWriters};
+  auto threads = std::vector<std::jthread>{};
+
+  for (auto r = 0; r != kReaders; ++r) {
+    threads.emplace_back([&] {
+      start.arrive_and_wait();
+      for (auto round = 0; round != kRounds; ++round) {
+        for (auto i = 0; i != kSeeded; ++i) {
+          auto const &manifest = registry.Resolve(seeded[i]);
+          if (manifest.size() != 1 || manifest.entries()[0].property != Prop(i + 1)) {
+            mismatches.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      }
+    });
+  }
+
+  // Each writer interns shapes no other writer does, so the registry keeps growing under
+  // the readers rather than settling after the first round.
+  for (auto w = 0; w != kWriters; ++w) {
+    threads.emplace_back([&, w] {
+      start.arrive_and_wait();
+      for (auto round = 0; round != kRounds; ++round) {
+        auto const id = static_cast<uint32_t>(kSeeded + 1 + (w * kRounds) + round);
+        registry.Intern(Shape({{id, Int(8)}}));
+      }
+    });
+  }
+
+  threads.clear();  // join
+
+  EXPECT_EQ(mismatches.load(), 0);
+  EXPECT_EQ(registry.size(), kSeeded + (kWriters * kRounds));
 }
 
 TEST(PropertyManifest, ConcurrentInterningOfOneShapeYieldsOneManifest) {
