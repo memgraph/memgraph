@@ -368,7 +368,7 @@ void Initialize(utils::Settings &settings) {
       const auto &val = update();
       post_update(val);
     };
-    // Register setting; a leftover from an older version is restored into the setting and deleted from the store
+    // Register setting; a leftover from an older version is deleted from the store and handed back
     const auto leftover = settings.RegisterSetting(
         key, info.default_value, utils::Settings::Persistence::kRuntimeOnly, callback, std::move(validator));
 

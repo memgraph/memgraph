@@ -207,16 +207,14 @@ TEST_F(SettingsTest, RuntimeOnlyNeverWritesTheStore) {
   }
 }
 
-TEST_F(SettingsTest, RuntimeOnlyRestoresLeftoverOnce) {
+TEST_F(SettingsTest, RuntimeOnlyHandsBackLeftoverOnce) {
   SeedStore("name", "from-older-version");
   {
     Settings settings(settings_directory);
-    size_t callback_counter{0};
-    const auto leftover =
-        settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, [&] { ++callback_counter; });
+    const auto leftover = settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, DummyCallback);
     ASSERT_EQ(leftover, "from-older-version");
-    CheckSettingValue(settings, "name", "from-older-version");
-    ASSERT_EQ(callback_counter, 0) << "Restoring must not invoke the callback";
+    // the caller applies the leftover; registration only deletes it from the store
+    CheckSettingValue(settings, "name", "default");
   }
   ASSERT_FALSE(ReadStore("name"));
   {
