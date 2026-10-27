@@ -275,6 +275,11 @@ std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuild
     std::lock_guard guard{cores_mutex_};
     if (auto it = cores_.find(number); it != cores_.end()) return it->second;
   }
+  std::lock_guard build_guard{build_mutex_};
+  {
+    std::lock_guard guard{cores_mutex_};
+    if (auto it = cores_.find(number); it != cores_.end()) return it->second;
+  }
   auto built = build();
   if (!built) return std::unexpected(std::move(built.error()));
   std::shared_ptr<BranchCore> winner;

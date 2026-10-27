@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -26,6 +27,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -607,4 +609,55 @@ TEST_F(VersioningBranchRecoveryTest, ACorruptBranchWalDropsThatBranchOnly) {
   ASSERT_EQ((*ledger)->branches.size(), 1u);
   EXPECT_EQ((*ledger)->branches[0].name, "c");
   EXPECT_EQ(Mem(db)->OldestForkPin(), db.version_store()->Get("c")->fork_ts) << "the dropped branch's pin is released";
+}
+
+TEST_F(VersioningBranchRecoveryTest, ConcurrentFirstCheckoutsBuildTheBranchOnce) {
+  Base base{};
+  Workload workload{};
+  std::vector<VertexDump> branch_before;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    ASSERT_TRUE(info.has_value());
+    auto *store = db.version_store();
+
+    std::atomic<int> builds{0};
+    const auto build = [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
+      builds.fetch_add(1);
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number);
+      if (!fresh) return std::unexpected(fresh.error().message);
+      return std::move(*fresh);
+    };
+    std::expected<std::shared_ptr<mv::BranchCore>, std::string> core_a;
+    std::expected<std::shared_ptr<mv::BranchCore>, std::string> core_b;
+    {
+      std::jthread ta{[&] {
+        const memgraph::memory::DbArenaScope scope{&db.Arena()};
+        core_a = store->GetOrBuildCore(info->number, build);
+      }};
+      std::jthread tb{[&] {
+        const memgraph::memory::DbArenaScope scope{&db.Arena()};
+        core_b = store->GetOrBuildCore(info->number, build);
+      }};
+    }
+    ASSERT_TRUE(core_a.has_value());
+    ASSERT_TRUE(core_b.has_value());
+    EXPECT_EQ(builds.load(), 1);
+    EXPECT_EQ(core_a->get(), core_b->get());
+
+    ASSERT_TRUE(
+        store->RecordGidFloors(info->number, (*core_a)->vertex_gid_floor(), (*core_a)->edge_gid_floor()).has_value());
+    mv::BranchContext ctx{*core_a, "b"};
+    RunWorkload(db, ctx, base, workload);
+    branch_before = DumpBranch(db, ctx);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(DumpBranch(db, *ctx), branch_before);
 }

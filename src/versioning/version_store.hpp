@@ -142,6 +142,8 @@ class VersionStore {
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
   void RetireCore(uint64_t number);
 
+  // Serializes builds so one branch directory is never built twice; order: build_mutex_ -> cores_mutex_.
+  std::mutex build_mutex_;
   // Guards cores_ only; never nested with lock_.
   mutable std::mutex cores_mutex_;
   std::map<uint64_t, std::shared_ptr<BranchCore>> cores_;
