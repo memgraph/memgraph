@@ -404,6 +404,69 @@ auto ReadFixed(uint8_t const *at, StoredType stored_type) -> PropertyValue {
   }
 }
 
+/// Whether two doubles are the same number, answering for a NaN the way the decoded values
+/// answer rather than the way IEEE equality does.
+bool Alike(double lhs, double rhs) { return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent; }
+
+/// Whether the value stored at `at` equals `value`, without building the stored one up again.
+///
+/// The shape already carries the stored kind, so a pair of different kinds is refused before
+/// the record is touched at all. A number is the exception: an integer and a double of the
+/// same number are equal, so either kind is accepted against either and the pair is placed
+/// the way the decoded values place it.
+bool CompareFixed(uint8_t const *at, StoredType stored_type, PropertyValue const &value) {
+  switch (stored_type.type) {
+    case PropertyStoreType::BOOL:
+      return value.IsBool() && value.ValueBool() == (*at != 0);
+    case PropertyStoreType::INT: {
+      if (!value.IsInt() && !value.IsDouble()) return false;
+      // Read at the width it was stored at rather than widened to a double, which is what
+      // stops two integers both answering true against one double.
+      auto const stored = ReadInt(at, stored_type.width);
+      if (value.IsInt()) return value.ValueInt() == stored;
+      return std::is_eq(PlaceIntegerAgainstDouble(stored, value.ValueDouble()));
+    }
+    case PropertyStoreType::DOUBLE: {
+      if (!value.IsInt() && !value.IsDouble()) return false;
+      auto stored = double{};
+      std::memcpy(&stored, at, sizeof(stored));
+      if (value.IsInt()) return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), stored));
+      return Alike(value.ValueDouble(), stored);
+    }
+    case PropertyStoreType::ENUM:
+      return value.IsEnum() && value.ValueEnum() == ReadObject<Enum>(at);
+    case PropertyStoreType::TEMPORAL_DATA:
+      return value.IsTemporalData() && value.ValueTemporalData() == ReadObject<TemporalData>(at);
+    case PropertyStoreType::POINT: {
+      // A coordinate is a double, so each is placed the way a double beside a point is.
+      if (stored_type.width == sizeof(Point2d)) {
+        if (!value.IsPoint2d()) return false;
+        auto const stored = ReadObject<Point2d>(at);
+        auto const &point = value.ValuePoint2d();
+        return point.crs() == stored.crs() && Alike(point.x(), stored.x()) && Alike(point.y(), stored.y());
+      }
+      if (!value.IsPoint3d()) return false;
+      auto const stored = ReadObject<Point3d>(at);
+      auto const &point = value.ValuePoint3d();
+      return point.crs() == stored.crs() && Alike(point.x(), stored.x()) && Alike(point.y(), stored.y()) &&
+             Alike(point.z(), stored.z());
+    }
+    case PropertyStoreType::ZONED_TEMPORAL_DATA: {
+      if (!value.IsZonedTemporalData()) return false;
+      auto const stored = ReadObject<StoredZoned>(at);
+      auto const &zoned = value.ValueZonedTemporalData();
+      // The moment is in the record, so a pair that differs in it is answered without naming
+      // the zone, which is what asking the registry for one costs.
+      if (static_cast<uint8_t>(zoned.type) != stored.type || zoned.IntMicroseconds() != stored.microseconds) {
+        return false;
+      }
+      return zoned.timezone == ZonedFrom(stored).timezone;
+    }
+    default:
+      LOG_FATAL("This kind of value is not stored at a known width");
+  }
+}
+
 /// A record lays out the values whose width its shape knows, then a table of where each of the
 /// rest ends, then those values. The table is what a shape's index into it refers to.
 struct Regions {
@@ -431,22 +494,26 @@ void WriteEndOffset(uint8_t *buffer, Regions regions, uint32_t index, uint32_t e
 
 }  // namespace
 
+auto ManifestPropertyStore::PayloadAt(PropertyManifest const &layout, PropertyManifest::Location location) const
+    -> std::span<uint8_t const> {
+  auto const regions = RegionsOf(layout);
+  auto const end = EndOffsetAt(buffer_.get(), regions, location.offset);
+  auto const begin =
+      location.offset == 0 ? regions.payload_begin : EndOffsetAt(buffer_.get(), regions, location.offset - 1);
+  return {buffer_.get() + begin, end - begin};
+}
+
 auto ManifestPropertyStore::ValueAt(PropertyManifest const &layout, PropertyManifest::Location location) const
     -> PropertyValue {
   if (location.is_fixed) {
     return ReadFixed(buffer_.get() + location.offset, location.stored_type);
   }
 
-  auto const regions = RegionsOf(layout);
-  auto const end = EndOffsetAt(buffer_.get(), regions, location.offset);
-  auto const begin =
-      location.offset == 0 ? regions.payload_begin : EndOffsetAt(buffer_.get(), regions, location.offset - 1);
-  auto const *payload = buffer_.get() + begin;
-
+  auto const payload = PayloadAt(layout, location);
   if (location.stored_type.type == PropertyStoreType::STRING) {
-    return PropertyValue{std::string{reinterpret_cast<char const *>(payload), end - begin}};
+    return PropertyValue{std::string{reinterpret_cast<char const *>(payload.data()), payload.size()}};
   }
-  return NestedReader{payload}.Value();
+  return NestedReader{payload.data()}.Value();
 }
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
@@ -457,6 +524,33 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
   if (!location) return {};
 
   return ValueAt(layout, *location);
+}
+
+auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, PropertyId property,
+                                            PropertyValue const &value) const -> bool {
+  if (!manifest_) return value.IsNull();
+
+  auto const &layout = registry.Resolve(*manifest_);
+  auto const location = layout.Find(property);
+  if (!location) return value.IsNull();
+  // A stored value is one the record carries, and a record never carries a Null.
+  if (value.IsNull()) return false;
+
+  if (location->is_fixed) {
+    return CompareFixed(buffer_.get() + location->offset, location->stored_type, value);
+  }
+
+  auto const payload = PayloadAt(layout, *location);
+  if (location->stored_type.type == PropertyStoreType::STRING) {
+    if (!value.IsString()) return false;
+    auto const &text = value.ValueString();
+    // The record holds the characters, so they are compared where they lie rather than copied
+    // into a string first.
+    return text.size() == payload.size() && std::memcmp(text.data(), payload.data(), payload.size()) == 0;
+  }
+  // A list or a map is still built up to be compared, because the nested encoding describes
+  // itself and walking it against a value means decoding it as it goes.
+  return ValueAt(layout, *location) == value;
 }
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue> {
