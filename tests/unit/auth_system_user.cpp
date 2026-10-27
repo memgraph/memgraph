@@ -23,6 +23,7 @@ using memgraph::auth::AuthException;
 using memgraph::auth::InternalSystemUserLogin;
 using memgraph::auth::IsInternalSystemUsername;
 using memgraph::auth::LoadInternalSystemUser;
+using memgraph::auth::ResetInternalSystemUser;
 
 namespace {
 constexpr std::string_view kPassword = "word";
@@ -48,13 +49,12 @@ constexpr std::string_view kPbkdf2WrongIterationsHash =
     "c4ee354fb313b382acfee0c66312500acf149bc97da1a7619ee9d9ef4e9c22af";
 }  // namespace
 
-// The loaded hash is process-wide and can't be unloaded, so InternalSystemUser.Authenticate, which starts by checking
-// that none is loaded, comes before every test that loads one successfully; the rest leave it untouched.
 class InternalSystemUser : public ::testing::Test {
  protected:
   void SetUp() override { std::filesystem::create_directories(dir_); }
 
   void TearDown() override {
+    ResetInternalSystemUser();
     memgraph::utils::SetFipsStatus({});
     std::filesystem::remove_all(dir_);
   }

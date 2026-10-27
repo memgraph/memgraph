@@ -36,6 +36,9 @@ inline constexpr std::string_view kInternalSystemUsername{"memgraph_internal"};
 /// @throw AuthException if the file can't be read, holds anything else, or holds bcrypt while FIPS mode is on.
 void LoadInternalSystemUser(std::filesystem::path const &path);
 
+/// Disables the internal system user again, as if no hash had been loaded. Not thread-safe; only for tests.
+void ResetInternalSystemUser();
+
 enum class InternalSystemUserLogin : uint8_t {
   kNotInternal,  // Not the internal system user, or it isn't configured: authenticate the usual way.
   kAccepted,     // The internal system user with the right password.

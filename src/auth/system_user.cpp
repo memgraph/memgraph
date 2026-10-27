@@ -69,6 +69,8 @@ void LoadInternalSystemUser(std::filesystem::path const &path) {
   internal_system_user_hash = std::move(*hash);
 }
 
+void ResetInternalSystemUser() { internal_system_user_hash.reset(); }
+
 InternalSystemUserLogin AuthenticateInternalSystemUser(std::string_view username, std::string const &password) {
   if (!internal_system_user_hash || !IsInternalSystemUsername(username)) {
     return InternalSystemUserLogin::kNotInternal;
