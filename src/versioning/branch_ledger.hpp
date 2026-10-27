@@ -46,8 +46,8 @@ class BranchLedger {
   // The parent directory of `file` is created by Write if missing.
   explicit BranchLedger(std::filesystem::path file);
 
-  // A failure before the rename leaves the previous ledger untouched; a directory-fsync failure is reported after the
-  // new file is already in place.
+  // Failures before the rename leave the previous ledger untouched and are returned; once renamed the write counts as
+  // done, and a directory-fsync failure is only logged.
   std::expected<void, std::string> Write(const LedgerContents &contents) const;
 
   // nullopt if the file does not exist; an error message if it exists but is unreadable or corrupt.

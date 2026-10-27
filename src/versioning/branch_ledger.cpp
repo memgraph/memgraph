@@ -23,6 +23,7 @@
 #include <system_error>
 
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
 #include "utils/crc_accumulator.hpp"
@@ -148,10 +149,11 @@ std::expected<void, std::string> BranchLedger::Write(const LedgerContents &conte
   if (::rename(tmp.c_str(), file_.c_str()) != 0)
     return fail("Branch ledger: " + Errno("cannot rename into place", tmp));
 
-  // The rename is only durable once the directory entry is.
+  // The new ledger is already in place, so the write counts as done; a failed directory fsync only weakens durability
+  // of the rename, and reporting it would make the caller roll back state the disk no longer matches.
   const auto sync_dir = dir.empty() ? std::filesystem::path{"."} : dir;
   if (auto synced = utils::SyncDirectory(sync_dir); !synced) {
-    return std::unexpected("Branch ledger: " + synced.error());
+    spdlog::warn("Branch ledger: directory fsync after rename failed: {}", synced.error());
   }
   return {};
 }
