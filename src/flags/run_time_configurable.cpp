@@ -368,11 +368,12 @@ void Initialize(utils::Settings &settings) {
       const auto &val = update();
       post_update(val);
     };
-    // Register setting; the leftover from an older version is deleted from the store here
+    // Register setting; a leftover from an older version is restored into the setting and deleted from the store
     const auto leftover = settings.RegisterSetting(
         key, info.default_value, utils::Settings::Persistence::kRuntimeOnly, callback, std::move(validator));
 
-    // A flag given on the command line always wins over the leftover
+    // Applying through SetValue validates the leftover and runs the callback that propagates it to the flag and the
+    // caches. A flag given on the command line always wins over the leftover.
     if (restore_once && info.is_default && leftover && *leftover != info.current_value) {
       auto cli_flag = flag;
       std::ranges::replace(cli_flag, '_', '-');

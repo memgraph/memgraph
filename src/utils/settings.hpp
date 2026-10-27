@@ -37,13 +37,15 @@ struct Settings {
   enum class Persistence : uint8_t {
     /// Loaded from the store at registration and written through on every change.
     kPersisted,
-    /// Never touches the store; a leftover entry written by an older version is deleted at registration.
+    /// Never written to the store. A leftover entry written by an older version is restored once at registration
+    /// and deleted from the store.
     kRuntimeOnly,
   };
 
   explicit Settings(std::filesystem::path storage_path);
 
-  /// Returns the leftover store value that a run-time only registration discarded, if there was one.
+  /// Returns the leftover store value that a run-time only registration restored and deleted, if there was one.
+  /// Restoring sets the value only; the on-change callback is not invoked.
   std::optional<std::string> RegisterSetting(
       std::string name, const std::string &default_value, Persistence persistence, OnChangeCallback callback,
       Validation validation = [](auto) -> ValidatorResult { return {}; });

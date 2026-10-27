@@ -207,18 +207,22 @@ TEST_F(SettingsTest, RuntimeOnlyNeverWritesTheStore) {
   }
 }
 
-TEST_F(SettingsTest, RuntimeOnlyDiscardsLeftover) {
+TEST_F(SettingsTest, RuntimeOnlyRestoresLeftoverOnce) {
   SeedStore("name", "from-older-version");
   {
     Settings settings(settings_directory);
-    const auto discarded = settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, DummyCallback);
-    ASSERT_EQ(discarded, "from-older-version");
-    CheckSettingValue(settings, "name", "default");
+    size_t callback_counter{0};
+    const auto leftover =
+        settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, [&] { ++callback_counter; });
+    ASSERT_EQ(leftover, "from-older-version");
+    CheckSettingValue(settings, "name", "from-older-version");
+    ASSERT_EQ(callback_counter, 0) << "Restoring must not invoke the callback";
   }
   ASSERT_FALSE(ReadStore("name"));
   {
     Settings settings(settings_directory);
     ASSERT_FALSE(settings.RegisterSetting("name", "default", Persistence::kRuntimeOnly, DummyCallback));
+    CheckSettingValue(settings, "name", "default");
   }
 }
 
