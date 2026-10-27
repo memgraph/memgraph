@@ -2855,18 +2855,17 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
     };
 
-    // populates the to_visit_next_ structure with expansions
-    // from the given vertex. skips expansions that don't satisfy
-    // the "where" condition.
     // The range's iterator reports itself as an input iterator, because dereferencing builds an
-    // edge rather than exposing one, so a generic copy cannot size the result up front and this
-    // reserves for itself.
+    // edge rather than exposing one, so a generic copy cannot size the result up front.
     auto collect = [this](auto const &edges) {
       expansion_.clear();
       expansion_.reserve(edges.size());
       for (auto const &edge : edges) expansion_.push_back(edge);
     };
 
+    // populates the to_visit_next_ structure with expansions
+    // from the given vertex. skips expansions that don't satisfy
+    // the "where" condition.
     auto expand_from_vertex =
         [this, &expand_pair, &restore_frame_state_after_expansion, &context, &collect](const auto &vertex) {
           if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -3005,9 +3004,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
   // One vertex's edges, built in a pass of their own before any of them is visited. Reading a
-  // vertex's adjacency and visiting what it leads to are each memory-bound, and interleaving them
-  // leaves the processor waiting on one expansion's next edge rather than fetching several. Held
-  // by the cursor and refilled per vertex, so the pass costs no allocation after the first few.
+  // vertex's adjacency and visiting what it leads to are both memory-bound, and interleaving them
+  // leaves the processor waiting on the next edge rather than fetching several. Refilled per
+  // vertex, so it stops allocating once it has reached the widest degree the walk has met.
   utils::pmr::vector<EdgeAccessor> expansion_;
 };
 
