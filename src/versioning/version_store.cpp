@@ -24,10 +24,6 @@
 namespace memgraph::versioning {
 
 VersionStore::VersionStore(std::function<uint64_t()> acquire_pin, std::function<void(uint64_t)> release_pin)
-    : acquire_pin_{[acquire = std::move(acquire_pin)] { return ForkPin{.fork_ts = acquire(), .durable_ts = 0}; }},
-      release_pin_{std::move(release_pin)} {}
-
-VersionStore::VersionStore(std::function<ForkPin()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}
 
 void VersionStore::SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback) {
@@ -126,13 +122,12 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   }
 
   // ledger_mutex_ serializes every registry mutation, so the checks above still hold after the lock_ gap.
-  const auto pin = acquire_pin_();
+  const auto fork_ts = acquire_pin_();
   BranchInfo info{
       .number = next.next_number,
       .parent = std::move(parent),
-      .fork_ts = pin.fork_ts,
+      .fork_ts = fork_ts,
       .description = std::move(description),
-      .fork_durable_ts = pin.durable_ts,
   };
 
   ++next.next_number;

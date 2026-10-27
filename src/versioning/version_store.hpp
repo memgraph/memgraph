@@ -46,16 +46,8 @@ class BranchCore;
 // (ValidateBranchName) and gate/privilege checks before CreateBranch/DropBranch.
 class VersionStore {
  public:
-  // Result of taking a fork pin: the MVCC pin timestamp and main's last durable commit timestamp read with it.
-  struct ForkPin {
-    uint64_t fork_ts;
-    uint64_t durable_ts;
-  };
-
   // The callbacks must stay bound to the owning storage's fork-pin primitive for this VersionStore's lifetime.
-  // The uint64_t form records fork_durable_ts = 0.
   VersionStore(std::function<uint64_t()> acquire_pin, std::function<void(uint64_t)> release_pin);
-  VersionStore(std::function<ForkPin()> acquire_pin, std::function<void(uint64_t)> release_pin);
 
   VersionStore(const VersionStore &) = delete;
   VersionStore &operator=(const VersionStore &) = delete;
@@ -137,7 +129,7 @@ class VersionStore {
   std::map<std::string, size_t, std::less<>> checked_out_;
   size_t total_checkouts_{0};
   uint64_t next_number_{2};
-  std::function<ForkPin()> acquire_pin_;
+  std::function<uint64_t()> acquire_pin_;
   std::function<void(uint64_t)> release_pin_;
   std::function<void(std::optional<uint64_t>)> retention_floor_callback_;
 

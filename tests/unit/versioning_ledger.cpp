@@ -57,7 +57,7 @@ class BranchLedgerTest : public ::testing::Test {
         [this] {
           const auto ts = next_ts_++;
           live_.push_back(ts);
-          return VersionStore::ForkPin{.fork_ts = ts, .durable_ts = ts - 50};
+          return ts;
         },
         [this](uint64_t ts) { std::erase(live_, ts); });
     store->AttachLedger(file_);
@@ -81,7 +81,6 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   LedgerContents in;
   in.next_number = 5;
   in.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 10, .description = "d \"q\"\n"}});
-  in.branches[0].info.fork_durable_ts = 7;
   in.branches[0].info.vertex_gid_floor = 11;
   in.branches[0].info.edge_gid_floor = 13;
   in.branches.push_back({"b", {.number = 4, .parent = "a", .fork_ts = 20, .description = std::nullopt}});
@@ -96,7 +95,6 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   ASSERT_EQ(out.branches.size(), 2);
   EXPECT_EQ(out.branches[0].name, "a");
   EXPECT_EQ(out.branches[0].info.description, "d \"q\"\n");
-  EXPECT_EQ(out.branches[0].info.fork_durable_ts, 7);
   EXPECT_EQ(out.branches[0].info.vertex_gid_floor, 11);
   EXPECT_EQ(out.branches[0].info.edge_gid_floor, 13);
   EXPECT_EQ(out.branches[1].info.parent, "a");
@@ -180,7 +178,6 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
 
   auto a = store->CreateBranch("a", "main", "first");
   ASSERT_TRUE(a.has_value());
-  EXPECT_EQ(a->fork_durable_ts, a->fork_ts - 50);
   auto b = store->CreateBranch("b", "a", std::nullopt);
   ASSERT_TRUE(b.has_value());
 
@@ -190,7 +187,6 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   EXPECT_EQ((*loaded)->next_number, 4);
   EXPECT_EQ((*loaded)->branches[0].name, "a");
   EXPECT_EQ((*loaded)->branches[0].info.fork_ts, a->fork_ts);
-  EXPECT_EQ((*loaded)->branches[0].info.fork_durable_ts, a->fork_durable_ts);
   EXPECT_EQ((*loaded)->branches[1].info.parent, "a");
 
   ASSERT_TRUE(store->RecordGidFloors(a->number, 7, 9).has_value());

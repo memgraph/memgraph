@@ -1455,16 +1455,13 @@ std::optional<RecoveryInfo> LoadWal(
   // safe: coming up short means the bytes rotted, not that a write was interrupted, and that must not be papered
   // over. A file with no summary was never finalized and its tail may legitimately be torn, so the dry run finds
   // the last whole transaction and replay stops there.
-  uint64_t from_timestamp{0};
   uint64_t to_timestamp{0};
   uint64_t num_deltas{0};
   if (header.summary) {
-    from_timestamp = header.summary->from_timestamp;
     to_timestamp = header.summary->to_timestamp;
     num_deltas = header.summary->num_deltas;
   } else {
     auto const info = ReadWalInfo(path);
-    from_timestamp = info.from_timestamp;
     to_timestamp = info.to_timestamp;
     num_deltas = info.num_deltas;
   }
@@ -1472,14 +1469,6 @@ std::optional<RecoveryInfo> LoadWal(
   // Check timestamp.
   if (last_applied_delta_timestamp && to_timestamp <= *last_applied_delta_timestamp) {
     spdlog::info("Skip loading WAL file because it is too old. {} <= {}", to_timestamp, *last_applied_delta_timestamp);
-    return std::nullopt;
-  }
-
-  // Every record of one transaction carries the transaction's commit timestamp, so an upper bound on the
-  // timestamp keeps or drops a transaction as a whole.
-  if (max_delta_timestamp && from_timestamp > *max_delta_timestamp) {
-    spdlog::info(
-        "Skip loading WAL file because it is past the recovery bound. {} > {}", from_timestamp, *max_delta_timestamp);
     return std::nullopt;
   }
 

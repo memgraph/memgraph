@@ -2942,23 +2942,20 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           metric_handles_.unreleased_delta_objects};
 }
 
-uint64_t InMemoryStorage::RegisterForkPin() { return RegisterForkPinWithDurable().fork_ts; }
-
-InMemoryStorage::ForkPinInfo InMemoryStorage::RegisterForkPinWithDurable() {
+uint64_t InMemoryStorage::RegisterForkPin() {
   // Capture and pin under engine_lock_: GC reads OldestActive() without it and must not pass fork_ts in between.
   auto engine_guard = std::lock_guard{engine_lock_};
   const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
-  const uint64_t last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   auto pin_guard = std::lock_guard{version_fork_pin_lock_};
   version_fork_pins_.insert(fork_ts);
-  return {.fork_ts = fork_ts, .last_durable_ts = last_durable_ts};
+  return fork_ts;
 }
 
-InMemoryStorage::ForkPinInfo InMemoryStorage::RegisterBranchForkPin() {
+uint64_t InMemoryStorage::RegisterBranchForkPin() {
   auto const floor_guard = std::lock_guard{retention_floor_mutex_};
-  auto const pin = RegisterForkPinWithDurable();
-  LowerRetentionFloorLocked(pin.fork_ts == 0 ? 0 : pin.fork_ts - 1);
-  return pin;
+  auto const fork_ts = RegisterForkPin();
+  LowerRetentionFloorLocked(fork_ts == 0 ? 0 : fork_ts - 1);
+  return fork_ts;
 }
 
 void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {

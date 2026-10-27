@@ -82,8 +82,6 @@ class InMemoryReplicationHandlers {
                             std::function<void(uint64_t)> const *on_txn_begin = nullptr);
 
  private:
-  friend struct HistoryReplayTestAccess;
-
   struct LoadWalStatus {
     bool success{false};
     uint64_t num_txns_committed{0};

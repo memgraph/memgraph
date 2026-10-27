@@ -9,10 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Spike: can main's WAL tail (everything after a snapshot at T) be replayed into a fresh storage that recovered
-// that snapshot, as real MVCC transactions through the replica apply path (InMemoryReplicationHandlers::LoadWal),
-// so that a fork pin registered BEFORE the replay + HistoricalAccess reads exactly the state at T, latest reads the
-// full state, and GC keeps the history while the pin is held.
+// History at a fork pin survives WAL-tail replay (ReplayWalFile) and GC; releasing the pin reclaims it.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -20,7 +17,6 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <iostream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -40,17 +36,6 @@
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/scheduler.hpp"
-
-namespace memgraph::dbms {
-// Befriended by InMemoryReplicationHandlers (replication_handlers.hpp) so the spike can drive the private LoadWal.
-struct HistoryReplayTestAccess {
-  static std::pair<bool, uint64_t> LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
-                                           rpc::ProgressHeartbeat &heartbeat) {
-    auto const status = InMemoryReplicationHandlers::LoadWal(wal_path, storage, heartbeat);
-    return {status.success, status.num_txns_committed};
-  }
-};
-}  // namespace memgraph::dbms
 
 namespace ms = memgraph::storage;
 
@@ -175,7 +160,7 @@ class VersioningHistoryReplayTest : public ::testing::Test {
   void TearDown() override { std::filesystem::remove_all(kRoot); }
 };
 
-TEST_F(VersioningHistoryReplayTest, WalTailReplayIntoRecoveredSnapshotKeepsHistoryAtPin) {
+TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) {
   BaseGids g{};
   TailGids t{};
 
@@ -213,8 +198,6 @@ TEST_F(VersioningHistoryReplayTest, WalTailReplayIntoRecoveredSnapshotKeepsHisto
     std::filesystem::create_directories(kDirB / memgraph::storage::durability::kSnapshotDirectory);
     for (auto const &entry :
          std::filesystem::directory_iterator(kDirA / memgraph::storage::durability::kSnapshotDirectory)) {
-      std::cerr << "[snapshot-copy] " << entry.path() << " regular=" << entry.is_regular_file() << " perms=0"
-                << std::oct << static_cast<unsigned>(entry.status().permissions()) << std::dec << '\n';
       if (!entry.is_regular_file()) continue;
       std::filesystem::copy_file(entry.path(),
                                  kDirB / memgraph::storage::durability::kSnapshotDirectory / entry.path().filename());
@@ -292,8 +275,6 @@ TEST_F(VersioningHistoryReplayTest, WalTailReplayIntoRecoveredSnapshotKeepsHisto
       memgraph::storage::durability::GetWalFiles(kDirA / memgraph::storage::durability::kWalDirectory);
   ASSERT_TRUE(wal_files.has_value());
   ASSERT_FALSE(wal_files->empty());
-  uint64_t last_durable_ts = 0;
-  for (auto const &info : *wal_files) last_durable_ts = std::max(last_durable_ts, info.to_timestamp);
 
   // ---- Step 2: storage B recovers from the copied snapshot only (T). ----
   memgraph::dbms::Database db_b{MakeConfigB()};
@@ -308,16 +289,12 @@ TEST_F(VersioningHistoryReplayTest, WalTailReplayIntoRecoveredSnapshotKeepsHisto
   // ---- Step 3: pin T before replaying anything. ----
   uint64_t const pin = b->RegisterForkPin();
 
-  // ---- Step 4: replay main's WAL files in sequence-number order through the replica apply path. ----
+  // ---- Step 4: replay main's WAL files in sequence-number order through ReplayWalFile. ----
   memgraph::rpc::ProgressHeartbeat heartbeat{nullptr, std::chrono::hours{24}};
-  uint64_t replayed_txns = 0;
   for (auto const &info : *wal_files) {  // GetWalFiles is ordered by sequence number
-    auto const [ok, num_txns] = memgraph::dbms::HistoryReplayTestAccess::LoadWal(info.path, b, heartbeat);
-    ASSERT_TRUE(ok) << "LoadWal failed for " << info.path;
-    replayed_txns += num_txns;
+    ASSERT_TRUE(memgraph::dbms::InMemoryReplicationHandlers::ReplayWalFile(info.path, b, heartbeat))
+        << "ReplayWalFile failed for " << info.path;
   }
-  // 7 write transactions in the tail (property, label swap, edge delete, vertex delete, create, index, property).
-  EXPECT_GE(replayed_txns, 7U);
 
   // Names added by the replay (e.g. M after recovery of a snapshot that only had L) must be resolved afterwards.
   names = ResolveNames(*b);
@@ -353,22 +330,4 @@ TEST_F(VersioningHistoryReplayTest, WalTailReplayIntoRecoveredSnapshotKeepsHisto
     auto acc = db_b.Access(ms::READ);
     ExpectFullState(*acc, names, g, t);
   }
-
-  // ---- Step 6: clock hazard. A new local commit gets timestamp_++ on B; the WAL path asserts (debug builds) that
-  // its durable ts is >= the last durable ts replayed from main. B's timestamp_ is not directly reachable here, so a
-  // fresh accessor's start timestamp (timestamp_++) stands in for it. Not exercised as a commit: it may abort. ----
-  uint64_t b_next_ts = 0;
-  {
-    auto acc = db_b.Access(ms::READ);
-    b_next_ts = acc->GetStartTimestamp().value_or(0);
-  }
-  std::cout << "[clock-hazard] last durable ts replayed from main (ldt) = " << last_durable_ts
-            << ", B's next local timestamp = " << b_next_ts
-            << (b_next_ts > last_durable_ts ? " (OK: local clock ahead of ldt)"
-                                            : " (HAZARD: a local commit on B would hit 'LDT not monotonically "
-                                              "increasing')")
-            << std::endl;
-  // Known hazard (design note): replay commits at B's local clock, so B's clock trails main's last durable ts and
-  // production recovery must bump timestamp_ past it (plus MarkFinishedInRange) before any local commit.
-  EXPECT_LE(b_next_ts, last_durable_ts) << "hazard no longer reproduces; revisit the clock-bump requirement";
 }

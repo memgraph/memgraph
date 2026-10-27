@@ -13153,13 +13153,14 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
     return std::nullopt;
   });
 
+  auto const kept = floor_base && *floor_base < num_to_erase ? 1U : 0U;
   spdlog::info("snapshot retention: deleting {} old snapshot file(s), retention_count={}",
-               num_to_erase - (floor_base && *floor_base < num_to_erase ? 1 : 0),
+               num_to_erase - kept,
                snapshot_retention_count);
-  OldSnapshotFiles kept_base;
+  std::optional<OldSnapshotFiles::value_type> kept_base;
   for (size_t i = 0; i < num_to_erase; ++i) {
     if (floor_base && *floor_base == i) {
-      kept_base.push_back(std::move(old_snapshot_files[i]));
+      kept_base = std::move(old_snapshot_files[i]);
       continue;
     }
     const auto &[_, snapshot_path] = old_snapshot_files[i];
@@ -13167,8 +13168,7 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   }
 
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
-  old_snapshot_files.insert(
-      old_snapshot_files.begin(), std::make_move_iterator(kept_base.begin()), std::make_move_iterator(kept_base.end()));
+  if (kept_base) old_snapshot_files.insert(old_snapshot_files.begin(), std::move(*kept_base));
 }
 
 namespace {
