@@ -1372,7 +1372,8 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    const std::optional<uint64_t> max_delta_timestamp) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1383,13 +1384,16 @@ std::optional<RecoveryInfo> LoadWal(
   // safe: coming up short means the bytes rotted, not that a write was interrupted, and that must not be papered
   // over. A file with no summary was never finalized and its tail may legitimately be torn, so the dry run finds
   // the last whole transaction and replay stops there.
+  uint64_t from_timestamp{0};
   uint64_t to_timestamp{0};
   uint64_t num_deltas{0};
   if (header.summary) {
+    from_timestamp = header.summary->from_timestamp;
     to_timestamp = header.summary->to_timestamp;
     num_deltas = header.summary->num_deltas;
   } else {
     auto const info = ReadWalInfo(path);
+    from_timestamp = info.from_timestamp;
     to_timestamp = info.to_timestamp;
     num_deltas = info.num_deltas;
   }
@@ -1397,6 +1401,14 @@ std::optional<RecoveryInfo> LoadWal(
   // Check timestamp.
   if (last_applied_delta_timestamp && to_timestamp <= *last_applied_delta_timestamp) {
     spdlog::info("Skip loading WAL file because it is too old. {} <= {}", to_timestamp, *last_applied_delta_timestamp);
+    return std::nullopt;
+  }
+
+  // Every record of one transaction carries the transaction's commit timestamp, so an upper bound on the
+  // timestamp keeps or drops a transaction as a whole.
+  if (max_delta_timestamp && from_timestamp > *max_delta_timestamp) {
+    spdlog::info(
+        "Skip loading WAL file because it is past the recovery bound. {} > {}", from_timestamp, *max_delta_timestamp);
     return std::nullopt;
   }
 
@@ -2214,7 +2226,8 @@ std::optional<RecoveryInfo> LoadWal(
   for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
-        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
+        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp) &&
+        (!max_delta_timestamp || delta_ts <= *max_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, version);
       // We should always check if the delta is WalTransactionStart to update should_commit
@@ -2250,7 +2263,8 @@ std::optional<RecoveryInfo> LoadWal(
   }
 
   spdlog::info(
-      "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
+      "Applied {} deltas from WAL. Skipped {} deltas, because they were outside the requested timestamp range or "
+      "because 2PC protocol decided to "
       "abort txn but deltas were already made durable.",
       deltas_applied,
       num_deltas - deltas_applied);

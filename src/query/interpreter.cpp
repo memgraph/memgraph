@@ -9092,6 +9092,12 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
     version_store->ReleaseCheckout(name);
     throw QueryRuntimeException(core.error());
   }
+  if (auto recorded =
+          version_store->RecordGidFloors(info->number, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
+      !recorded) {
+    version_store->ReleaseCheckout(name);
+    throw QueryRuntimeException(recorded.error());
+  }
 
   current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name);
 }
@@ -9288,7 +9294,11 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               if (own_attachments != 0) {
                 current_db.SetCurrentVersion(std::nullopt);
               }
-              if (!version_store->DropBranch(name)) {
+              auto dropped = version_store->TryDropBranch(name);
+              if (!dropped) {
+                throw QueryRuntimeException(dropped.error());
+              }
+              if (!*dropped) {
                 // Raced with another connection's DropBranch or checkout of `name` after the pre-checks above.
                 throw QueryRuntimeException(
                     "Version '{}' could not be dropped (it no longer exists or is checked out by another "

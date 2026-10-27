@@ -134,9 +134,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   // Captured before config is std::move()'d into the storage engine below.
   const auto versioning_directory = config.durability.storage_directory / "versioning";
+  const auto branch_ledger_file = config.durability.storage_directory / "branches" / "ledger";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
-  // Branches are ephemeral and nothing is persisted for them; remove a versioning/ directory left by an older build.
+  // The branch ledger lives in branches/, not here; versioning/ is a legacy directory left by an older build.
   if (utils::DirExists(versioning_directory) && !utils::DeleteDir(versioning_directory)) {
     spdlog::warn("Graph Versioning: failed to remove legacy branch directory '{}'.", versioning_directory.string());
   }
@@ -169,8 +170,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(
-        [in_memory_storage] { return in_memory_storage->RegisterForkPin(); },
+        [in_memory_storage] {
+          const auto pin = in_memory_storage->RegisterForkPinWithDurable();
+          return versioning::VersionStore::ForkPin{.fork_ts = pin.fork_ts, .durable_ts = pin.last_durable_ts};
+        },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
+    version_store_->AttachLedger(branch_ledger_file);
   }
 
   // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the

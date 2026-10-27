@@ -844,6 +844,15 @@ class InMemoryStorage final : public Storage {
   // Lock order: engine_lock_ then version_fork_pin_lock_.
   uint64_t RegisterForkPin();
 
+  struct ForkPinInfo {
+    uint64_t fork_ts;
+    // Last durable commit timestamp (CommitTsInfo::ldt_) read in the same engine_lock_ section as `fork_ts`.
+    uint64_t last_durable_ts;
+  };
+
+  // RegisterForkPin that also reports the last durable commit timestamp, for restart-stable branch records.
+  ForkPinInfo RegisterForkPinWithDurable();
+
   // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
   // Removes one instance of the multiset key, not all equal ones.
   void ReleaseForkPin(uint64_t fork_ts);

@@ -597,6 +597,8 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
+/// Deltas with a durable timestamp above `max_delta_timestamp` (when set) are skipped, and a file that starts above
+/// it is not read at all.
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -604,7 +606,8 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<uint64_t> max_delta_timestamp = std::nullopt);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

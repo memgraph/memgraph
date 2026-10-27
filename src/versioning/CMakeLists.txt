@@ -7,6 +7,8 @@ target_sources(mg-versioning
         FILES
         branch_change_filter.hpp
         branch_change_kind.hpp
+        branch_info.hpp
+        branch_ledger.hpp
         branch_engine.hpp
         gate.hpp
         main_constraints.hpp
@@ -19,6 +21,7 @@ target_sources(mg-versioning
 
         PRIVATE
         branch_engine.cpp
+        branch_ledger.cpp
         gate.cpp
         name.cpp
         version_store.cpp

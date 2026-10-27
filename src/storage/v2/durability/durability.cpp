@@ -602,7 +602,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
-    memgraph::storage::DescriptionStore *description_store) {
+    memgraph::storage::DescriptionStore *description_store, const std::optional<uint64_t> max_delta_timestamp,
+    RecoveryTail *const tail) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
@@ -633,6 +634,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
     std::optional<RecoveredSnapshot> recovered_snapshot;
+    bool tried_a_snapshot{false};
 
     for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
       auto const &path = snapshot_file.path;
@@ -641,6 +643,14 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
       }
+      if (max_delta_timestamp && snapshot_file.durable_timestamp > *max_delta_timestamp) {
+        spdlog::info("Snapshot {} is past the recovery bound ({} > {}).",
+                     path,
+                     snapshot_file.durable_timestamp,
+                     *max_delta_timestamp);
+        continue;
+      }
+      tried_a_snapshot = true;
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path,
@@ -661,23 +671,31 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
       }
     }
-    if (!recovered_snapshot) {
+    if (!recovered_snapshot && tried_a_snapshot) {
       throw RecoveryFailure(
           "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
           "database is now in the broken state.");
     }
-    recovery_info = recovered_snapshot->recovery_info;
-    indices_constraints = std::move(recovered_snapshot->indices_constraints);
-    snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
-    spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
-    repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
+    if (recovered_snapshot) {
+      recovery_info = recovered_snapshot->recovery_info;
+      indices_constraints = std::move(recovered_snapshot->indices_constraints);
+      snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
+      spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
+      repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
+      recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
+    } else {
+      // Only reachable with a bound: every snapshot is newer than it, so the state is rebuilt from the WAL alone.
+      spdlog::info("No snapshot at or below the recovery bound, recovering from WAL files only.");
+    }
 
     auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
     if (!maybe_wal_files.has_value()) {
       throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
     }
     wal_files = std::move(*maybe_wal_files);
+    if (!snapshot_durable_timestamp && wal_files.empty()) {
+      throw RecoveryFailure("No snapshot at or below the recovery bound and no WAL files to recover from!");
+    }
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
@@ -748,6 +766,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
       previous_seq_num = wal_file.seq_num;
 
+      if (max_delta_timestamp && wal_file.to_timestamp > *max_delta_timestamp && tail) {
+        tail->wal_files.push_back(wal_file.path);
+      }
+      if (max_delta_timestamp && wal_file.from_timestamp > *max_delta_timestamp) continue;
+
       try {
         auto info = LoadWal(wal_file.path,
                             &indices_constraints,
@@ -761,7 +784,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             schema_info,
                             find_edge,
                             ttl,
-                            description_store);
+                            description_store,
+                            max_delta_timestamp);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
@@ -841,6 +865,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   r::for_each(repl_storage_state.history, [](auto &&history) {
     spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
   });
+  if (tail) tail->reached_timestamp = recovery_info.last_durable_timestamp;
   return recovery_info;
 }
 

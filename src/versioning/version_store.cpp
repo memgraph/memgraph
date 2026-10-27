@@ -12,6 +12,7 @@
 #include "versioning/version_store.hpp"
 
 #include <algorithm>
+#include <mutex>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -22,39 +23,97 @@
 namespace memgraph::versioning {
 
 VersionStore::VersionStore(std::function<uint64_t()> acquire_pin, std::function<void(uint64_t)> release_pin)
+    : acquire_pin_{[acquire = std::move(acquire_pin)] { return ForkPin{.fork_ts = acquire(), .durable_ts = 0}; }},
+      release_pin_{std::move(release_pin)} {}
+
+VersionStore::VersionStore(std::function<ForkPin()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}
+
+void VersionStore::AttachLedger(std::filesystem::path file) {
+  std::lock_guard guard{ledger_mutex_};
+  ledger_.emplace(std::move(file));
+}
+
+std::expected<std::optional<LedgerContents>, std::string> VersionStore::Load() const {
+  // ledger_ is only set before use (AttachLedger contract), so reading it here needs no lock.
+  if (!ledger_) return std::optional<LedgerContents>{};
+  return ledger_->Read();
+}
+
+LedgerContents VersionStore::SnapshotLocked() const {
+  LedgerContents out;
+  out.next_number = next_number_;
+  out.branches.reserve(branches_.size());
+  for (const auto &[name, info] : branches_) out.branches.push_back({name, info});
+  std::ranges::sort(out.branches, std::less{}, [](const auto &b) { return b.info.number; });
+  return out;
+}
+
+std::expected<void, std::string> VersionStore::WriteLedger(const LedgerContents &contents) {
+  if (!ledger_) return {};
+  auto res = ledger_->Write(contents);
+  if (!res) {
+    spdlog::error("Graph Versioning: {}", res.error());
+    return std::unexpected(fmt::format("Cannot persist the branch registry: {}", res.error()));
+  }
+  return {};
+}
 
 std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent,
                                                                   std::optional<std::string> description) {
-  std::lock_guard guard{lock_};
+  std::lock_guard ledger_guard{ledger_mutex_};
 
-  if (branches_.contains(name)) {
-    return std::unexpected(fmt::format("Branch '{}' already exists.", name));
-  }
-  if (parent != "main" && !branches_.contains(parent)) {
-    return std::unexpected(fmt::format("Parent branch '{}' does not exist.", parent));
+  LedgerContents next;
+  {
+    std::lock_guard guard{lock_};
+    if (branches_.contains(name)) {
+      return std::unexpected(fmt::format("Branch '{}' already exists.", name));
+    }
+    if (parent != "main" && !branches_.contains(parent)) {
+      return std::unexpected(fmt::format("Parent branch '{}' does not exist.", parent));
+    }
+    next = SnapshotLocked();
   }
 
-  const BranchInfo info{
-      .number = next_number_,
+  // ledger_mutex_ serializes every registry mutation, so the checks above still hold after the lock_ gap.
+  const auto pin = acquire_pin_();
+  BranchInfo info{
+      .number = next.next_number,
       .parent = std::move(parent),
-      .fork_ts = acquire_pin_(),
+      .fork_ts = pin.fork_ts,
       .description = std::move(description),
+      .fork_durable_ts = pin.durable_ts,
   };
 
-  ++next_number_;
-  branches_.emplace(std::move(name), info);
+  ++next.next_number;
+  next.branches.push_back({name, info});
+  if (auto written = WriteLedger(next); !written) {
+    release_pin_(info.fork_ts);
+    return std::unexpected(std::move(written.error()));
+  }
 
-  memgraph::metrics::Metrics().global.versioning_branches_created->Increment();
-  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+  {
+    std::lock_guard guard{lock_};
+    next_number_ = next.next_number;
+    branches_.emplace(std::move(name), info);
+
+    memgraph::metrics::Metrics().global.versioning_branches_created->Increment();
+    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+  }
   return info;
 }
 
 bool VersionStore::DropBranch(std::string_view name) {
-  uint64_t number = 0;
+  auto res = TryDropBranch(name);
+  return res.value_or(false);
+}
+
+std::expected<bool, std::string> VersionStore::TryDropBranch(std::string_view name) {
+  std::lock_guard ledger_guard{ledger_mutex_};
+
+  LedgerContents next;
   {
     std::lock_guard guard{lock_};
-
     auto it = branches_.find(name);
     if (it == branches_.end()) {
       return false;
@@ -62,16 +121,60 @@ bool VersionStore::DropBranch(std::string_view name) {
     if (checked_out_.contains(name)) {
       return false;
     }
+    next = SnapshotLocked();
+    std::erase_if(next.branches, [&](const LedgerBranch &b) { return b.name == name; });
+    dropping_.emplace(name);
+  }
 
+  if (auto written = WriteLedger(next); !written) {
+    std::lock_guard guard{lock_};
+    dropping_.erase(dropping_.find(name));
+    return std::unexpected(std::move(written.error()));
+  }
+
+  uint64_t number = 0;
+  {
+    std::lock_guard guard{lock_};
+    auto it = branches_.find(name);
     number = it->second.number;
     release_pin_(it->second.fork_ts);
     branches_.erase(it);
+    dropping_.erase(dropping_.find(name));
 
     memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
     memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   }
   RetireCore(number);
   return true;
+}
+
+std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, uint64_t vertex_gid_floor,
+                                                               uint64_t edge_gid_floor) {
+  std::lock_guard ledger_guard{ledger_mutex_};
+
+  LedgerContents next;
+  std::string name;
+  {
+    std::lock_guard guard{lock_};
+    auto it = std::ranges::find(branches_, number, [](const auto &kv) { return kv.second.number; });
+    if (it == branches_.end() || it->second.vertex_gid_floor.has_value()) return {};
+    name = it->first;
+    next = SnapshotLocked();
+  }
+  for (auto &b : next.branches) {
+    if (b.name == name) {
+      b.info.vertex_gid_floor = vertex_gid_floor;
+      b.info.edge_gid_floor = edge_gid_floor;
+    }
+  }
+  if (auto written = WriteLedger(next); !written) return std::unexpected(std::move(written.error()));
+
+  std::lock_guard guard{lock_};
+  if (auto it = branches_.find(name); it != branches_.end()) {
+    it->second.vertex_gid_floor = vertex_gid_floor;
+    it->second.edge_gid_floor = edge_gid_floor;
+  }
+  return {};
 }
 
 std::optional<BranchInfo> VersionStore::Get(std::string_view name) const {
@@ -107,7 +210,7 @@ bool VersionStore::Empty() const {
 std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
   std::lock_guard guard{lock_};
   auto it = branches_.find(name);
-  if (it == branches_.end()) {
+  if (it == branches_.end() || dropping_.contains(name)) {
     return std::unexpected(fmt::format("Version '{}' does not exist.", name));
   }
   ++checked_out_[std::string{name}];

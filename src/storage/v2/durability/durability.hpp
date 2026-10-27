@@ -116,9 +116,22 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
                                                                   const Config &config,
                                                                   memory::ArenaPool *db_arena_pool);
 
+/// Filled by Recovery::RecoverData when it is given a timestamp bound: what was left out of the recovered state.
+struct RecoveryTail {
+  /// WAL files, in sequence order, holding at least one delta above the bound. The first one may straddle the bound,
+  /// so a caller replaying them has to skip the deltas it was already recovered.
+  std::vector<std::filesystem::path> wal_files;
+  /// Durable timestamp of the newest data recovered, which is at most the bound.
+  uint64_t reached_timestamp{0};
+};
+
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
+  /// With `max_delta_timestamp` the state recovered is the one as of that durable timestamp: the newest snapshot not
+  /// above it is loaded (WAL files alone are used when there is none, which requires the chain to start at sequence
+  /// 0), and only transactions up to it are replayed. `tail`, when given, then receives the files left to replay.
+  /// Without a bound the behaviour is unchanged.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(
@@ -128,7 +141,8 @@ struct Recovery {
       memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
       std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
-      memgraph::storage::DescriptionStore *description_store);
+      memgraph::storage::DescriptionStore *description_store,
+      std::optional<uint64_t> max_delta_timestamp = std::nullopt, RecoveryTail *tail = nullptr);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

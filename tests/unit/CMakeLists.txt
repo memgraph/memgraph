@@ -98,6 +98,11 @@ add_unit_test(versioning_version_store
         LINK_TARGETS mg::versioning mg-kvstore
 )
 
+add_unit_test(versioning_ledger
+        SOURCES versioning_ledger.cpp
+        LINK_TARGETS mg::versioning mg-kvstore
+)
+
 add_unit_test(versioning_branch_engine
         SOURCES versioning_branch_engine.cpp
         LINK_TARGETS mg::versioning mg::storage mg-memory-utils
@@ -121,6 +126,11 @@ add_unit_test(versioning_durability_restart
 add_unit_test(versioning_history_replay
         SOURCES versioning_history_replay.cpp
         LINK_TARGETS mg::versioning mg::storage mg-dbms storage_test_utils
+)
+
+add_unit_test(versioning_bounded_recovery
+        SOURCES versioning_bounded_recovery.cpp
+        LINK_TARGETS mg::storage mg-dbms storage_test_utils
 )
 
 add_unit_test(versioning_interpreter

@@ -14,32 +14,28 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "utils/spin_lock.hpp"
+#include "versioning/branch_info.hpp"
+#include "versioning/branch_ledger.hpp"
 
 namespace memgraph::versioning {
 
 class BranchCore;
 
-// `number` is never reused, even across drops (main is implicit version 1, the first branch is 2).
-// `fork_ts` is the GC fork-pin timestamp, held until the branch is dropped.
-struct BranchInfo {
-  uint64_t number;
-  std::string parent;
-  uint64_t fork_ts;
-  std::optional<std::string> description;
-};
-
-// Per-Database in-memory registry of branches. Ephemeral: a restart starts empty.
+// Per-Database registry of branches. Starts empty on every startup; once a BranchLedger is attached, every
+// CREATE/DROP (and the first gid-floor record per branch) is also persisted to it.
 //
 // The GC fork pin held for each branch is injected as callbacks (Database binds them to
 // InMemoryStorage::RegisterForkPin/ReleaseForkPin), so tests need no storage engine.
@@ -48,8 +44,16 @@ struct BranchInfo {
 // (ValidateBranchName) and gate/privilege checks before CreateBranch/DropBranch.
 class VersionStore {
  public:
+  // Result of taking a fork pin: the MVCC pin timestamp and main's last durable commit timestamp read with it.
+  struct ForkPin {
+    uint64_t fork_ts;
+    uint64_t durable_ts;
+  };
+
   // The callbacks must stay bound to the owning storage's fork-pin primitive for this VersionStore's lifetime.
+  // The uint64_t form records fork_durable_ts = 0.
   VersionStore(std::function<uint64_t()> acquire_pin, std::function<void(uint64_t)> release_pin);
+  VersionStore(std::function<ForkPin()> acquire_pin, std::function<void(uint64_t)> release_pin);
 
   VersionStore(const VersionStore &) = delete;
   VersionStore &operator=(const VersionStore &) = delete;
@@ -57,14 +61,27 @@ class VersionStore {
   VersionStore &operator=(VersionStore &&) = delete;
   ~VersionStore() = default;
 
+  // Starts persisting to `file`. Call before the first CreateBranch; does not read or write the file itself.
+  void AttachLedger(std::filesystem::path file);
+
+  // Parsed ledger contents (for recovery); nullopt if no ledger is attached or no file exists yet.
+  std::expected<std::optional<LedgerContents>, std::string> Load() const;
+
   // `name` must be new and `parent` must be "main" or an existing branch. On success acquires the fork pin; on
-  // failure returns a user-facing message and changes no state (no pin acquired).
+  // failure (including a ledger write failure) returns a user-facing message and changes no state (no pin held).
   std::expected<BranchInfo, std::string> CreateBranch(std::string name, std::string parent,
                                                       std::optional<std::string> description);
 
   // Returns false, changing nothing, if `name` doesn't exist or has an attached session. Otherwise releases the fork
   // pin and retires the branch's core.
   bool DropBranch(std::string_view name);
+
+  // As DropBranch, but a ledger write failure is reported as an error (nothing is dropped) instead of `false`.
+  std::expected<bool, std::string> TryDropBranch(std::string_view name);
+
+  // Records the branch's gid floors in the ledger the first time they are known; later calls are no-ops. Fails
+  // only on a ledger write failure. Unknown `number` is a no-op.
+  std::expected<void, std::string> RecordGidFloors(uint64_t number, uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
 
   std::optional<BranchInfo> Get(std::string_view name) const;
 
@@ -103,8 +120,20 @@ class VersionStore {
   std::map<std::string, size_t, std::less<>> checked_out_;
   size_t total_checkouts_{0};
   uint64_t next_number_{2};
-  std::function<uint64_t()> acquire_pin_;
+  std::function<ForkPin()> acquire_pin_;
   std::function<void(uint64_t)> release_pin_;
+
+  // Serializes registry mutations that touch the ledger so the (blocking) ledger write runs without lock_ held.
+  // Lock order: ledger_mutex_ then lock_. Guards ledger_.
+  std::mutex ledger_mutex_;
+  std::optional<BranchLedger> ledger_;
+  // Branches whose DROP is writing the ledger; TryAcquireCheckout refuses them. Guarded by lock_.
+  std::set<std::string, std::less<>> dropping_;
+
+  // Call with ledger_mutex_ held and lock_ NOT held. No-op if no ledger is attached.
+  std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
+  // Call with lock_ held.
+  LedgerContents SnapshotLocked() const;
 
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
   void RetireCore(uint64_t number);
