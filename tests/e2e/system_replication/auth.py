@@ -1115,12 +1115,18 @@ def test_user_profile_replication(connection, test_name):
 
     def resource_check(instance_name, username, expected_usage):
         # Closed before returning so the session doesn't count against the user's limit in later checks.
-        conn = connect(host="localhost", port=BOLT_PORTS[instance_name], username=username, password="")
-        try:
-            usage = show_resource_usage_func(conn.cursor(), username)()
-        finally:
-            conn.close()
-        assert expected_usage == usage
+        # The server releases a closed session asynchronously, so retry until the previous one is gone.
+        def fetch_usage():
+            try:
+                conn = connect(host="localhost", port=BOLT_PORTS[instance_name], username=username, password="")
+            except mgclient.Error as e:
+                return str(e)
+            try:
+                return show_resource_usage_func(conn.cursor(), username)()
+            finally:
+                conn.close()
+
+        mg_sleep_and_assert(expected_usage, fetch_usage)
 
     def all_resource_check(user1_usage=None, user2_usage=None):
         if user1_usage is not None:
