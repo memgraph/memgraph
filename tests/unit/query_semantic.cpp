@@ -710,6 +710,29 @@ TYPED_TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   EXPECT_EQ(r.type(), Symbol::Type::EDGE_LIST);
 }
 
+// A variable-length relationship binds the list of relationships it matched, so it is typed as a
+// list. Inside the body of an EXISTS, a COUNT or a COLLECT it binds that same list, and so carries
+// the same type: whoever asks whether a symbol holds a single relationship gets one answer, wherever
+// the relationship was matched.
+TYPED_TEST(TestSymbolGenerator, VariableLengthEdgeInASubqueryBodyIsTypedAsAList) {
+  // MATCH (n) WHERE EXISTS { MATCH (n) -[r *1..2]-> (m) RETURN m } RETURN n
+  auto *variable_edge = EDGE_VARIABLE("r");
+  auto *variable_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), variable_edge, NODE("m"))), RETURN("m")));
+  auto *variable_query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(variable_subquery)), RETURN("n")));
+  auto variable_symbols = MakeSymbolTable(variable_query);
+  EXPECT_EQ(variable_symbols.at(*variable_edge->identifier_).type(), Symbol::Type::EDGE_LIST);
+
+  // MATCH (n) WHERE EXISTS { MATCH (n) -[s]-> (m) RETURN m } RETURN n
+  // A fixed-length relationship in the same position still binds one relationship.
+  auto *single_edge = EDGE("s");
+  auto *single_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), single_edge, NODE("m"))), RETURN("m")));
+  auto *single_query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(single_subquery)), RETURN("n")));
+  auto single_symbols = MakeSymbolTable(single_query);
+  EXPECT_EQ(single_symbols.at(*single_edge->identifier_).type(), Symbol::Type::EDGE);
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m) MATCH (l) RETURN r
   auto prop = this->dba.NameToProperty("prop");
