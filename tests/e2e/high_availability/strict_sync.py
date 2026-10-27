@@ -18,7 +18,15 @@ from multiprocessing import Pool
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, get_vertex_count, show_instances
+from common import (
+    connect,
+    execute_and_fetch_all,
+    get_data_path,
+    get_logs_path,
+    get_vertex_count,
+    show_instances,
+    show_replication_role,
+)
 from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_collection,
@@ -243,6 +251,18 @@ def setup_cluster(test_name, setup_queries):
 
     for query in setup_queries:
         execute_and_fetch_all(coord_cursor_3, query)
+
+    # SET INSTANCE TO MAIN returns once the change is in Raft, even if the promotion RPC failed. The coordinator then
+    # retries the promotion and can fail over to another instance, so wait until the cluster settles on instance_3.
+    def instance_3_is_main(rows):
+        data_instances = [row for row in rows if row[0].startswith("instance_")]
+        return len(data_instances) == 3 and all(
+            row[4] == "up" and (row[5] == "main") == (row[0] == "instance_3") for row in data_instances
+        )
+
+    mg_sleep_and_assert_eval_function(instance_3_is_main, partial(show_instances, coord_cursor_3))
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+    mg_sleep_and_assert([("main",)], partial(show_replication_role, instance_3_cursor))
     return inner_instances_description
 
 
