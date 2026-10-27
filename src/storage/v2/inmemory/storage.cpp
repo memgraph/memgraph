@@ -1191,9 +1191,15 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }};
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
-          // WAL file is already finalized
-          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
-          committed = true;
+          // WAL file is already finalized. The steps run separately, in the order FinalizeCommitPhase gives, so
+          // committed is set before the publish: a throw inside PublishCommit after its visibility store must
+          // still mark the ASYNC replicas.
+          with_engine_lock([&] {
+            QueueSchemaUpdate(durability_commit_timestamp);
+            FinalizeWalCommitStatus();
+            committed = true;
+            PublishCommit(durability_commit_timestamp, engine_guard);
+          });
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
