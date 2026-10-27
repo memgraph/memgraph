@@ -968,9 +968,10 @@ class InMemoryStorage final : public Storage {
     InMemoryStorage &storage_;
   };
 
-  /// Moves the transaction clock past the last durable timestamp when it trails it (commits that carry a durable
-  /// timestamp, e.g. a replay, do not advance the clock). Skipped ids are marked finished in the commit log.
-  void BumpClockPastDurable();
+  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`) when it trails it (commits
+  /// that carry a durable timestamp, e.g. a replay, do not advance the clock). Skipped ids are marked finished in the
+  /// commit log.
+  void BumpClockPastDurable(uint64_t min_next = 0);
 
   /// Writes a WAL transaction at `commit_ts` that holds only the records `writer` appends, and advances the last
   /// durable timestamp. For commits with no deltas of their own; writes nothing when the WAL is off or suppressed.

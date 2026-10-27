@@ -4999,15 +4999,16 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
-void InMemoryStorage::BumpClockPastDurable() {
+void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
   auto guard = std::lock_guard{engine_lock_};
   auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
-  if (timestamp_ > ldt) return;
-  // Ids in [timestamp_, ldt] were never handed out, so no transaction can hold them: mark them finished or the
+  auto const target = std::max(ldt + 1, min_next);
+  if (timestamp_ >= target) return;
+  // Ids in [timestamp_, target) were never handed out, so no transaction can hold them: mark them finished or the
   // oldest-active id would stall at the gap and block GC.
   auto const first_skipped = timestamp_;
-  timestamp_ = ldt + 1;
-  commit_log_->MarkFinishedInRange(first_skipped, ldt);
+  timestamp_ = target;
+  commit_log_->MarkFinishedInRange(first_skipped, target - 1);
 }
 
 uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }

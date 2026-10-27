@@ -68,7 +68,8 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
     return std::unexpected(fmt::format("replaying the WAL tail threw: {}", e.what()));
   }
 
-  storage.BumpClockPastDurable();
+  // Every future commit must get a ts >= the newest recorded fork_ts, or it would leak into that branch's fork base.
+  storage.BumpClockPastDurable(fork_ts.empty() ? 0 : fork_ts.back());
   return pins;
 }
 

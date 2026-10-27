@@ -225,6 +225,43 @@ TEST_F(VersioningDurabilityRestartTest, BranchReadsMainAtItsForkAfterRestart) {
   }
 }
 
+TEST_F(VersioningDurabilityRestartTest, MainWritesAfterARestartStayInvisibleToAnOlderBranch) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    for (int i = 0; i < 10; ++i) db.Access(ms::READ)->Abort();
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+  }
+
+  const auto p_of = [&gids](memgraph::dbms::Database &db, ms::Storage::Accessor &acc) {
+    return *acc.FindVertex(gids.v1, ms::View::OLD)->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD);
+  };
+
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    SetV1(db, gids, 2);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_TRUE(db.version_store()->Exists("b"));
+  {
+    auto branch = ReadBranch(db, "b");
+    ASSERT_NE(branch, nullptr);
+    EXPECT_EQ(p_of(db, *branch), ms::PropertyValue(1));
+  }
+  EXPECT_EQ(p_of(db, *db.Access(ms::READ)), ms::PropertyValue(2));
+
+  SetV1(db, gids, 3);
+  auto branch = ReadBranch(db, "b");
+  ASSERT_NE(branch, nullptr);
+  EXPECT_EQ(p_of(db, *branch), ms::PropertyValue(1));
+  EXPECT_EQ(p_of(db, *db.Access(ms::READ)), ms::PropertyValue(3));
+}
+
 TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTheOtherBranch) {
   Gids gids{};
   uint64_t b2_recorded_fork_ts = 0;
