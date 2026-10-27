@@ -37,14 +37,15 @@ namespace {
 constexpr auto kTestSuite = "versioning_durability_restart";
 const std::filesystem::path kStorageDirectory{std::filesystem::temp_directory_path() / kTestSuite};
 
-ms::Config MakeConfig(bool recover_on_startup, bool wal = true) {
+ms::Config MakeConfig(bool recover_on_startup, bool wal = true, uint64_t snapshot_retention_count = 3) {
   return ms::Config{
       .durability = {.storage_directory = kStorageDirectory,
                      .recover_on_startup = recover_on_startup,
                      .snapshot_wal_mode = wal ? ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
                                               : ms::Config::Durability::SnapshotWalMode::DISABLED,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
-                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)},
+                     .snapshot_retention_count = snapshot_retention_count},
   };
 }
 
@@ -157,6 +158,16 @@ std::optional<memgraph::versioning::LedgerContents> ReadLedger() {
   EXPECT_TRUE(read.has_value());
   return read.has_value() ? *read : std::nullopt;
 }
+
+size_t CountFiles(std::string_view subdirectory) {
+  const auto dir = kStorageDirectory / subdirectory;
+  if (!std::filesystem::exists(dir)) return 0;
+  size_t count = 0;
+  for (auto const &entry : std::filesystem::directory_iterator(dir)) count += entry.is_regular_file() ? 1 : 0;
+  return count;
+}
+
+void Snapshot(memgraph::dbms::Database &db) { ASSERT_TRUE(Mem(db)->CreateSnapshot(/*force=*/true).has_value()); }
 }  // namespace
 
 class VersioningDurabilityRestartTest : public ::testing::Test {
@@ -478,4 +489,92 @@ TEST_F(VersioningDurabilityRestartTest, BranchWritesAreNotPersistedAcrossRestart
       EXPECT_FALSE(entry.is_regular_file()) << "diff engine persisted " << entry.path();
     }
   }
+}
+
+// Retention keeps only the newest snapshot, yet the branch's fork base (the snapshot below the fork and the WAL after
+// it) must stay recoverable.
+TEST_F(VersioningDurabilityRestartTest, BranchSurvivesSnapshotRetentionWithASnapshotBelowTheFork) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/1)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    Snapshot(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    gids = MoveMainOn(db, gids);
+    Snapshot(db);
+    SetV1(db, gids, 11);
+    Snapshot(db);
+    SetV1(db, gids, 12);
+    Snapshot(db);
+    EXPECT_EQ(CountFiles("snapshots"), 2u) << "the newest snapshot and the one below the fork";
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/true, /*retention=*/1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_EQ(db.version_store()->List().size(), 1u) << "the branch must not have been dropped";
+  auto branch = ReadBranch(db, "b");
+  ASSERT_NE(branch, nullptr);
+  ExpectForkState(*branch, ResolveNames(db), gids, 1);
+}
+
+// No snapshot exists below the fork, so every WAL file back to the first one is the fork base.
+TEST_F(VersioningDurabilityRestartTest, BranchSurvivesSnapshotRetentionWithoutASnapshotBelowTheFork) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/1)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    gids = MoveMainOn(db, gids);
+    Snapshot(db);
+    SetV1(db, gids, 11);
+    Snapshot(db);
+    SetV1(db, gids, 12);
+    Snapshot(db);
+    EXPECT_EQ(CountFiles("snapshots"), 1u);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/true, /*retention=*/1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_EQ(db.version_store()->List().size(), 1u) << "the branch must not have been dropped";
+  auto branch = ReadBranch(db, "b");
+  ASSERT_NE(branch, nullptr);
+  ExpectForkState(*branch, ResolveNames(db), gids, 1);
+}
+
+TEST_F(VersioningDurabilityRestartTest, DroppingTheLastBranchLetsRetentionCleanUpAgain) {
+  Gids gids{};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  gids = CreateBase(db);
+  Snapshot(db);
+  ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+  SetV1(db, gids, 2);
+  Snapshot(db);
+  SetV1(db, gids, 3);
+  Snapshot(db);
+  ASSERT_EQ(CountFiles("snapshots"), 2u);
+  EXPECT_TRUE(Mem(db)->RetentionFloor().has_value());
+
+  const auto wal_files_with_branch = CountFiles("wal");
+  ASSERT_TRUE(db.version_store()->DropBranch("b"));
+  EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
+  SetV1(db, gids, 4);
+  Snapshot(db);
+  EXPECT_EQ(CountFiles("snapshots"), 1u);
+  EXPECT_LE(CountFiles("wal"), wal_files_with_branch);
+}
+
+TEST_F(VersioningDurabilityRestartTest, RetentionIsUnchangedWithoutBranches) {
+  Gids gids{};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/2)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  gids = CreateBase(db);
+  EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
+  for (int i = 0; i < 4; ++i) {
+    Snapshot(db);
+    SetV1(db, gids, i);
+  }
+  EXPECT_EQ(CountFiles("snapshots"), 2u);
 }

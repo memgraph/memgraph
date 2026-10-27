@@ -854,6 +854,11 @@ class InMemoryStorage final : public Storage {
   // RegisterForkPin that also reports the last durable commit timestamp, for restart-stable branch records.
   ForkPinInfo RegisterForkPinWithDurable();
 
+  // RegisterForkPinWithDurable for a branch: also lowers the retention floor to `fork_ts - 1`, atomically with respect
+  // to a snapshot's retention pass, so the snapshot and WAL files that rebuild the fork base are not deleted.
+  // Lock order: retention_floor_mutex_, then engine_lock_.
+  ForkPinInfo RegisterBranchForkPin();
+
   // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
   // Removes one instance of the multiset key, not all equal ones.
   void ReleaseForkPin(uint64_t fork_ts);

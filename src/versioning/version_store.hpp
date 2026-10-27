@@ -63,6 +63,11 @@ class VersionStore {
   VersionStore &operator=(VersionStore &&) = delete;
   ~VersionStore() = default;
 
+  // Called with the durable timestamp the branches still need recoverable (oldest recorded fork_ts - 1), or nullopt
+  // when no branch exists: after Restore, after a failed CREATE (its pin is released) and after a DROP. Set before use.
+  // Never called with lock_ held; may be called with the ledger mutex held, so it must not call back into this store.
+  void SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback);
+
   // Starts persisting to `file`. Call before the first CreateBranch; does not read or write the file itself.
   void AttachLedger(std::filesystem::path file);
 
@@ -134,6 +139,7 @@ class VersionStore {
   uint64_t next_number_{2};
   std::function<ForkPin()> acquire_pin_;
   std::function<void(uint64_t)> release_pin_;
+  std::function<void(std::optional<uint64_t>)> retention_floor_callback_;
 
   // Serializes registry mutations that touch the ledger so the (blocking) ledger write runs without lock_ held.
   // Lock order: ledger_mutex_ then lock_. Guards ledger_.
@@ -146,6 +152,9 @@ class VersionStore {
   std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
   // Call with lock_ held.
   LedgerContents SnapshotLocked() const;
+
+  // Reports the retention floor of the current branches. Call WITHOUT lock_ held. No-op without a callback.
+  void PublishRetentionFloor() const;
 
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
   void RetireCore(uint64_t number);

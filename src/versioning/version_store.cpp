@@ -30,6 +30,24 @@ VersionStore::VersionStore(std::function<uint64_t()> acquire_pin, std::function<
 VersionStore::VersionStore(std::function<ForkPin()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}
 
+void VersionStore::SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback) {
+  retention_floor_callback_ = std::move(callback);
+}
+
+void VersionStore::PublishRetentionFloor() const {
+  if (!retention_floor_callback_) return;
+  std::optional<uint64_t> oldest_fork_ts;
+  {
+    std::lock_guard guard{lock_};
+    for (const auto &[_, info] : branches_) {
+      const auto recorded = info.ledger_fork_ts.value_or(info.fork_ts);
+      oldest_fork_ts = oldest_fork_ts ? std::min(*oldest_fork_ts, recorded) : recorded;
+    }
+  }
+  if (!oldest_fork_ts) return retention_floor_callback_(std::nullopt);
+  retention_floor_callback_(*oldest_fork_ts == 0 ? 0 : *oldest_fork_ts - 1);
+}
+
 void VersionStore::AttachLedger(std::filesystem::path file) {
   std::lock_guard guard{ledger_mutex_};
   ledger_.emplace(std::move(file));
@@ -66,16 +84,19 @@ std::expected<void, std::string> VersionStore::WriteLedger(const LedgerContents 
 
 void VersionStore::Restore(const LedgerContents &contents, std::span<const uint64_t> pins) {
   MG_ASSERT(pins.size() == contents.branches.size(), "Restore needs one fork pin per branch");
-  std::lock_guard guard{lock_};
-  next_number_ = contents.next_number;
-  for (size_t i = 0; i < pins.size(); ++i) {
-    const auto &recorded = contents.branches[i];
-    BranchInfo info = recorded.info;
-    info.ledger_fork_ts = recorded.info.fork_ts;
-    info.fork_ts = pins[i];
-    branches_.emplace(recorded.name, std::move(info));
+  {
+    std::lock_guard guard{lock_};
+    next_number_ = contents.next_number;
+    for (size_t i = 0; i < pins.size(); ++i) {
+      const auto &recorded = contents.branches[i];
+      BranchInfo info = recorded.info;
+      info.ledger_fork_ts = recorded.info.fork_ts;
+      info.fork_ts = pins[i];
+      branches_.emplace(recorded.name, std::move(info));
+    }
+    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   }
-  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+  PublishRetentionFloor();
 }
 
 void VersionStore::ResetLedger(uint64_t next_number) {
@@ -118,6 +139,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   next.branches.push_back({name, info});
   if (auto written = WriteLedger(next); !written) {
     release_pin_(info.fork_ts);
+    PublishRetentionFloor();
     return std::unexpected(std::move(written.error()));
   }
 
@@ -173,6 +195,7 @@ std::expected<bool, std::string> VersionStore::TryDropBranch(std::string_view na
     memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
     memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   }
+  PublishRetentionFloor();
   RetireCore(number);
   return true;
 }

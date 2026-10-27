@@ -108,6 +108,7 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
+  retention_floor_ = config_.durability.recovery_history_bound;
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

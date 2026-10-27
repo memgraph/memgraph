@@ -283,10 +283,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(
         [in_memory_storage] {
-          const auto pin = in_memory_storage->RegisterForkPinWithDurable();
+          const auto pin = in_memory_storage->RegisterBranchForkPin();
           return versioning::VersionStore::ForkPin{.fork_ts = pin.fork_ts, .durable_ts = pin.last_durable_ts};
         },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
+    version_store_->SetRetentionFloorCallback(
+        [in_memory_storage](std::optional<uint64_t> floor) { in_memory_storage->SetRetentionFloor(floor); });
     version_store_->AttachLedger(branch_ledger_file);
 
     if (branch_plan.bound) {

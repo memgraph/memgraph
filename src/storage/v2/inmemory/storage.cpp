@@ -2953,6 +2953,13 @@ InMemoryStorage::ForkPinInfo InMemoryStorage::RegisterForkPinWithDurable() {
   return {.fork_ts = fork_ts, .last_durable_ts = last_durable_ts};
 }
 
+InMemoryStorage::ForkPinInfo InMemoryStorage::RegisterBranchForkPin() {
+  auto const floor_guard = std::lock_guard{retention_floor_mutex_};
+  auto const pin = RegisterForkPinWithDurable();
+  LowerRetentionFloorLocked(pin.fork_ts == 0 ? 0 : pin.fork_ts - 1);
+  return pin;
+}
+
 void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
   auto pin_guard = std::lock_guard{version_fork_pin_lock_};
   auto it = version_fork_pins_.find(fork_ts);

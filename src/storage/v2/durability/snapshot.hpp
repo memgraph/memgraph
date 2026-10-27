@@ -93,14 +93,18 @@ using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &uuid,
                                         const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
-                                        Storage *storage) -> OldSnapshotFiles;
+                                        Storage *storage, std::optional<uint64_t> retention_floor = std::nullopt)
+    -> OldSnapshotFiles;
 
+// With a `retention_floor`, the newest snapshot whose timestamp is at or below it is kept in addition to the
+// retention count (and stays at the front of `old_snapshot_files`).
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
-                            utils::FileRetainer *file_retainer);
+                            utils::FileRetainer *file_retainer, std::optional<uint64_t> retention_floor = std::nullopt);
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
-                                  utils::FileRetainer *file_retainer);
+                                  utils::FileRetainer *file_retainer,
+                                  std::optional<uint64_t> retention_floor = std::nullopt);
 
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
