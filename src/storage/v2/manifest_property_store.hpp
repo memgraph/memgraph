@@ -16,8 +16,10 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <vector>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_manifest.hpp"
 #include "storage/v2/property_value.hpp"
 
@@ -53,6 +55,17 @@ class ManifestPropertyStore {
   /// number, and a NaN equals a NaN.
   auto IsPropertyEqual(ManifestRegistry const &registry, PropertyId property, PropertyValue const &value) const -> bool;
 
+  /// The same question for several properties at once, which is what a composite index asks.
+  /// `result` is given one answer per path, in the paths' order; `position_lookup` says which
+  /// of `values` each path is asked about.
+  ///
+  /// A path of more than one property names a key inside a value, as an index on a nested
+  /// property does. A path arriving at nothing, because the record lacks the property or the
+  /// key is not there, equals Null.
+  void ArePropertiesEqual(ManifestRegistry const &registry, std::span<PropertyPath const> ordered_properties,
+                          std::span<PropertyValue const> values, std::span<std::size_t const> position_lookup,
+                          std::vector<bool> &result) const;
+
   /// True when this gave the record a property it did not carry. A Null value removes the
   /// property, as it does for the store this replaces.
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
@@ -70,6 +83,10 @@ class ManifestPropertyStore {
 
   /// The bytes of a value the shape does not know the width of. `location` must name one.
   auto PayloadAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> std::span<uint8_t const>;
+
+  /// Whether the value at `location` equals `value`.
+  auto CompareAt(PropertyManifest const &layout, PropertyManifest::Location location, PropertyValue const &value) const
+      -> bool;
 
   std::unique_ptr<uint8_t[]> buffer_;
   uint32_t size_{};

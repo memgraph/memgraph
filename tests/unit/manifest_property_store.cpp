@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/manifest_property_store.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/temporal.hpp"
@@ -88,8 +89,6 @@ void ExpectAgreesWithPropertyStore(std::vector<PropertyValue> const &values) {
   ASSERT_TRUE(current.Properties().empty());
 }
 
-// A record describes itself by naming its shape, so reading a property back means resolving
-// that shape and reading the value from where the shape says it sits.
 // A constraint and an index ask whether a stored property equals a value, and do it per
 // record, so the answer must come without building the stored value up again.
 TEST(ManifestPropertyStore, AnIntegerComparesEqualWithoutBeingRead) {
@@ -108,6 +107,8 @@ TEST(ManifestPropertyStore, AnIntegerComparesEqualWithoutBeingRead) {
   EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{}));
 }
 
+// A record describes itself by naming its shape, so reading a property back means resolving
+// that shape and reading the value from where the shape says it sits.
 TEST(ManifestPropertyStore, AnIntegerIsReadBackAsItWasSet) {
   ManifestRegistry registry;
   ManifestPropertyStore store;
@@ -334,6 +335,136 @@ TEST(ManifestPropertyStore, AgreesOverListsAndMaps) {
       PropertyValueType::VectorIndexId,
       PropertyValueType::ZonedTemporalData,
   }));
+}
+
+// A composite index asks about several properties at once, and one on a nested property asks
+// about a key inside a value. Both are asked of every record the index covers, so both have
+// to answer as the old store does.
+TEST(ManifestPropertyStore, AnswersAsThePropertyStoreDoesForSeveralPropertiesAtOnce) {
+  using memgraph::storage::PropertyPath;
+
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+
+  auto const nested = PropertyValue{PropertyValue::map_t{
+      {Prop(7), PropertyValue{int64_t{11}}},
+      {Prop(8), PropertyValue{"inner"}},
+  }};
+  for (auto const &[property, value] : std::initializer_list<std::pair<PropertyId, PropertyValue>>{
+           {Prop(1), PropertyValue{int64_t{300}}},
+           {Prop(2), PropertyValue{"outer"}},
+           {Prop(3), nested},
+           {Prop(4), PropertyValue{2.5}},
+       }) {
+    manifest.SetProperty(registry, property, value);
+    current.SetProperty(property, value);
+  }
+
+  // In path order, which is what the old store requires of a caller: its reader only goes
+  // forwards, so a path behind where it has reached reads as absent. For the same reason a
+  // path and a longer one starting with it are asked about separately.
+  auto const paths = std::vector<PropertyPath>{
+      PropertyPath{Prop(1)},
+      PropertyPath{Prop(2)},
+      PropertyPath{Prop(3)},
+      // A property the record does not hold.
+      PropertyPath{Prop(5)},
+  };
+  auto const nested_paths = std::vector<PropertyPath>{
+      PropertyPath{Prop(3), Prop(7)},
+      PropertyPath{Prop(3), Prop(8)},
+      // A key the nested value does not hold.
+      PropertyPath{Prop(3), Prop(9)},
+  };
+  auto const candidates = std::vector<PropertyValue>{
+      PropertyValue{int64_t{300}},
+      PropertyValue{300.0},
+      PropertyValue{"outer"},
+      PropertyValue{"inner"},
+      PropertyValue{nested},
+      PropertyValue{int64_t{11}},
+      PropertyValue{2.5},
+      PropertyValue{int64_t{}},
+      PropertyValue{},
+  };
+
+  auto expected = std::vector<bool>{};
+  auto actual = std::vector<bool>{};
+  auto const expect_agreement = [&](std::vector<PropertyPath> const &asked,
+                                    std::vector<PropertyValue> const &values,
+                                    std::vector<std::size_t> const &position_lookup) {
+    current.ArePropertiesEqual(asked, values, position_lookup, expected);
+    manifest.ArePropertiesEqual(registry, asked, values, position_lookup, actual);
+    EXPECT_EQ(actual, expected);
+  };
+
+  // Every path asked about every candidate, so a right answer for one path cannot stand in for
+  // a wrong one for another.
+  for (auto const &asked : {paths, nested_paths}) {
+    auto const all_at_zero = std::vector<std::size_t>(asked.size(), 0);
+    for (auto const &candidate : candidates) {
+      expect_agreement(asked, std::vector<PropertyValue>{candidate}, all_at_zero);
+    }
+  }
+
+  // Then each path against the value sitting at it, with the values in an order of their own
+  // so the lookup is doing something.
+  expect_agreement(paths,
+                   {PropertyValue{nested}, PropertyValue{"outer"}, PropertyValue{}, PropertyValue{int64_t{300}}},
+                   {3, 1, 0, 2});
+  expect_agreement(nested_paths, {PropertyValue{"inner"}, PropertyValue{}, PropertyValue{int64_t{11}}}, {2, 0, 1});
+
+  // A record carrying nothing answers for every path at once.
+  ManifestRegistry empty_registry;
+  ManifestPropertyStore empty_manifest;
+  PropertyStore empty_current;
+  for (auto const &asked : {paths, nested_paths}) {
+    auto const values = std::vector<PropertyValue>{PropertyValue{int64_t{300}}, PropertyValue{}};
+    auto const lookup = std::vector<std::size_t>(asked.size(), 1);
+    empty_current.ArePropertiesEqual(asked, values, lookup, expected);
+    empty_manifest.ArePropertiesEqual(empty_registry, asked, values, lookup, actual);
+    EXPECT_EQ(actual, expected);
+  }
+}
+
+// One path's answer must not depend on another's in the same ask, which a shape giving each
+// property's place on its own is what secures. Stated as the answers themselves rather than
+// against the old store, whose reader only goes forwards and so cannot answer these.
+TEST(ManifestPropertyStore, OnePathsAnswerDoesNotDependOnAnothers) {
+  using memgraph::storage::PropertyPath;
+
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+  store.SetProperty(registry, Prop(1), PropertyValue{int64_t{300}});
+  store.SetProperty(registry,
+                    Prop(3),
+                    PropertyValue{PropertyValue::map_t{
+                        {Prop(7), PropertyValue{int64_t{11}}},
+                    }});
+
+  auto const values = std::vector<PropertyValue>{PropertyValue{int64_t{11}}, PropertyValue{int64_t{300}}};
+  auto result = std::vector<bool>{};
+
+  // A path descending into a value that is not a map arrives at nothing, and the path after it
+  // is still found.
+  auto const after_a_non_map =
+      std::vector<PropertyPath>{PropertyPath{Prop(1), Prop(7)}, PropertyPath{Prop(3), Prop(7)}};
+  store.ArePropertiesEqual(registry, after_a_non_map, values, std::vector<std::size_t>{0, 0}, result);
+  EXPECT_EQ(result, (std::vector<bool>{false, true}));
+
+  // Arriving at nothing means nothing, and in particular not the value the walk stopped at:
+  // asked about that value, the path still answers false, and about Null, true.
+  store.ArePropertiesEqual(registry, after_a_non_map, values, std::vector<std::size_t>{1, 1}, result);
+  EXPECT_EQ(result, (std::vector<bool>{false, false}));
+  auto const null_and_eleven = std::vector<PropertyValue>{PropertyValue{}, PropertyValue{int64_t{11}}};
+  store.ArePropertiesEqual(registry, after_a_non_map, null_and_eleven, std::vector<std::size_t>{0, 1}, result);
+  EXPECT_EQ(result, (std::vector<bool>{true, true}));
+
+  // And a path is still found when the property it starts at was asked about on its own first.
+  auto const after_its_own_root = std::vector<PropertyPath>{PropertyPath{Prop(1)}, PropertyPath{Prop(3), Prop(7)}};
+  store.ArePropertiesEqual(registry, after_its_own_root, values, std::vector<std::size_t>{1, 0}, result);
+  EXPECT_EQ(result, (std::vector<bool>{true, true}));
 }
 
 // A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a

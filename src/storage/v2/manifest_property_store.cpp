@@ -526,22 +526,17 @@ auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, Proper
   return ValueAt(layout, *location);
 }
 
-auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, PropertyId property,
-                                            PropertyValue const &value) const -> bool {
-  if (!manifest_) return value.IsNull();
-
-  auto const &layout = registry.Resolve(*manifest_);
-  auto const location = layout.Find(property);
-  if (!location) return value.IsNull();
+auto ManifestPropertyStore::CompareAt(PropertyManifest const &layout, PropertyManifest::Location location,
+                                      PropertyValue const &value) const -> bool {
   // A stored value is one the record carries, and a record never carries a Null.
   if (value.IsNull()) return false;
 
-  if (location->is_fixed) {
-    return CompareFixed(buffer_.get() + location->offset, location->stored_type, value);
+  if (location.is_fixed) {
+    return CompareFixed(buffer_.get() + location.offset, location.stored_type, value);
   }
 
-  auto const payload = PayloadAt(layout, *location);
-  if (location->stored_type.type == PropertyStoreType::STRING) {
+  auto const payload = PayloadAt(layout, location);
+  if (location.stored_type.type == PropertyStoreType::STRING) {
     if (!value.IsString()) return false;
     auto const &text = value.ValueString();
     // The record holds the characters, so they are compared where they lie rather than copied
@@ -550,7 +545,59 @@ auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, Pr
   }
   // A list or a map is still built up to be compared, because the nested encoding describes
   // itself and walking it against a value means decoding it as it goes.
-  return ValueAt(layout, *location) == value;
+  return ValueAt(layout, location) == value;
+}
+
+auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, PropertyId property,
+                                            PropertyValue const &value) const -> bool {
+  if (!manifest_) return value.IsNull();
+
+  auto const &layout = registry.Resolve(*manifest_);
+  auto const location = layout.Find(property);
+  if (!location) return value.IsNull();
+  return CompareAt(layout, *location, value);
+}
+
+void ManifestPropertyStore::ArePropertiesEqual(ManifestRegistry const &registry,
+                                               std::span<PropertyPath const> ordered_properties,
+                                               std::span<PropertyValue const> values,
+                                               std::span<std::size_t const> position_lookup,
+                                               std::vector<bool> &result) const {
+  // Assigned rather than constructed, so a caller reusing the buffer keeps its capacity.
+  result.assign(ordered_properties.size(), false);
+
+  // A shape gives a property's place without reading what sits before it, so each path is
+  // looked up on its own and the paths need not be in any particular order.
+  auto const *layout = manifest_ ? &registry.Resolve(*manifest_) : nullptr;
+  for (std::size_t pos = 0; pos != ordered_properties.size(); ++pos) {
+    auto const &path = ordered_properties[pos];
+    auto const &value = values[position_lookup[pos]];
+
+    auto const location = layout ? layout->Find(path.front()) : std::nullopt;
+    if (!location) {
+      result[pos] = value.IsNull();
+      continue;
+    }
+    if (path.size() == 1) {
+      result[pos] = CompareAt(*layout, *location, value);
+      continue;
+    }
+
+    // A path of more than one names a key inside a value, which the shape says nothing about,
+    // so the value is built up and walked into. A path that runs through something that is
+    // not a map, or names a key that is not there, arrives at nothing and so equals Null.
+    auto nested = ValueAt(*layout, *location);
+    for (std::size_t step = 1; step != path.size(); ++step) {
+      if (!nested.IsMap()) {
+        nested = PropertyValue{};
+        break;
+      }
+      auto const &map = nested.ValueMap();
+      auto const at = map.find(path[step]);
+      nested = at == map.end() ? PropertyValue{} : PropertyValue{at->second};
+    }
+    result[pos] = nested == value;
+  }
 }
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue> {
