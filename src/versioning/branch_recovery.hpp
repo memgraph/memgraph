@@ -23,8 +23,9 @@ class VersionStore;
 // above every recorded floor and branch-native gid so new objects never collide with a branch's.
 //
 // A torn newest WAL file is renamed `.torn` and skipped. Any other unreplayable WAL (mid-stream corruption, missing
-// floors) is logged and the branch dropped (registry, ledger, fork pin), since keeping it would show main@fork as its
-// contents. Other branches and main are unaffected. Never throws.
+// floors, or a WAL directory that cannot be listed) is logged and the branch dropped (registry, ledger, fork pin),
+// since keeping it would show main@fork as its contents. Other branches and main are unaffected, and main's gid
+// counters are raised even if a branch fails. Never throws.
 void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main);
 
 }  // namespace memgraph::versioning

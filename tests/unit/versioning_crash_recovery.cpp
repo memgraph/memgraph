@@ -13,6 +13,8 @@
 // ending in the middle of a transaction. The tests build that state from a cleanly closed database: a copy of the files
 // is truncated inside the last transaction and its summary is reset to the placeholder an unfinalized file carries.
 // Recovery must land on the last complete transaction, never on a half-applied one, and the database must start.
+#include <unistd.h>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -1080,4 +1082,70 @@ TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarli
   ASSERT_EQ(txns.size(), 1u);
   ASSERT_NO_FATAL_FAILURE(
       ExpectTornNewestFileIsSkipped(newest, CutPoints(txns.back(), 8), before_last, TxnLabel(txns.back())));
+}
+
+// A branch directory that cannot be read must not stop the branches after it from recovering, nor leave main free to
+// hand out gids those branches use.
+TEST_F(VersioningCrashRecoveryTest, AnUnreadableBranchDirectoryDoesNotStopTheOtherBranches) {
+  if (::geteuid() == 0) GTEST_SKIP() << "root bypasses directory permissions";
+
+  uint64_t a_number = 0;
+  uint64_t b_native_gid = 0;
+  std::vector<VertexDump> b_before;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto n = ResolveNames(db);
+    const auto base = CreateBase(db);
+    auto a_info = db.version_store()->CreateBranch("a", "main", std::nullopt);
+    ASSERT_TRUE(a_info.has_value());
+    a_number = a_info->number;
+    auto b_info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    ASSERT_TRUE(b_info.has_value());
+    ASSERT_LT(a_info->number, b_info->number);
+    auto a = Checkout(db, "a");
+    auto b = Checkout(db, "b");
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    BranchTxn(*a, [&](mv::BranchContext &ctx, ms::Storage::Accessor &) {
+      ASSERT_TRUE(ctx.PrepareForkWrite(base.v1).has_value());
+      ASSERT_TRUE(ctx.OverlaySetProperty(base.v1, n.p, ms::PropertyValue(7)).has_value());
+    });
+    BranchTxn(*b, [&](mv::BranchContext &ctx, ms::Storage::Accessor &) {
+      ASSERT_TRUE(ctx.PrepareForkWrite(base.v2).has_value());
+      ASSERT_TRUE(ctx.OverlaySetProperty(base.v2, n.p, ms::PropertyValue(8)).has_value());
+      auto nv = ctx.CreateNativeVertex();
+      ASSERT_TRUE(nv.AddLabel(n.n).has_value());
+      b_native_gid = nv.Gid().AsUint();
+    });
+    b_before = DumpBranch(db, *b);
+  }
+  ASSERT_NE(b_native_gid, 0u);
+
+  const auto a_dir = kStorageDirectory / "branches" / std::to_string(a_number);
+  ASSERT_TRUE(fs::is_directory(a_dir));
+
+  struct RestorePermissions {
+    fs::path dir;
+
+    ~RestorePermissions() {
+      std::error_code ec;
+      fs::permissions(dir, fs::perms::owner_all, ec);
+    }
+  } restore{a_dir};
+
+  fs::permissions(a_dir, fs::perms::none);
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_FALSE(db.version_store()->Exists("a")) << "a branch whose files cannot be read is dropped, not kept empty";
+  ASSERT_TRUE(db.version_store()->Exists("b"));
+  auto b = Checkout(db, "b");
+  ASSERT_NE(b, nullptr);
+  EXPECT_EQ(DumpBranch(db, *b), b_before);
+
+  auto acc = db.Access(ms::WRITE);
+  auto fresh = acc->CreateVertex();
+  EXPECT_GT(fresh.Gid().AsUint(), b_native_gid) << "main must not reissue a gid branch b uses";
 }

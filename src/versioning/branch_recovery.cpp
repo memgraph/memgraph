@@ -57,12 +57,22 @@ struct WalFileEntry {
   dur::WalInfo info;
 };
 
-bool HasRegularFiles(const std::filesystem::path &dir) {
+// An absent directory is "no files"; any other filesystem error is "cannot tell" and is reported, never read as empty.
+std::expected<bool, std::string> HasRegularFiles(const std::filesystem::path &dir) {
   std::error_code ec;
-  if (!std::filesystem::is_directory(dir, ec)) return false;
-  for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
-    if (entry.is_regular_file(ec)) return true;
+  const auto status = std::filesystem::status(dir, ec);
+  if (status.type() == std::filesystem::file_type::not_found) return false;
+  if (ec) return std::unexpected(fmt::format("cannot stat '{}': {}", dir.string(), ec.message()));
+  if (status.type() != std::filesystem::file_type::directory) return false;
+  std::filesystem::directory_iterator it{dir, ec};
+  if (ec) return std::unexpected(fmt::format("cannot list '{}': {}", dir.string(), ec.message()));
+  for (const std::filesystem::directory_iterator end; it != end; it.increment(ec)) {
+    if (ec) break;
+    const bool regular = it->is_regular_file(ec);
+    if (ec) break;
+    if (regular) return true;
   }
+  if (ec) return std::unexpected(fmt::format("cannot list '{}': {}", dir.string(), ec.message()));
   return false;
 }
 
@@ -564,46 +574,71 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
   const auto branches_dir = main.config_.durability.storage_directory / "branches";
   std::vector<std::shared_ptr<BranchCore>> recovered;
 
-  try {
-    for (const auto &entry : store.List()) {
-      const std::string &name = entry.first;
-      const BranchInfo &info = entry.second;
-      const auto wal_dir = branches_dir / std::to_string(info.number) / "wal";
-      // No WAL means the branch never committed anything; its core is built empty on first checkout.
-      if (!HasRegularFiles(wal_dir)) continue;
-
-      auto attached = store.TryAcquireCheckout(name);
-      if (!attached) continue;
-      std::expected<std::shared_ptr<BranchCore>, std::string> core;
-      try {
-        core = store.GetOrBuildCore(info.number, [&] { return BuildAndReplay(main, info, wal_dir); });
-      } catch (const std::exception &e) {
-        core = std::unexpected(std::string{e.what()});
-      }
-      store.ReleaseCheckout(name);
-
-      if (!core) {
+  const auto drop_unrecoverable =
+      [&](const std::string &name, const std::string &reason, const std::string &files_dir) {
         // Keeping the branch with its contents lost would show main@fork as the branch's state, and its new commits
-        // would sit next to a WAL that cannot be replayed. Dropping it makes the loss visible; the WAL stays on disk.
+        // would sit next to a WAL that cannot be replayed. Dropping it makes the loss visible; the files stay on disk.
         spdlog::warn(
             "Graph Versioning: the contents of branch '{}' cannot be recovered ({}); the branch is dropped. Its "
             "files remain in '{}'.",
             name,
-            core.error(),
-            (wal_dir.parent_path()).string());
-        if (auto dropped = store.DropBranch(name); !dropped) {
-          spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, dropped.error());
-        } else if (!*dropped) {
-          spdlog::warn("Graph Versioning: branch '{}' could not be dropped.", name);
+            reason,
+            files_dir);
+        try {
+          if (auto dropped = store.DropBranch(name); !dropped) {
+            spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, dropped.error());
+          } else if (!*dropped) {
+            spdlog::warn("Graph Versioning: branch '{}' could not be dropped.", name);
+          }
+        } catch (const std::exception &e) {
+          spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, e.what());
         }
-        continue;
+      };
+
+  try {
+    for (const auto &entry : store.List()) {
+      const std::string &name = entry.first;
+      const BranchInfo &info = entry.second;
+      const auto branch_dir = branches_dir / std::to_string(info.number);
+      const auto wal_dir = branch_dir / "wal";
+      try {
+        // No WAL means the branch never committed anything; its core is built empty on first checkout.
+        const auto has_wal = HasRegularFiles(wal_dir);
+        if (!has_wal) {
+          drop_unrecoverable(name, has_wal.error(), branch_dir.string());
+          continue;
+        }
+        if (!*has_wal) continue;
+
+        auto attached = store.TryAcquireCheckout(name);
+        if (!attached) continue;
+        std::expected<std::shared_ptr<BranchCore>, std::string> core;
+        try {
+          core = store.GetOrBuildCore(info.number, [&] { return BuildAndReplay(main, info, wal_dir); });
+        } catch (const std::exception &e) {
+          core = std::unexpected(std::string{e.what()});
+        }
+        store.ReleaseCheckout(name);
+
+        if (!core) {
+          drop_unrecoverable(name, core.error(), branch_dir.string());
+          continue;
+        }
+        recovered.push_back(std::move(*core));
+        spdlog::info("Graph Versioning: recovered the contents of branch '{}'.", name);
+      } catch (const std::exception &e) {
+        spdlog::error("Graph Versioning: recovering branch '{}' failed unexpectedly: {}", name, e.what());
       }
-      recovered.push_back(std::move(*core));
-      spdlog::info("Graph Versioning: recovered the contents of branch '{}'.", name);
     }
-    RaiseGidCounters(store, main, recovered);
   } catch (const std::exception &e) {
     spdlog::error("Graph Versioning: recovering branch contents failed unexpectedly: {}", e.what());
+  }
+
+  // Unconditional: main's counters must clear every floor and recovered branch even after a failure above.
+  try {
+    RaiseGidCounters(store, main, recovered);
+  } catch (const std::exception &e) {
+    spdlog::error("Graph Versioning: raising main's gid counters failed unexpectedly: {}", e.what());
   }
 }
 
