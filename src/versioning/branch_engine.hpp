@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <exception>
@@ -105,6 +106,19 @@ class BranchCore {
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
 
   bool MayHaveAnyVertexDeleted() const noexcept { return change_filters_.MayHaveAnyVertexDeleted(); }
+
+  // Lock-free emptiness gates for the touched sets (monotonic bloom over id mod 256). A txn visible to a reader set the
+  // bit (release, in Record*Touched before its commit), and the reader observes that commit only via timestamp
+  // synchronisation, so a clear bit (acquire) equals an empty snapshot. False "maybe" only costs the snapshot path.
+  bool MayHaveLabelTouched(storage::LabelId label) const noexcept {
+    return (label_touched_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
+           0;
+  }
+
+  bool MayHavePropertyTouched(storage::PropertyId pid) const noexcept {
+    return (property_touched_gate_[GateWord(pid.AsUint())].load(std::memory_order_acquire) & GateBit(pid.AsUint())) !=
+           0;
+  }
 
   // Exact, insert-only record of fork gids whose membership of `label` may differ on this branch. Call before the
   // overlay write; a rolled-back write leaves the gid recorded (superset, never a miss).
@@ -202,6 +216,15 @@ class BranchCore {
     uint64_t version;
     std::shared_ptr<const LabelTouchedSet> set;
   };
+
+  static constexpr size_t kTouchedGateBits = 256;
+
+  static size_t GateWord(uint64_t id) noexcept { return (id % kTouchedGateBits) >> 6U; }
+
+  static uint64_t GateBit(uint64_t id) noexcept { return 1ULL << (id & 63U); }
+
+  std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> label_touched_gate_{};
+  std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> property_touched_gate_{};
 
   std::mutex touched_mutex_;
   absl::flat_hash_map<storage::LabelId, LabelTouchedSet> label_touched_;
@@ -509,6 +532,10 @@ class BranchContext {
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 
   bool MayHaveAnyVertexDeleted() const noexcept { return core_->MayHaveAnyVertexDeleted(); }
+
+  bool MayHaveLabelTouched(storage::LabelId label) const noexcept { return core_->MayHaveLabelTouched(label); }
+
+  bool MayHavePropertyTouched(storage::PropertyId pid) const noexcept { return core_->MayHavePropertyTouched(pid); }
 
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     core_->RecordPropertyFieldChange(gid, pid);

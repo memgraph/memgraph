@@ -404,6 +404,8 @@ void BranchCore::RecordVertexDeleted(storage::Gid gid) {
 }
 
 void BranchCore::RecordLabelTouched(storage::LabelId label, storage::Gid gid) {
+  // Before the set insert and the commit: readers that see the commit see the bit.
+  label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
   std::lock_guard lock(touched_mutex_);
   if (label_touched_[label].insert(gid.AsUint()).second) ++touched_version_;
 }
@@ -429,6 +431,7 @@ std::shared_ptr<const BranchCore::LabelTouchedSet> BranchCore::LabelTouchedSnaps
 }
 
 void BranchCore::RecordPropertyTouched(storage::PropertyId pid, storage::Gid gid) {
+  property_touched_gate_[GateWord(pid.AsUint())].fetch_or(GateBit(pid.AsUint()), std::memory_order_release);
   std::lock_guard lock(touched_mutex_);
   if (property_touched_[pid].insert(gid.AsUint()).second) ++touched_version_;
 }

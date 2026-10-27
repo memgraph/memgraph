@@ -670,11 +670,12 @@ class DbAccessor final {
   }
 
   // Nothing relevant changed on the branch (caller checked its touched snapshots and deletes) and the diff engine's
-  // index has no hit: the answer is main's index stream at fork, in index order, yielded lazily. `index_size` is the
-  // diff engine's index skiplist size (counts uncommitted/un-GC'd entries, so 0 means nothing visible to anyone).
-  template <typename DiffScan, typename ForkScan>
-  std::optional<VerticesIterable> LazyForkOnlyScan(uint64_t index_size, DiffScan &&diff_scan, ForkScan &&fork_scan) {
-    if (accessor_->ApproximateVertexCount() != 0 && index_size != 0) {
+  // index has no hit: the answer is main's index stream at fork, in index order, yielded lazily. `index_size()` is the
+  // diff engine's index skiplist size (counts uncommitted/un-GC'd entries, so 0 means nothing visible to anyone); it is
+  // only evaluated when the diff engine has vertices.
+  template <typename IndexSize, typename DiffScan, typename ForkScan>
+  std::optional<VerticesIterable> LazyForkOnlyScan(IndexSize &&index_size, DiffScan &&diff_scan, ForkScan &&fork_scan) {
+    if (accessor_->ApproximateVertexCount() != 0 && index_size() != 0) {
       auto diff = diff_scan();
       if (diff.begin() != diff.end()) return std::nullopt;
     }
@@ -696,22 +697,39 @@ class DbAccessor final {
       return VerticesIterable(std::make_shared<std::vector<VertexAccessor>>());
     }
 
-    // One snapshot up front: any txn visible to this scan recorded its gids before this point.
-    auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
     // A null-excluding range anchors the match, so only constrained positions can have turned into a match; otherwise
     // every key position is enumerated.
     bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
+    auto const key_enumerated = [&](size_t i) { return !anchored || i < property_ranges.size(); };
+
+    // Lock-free pre-check (gates are set before commit; clear = empty snapshot). The label snapshot also merges the
+    // deleted gids, hence the delete check.
+    bool maybe_touched = branch_ctx_->MayHaveLabelTouched(label) || branch_ctx_->MayHaveAnyVertexDeleted();
+    for (size_t i = 0; !maybe_touched && i < properties.size(); ++i) {
+      if (key_enumerated(i)) maybe_touched = branch_ctx_->MayHavePropertyTouched(properties[i].front());
+    }
+    if (!maybe_touched) {
+      if (auto lazy = LazyForkOnlyScan(
+              [&] { return accessor_->ApproximateVertexCount(label, properties); },
+              [&] { return accessor_->Vertices(label, properties, property_ranges, view, order); },
+              [&] { return historical.Vertices(label, properties, property_ranges, storage::View::OLD, order); })) {
+        return std::move(*lazy);
+      }
+    }
+
+    // One snapshot up front: any txn visible to this scan recorded its gids before this point.
+    auto const label_touched = branch_ctx_->LabelTouchedSnapshot(label);
     std::vector<std::shared_ptr<const versioning::BranchCore::LabelTouchedSet>> property_touched;
     property_touched.reserve(properties.size());
     for (size_t i = 0; i < properties.size(); ++i) {
-      if (anchored && i >= property_ranges.size()) continue;
+      if (!key_enumerated(i)) continue;
       property_touched.push_back(branch_ctx_->PropertyTouchedSnapshot(properties[i].front()));
     }
 
     // The label snapshot includes every deleted fork gid, so an empty one also means no deletes.
     if (label_touched->empty() && std::ranges::all_of(property_touched, [](auto const &t) { return t->empty(); })) {
       if (auto lazy = LazyForkOnlyScan(
-              accessor_->ApproximateVertexCount(label, properties),
+              [&] { return accessor_->ApproximateVertexCount(label, properties); },
               [&] { return accessor_->Vertices(label, properties, property_ranges, view, order); },
               [&] { return historical.Vertices(label, properties, property_ranges, storage::View::OLD, order); })) {
         return std::move(*lazy);
@@ -755,10 +773,17 @@ class DbAccessor final {
           },
           [](storage::PropertyValue const &a, storage::PropertyValue const &b) { return a < b; });
     }
-    // Snapshot first: any txn visible to this scan recorded its gids before this point.
+    // Lock-free pre-check first (gate set before commit; clear = empty snapshot), then the snapshot.
+    if (!branch_ctx_->MayHavePropertyTouched(property) && !branch_ctx_->MayHaveAnyVertexDeleted()) {
+      if (auto lazy =
+              LazyForkOnlyScan([&] { return accessor_->ApproximateVertexCount(property); }, diff_scan, fork_scan)) {
+        return std::move(*lazy);
+      }
+    }
     auto const property_touched = branch_ctx_->PropertyTouchedSnapshot(property);
     if (property_touched->empty() && !branch_ctx_->MayHaveAnyVertexDeleted()) {
-      if (auto lazy = LazyForkOnlyScan(accessor_->ApproximateVertexCount(property), diff_scan, fork_scan)) {
+      if (auto lazy =
+              LazyForkOnlyScan([&] { return accessor_->ApproximateVertexCount(property); }, diff_scan, fork_scan)) {
         return std::move(*lazy);
       }
     }
