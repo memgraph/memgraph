@@ -561,11 +561,10 @@ int main(int argc, char **argv) {
       if (!FLAGS_init_file.empty() || !FLAGS_init_data_file.empty() || std::getenv(kMgHaClusterInitQueries)) {
         memgraph::utils::FailStartup(
             memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
-            fmt::format("{}\nThe init queries (--init-file, --init-data-file, {}) run at startup, before a license can "
+            fmt::format("The init queries (--init-file, --init-data-file, {}) run at startup, before a license can "
                         "be set over Bolt. Provide the license at startup (--license-key and --organization-name, or "
                         "MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME), or start without the init "
                         "queries.",
-                        memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"),
                         kMgHaClusterInitQueries));
       }
       spdlog::warn(
