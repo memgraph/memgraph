@@ -1016,6 +1016,11 @@ add_unit_test(property_manifest
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(manifest_property_store
+    SOURCES manifest_property_store.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_property_store
     SOURCES storage_v2_property_store.cpp
     LINK_TARGETS mg::storage value_shapes
