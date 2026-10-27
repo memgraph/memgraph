@@ -15,9 +15,9 @@
 #include "auth/crypto.hpp"
 
 // The internal system user is the identity the Kubernetes operator (or any other automation that manages a cluster)
-// logs in with. It is configured, not created: --system-user-internal-hash-file names a file holding its bcrypt
-// hash, and while that flag is empty the user doesn't exist and every login behaves as before. It never lives in the
-// auth kvstore and never reaches an auth module, so no Cypher query, replication of the auth store or SSO
+// logs in with. It is configured, not created: --system-user-internal-hash-file names a file holding its bcrypt or
+// pbkdf2-sha256 hash, and while that flag is empty the user doesn't exist and every login behaves as before. It never
+// lives in the auth kvstore and never reaches an auth module, so no Cypher query, replication of the auth store or SSO
 // configuration can create, change, drop or shadow it, and SSO on a coordinator never closes it.
 namespace memgraph::auth {
 
