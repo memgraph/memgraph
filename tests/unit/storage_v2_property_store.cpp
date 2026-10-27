@@ -1534,6 +1534,57 @@ TEST(PropertyStore, ArePropertiesEqual_APathIntoSomethingThatIsNotAMapLeavesLate
             (std::vector{false, true}));
 }
 
+// A key is looked for inside the value that holds it and nowhere else. The ids here are chosen
+// so that a search for the key inside the nested map passes the one key it does hold and so
+// would carry on into what follows the map if it were not stopped at its end, where a property
+// of the same id sits at the top level.
+TEST(PropertyStore, ArePropertiesEqual_AKeyIsNotFoundOutsideTheValueThatHoldsIt) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p9 = PropertyId::FromInt(9);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p4, PropertyValue{"inner"}})})},
+      {p9, PropertyValue{"outer"}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  // The nested map holds no key 9, so the path names nothing.
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p2, p9}},
+                         std::array{PropertyValue{"outer"}},
+                         std::array<std::size_t, 1>{0}),
+            (std::vector{false}));
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p2, p9}}),
+            (std::vector{PropertyValue()}));
+}
+
+// The same, with one step rather than two, and a single path: a plain index on one key inside
+// one property is enough to ask this.
+TEST(PropertyStore, ArePropertiesEqual_AKeyIsNotFoundOutsideTheValueThatHoldsItAtOneStep) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p9 = PropertyId::FromInt(9);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p4, PropertyValue{"inner"}})},
+      {p9, PropertyValue{"outer"}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(
+      EqualityMask(
+          store, std::array{PropertyPath{p1, p9}}, std::array{PropertyValue{"outer"}}, std::array<std::size_t, 1>{0}),
+      (std::vector{false}));
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p9}}),
+            (std::vector{PropertyValue()}));
+}
+
 // Reading the values at a set of paths walks the same scan, so a path into something that is
 // not a map must leave the paths after it readable there too.
 TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_APathIntoSomethingThatIsNotAMapLeavesLaterPathsAlone) {

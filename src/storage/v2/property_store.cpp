@@ -2103,11 +2103,20 @@ enum class ExpectedPropertyStatus {
 // Similar to FindSpecificProperty, except that the reader will not consume
 // the next property if it is ordered after the requested property.
 //
+// `limit` is the offset the search must stop at, for searching among the properties held
+// inside one value rather than among the record's own. Stopping there reports the property
+// absent, which is what it is: the bytes beyond belong to whatever holds that value.
+//
 // @sa FindSpecificProperty
 // @sa FindSpecificPropertyAndBufferInfo
-[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property)
+[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property,
+                                         uint64_t limit = std::numeric_limits<uint64_t>::max())
     -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
   while (true) {
+    // A key held inside a value is searched for among that value's bytes and no further.
+    if (reader->GetPosition() >= limit) {
+      return {ExpectedPropertyStatus::GREATER, std::nullopt};
+    }
     auto ret = TryDecodeExpectedProperty(reader, property);
     // Because the properties are sorted in the buffer, we only need to
     // continue searching for the property while this function returns a
@@ -2207,9 +2216,15 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, 
 }
 
 // Like FindSpecificPropertyAndBufferInfo, but will early exit. No need to find the "all" information
-SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Reader *reader, PropertyId property) {
+SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(
+    Reader *reader, PropertyId property, uint64_t limit = std::numeric_limits<uint64_t>::max()) {
   uint64_t property_begin = reader->GetPosition();
   while (true) {
+    // See `MatchSpecificProperty` for what `limit` is for.
+    if (property_begin >= limit) {
+      reader->SetPosition(property_begin);
+      return {ExpectedPropertyStatus::GREATER, 0, 0};
+    }
     auto status = HasExpectedProperty(reader, property);
     switch (status) {
       case ExpectedPropertyStatus::MISSING_DATA: {
@@ -2655,7 +2670,7 @@ class ReaderPropPositionHistory {
     }
 
     for (auto inner_property_id : std::ranges::subrange(parent_map_fork_it, parent_map.end())) {
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id, CurrentLimit());
       if (info.status != ExpectedPropertyStatus::EQUAL) return info.status;
 
       reader.SetPosition(info.property_begin);
@@ -2674,6 +2689,14 @@ class ReaderPropPositionHistory {
     }
 
     return ExpectedPropertyStatus::EQUAL;
+  }
+
+  /// The offset a lookup must stop at: the end of the innermost value this scan has stepped
+  /// into. Unbounded while the scan is among the record's own properties, where the reader's
+  /// own end is the bound and running past it does mean the record ran out.
+  uint64_t CurrentLimit() const {
+    if (history_.empty()) return std::numeric_limits<uint64_t>::max();
+    return history_.back().offset_to_property_end;
   }
 
  private:
@@ -2700,7 +2723,7 @@ void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath c
     if (result != ExpectedPropertyStatus::EQUAL) {
       return {result, std::nullopt};
     }
-    return MatchSpecificProperty(&reader, path.back());
+    return MatchSpecificProperty(&reader, path.back(), history.CurrentLimit());
   };
 
   auto safe_reader = SafeReader{reader, get_value, std::move(sink), std::nullopt};
@@ -2766,7 +2789,7 @@ void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
 
       auto leaf_property_id = path.back();
 
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, leaf_property_id);
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, leaf_property_id, history.CurrentLimit());
       auto property_size = info.property_size();
       if (property_size != 0) {
         auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
