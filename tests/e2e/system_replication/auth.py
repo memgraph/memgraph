@@ -821,7 +821,12 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "DENY DELETE TO user4")
     check(
         partial(show_privileges_func, user_or_role="user4"),
-        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "DENY", "DENIED TO USER")},
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "STRONG DENY", "DENIED TO USER")},
+    )
+    execute_and_fetch_all(cursor_main, "WEAK DENY DELETE TO user4")
+    check(
+        partial(show_privileges_func, user_or_role="user4"),
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "WEAK DENY", "DENIED TO USER")},
     )
 
     # GRANT/REVOKE/DENY privileges TO role
@@ -856,11 +861,11 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "DENY DELETE TO role3")
     check(
         partial(show_privileges_func, user_or_role="role3"),
-        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "DENY", "DENIED TO ROLE")},
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "STRONG DENY", "DENIED TO ROLE")},
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
-        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "DENY", "DENIED TO ROLE")},
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "STRONG DENY", "DENIED TO ROLE")},
     )
 
     # GRANT permission ON LABEL/EDGE to user/role

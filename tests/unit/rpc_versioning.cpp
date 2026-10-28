@@ -600,12 +600,12 @@ TEST(RpcVersioning, SlkLoadRole_MigratesV3FGA) {
   auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+  EXPECT_FALSE(label_perms.GetGlobalStrongDenies().has_value());
 
   auto const &edge_perms = loaded.fine_grained_access_handler().edge_type_permissions();
   ASSERT_TRUE(edge_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(edge_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-  EXPECT_FALSE(edge_perms.GetGlobalDenies().has_value());
+  EXPECT_FALSE(edge_perms.GetGlobalStrongDenies().has_value());
 }
 
 // slk::Load<User> migrates V3 FGA and attached roles.
@@ -636,7 +636,7 @@ TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
   auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+  EXPECT_FALSE(label_perms.GetGlobalStrongDenies().has_value());
 
   // Attached role should also be migrated
   ASSERT_EQ(loaded.roles().size(), 1);

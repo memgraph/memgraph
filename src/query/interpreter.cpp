@@ -1408,6 +1408,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                     : auth::MatchingMode::ANY;
   auto property_permission_types = auth_query->property_permission_types_;
 #endif
+  auto const deny_strength = auth_query->deny_strength_ == AuthQuery::DenyStrength::WEAK ? auth::DenyStrength::WEAK
+                                                                                         : auth::DenyStrength::STRONG;
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
   auto oldPassword = EvaluateOptionalExpression(auth_query->old_password_, evaluator);
@@ -1844,6 +1846,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       callback.fn = [auth,
                      user_or_role,
                      privileges,
+                     deny_strength,
                      entity_type,
                      interpreter = &interpreter
 #ifdef MG_ENTERPRISE
@@ -1862,6 +1865,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                             edge_type_privileges
 #endif
                             ,
+                            deny_strength,
                             entity_type,
                             interpreter->auth_transaction_ptr(),
                             interpreter->system_transaction_ptr());
@@ -2226,6 +2230,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                      property_entity_kind,
                      property_matching_mode,
                      property_permission_types,
+                     deny_strength,
                      entity_type,
                      interpreter = &interpreter] {
         auto *auth_tx = interpreter->auth_transaction_ptr();
@@ -2252,6 +2257,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                            property_matching_mode,
                                            entity_type,
                                            perm_type,
+                                           deny_strength,
                                            auth_tx,
                                            system_tx);
               break;
