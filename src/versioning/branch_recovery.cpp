@@ -32,6 +32,7 @@
 
 #include "memory/db_arena.hpp"
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/version.hpp"
@@ -41,7 +42,6 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/version_store.hpp"
@@ -76,59 +76,50 @@ std::expected<bool, std::string> HasRegularFiles(const std::filesystem::path &di
   return false;
 }
 
-constexpr std::string_view kTornSuffix = ".torn";
-
-// The branch's WAL files, oldest first (the clock is moved past replayed timestamps before the next run writes, so the
-// first timestamp orders files across runs). An unreadable file is a crash tail only if no readable file with data is
-// newer (names start with a zero-padded timestamp); it is renamed aside so later runs do not append behind it.
-// @throw utils::BasicException a file cannot be read and is not the crash tail
+// The branch's WAL files, oldest first, selected the way main's GetWalFiles does: a file that is not a readable regular
+// file, whose header cannot be read, or that holds no complete transaction is warned about and skipped - never renamed
+// or deleted. A finalized file is taken at its summary and an unfinalized one up to its last whole transaction.
+// The sort key is (first timestamp, seq).
+// @throw utils::BasicException the directory cannot be listed, or the files' sequence numbers show a missing file
 std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   std::vector<WalFileEntry> files;
-  std::vector<std::filesystem::path> unreadable;
-  for (const auto &entry : std::filesystem::directory_iterator(dir)) {
-    if (!entry.is_regular_file()) continue;
-    if (entry.path().extension() == kTornSuffix) continue;
-    std::error_code ec;
-    if (entry.file_size(ec) == 0 && !ec) continue;
+  std::error_code ec;
+  for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+    if (!dur::ValidateDurabilityFile(entry)) continue;
     try {
-      auto info = dur::ReadWalContents(entry.path());
-      if (info.num_deltas == 0) continue;
+      auto header = dur::ReadWalHeader(entry.path());
+      auto info = dur::ReadWalContents(entry.path(), std::move(header));
       files.push_back({.path = entry.path(), .info = std::move(info)});
     } catch (const dur::RecoveryFailure &e) {
-      spdlog::warn("Branch WAL '{}' is unreadable: {}", entry.path().string(), e.what());
-      unreadable.push_back(entry.path());
+      spdlog::warn("Failed to read branch WAL file '{}'. Error: {}", entry.path().string(), e.what());
     }
   }
-  if (!unreadable.empty()) {
-    const auto newest_unreadable =
-        *std::ranges::max_element(unreadable, [](const auto &a, const auto &b) { return a.filename() < b.filename(); });
-    const bool mid_stream = unreadable.size() > 1 || std::ranges::any_of(files, [&](const WalFileEntry &f) {
-                              return f.path.filename() > newest_unreadable.filename();
-                            });
-    if (mid_stream) {
-      throw utils::BasicException(
-          "Branch WAL corruption in the middle of the stream: unreadable file(s) in '{}' are followed by newer data "
-          "(newest unreadable: '{}').",
-          dir.string(),
-          newest_unreadable.filename().string());
-    }
-    auto torn = newest_unreadable;
-    torn += kTornSuffix;
-    std::error_code ec;
-    std::filesystem::rename(newest_unreadable, torn, ec);
-    if (ec) {
-      throw utils::BasicException(
-          "Cannot move the torn branch WAL '{}' aside: {}.", newest_unreadable.string(), ec.message());
-    }
-    if (auto synced = utils::SyncDirectory(dir); !synced) throw utils::BasicException("{}", synced.error());
-    spdlog::warn("Branch WAL '{}' is a torn crash tail with no complete transaction; skipped and renamed to '{}'.",
-                 newest_unreadable.string(),
-                 torn.string());
-  }
+  if (ec) throw utils::BasicException("Cannot list '{}': {}", dir.string(), ec.message());
   std::ranges::sort(files, [](const WalFileEntry &a, const WalFileEntry &b) {
     return std::tie(a.info.from_timestamp, a.info.seq_num) < std::tie(b.info.from_timestamp, b.info.seq_num);
   });
   return files;
+}
+
+// Main's chain rules (RecoverData) for a durability base with no snapshot, applied to the files that were read: the
+// first has sequence number 0 and each next one follows its predecessor. The numbering continues across runs
+// (RecoverBranchContents hands the next number to the diff engine), so a missing file anywhere shows as a gap. A
+// skipped newest file leaves no gap: its number is reused by the next run, as in main.
+// @throw utils::BasicException a file is missing
+void CheckWalChain(const std::vector<WalFileEntry> &files) {
+  if (files.empty()) return;
+  if (files.front().info.seq_num != 0) {
+    throw utils::BasicException("There are missing prefix WAL files: '{}' has sequence number {}, not 0.",
+                                files.front().path.string(),
+                                files.front().info.seq_num);
+  }
+  for (size_t i = 1; i < files.size(); ++i) {
+    const uint64_t previous = files[i - 1].info.seq_num;
+    if (files[i].info.seq_num - previous > 1) {
+      throw utils::BasicException(
+          "You are missing a WAL file with the sequence number {} before '{}'.", previous + 1, files[i].path.string());
+    }
+  }
 }
 
 struct TxnState {
@@ -159,6 +150,8 @@ class BranchWalReplayer {
     for (const auto &file : files) ReplayFile(file);
     DeriveState();
     diff_.BumpClockPastDurable();
+    // The next run's files continue the numbering, so a file lost from either run leaves a gap CheckWalChain sees.
+    if (!files.empty()) diff_.SetNextWalSeqNum(files.back().info.seq_num + 1);
   }
 
  private:
@@ -517,6 +510,7 @@ std::expected<void, std::string> ReplayBranchWal(BranchCore &core, const std::fi
   const memory::DbArenaScope arena_scope{core.main().DbArenaPool()};
   try {
     const auto files = ListWalFiles(wal_dir);
+    CheckWalChain(files);
     if (files.empty()) return {};
     auto historical = core.main().HistoricalAccess(core.fork_ts());
     if (!historical) return std::unexpected(fmt::format("fork timestamp {} is not pinned", core.fork_ts()));

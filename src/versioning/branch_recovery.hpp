@@ -22,10 +22,11 @@ class VersionStore;
 // `branched()` bits derived from the overlay, and registers the core with `store`. Then raises main's gid counters
 // above every recorded floor and branch-native gid so new objects never collide with a branch's.
 //
-// A torn newest WAL file is renamed `.torn` and skipped. Any other unreplayable WAL (mid-stream corruption, missing
-// floors, or a WAL directory that cannot be listed) is logged and the branch dropped (registry, ledger, fork pin),
-// since keeping it would show main@fork as its contents. Other branches and main are unaffected, and main's gid
-// counters are raised even if a branch fails. Never throws.
+// WAL files are read the way main's recovery reads its own: a file with no readable header or no complete transaction
+// is skipped (never renamed), an unfinalized file is replayed up to its last whole transaction, and a missing file in
+// the sequence-number chain, a finalized file that fails its CRC, or a WAL that does not replay or cannot be listed is
+// logged and the branch dropped (registry, ledger, fork pin), since keeping it would show main@fork as its contents.
+// Other branches and main are unaffected, and main's gid counters are raised even if a branch fails. Never throws.
 void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main);
 
 }  // namespace memgraph::versioning

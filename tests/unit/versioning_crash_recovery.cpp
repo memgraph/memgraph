@@ -540,12 +540,12 @@ void ExpectRecovers(const Expected &want, std::string_view name = "b") {
   EXPECT_EQ(DumpMain(db), want.main);
 }
 
-// A crash-torn file recovery could not parse is skipped and renamed aside, not left in the WAL stream.
-void ExpectTornFileRenamed(const fs::path &wal) {
+// As in main, a crash-torn file recovery could not parse is skipped and left where it is: not renamed, not deleted.
+void ExpectTornFileLeftInPlace(const fs::path &wal) {
   auto torn = wal;
   torn += ".torn";
-  EXPECT_FALSE(fs::exists(wal)) << "the torn file must be moved aside";
-  EXPECT_TRUE(fs::exists(torn)) << "the torn file must be kept as " << torn;
+  EXPECT_TRUE(fs::exists(wal)) << "the torn file must stay in place";
+  EXPECT_FALSE(fs::exists(torn)) << "recovery must not rename the torn file";
 }
 
 std::string CutTrace(uint64_t cut, const TxnSpan &txn) {
@@ -557,7 +557,7 @@ std::string TxnLabel(const TxnSpan &txn) {
   return "txn bytes [" + std::to_string(txn.begin) + ", " + std::to_string(txn.end) + ")";
 }
 
-// Crashes `wal` at every cut in `cuts`: each restart must recover `want`, move the file aside, and recover `want`
+// Crashes `wal` at every cut in `cuts`: each restart must recover `want`, leave the file in place, and recover `want`
 // again.
 void ExpectTornNewestFileIsSkipped(const fs::path &wal, const std::vector<uint64_t> &cuts, const Expected &want,
                                    const std::string &what) {
@@ -566,7 +566,7 @@ void ExpectTornNewestFileIsSkipped(const fs::path &wal, const std::vector<uint64
     ASSERT_NO_FATAL_FAILURE(RestoreImage());
     ASSERT_NO_FATAL_FAILURE(CrashAt(wal, cut));
     ASSERT_NO_FATAL_FAILURE(ExpectRecovers(want));
-    ASSERT_NO_FATAL_FAILURE(ExpectTornFileRenamed(wal));
+    ASSERT_NO_FATAL_FAILURE(ExpectTornFileLeftInPlace(wal));
     ASSERT_NO_FATAL_FAILURE(ExpectRecovers(want));
   }
 }
@@ -645,7 +645,8 @@ INSTANTIATE_TEST_SUITE_P(Kinds, TornLastTransactionTest,
                          });
 
 // Recovery must be repeatable, and the torn file must not get in the way of later runs: the next run writes a new file,
-// so the torn one becomes a middle file whose complete prefix is replayed before the new file.
+// so the torn one becomes a middle file whose complete prefix is replayed before the new file. The new run numbers its
+// files from 0 again, so the torn file's sequence number is no gap.
 // Expected to pass: the torn file keeps its (from_timestamp, seq) position (branch_recovery.cpp), and the new
 // run's clock starts past the replayed timestamps (BranchWalReplayer::Run, branch_recovery.cpp).
 TEST_F(VersioningCrashRecoveryTest, RecoveryAfterATornTransactionIsRepeatableAndLaterWritesSurvive) {
@@ -951,8 +952,9 @@ TEST_F(VersioningCrashRecoveryTest, LedgerWithoutABranchWalDirectoryRecoversEmpt
   EXPECT_EQ(DumpMain(db), expected.main);
 }
 
-// Expected to pass: the crash left a zero-length WAL file (created, nothing written). ListWalFiles skips a file of size
-// zero (branch_recovery.cpp) and ReplayBranchWal returns with the freshly built core (branch_recovery.cpp).
+// Expected to pass: the crash left a zero-length WAL file (created, nothing written). Its header cannot be read, so
+// ListWalFiles skips it as main's GetWalFiles does (branch_recovery.cpp) and ReplayBranchWal returns with the freshly
+// built core (branch_recovery.cpp).
 TEST_F(VersioningCrashRecoveryTest, EmptyBranchWalFileRecoversEmptyAtTheFork) {
   uint64_t number = 0;
   Expected before;
@@ -977,7 +979,7 @@ TEST_F(VersioningCrashRecoveryTest, EmptyBranchWalFileRecoversEmptyAtTheFork) {
   ASSERT_NO_FATAL_FAILURE(ExpectRecovers(before));
   auto torn = wal;
   torn += ".torn";
-  EXPECT_TRUE(fs::exists(wal)) << "a zero-length file is skipped, not treated as torn";
+  EXPECT_TRUE(fs::exists(wal)) << "a zero-length file is skipped and left in place";
   EXPECT_FALSE(fs::exists(torn));
 }
 
@@ -1014,9 +1016,9 @@ TEST_F(VersioningCrashRecoveryTest, RestartingTwiceWithoutWritesIsIdempotent) {
 // ---- 6. A WAL file without a complete transaction ----------------------------------------------------------------
 
 // Nothing was ever committed to the torn file, so the branch must recover from the other files (or empty at the fork).
-// ScanWalDeltas throws RecoveryFailure for such a file; ListWalFiles catches it per file and, when the file is the
-// newest one (a crash tail), skips it and renames it aside with a ".torn" suffix. An unreadable file followed by newer
-// data is real corruption and still drops the branch.
+// ScanWalDeltas throws RecoveryFailure for such a file; ListWalFiles catches it per file and skips it, as main's
+// GetWalFiles does, without renaming it. A skipped file the sequence numbers show to sit in the middle of the stream is
+// a missing file, which main fails startup for and which drops the branch (test 7).
 
 // The branch's only WAL file has its only transaction torn, or its header torn (a crash while the header is written).
 TEST_F(VersioningCrashRecoveryTest, TornOnlyBranchWalFileRecoversEmptyAtTheFork) {
@@ -1082,6 +1084,166 @@ TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarli
   ASSERT_EQ(txns.size(), 1u);
   ASSERT_NO_FATAL_FAILURE(
       ExpectTornNewestFileIsSkipped(newest, CutPoints(txns.back(), 8), before_last, TxnLabel(txns.back())));
+}
+
+// ---- 7. A file missing from the sequence-number chain -----------------------------------------------------------
+//
+// Main fails startup when its WAL chain has a gap or lacks its first file, and ignores a damaged newest file. The
+// branch equivalent drops that branch only. Each transaction below fills a 1 KiB WAL file, so one run writes files 0, 1
+// and 2.
+
+struct ChainScenario {
+  uint64_t number{0};
+  std::vector<fs::path> wals;  // oldest first
+  Expected after[3];
+  std::vector<VertexDump> main_dump;
+};
+
+void BuildChainScenario(ChainScenario &out) {
+  auto config = MakeConfig(/*recover_on_startup=*/false);
+  config.durability.wal_file_size_kibibytes = 1;
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto n = ResolveNames(db);
+  const auto base = CreateBase(db);
+  auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+  ASSERT_TRUE(info.has_value());
+  out.number = info->number;
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  const ms::Gid targets[3] = {base.v1, base.v2, base.v3};
+  for (int i = 0; i < 3; ++i) {
+    BranchTxn(*ctx, [&](mv::BranchContext &c, ms::Storage::Accessor &) {
+      ASSERT_TRUE(c.PrepareForkWrite(targets[i]).has_value());
+      ASSERT_TRUE(
+          c.OverlaySetProperty(targets[i], n.p, ms::PropertyValue(std::string(2048, static_cast<char>('a' + i))))
+              .has_value());
+    });
+    out.after[i] = Capture(db, *ctx);
+  }
+  out.main_dump = DumpMain(db);
+}
+
+// The files of the chain, oldest first, after checking that the scenario produced the sequence 0, 1, ... count - 1.
+void ListChain(ChainScenario &s, size_t count = 3) {
+  for (const auto &entry : fs::directory_iterator(BranchWalDir(s.number))) {
+    if (entry.is_regular_file()) s.wals.push_back(entry.path());
+  }
+  std::ranges::sort(s.wals);
+  ASSERT_EQ(s.wals.size(), count) << "the transactions must land in one file each";
+  for (uint64_t seq = 0; seq < count; ++seq) ASSERT_EQ(dur::ReadWalHeader(s.wals[seq]).seq_num, seq);
+}
+
+// Run 1 writes files 0, 1, 2; the restart recovers them and run 2 writes two more transactions. Main numbers its WAL
+// files across restarts, so run 2's files must be 3 and 4, and a file lost from either run must leave a visible gap.
+void BuildTwoRunChainScenario(ChainScenario &out, Expected &final_state) {
+  ASSERT_NO_FATAL_FAILURE(BuildChainScenario(out));
+  auto config = MakeConfig(/*recover_on_startup=*/true);
+  config.durability.wal_file_size_kibibytes = 1;
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto n = ResolveNames(db);
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  ASSERT_EQ(DumpBranch(db, *ctx), out.after[2].branch);
+  // The vertex gids of the base are recovered with main; take them from the branch dump of run 1.
+  std::vector<ms::Gid> targets;
+  for (const auto &v : out.after[2].branch) targets.push_back(ms::Gid::FromUint(v.gid));
+  ASSERT_GE(targets.size(), 2u);
+  for (int i = 0; i < 2; ++i) {
+    BranchTxn(*ctx, [&](mv::BranchContext &c, ms::Storage::Accessor &) {
+      ASSERT_TRUE(c.PrepareForkWrite(targets[i]).has_value());
+      ASSERT_TRUE(
+          c.OverlaySetProperty(targets[i], n.p, ms::PropertyValue(std::string(2048, static_cast<char>('d' + i))))
+              .has_value());
+    });
+  }
+  final_state = Capture(db, *ctx);
+  out.main_dump = DumpMain(db);
+}
+
+void ExpectBranchDropped(const ChainScenario &s) {
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_FALSE(db.version_store()->Exists("b"));
+  EXPECT_EQ(DumpMain(db), s.main_dump) << "main must keep starting";
+}
+
+TEST_F(VersioningCrashRecoveryTest, ControlTheUndamagedChainRecoversAllThreeFiles) {
+  ChainScenario s;
+  ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s));
+  ASSERT_NO_FATAL_FAILURE(ExpectRecovers(s.after[2]));
+}
+
+TEST_F(VersioningCrashRecoveryTest, UnreadableMiddleFileIsAGapAndDropsTheBranch) {
+  ChainScenario s;
+  ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s));
+  fs::resize_file(s.wals[1], 10);
+  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+  for (const auto &wal : s.wals) EXPECT_TRUE(fs::exists(wal)) << "a dropped branch keeps its files";
+}
+
+TEST_F(VersioningCrashRecoveryTest, MissingMiddleFileIsAGapAndDropsTheBranch) {
+  ChainScenario s;
+  ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s));
+  fs::remove(s.wals[1]);
+  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+}
+
+TEST_F(VersioningCrashRecoveryTest, MissingFirstFileDropsTheBranch) {
+  ChainScenario s;
+  ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s));
+  fs::remove(s.wals[0]);
+  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+}
+
+TEST_F(VersioningCrashRecoveryTest, UnreadableNewestFileIsSkippedWithoutAGap) {
+  ChainScenario s;
+  ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s));
+  fs::resize_file(s.wals[2], 10);
+  ASSERT_NO_FATAL_FAILURE(ExpectRecovers(s.after[1]));
+  EXPECT_TRUE(fs::exists(s.wals[2])) << "the skipped file stays in place";
+}
+
+// The second run's files continue the first run's numbering, as main's do.
+TEST_F(VersioningCrashRecoveryTest, SecondRunContinuesTheWalSequenceAndRecovers) {
+  ChainScenario s;
+  Expected final_state;
+  ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
+  ASSERT_NO_FATAL_FAILURE(ExpectRecovers(final_state));
+}
+
+TEST_F(VersioningCrashRecoveryTest, MissingLastFileOfTheFirstRunIsAGapAcrossRestarts) {
+  ChainScenario s;
+  Expected final_state;
+  ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
+  fs::remove(s.wals[2]);
+  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+}
+
+TEST_F(VersioningCrashRecoveryTest, MissingFirstFileOfTheSecondRunIsAGapAcrossRestarts) {
+  ChainScenario s;
+  Expected final_state;
+  ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
+  fs::remove(s.wals[3]);
+  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+}
+
+TEST_F(VersioningCrashRecoveryTest, MissingMiddleFileOfTheFirstRunIsAGapAcrossRestarts) {
+  ChainScenario s;
+  Expected final_state;
+  ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
+  ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
+  fs::remove(s.wals[1]);
+  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
 }
 
 // A branch directory that cannot be read must not stop the branches after it from recovering, nor leave main free to

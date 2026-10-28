@@ -973,6 +973,10 @@ class InMemoryStorage final : public Storage {
   /// commit log.
   void BumpClockPastDurable(uint64_t min_next = 0);
 
+  /// Continues the WAL file numbering at `seq_num`, as main's recovery does after the last file it read. Only for a
+  /// storage that replays existing WAL files itself (versioning branch recovery) before anything commits.
+  void SetNextWalSeqNum(uint64_t seq_num);
+
   /// Writes a WAL transaction at `commit_ts` that holds only the records `writer` appends, and advances the last
   /// durable timestamp. For commits with no deltas of their own; writes nothing when the WAL is off or suppressed.
   /// The caller holds engine_lock_ and took `commit_ts` from the clock under it, so WAL order is commit order.

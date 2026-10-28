@@ -5011,6 +5011,11 @@ void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
   commit_log_->MarkFinishedInRange(first_skipped, target - 1);
 }
 
+void InMemoryStorage::SetNextWalSeqNum(uint64_t seq_num) {
+  auto guard = std::lock_guard{engine_lock_};
+  wal_seq_num_ = seq_num;
+}
+
 uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }
 
 void InMemoryStorage::PrepareForNewEpoch() {
