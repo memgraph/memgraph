@@ -404,16 +404,17 @@ auto ReadFixed(uint8_t const *at, StoredType stored_type) -> PropertyValue {
   }
 }
 
-/// Whether two doubles are the same number, answering for a NaN the way the decoded values
-/// answer rather than the way IEEE equality does.
-bool Alike(double lhs, double rhs) { return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent; }
+/// Whether two doubles are equivalent, which for a NaN is not what the arithmetic says: a NaN
+/// is equivalent to a NaN, and equal to nothing.
+bool Equivalent(double lhs, double rhs) { return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent; }
 
-/// Whether the value stored at `at` equals `value`, without building the stored one up again.
+/// Whether the value stored at `at` is equivalent to `value`, without building the stored one
+/// up again.
 ///
 /// The shape already carries the stored kind, so a pair of different kinds is refused before
 /// the record is touched at all. A number is the exception: an integer and a double of the
-/// same number are equal, so either kind is accepted against either and the pair is placed
-/// the way the decoded values place it.
+/// same number are equivalent, so either kind is accepted against either and the pair is
+/// placed the way equivalence places it.
 bool CompareFixed(uint8_t const *at, StoredType stored_type, PropertyValue const &value) {
   switch (stored_type.type) {
     case PropertyStoreType::BOOL:
@@ -431,7 +432,7 @@ bool CompareFixed(uint8_t const *at, StoredType stored_type, PropertyValue const
       auto stored = double{};
       std::memcpy(&stored, at, sizeof(stored));
       if (value.IsInt()) return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), stored));
-      return Alike(value.ValueDouble(), stored);
+      return Equivalent(value.ValueDouble(), stored);
     }
     case PropertyStoreType::ENUM:
       return value.IsEnum() && value.ValueEnum() == ReadObject<Enum>(at);
@@ -443,13 +444,13 @@ bool CompareFixed(uint8_t const *at, StoredType stored_type, PropertyValue const
         if (!value.IsPoint2d()) return false;
         auto const stored = ReadObject<Point2d>(at);
         auto const &point = value.ValuePoint2d();
-        return point.crs() == stored.crs() && Alike(point.x(), stored.x()) && Alike(point.y(), stored.y());
+        return point.crs() == stored.crs() && Equivalent(point.x(), stored.x()) && Equivalent(point.y(), stored.y());
       }
       if (!value.IsPoint3d()) return false;
       auto const stored = ReadObject<Point3d>(at);
       auto const &point = value.ValuePoint3d();
-      return point.crs() == stored.crs() && Alike(point.x(), stored.x()) && Alike(point.y(), stored.y()) &&
-             Alike(point.z(), stored.z());
+      return point.crs() == stored.crs() && Equivalent(point.x(), stored.x()) && Equivalent(point.y(), stored.y()) &&
+             Equivalent(point.z(), stored.z());
     }
     case PropertyStoreType::ZONED_TEMPORAL_DATA: {
       if (!value.IsZonedTemporalData()) return false;
@@ -585,7 +586,8 @@ void ManifestPropertyStore::ArePropertiesEqual(ManifestRegistry const &registry,
 
     // A path of more than one names a key inside a value, which the shape says nothing about,
     // so the value is built up and walked into. A path that runs through something that is
-    // not a map, or names a key that is not there, arrives at nothing and so equals Null.
+    // not a map, or names a key that is not there, arrives at nothing and so is equivalent to
+    // Null and to nothing else.
     auto nested = ValueAt(*layout, *location);
     for (std::size_t step = 1; step != path.size(); ++step) {
       if (!nested.IsMap()) {

@@ -47,12 +47,17 @@ class ManifestPropertyStore {
   /// Every property the record carries, in property order.
   auto Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue>;
 
-  /// Whether the record's `property` equals `value`, answered without building the stored
-  /// value up again. A property the record does not carry equals Null and nothing else.
+  /// Whether the record's `property` is equivalent to `value`, answered without building the
+  /// stored value up again.
   ///
-  /// This is what a constraint and an index ask, per record, so it is the comparison that has
-  /// to agree with how the decoded values compare: an integer equals a double of the same
-  /// number, and a NaN equals a NaN.
+  /// Equivalence rather than equality, which is the relation an index is keyed by and the one
+  /// a constraint needs if it is not to admit a duplicate. It is two-valued, and it holds
+  /// alike what equality does not hold equal to itself: a NaN is equivalent to a NaN, and a
+  /// property the record does not carry is equivalent to Null and to nothing else. A number is
+  /// equivalent to a number of the other numeric type when the two are the same number.
+  ///
+  /// Named for the question `PropertyStore` answers rather than for the relation, so that the
+  /// one can stand in for the other.
   auto IsPropertyEqual(ManifestRegistry const &registry, PropertyId property, PropertyValue const &value) const -> bool;
 
   /// The same question for several properties at once, which is what a composite index asks.
@@ -61,7 +66,7 @@ class ManifestPropertyStore {
   ///
   /// A path of more than one property names a key inside a value, as an index on a nested
   /// property does. A path arriving at nothing, because the record lacks the property or the
-  /// key is not there, equals Null.
+  /// key is not there, is equivalent to Null.
   void ArePropertiesEqual(ManifestRegistry const &registry, std::span<PropertyPath const> ordered_properties,
                           std::span<PropertyValue const> values, std::span<std::size_t const> position_lookup,
                           std::vector<bool> &result) const;
@@ -84,7 +89,7 @@ class ManifestPropertyStore {
   /// The bytes of a value the shape does not know the width of. `location` must name one.
   auto PayloadAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> std::span<uint8_t const>;
 
-  /// Whether the value at `location` equals `value`.
+  /// Whether the value at `location` is equivalent to `value`.
   auto CompareAt(PropertyManifest const &layout, PropertyManifest::Location location, PropertyValue const &value) const
       -> bool;
 
