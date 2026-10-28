@@ -42,17 +42,24 @@ jobs:
 
     steps:
       - name: Verify image type
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
+          if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "version must be a valid Docker tag, got: $VERSION"
+            exit 1
+          fi
+
           if [[ "${{ inputs.image_type }}" != "client" && "${{ inputs.image_type }}" != "full" ]]; then
             echo "Image type must be either 'client' or 'full'"
             exit 1
           fi
 
           if [[ "${{ inputs.image_type }}" == "client" ]]; then
-            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}"
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:$VERSION"
             dockerfile="tests/mgbench/Dockerfile.mgbench_client"
           else
-            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}-full"
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:$VERSION-full"
             dockerfile="tests/mgbench/Dockerfile.mgbench_full"
           fi
 
