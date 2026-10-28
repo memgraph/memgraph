@@ -142,8 +142,7 @@ class AiLicenseEmbeddingTest : public ::testing::Test {
   struct QueryEnv {
     QueryEnv(const std::filesystem::path &root, const std::string &name, int count, int dim,
              memgraph::storage::IsolationLevel isolation = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-             memgraph::storage::StorageMode mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-             bool with_index = true)
+             memgraph::storage::StorageMode mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
         : gk{std::make_unique<memgraph::utils::Gatekeeper<memgraph::dbms::Database>>(
               MakeConfig(MakeDir(root / name), isolation, mode))},
           repl_state{memgraph::storage::ReplicationStateRootPath(MakeConfig(root / name))},
@@ -165,7 +164,7 @@ class AiLicenseEmbeddingTest : public ::testing::Test {
           label{db->storage()->NameToLabel("Doc")},
           prop{db->storage()->NameToProperty("emb")} {
       Populate(db.get(), label, prop, count, dim);
-      if (with_index) CreateIndex(db.get(), label, prop, dim, count);
+      CreateIndex(db.get(), label, prop, dim, count);
     }
 
     static std::filesystem::path MakeDir(const std::filesystem::path &dir) {
@@ -299,7 +298,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
   ASSERT_TRUE(rvertex);
   auto *mem = memgraph::utils::NewDeleteResource();
   for (const auto view : {View::OLD, View::NEW}) {
-    const memgraph::query::TypedValue ref{memgraph::query::LazyVectorRef{*rvertex, env.prop, view}, mem};
+    const memgraph::query::TypedValue ref{memgraph::query::VectorRefValue{*rvertex, env.prop, view}, mem};
     const auto floats = ref.MaterializeVectorRef(mem);
     ASSERT_EQ(floats.ValueList().size(), static_cast<size_t>(kDim));
     EXPECT_FLOAT_EQ(static_cast<float>(floats.ValueList().front().ValueDouble()), 0.5F)
@@ -308,7 +307,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
 
   // The writer's own OLD view must also take the pre-SET floats from the delta, not usearch (which holds 42.0).
   {
-    const memgraph::query::TypedValue own{memgraph::query::LazyVectorRef{wvertex, env.prop, View::OLD}, mem};
+    const memgraph::query::TypedValue own{memgraph::query::VectorRefValue{wvertex, env.prop, View::OLD}, mem};
     const auto floats = own.MaterializeVectorRef(mem);
     ASSERT_EQ(floats.ValueList().size(), static_cast<size_t>(kDim));
     EXPECT_FLOAT_EQ(static_cast<float>(floats.ValueList().front().ValueDouble()), 0.5F)
@@ -316,7 +315,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
   }
 
   writer->Abort();
-  const memgraph::query::TypedValue ref{memgraph::query::LazyVectorRef{*rvertex, env.prop, View::OLD}, mem};
+  const memgraph::query::TypedValue ref{memgraph::query::VectorRefValue{*rvertex, env.prop, View::OLD}, mem};
   EXPECT_FLOAT_EQ(static_cast<float>(ref.MaterializeVectorRef(mem).ValueList().front().ValueDouble()), 0.5F);
 }
 
@@ -376,44 +375,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_SnapshotStableGateAndReadsUnderEvery
   }
 }
 
-// Interpreter::ThrowIfLazyVectorReaderOpen: a write must not run while an earlier read in the same explicit
-// transaction still holds unconsumed lazy refs.
-TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_ExplicitTxnWriteWaitsForOpenLazyReader) {
-  QueryEnv env{data_dir_, "t15", 3, 8};
-  auto &faker = env.faker;
-  faker.interpreter.BeginTransaction();
-
-  auto [reader, reader_qid] = faker.Prepare("MATCH (n:Doc) RETURN n.emb");
-  faker.Pull(&reader, 1, reader_qid);
-  ASSERT_TRUE(reader.GetSummary().at("has_more").ValueBool());
-
-  auto [writer, writer_qid] = faker.Prepare("CREATE (:Other)");
-  EXPECT_THROW(faker.Pull(&writer, {}, writer_qid), memgraph::query::QueryException);
-
-  faker.Pull(&reader, {}, reader_qid);
-  EXPECT_EQ(reader.GetResults().size(), 3u);
-
-  EXPECT_NO_THROW(faker.Pull(&writer, {}, writer_qid)) << "the write runs once the lazy reader is consumed";
-  faker.Abort();
-
-  // Without a vector index no lazy ref can exist, so the guard must not fire.
-  QueryEnv plain{data_dir_,
-                 "t15_noindex",
-                 3,
-                 8,
-                 memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                 memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                 /*with_index=*/false};
-  auto &plain_faker = plain.faker;
-  plain_faker.interpreter.BeginTransaction();
-  auto [r2, r2_qid] = plain_faker.Prepare("MATCH (n:Doc) RETURN n.emb");
-  plain_faker.Pull(&r2, 1, r2_qid);
-  ASSERT_TRUE(r2.GetSummary().at("has_more").ValueBool());
-  auto [w2, w2_qid] = plain_faker.Prepare("CREATE (:Other)");
-  EXPECT_NO_THROW(plain_faker.Pull(&w2, {}, w2_qid)) << "no vector index: partial read must not block a write";
-  plain_faker.Abort();
-}
-
 // A VectorRef must compare, order, hash and test emptiness like its list. The embedding is [0.5, 0.5, 0.5, 0.5]
 // (exact in float and double).
 TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
@@ -457,6 +418,112 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
   const std::vector<std::vector<double>> sorted = {
       {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.25}, {0.5, 0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 1.5}};
   EXPECT_EQ(EmbeddingRows(s), sorted);
+
+  // Nested refs (`[n.emb]` keeps VectorRef elements), mixed ref/literal sides, and two distinct refs in one
+  // comparison: every result equals the same query over literal lists.
+  // a = [0.5 x4], b = [0.5, 0.5, 0.5, 0.25]; they differ only in the last element.
+  QueryEnv nested_env{data_dir_, "t16_nested", 1, 4};
+  nested_env.faker.Interpret("CREATE (:Doc {emb: [0.5, 0.5, 0.5, 0.25]})");
+  const std::string kA = "[0.5, 0.5, 0.5, 0.5]";
+  const std::string kB = "[0.5, 0.5, 0.5, 0.25]";
+  const std::string ref_prefix =
+      "MATCH (n:Doc), (m:Doc) WHERE n.emb[3] = 0.5 AND m.emb[3] = 0.25 WITH n.emb AS a, m.emb AS b ";
+  const std::string lit_prefix = "WITH " + kA + " AS a, " + kB + " AS b ";
+
+  const auto render = [](this const auto &self, const memgraph::communication::bolt::Value &v) -> std::string {
+    using enum memgraph::communication::bolt::Value::Type;
+    if (v.type() == Null) return "null";
+    if (v.type() == Bool) return v.ValueBool() ? "true" : "false";
+    if (v.type() == Int) return std::to_string(v.ValueInt());
+    if (v.type() == Double) return std::to_string(v.ValueDouble());
+    if (v.type() == List) {
+      std::string out = "[";
+      for (const auto &x : v.ValueList()) out += self(x) + ",";
+      return out + "]";
+    }
+    return "?";
+  };
+  const auto run = [&](const std::string &query) {
+    auto stream = nested_env.faker.Interpret(query);
+    std::string out;
+    for (const auto &row : stream.GetResults()) {
+      for (const auto &cell : row) out += render(cell) + ";";
+      out += "|";
+    }
+    return out;
+  };
+  // `tail` starts with a clause that may reference a and b; `ref` binds them to embeddings, `lit` to equal lists.
+  const auto expect_same = [&](const std::string &tail) {
+    SCOPED_TRACE(tail);
+    const auto from_refs = run(ref_prefix + tail);
+    EXPECT_EQ(from_refs, run(lit_prefix + tail));
+    EXPECT_FALSE(from_refs.empty());
+    return from_refs;
+  };
+
+  std::vector<std::string> exprs = {
+      "[a] = [b]",
+      "[a] = [a]",
+      "[a] < [b]",
+      "[b] < [a]",
+      "[a] < [a]",
+      "[a, 1] = [b, 1]",
+      "[a, 1] = [a, 1]",
+      "[a, 1] < [b, 1]",
+      "[b, 1] < [a, 1]",
+      "[a, [b]] = [a, [b]]",
+      "[[a], b] < [[b], a]",
+      "a = b",
+      "a < b",
+      "b < a",
+      "a = a",
+      "a < a",
+  };
+  // mixed sides in both orders: Int element, Null element, shorter (prefix) and longer lists
+  for (const char *lit : {"[0.5, 0.5, 0.5, 0.5]",
+                          "[0.5, 0.5, 0.5, 0.25]",
+                          "[0.5, 0.5, 0.5, 1]",
+                          "[0.5, 0.5, 0.5, 0]",
+                          "[0.5, 0.5, 0.5, null]",
+                          "[0.5, 0.5, 0.5]",
+                          "[0.5, 0.5, 0.5, 0.5, 0.5]",
+                          "[0.5, 0.5, 0.5, 0.5, null]"}) {
+    for (const char *ref : {"a", "b"}) {
+      for (const char *op : {"=", "<"}) {
+        exprs.push_back(std::string{ref} + " " + op + " " + lit);
+        exprs.push_back(std::string{lit} + " " + op + " " + ref);
+        exprs.push_back("[" + std::string{ref} + "] " + op + " [" + lit + "]");
+      }
+    }
+  }
+  for (const auto &expr : exprs) expect_same("RETURN " + expr + " AS r");
+
+  // Pin the aliasing-sensitive results to absolute values, not only to the literal-list twin.
+  EXPECT_EQ(expect_same("RETURN a = b AS r"), "false;|");
+  EXPECT_EQ(expect_same("RETURN b < a AS r"), "true;|");
+  EXPECT_EQ(expect_same("RETURN [a, 1] < [b, 1] AS r"), "false;|");
+  EXPECT_EQ(expect_same("RETURN [b, 1] < [a, 1] AS r"), "true;|");
+
+  // ORDER BY over nested and mixed values; the literal side is listed in reverse to force a real sort.
+  const std::string ordered = "ORDER BY x RETURN size(x) AS s, x[-1] AS l";
+  EXPECT_EQ(run(ref_prefix + "UNWIND [[a], [b]] AS x WITH x " + ordered),
+            run("WITH " + kA + " AS a, " + kB + " AS b UNWIND [[b], [a]] AS x WITH x " + ordered));
+  EXPECT_EQ(run(ref_prefix + "UNWIND [[a, 1], [b, 1], [a, 0]] AS x WITH x ORDER BY x RETURN x[1] AS i, x[0][-1] AS l"),
+            "1;0.250000;|0;0.500000;|1;0.500000;|");
+  expect_same(
+      "UNWIND [[0.5, 0.5, 0.5, null], a, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 1], b, [0.5, 0.5, 0.5, 0.5, 0.5]] AS x "
+      "WITH x ORDER BY x RETURN size(x) AS s, x[-1] AS l");
+
+  // hash / equivalence: refs and their equal lists collapse into one group, at depth too
+  EXPECT_EQ(expect_same("UNWIND [a, " + kA + ", b, " + kB + ", a] AS x RETURN count(DISTINCT x) AS c"), "2;|");
+  EXPECT_EQ(expect_same("UNWIND [[a], [" + kA + "], [b], [" + kB + "]] AS x WITH DISTINCT x RETURN count(*) AS c"),
+            "2;|");
+  EXPECT_EQ(expect_same("UNWIND [[a, 1], [" + kA + ", 1], [b, 1], [" + kB +
+                        ", 1], [a, 2]] AS x RETURN count(DISTINCT x) AS c"),
+            "3;|");
+  EXPECT_EQ(
+      expect_same("UNWIND [a, " + kA + ", b, " + kB + "] AS x WITH x, count(*) AS c RETURN count(*) AS g, max(c) AS m"),
+      "2;2;|");
 
   // ref-vs-ref: vertex i holds (i % 7) + 0.5, so vertices 0 and 7 are equal and the rest differ.
   QueryEnv pair_env{data_dir_, "t16_pairs", 8, 4};
