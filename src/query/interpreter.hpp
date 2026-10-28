@@ -246,8 +246,6 @@ struct PreparedQuery {
   // Lazily renders the EXPLAIN plan for the slow-query log; empty unless slow logging may
   // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
   std::function<std::string()> slow_query_plan_renderer{};
-  // True when the plan may hold lazy vector-index references that re-read storage as results are pulled.
-  bool lazy_vector_refs{false};
 };
 
 /**
@@ -816,10 +814,6 @@ class Interpreter final {
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
-  // A write must not run while another query of this transaction can still resolve lazy vector references. No-op
-  // unless the query being pulled (writer_qid) is a write.
-  void ThrowIfLazyVectorReaderOpen(int writer_qid) const;
-
   size_t ActiveQueryExecutions() {
     return std::ranges::count_if(query_executions_,
                                  [](const auto &execution) { return execution && execution->prepared_query; });
@@ -854,10 +848,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   auto &query_execution = query_executions_[qid_value];
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
-
-  if (in_explicit_transaction_) {
-    ThrowIfLazyVectorReaderOpen(qid_value);
-  }
 
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
