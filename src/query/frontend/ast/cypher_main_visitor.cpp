@@ -1350,6 +1350,12 @@ antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemory
   return free_memory_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitResetQueryPlanCacheQuery(MemgraphCypher::ResetQueryPlanCacheQueryContext *ctx) {
+  auto *reset_query_plan_cache_query = storage_->Create<ResetQueryPlanCacheQuery>();
+  query_ = reset_query_plan_cache_query;
+  return reset_query_plan_cache_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) {
   DMG_ASSERT(ctx->children.size() == 1, "TriggerQuery should have exactly one child!");
   auto *trigger_query = std::any_cast<TriggerQuery *>(ctx->children[0]->accept(this));

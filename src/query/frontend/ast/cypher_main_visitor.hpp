@@ -385,6 +385,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) override;
 
   /**
+   * @return ResetQueryPlanCacheQuery*
+   */
+  antlrcpp::Any visitResetQueryPlanCacheQuery(MemgraphCypher::ResetQueryPlanCacheQueryContext *ctx) override;
+
+  /**
    * @return TriggerQuery*
    */
   antlrcpp::Any visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) override;
