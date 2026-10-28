@@ -68,14 +68,14 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
   }
 
   // Which of these paths end in the name of a field a value carries, worked out once here
-  // because resolving a name is a lookup and these paths are read once per record.
+  // because resolving a name is a lookup and these paths are read for every record.
   auto const any_nested = r::any_of(sorted_properties_, [](auto const &path) { return path.size() > 1; });
   DMG_ASSERT(!any_nested || name_id_mapper != nullptr,
              "Telling a key inside a value from a field of it takes the names behind the ids");
 
-  // Asked as "which id is this name" rather than the other way about, so a name no record has
-  // ever used is simply a name the mapper does not know, rather than one it has to invent an id
-  // for.
+  // Asked as "which id is this name" rather than the other way about: asking for the name of
+  // an id the mapper does not know is fatal, and asking for the id of an unused name would
+  // mint one.
   auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
   if (any_nested) {
     for (auto const &[name, field] : FieldNames()) {
@@ -115,7 +115,6 @@ auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const 
     current = &at->second;
   }
 
-  // The last names a key of a map, or a field of whatever else the walk arrived at.
   if (current->IsMap()) {
     auto const &map = current->ValueMap();
     auto const at = map.find(path.back());
@@ -138,14 +137,10 @@ void PropertiesPermutationHelper::ExtractInto(PropertyStore const &properties, s
 }
 
 void PropertiesPermutationHelper::ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
-  // A path ending in a field cannot be read from the record's bytes alone, because whether its
-  // last segment is a key or a field is only settled by the value the walk arrives at. Only
-  // the paths that could end in one are read again this way.
   for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
     if (!field) continue;
     auto read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
-    // A path arriving at nothing reads as Null, which is what reading the record's bytes
-    // answers for one and what an index holds for a record the path names nothing in.
+    // An index keys a record the path names nothing in on Null.
     out[pos] = read ? *std::move(read) : PropertyValue{};
   }
 }
@@ -199,8 +194,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
                                                 std::vector<bool> &out) const {
   properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
-  // A path ending in a field is answered the way reading it answers, since the record's bytes
-  // alone cannot say whether its last segment is a key or a field.
+  // A path arriving at nothing is equivalent to Null, which is how the read above places one.
   for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
     if (!field) continue;
     auto const read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));

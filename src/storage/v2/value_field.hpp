@@ -20,9 +20,9 @@
 
 namespace memgraph::storage {
 
-/// A field a value of its own carries, as against a key a map holds. A moment has a year and a
-/// point has a longitude, and both are read with the same spelling a map key is read with, so
-/// a name alone does not say which of the two is meant.
+/// A field a value of its own carries, as against a key a map holds. A moment has a year and
+/// a point has a longitude, and both are spelled the way a map key is, so a name alone does
+/// not say which of the two is meant.
 ///
 /// A field is always a number or a piece of text, never a map, so a name denoting one is
 /// always the last of a path.

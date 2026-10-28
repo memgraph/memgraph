@@ -102,9 +102,8 @@ auto ZonedField(utils::ZonedDateTime const &zoned, ValueField field) -> std::opt
   }
 }
 
-/// A point given in longitude and latitude carries those; one given in coordinates carries x
-/// and y. Both carry whichever pair they are given in, so asking a cartesian point for its
-/// longitude reads as nothing.
+/// Longitude and latitude name a geographic pair; a cartesian point has only x and y, which
+/// is what the guards below are for.
 auto PointField(CoordinateReferenceSystem crs, double x, double y, std::optional<double> z, ValueField field)
     -> std::optional<PropertyValue> {
   auto const geographic = crs == CoordinateReferenceSystem::WGS84_2d || crs == CoordinateReferenceSystem::WGS84_3d;

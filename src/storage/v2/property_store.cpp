@@ -2104,10 +2104,10 @@ enum class ExpectedPropertyStatus {
 // the next property if it is ordered after the requested property.
 //
 // `limit` is the offset the search must stop at, and has to be given: a search among the
-// properties held inside one value must not run past that value, and one among the record's
-// own is bounded by the reader itself and passes the largest offset there is. Stopping at the
-// limit reports the property absent, which is what it is: the bytes beyond belong to whatever
-// holds that value.
+// properties held inside one value must not run past that value. Stopping there reports the
+// property absent, which is what it is, since the bytes beyond belong to whatever holds that
+// value. A search among a record's own properties is bounded by the reader and passes the
+// largest offset there is.
 //
 // @sa FindSpecificProperty
 // @sa FindSpecificPropertyAndBufferInfo

@@ -239,10 +239,10 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
-   * @param name_id_mapper Says which name each id stands for, so that a path ending in the
-   *                   name of a field a value carries is recognised once here rather than per
-   *                   record read. An id the mapper does not know names no field. May be null
-   *                   only when no path has more than one property, where no field can apply.
+   * @param name_id_mapper Resolves a path ending in the name of a field once here rather
+   *                   than for every record read. An id it does not know names no field. May
+   *                   be null only when no path has more than one property, since no field
+   *                   can then apply.
    */
   PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper *name_id_mapper);
 
@@ -306,21 +306,24 @@ struct PropertiesPermutationHelper {
   }
 
  private:
-  /// Reads `path` out of `value`, where `value` is the record's own property that the path
-  /// starts at. Walks the maps the path names and then reads the last segment as a key or as a
-  /// field of the value it lands on.
+  /// Reads `path` out of `value`, the record's own property the path starts at. Walks the maps
+  /// the path names, then reads the last segment as a key of a map or as a field of whatever
+  /// else it lands on. Nothing when the path names nothing.
+  ///
+  /// Only the value in hand settles which of the two the last segment is, so reading a
+  /// record's bytes answers the key and nothing else. A path that could end in a field is read
+  /// this way instead.
   auto ReadPath(std::size_t pos, PropertyValue const &value) const -> std::optional<PropertyValue>;
 
-  /// Re-reads the paths that could end in a field, which the record's bytes alone cannot
-  /// answer. Leaves every other position as it was read.
+  /// Re-reads the paths that could end in a field. Leaves every other position as it was.
   void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
-  /// Parallel to `sorted_properties_`: which field the path's last segment names, for the
-  /// paths whose last segment names one at all.
+  /// Parallel to `sorted_properties_`: which field each path's last segment names, where it
+  /// names one.
   std::vector<std::optional<ValueField>> fields_;
 };
 
