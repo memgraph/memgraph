@@ -1844,6 +1844,38 @@ TEST(PropertiesPermutationHelper, BothComparisonsPlaceAPathThatArrivesAtNothingA
   EXPECT_TRUE(one[0].second) << "asked of a change behind the record";
 }
 
+// One name can be a field of more than one kind of value and mean a different thing in each:
+// a date's `day` is a day of its month, a duration's is a count of whole days. Naming the
+// field is therefore not enough to read it, and the value the path arrives at decides. An
+// index over `a.day` keys each record on what a lookup on `a.day` answers for it.
+TEST(PropertiesPermutationHelper, OneNameReadsTheFieldOfWhicheverKindTheValueIs) {
+  NameIdMapper mapper;
+  auto const outer = PropertyId::FromUint(mapper.NameToId("a"));
+  auto const day = PropertyId::FromUint(mapper.NameToId("day"));
+  auto const paths = std::vector<PropertyPath>{PropertyPath{outer, day}};
+  PropertiesPermutationHelper helper{paths, mapper};
+
+  auto const keyed_on = [&](PropertyValue const &held) {
+    PropertyStore store;
+    store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{{outer, held}});
+    return helper.ApplyPermutation(helper.Extract(store)).values_[0];
+  };
+
+  // 2024-03-05, whose day of the month is 5.
+  EXPECT_EQ(keyed_on(PropertyValue{TemporalData{TemporalType::Date, 1'709'596'800'000'000}}),
+            PropertyValue{int64_t{5}});
+  // Two days and an hour, whose whole days are 2.
+  EXPECT_EQ(keyed_on(PropertyValue{TemporalData{TemporalType::Duration, 2 * 86'400'000'000 + 3'600'000'000}}),
+            PropertyValue{int64_t{2}});
+  // A local time carries no day at all, so the path names nothing in it.
+  EXPECT_TRUE(keyed_on(PropertyValue{TemporalData{TemporalType::LocalTime, 3'600'000'000}}).IsNull());
+  // Nor does a point, whose fields are named otherwise.
+  EXPECT_TRUE(keyed_on(PropertyValue{Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.5, 2.5}}).IsNull());
+  // And a map holding the key is read as the key, never as a field.
+  EXPECT_EQ(keyed_on(PropertyValue{PropertyValue::map_t{{day, PropertyValue{int64_t{99}}}}}),
+            PropertyValue{int64_t{99}});
+}
+
 TEST(PropertiesPermutationHelper, ReadsAFieldOfAValueThatIsNotAMap) {
   NameIdMapper mapper;
   auto const outer = PropertyId::FromUint(mapper.NameToId("a"));
