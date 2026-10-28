@@ -455,3 +455,21 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureChangesNothingAndDoe
   EXPECT_TRUE(store->FreezeAndDropAll().has_value());
   EXPECT_TRUE(store->Empty());
 }
+
+TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureOnFrozenStoreKeepsItFrozen) {
+  auto store = MakeLedgerStore();
+  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+  ASSERT_TRUE(store->Frozen());
+
+  auto tmp = file_;
+  tmp += ".tmp";
+  std::filesystem::create_directory(tmp);
+
+  EXPECT_FALSE(store->FreezeAndDropAll().has_value());
+  EXPECT_TRUE(store->Frozen());
+  EXPECT_FALSE(store->CreateBranch("b", "main", std::nullopt).has_value());
+  EXPECT_FALSE(store->TryAcquireCheckout("a").has_value());
+
+  std::filesystem::remove(tmp);
+}

@@ -214,8 +214,10 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
+  bool was_frozen = false;
   {
     std::lock_guard guard{lock_};
+    was_frozen = frozen_;
     frozen_ = true;
     next = SnapshotLocked();
     next.branches.clear();
@@ -223,7 +225,7 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
 
   if (auto written = WriteLedger(next); !written) {
     std::lock_guard guard{lock_};
-    frozen_ = false;
+    frozen_ = was_frozen;
     return std::unexpected(std::move(written.error()));
   }
 
@@ -277,7 +279,7 @@ std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, 
     auto it = std::ranges::find(branches_, number, [](const auto &kv) { return kv.second.number; });
     return it == branches_.end() || it->second.vertex_gid_floor.has_value();
   };
-  // Fast path: skip ledger_mutex_, which CreateBranch holds across slow retention-floor I/O.
+  // Fast path: skip ledger_mutex_, which CreateBranch holds across the slow ledger write.
   if (already_settled()) return {};
 
   std::lock_guard ledger_guard{ledger_mutex_};

@@ -84,10 +84,10 @@ class VersionStore {
 
   // Replica demotion: refuses new branches and checkouts from here on (until Unfreeze), then durably drops every
   // branch, including those with attached sessions (their ReleaseCheckout stays valid and keeps the gauges balanced).
-  // Branch numbering is kept. Idempotent. A ledger write failure is returned, leaving the store unfrozen and unchanged.
+  // Branch numbering is kept. Idempotent. A ledger write failure is returned, leaving the store unchanged (including
+  // its frozen state).
   std::expected<void, std::string> FreezeAndDropAll();
 
-  // Allows branches again after FreezeAndDropAll.
   void Unfreeze();
 
   bool Frozen() const;
