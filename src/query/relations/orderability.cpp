@@ -13,7 +13,9 @@
 
 #include <algorithm>
 #include <optional>
-#include <vector>
+#include <span>
+
+#include "utils/logging.hpp"
 
 import memgraph.storage.property_value;
 
@@ -108,6 +110,19 @@ static_assert(ASortRefinesTheStoredOrder(),
               "A sort and the stored order place two types differently, so a scan standing in for a sort would hand "
               "back a column in an order the sort would not");
 
+/// Elementwise as the list of doubles the floats stand for, each pair going through Compare so that a NaN,
+/// an Int, a Null or any other element is placed exactly as it is in a list.
+template <bool ListFirst>
+std::partial_ordering CompareFloatsWithList(std::span<const float> floats, TypedValue::TVector const &list) {
+  auto const common = std::min(floats.size(), list.size());
+  for (auto i = 0UZ; i != common; ++i) {
+    TypedValue const as_double{static_cast<double>(floats[i])};
+    auto const order = ListFirst ? Compare(list[i], as_double) : Compare(as_double, list[i]);
+    if (!std::is_eq(order)) return order;
+  }
+  return ListFirst ? list.size() <=> floats.size() : floats.size() <=> list.size();
+}
+
 }  // namespace
 
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
@@ -116,10 +131,9 @@ std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::T
 }
 
 std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const &b) {
-  thread_local std::vector<float> floats_a;
-  thread_local std::vector<float> floats_b;
-  a.MaterializeVectorRefInto(floats_a);
-  b.MaterializeVectorRefInto(floats_b);
+  DMG_ASSERT(a.IsVectorRef() && b.IsVectorRef(), "Both sides must be VectorRef");
+  auto const floats_a = a.ReadVectorRef();
+  auto const floats_b = b.ReadVectorRef();
   return std::lexicographical_compare_three_way(
       floats_a.begin(), floats_a.end(), floats_b.begin(), floats_b.end(), [](float x, float y) {
         return PlaceDoubles(x, y);
@@ -127,12 +141,21 @@ std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const 
 }
 
 std::partial_ordering CompareOfVectorRefAndList(TypedValue const &a, TypedValue const &b) {
-  auto const a_is_embedding = a.type() == TypedValue::Type::VectorRef;
+  DMG_ASSERT(a.IsVectorRef() && b.IsPlainList(), "Expected a VectorRef and a List");
+  auto const floats = a.ReadVectorRef();
+  return CompareFloatsWithList<false>(floats, b.UnsafeValueList());
+}
 
-  // Materialized with the default allocator so the transient list is not held by the query's arena.
-  auto const list = (a_is_embedding ? a : b).MaterializeVectorRef(TypedValue::allocator_type{});
-  return a_is_embedding ? CompareOfLists(list.UnsafeValueList(), b.UnsafeValueList())
-                        : CompareOfLists(a.UnsafeValueList(), list.UnsafeValueList());
+std::partial_ordering CompareOfListAndVectorRef(TypedValue const &a, TypedValue const &b) {
+  DMG_ASSERT(a.IsPlainList() && b.IsVectorRef(), "Expected a List and a VectorRef");
+  auto const floats = b.ReadVectorRef();
+  return CompareFloatsWithList<true>(floats, a.UnsafeValueList());
+}
+
+std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b) {
+  if (a.IsVectorRef() && b.IsPlainList()) return CompareOfVectorRefAndList(a, b);
+  DMG_ASSERT(a.IsPlainList() && b.IsVectorRef(), "Only a VectorRef against a List shares a position with unlike types");
+  return CompareOfListAndVectorRef(a, b);
 }
 
 }  // namespace memgraph::query::relations::orderability

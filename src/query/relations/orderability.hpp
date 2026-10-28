@@ -72,17 +72,29 @@ std::partial_ordering PlacePoints(Point const &a, Point const &b) {
 /// handed a pair of unlike things.
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
-/// The two cases of a lazy embedding, ordered as the list of doubles it materializes to.
+/// Two lazy embeddings, ordered as the lists of doubles they stand for.
 ///
-/// Two embeddings are read through float buffers reused by the thread, so that a sort over a column
-/// of them holds references rather than a list per row in the query's arena. Each float is placed by
-/// PlaceDoubles as its double would be, so a NaN sorts as it does in a list.
+/// Read through the thread's scratch buffers, so that a sort over a column of them holds references
+/// rather than a list per row in the query's arena. Each float is placed by PlaceDoubles as its double
+/// would be, so a NaN sorts as it does in a list.
 ///
 /// @pre Both are VectorRef.
 std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const &b);
 
+/// An embedding against a list, in either order, which share a position though unlike in type. Cold, so
+/// that Compare carries one unlikely test for it.
+///
 /// @pre One is a VectorRef and the other a List.
+[[gnu::cold]] std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b);
+
+/// Walks the embedding's floats against the list's elements, each placed as the double it stands for
+/// would be in a list, so no list is built.
+///
+/// @pre @p a is a VectorRef and @p b a List.
 std::partial_ordering CompareOfVectorRefAndList(TypedValue const &a, TypedValue const &b);
+
+/// @pre @p a is a List and @p b a VectorRef.
+std::partial_ordering CompareOfListAndVectorRef(TypedValue const &a, TypedValue const &b);
 
 namespace detail {
 
@@ -226,7 +238,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
 inline std::optional<TypedValue::Type> UnorderedTypeWithin(TypedValue const &value) {
   if (!ValidFor(value.type())) return value.type();
   // An embedding is a list of doubles, which a sort places, so there is nothing to read through.
-  if (value.type() != TypedValue::Type::List) return std::nullopt;
+  if (!value.IsPlainList()) return std::nullopt;
 
   for (auto const &element : value.ValueList()) {
     if (auto const unordered = UnorderedTypeWithin(element)) return unordered;
@@ -324,10 +336,9 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
     auto const placed =
         detail::kPositions[static_cast<unsigned>(a.type())] <=> detail::kPositions[static_cast<unsigned>(b.type())];
 
-    // Two unlike types share a position only where they are one kind of value, and the numbers were
-    // answered above. What is left is an embedding against a list, which orders as the list does.
+    // Unlike types share a position only as an embedding against a list; the numbers were answered above.
     if (std::is_eq(placed)) [[unlikely]]
-      return CompareOfVectorRefAndList(a, b);
+      return CompareOfTiedTypes(a, b);
     return placed;
   }
 }

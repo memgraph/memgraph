@@ -39,17 +39,17 @@ namespace memgraph::query::relations::equality {
 TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b, TypedValue::allocator_type alloc);
 TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, TypedValue::allocator_type alloc);
 
-/// The two cases of a lazy embedding, which equality reads as the list of doubles it materializes to.
+/// Equality where either side is a lazy embedding, which reads as the list of doubles it materializes to.
 ///
-/// Two embeddings are compared through float buffers reused by the thread, so that a sort or a hash
-/// join over them never allocates in the query's arena. A float widens to a double exactly, so
-/// comparing the floats answers what the list of doubles would, a NaN included.
+/// Embeddings are read through the thread's float scratch, so that a sort or a hash join over them
+/// never allocates in the query's arena. A float widens to a double exactly, so comparing the floats
+/// answers what the list of doubles would, a NaN included. Two embeddings compare as floats; an
+/// embedding against a plain List compares elementwise, as EqualOfLists does; against anything else
+/// it is false.
 ///
-/// @pre Both are VectorRef.
-TypedValue EqualOfVectorRefs(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc);
-
-/// @pre One is a VectorRef and the other is not.
-TypedValue EqualOfVectorRefAndOther(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc);
+/// @pre At least one is a VectorRef.
+[[gnu::cold, gnu::noinline]] TypedValue EqualOfAnyVectorRef(const TypedValue &a, const TypedValue &b,
+                                                            TypedValue::allocator_type alloc);
 
 /// Whether a Null sits anywhere within the value, however deeply nested.
 ///
@@ -96,7 +96,7 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
     if (!AreMixedNumbers(a.type(), b.type())) {
       // A lazy embedding is equal to the list it would materialize to, and to nothing else.
       if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
-        return EqualOfVectorRefAndOther(a, b, alloc);
+        return EqualOfAnyVectorRef(a, b, alloc);
       return TypedValue(false, alloc);
     }
     return TypedValue(std::is_eq(ComparePayloadOfMixedNumbers(a, b)), alloc);
@@ -145,11 +145,11 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Graph:
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported comparison operator");
+    case TypedValue::Type::VectorRef:
+      return EqualOfAnyVectorRef(a, b, alloc);
     case TypedValue::Type::Function:
     case TypedValue::Type::Null:
       LOG_FATAL("Unhandled comparison for types");
-    case TypedValue::Type::VectorRef:
-      return EqualOfVectorRefs(a, b, alloc);
   }
 }
 

@@ -82,19 +82,18 @@ constexpr bool ValidFor(TypedValue::Type type) {
 /// Takes the vectors so both arguments are lists by type.
 std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
-/// The two cases of a lazy embedding, ordered as the list of doubles it materializes to.
+/// A pair with an embedding in it, ordered as the lists of doubles an embedding materializes to: two
+/// embeddings against each other, or one against a plain list. Any other partner has no order.
 ///
-/// Two embeddings are read through float buffers reused by the thread, so that a filter or a sort
-/// over them never allocates in the query's arena. A float widens to a double exactly, so the answer
-/// is the one CompareOfLists gives, a NaN included.
+/// Read through the thread's float buffers, so a filter or a sort over them never allocates in the
+/// query's arena. A float widens to a double exactly, so the answer is CompareOfLists's, a NaN included.
 ///
-/// @pre Both are VectorRef.
-std::optional<std::partial_ordering> CompareOfVectorRefs(const TypedValue &a, const TypedValue &b);
-
-/// Nothing unless the other is a list, as for any list.
+/// Cold and out of line, and the one tail Compare reaches an embedding through, so the scalar path
+/// Compare is inlined for carries a single call it does not take.
 ///
-/// @pre One is a VectorRef and the other is not.
-std::optional<std::partial_ordering> CompareOfVectorRefAndOther(const TypedValue &a, const TypedValue &b);
+/// @pre At least one is a VectorRef.
+[[gnu::cold, gnu::noinline]] std::optional<std::partial_ordering> CompareWithVectorRef(const TypedValue &a,
+                                                                                       const TypedValue &b);
 
 /**
  * Whether comparability places a value against the values of its own type.
@@ -120,9 +119,7 @@ inline bool ValidFor(const TypedValue &value) {
  * False for a value ValidFor rejects, such as NaN: every comparison against it
  * fails, while the index still places it somewhere.
  */
-inline bool AnIndexCanFence(const TypedValue &bound) {
-  return ValidFor(bound) && bound.type() != TypedValue::Type::List && bound.type() != TypedValue::Type::VectorRef;
-}
+inline bool AnIndexCanFence(const TypedValue &bound) { return ValidFor(bound) && !bound.IsList(); }
 
 /// The same question where the type is already known at compile time.
 template <TypedValue::Type T>
@@ -207,12 +204,13 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
   // Two values of one admitted type are the common case and the whole answer.
   if (a.type() == b.type()) {
     // A list compares by its elements, which ComparePayload cannot do.
-    if (a.type() == TypedValue::Type::List) return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
+    if (a.IsPlainList()) return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
 
     if (auto const order = ComparePayload(a, b)) return order;
 
-    // A pair of embeddings is read as the lists of doubles they materialize to.
-    if (a.type() == TypedValue::Type::VectorRef) return CompareOfVectorRefs(a, b);
+    // ComparePayload has no answer for a VectorRef, so a pair of embeddings only reaches here.
+    if (a.IsVectorRef()) [[unlikely]]
+      return CompareWithVectorRef(a, b);
 
     // A Null orders against nothing, itself included, and a type carrying no
     // order of its own places no pair of its values either. Both are
@@ -231,8 +229,8 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
   // unlike types is incomparable, as is any pair involving a Null.
   if (!AreMixedNumbers(a.type(), b.type())) {
     // An embedding still orders against a list, as the list it materializes to.
-    if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
-      return CompareOfVectorRefAndOther(a, b);
+    if (a.IsVectorRef() || b.IsVectorRef()) [[unlikely]]
+      return CompareWithVectorRef(a, b);
     return std::nullopt;
   }
   return ComparePayloadOfMixedNumbers(a, b);
