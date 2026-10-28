@@ -329,16 +329,21 @@ struct PropertiesPermutationHelper {
   /// bookkeeping that follows from that order.
   void OrderPaths(std::span<PropertyPath const> properties);
 
-  /// Re-reads the paths that could end in a field. Leaves every other position as it was.
+  /// Which field the path at `pos` names, where it names one.
+  auto FieldAt(std::size_t pos) const -> std::optional<ValueField>;
+
+  /// Re-reads the paths that name a field, of which there are usually none. Leaves every
+  /// other position as it was.
   void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
-  /// Parallel to `sorted_properties_`: which field each path's last segment names, where it
-  /// names one.
-  std::vector<std::optional<ValueField>> fields_;
+  /// Only the paths whose last segment names a field: where each sits, and which field it
+  /// names. An index over whole properties holds none of these, and then reading a record is
+  /// reading its properties with nothing further to do.
+  std::vector<std::pair<std::size_t, ValueField>> fields_;
 };
 
 using LabelPropertyIndexAbortableInfo =
