@@ -1,0 +1,195 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "storage/v2/value_field.hpp"
+
+#include <chrono>
+
+#include "storage/v2/point.hpp"
+#include "storage/v2/temporal.hpp"
+#include "utils/temporal.hpp"
+
+namespace memgraph::storage {
+
+namespace {
+
+auto DateField(utils::Date const &date, ValueField field) -> std::optional<PropertyValue> {
+  switch (field) {
+    case ValueField::Year:
+      return PropertyValue{static_cast<int64_t>(date.year)};
+    case ValueField::Month:
+      return PropertyValue{static_cast<int64_t>(date.month)};
+    case ValueField::Day:
+      return PropertyValue{static_cast<int64_t>(date.day)};
+    default:
+      return std::nullopt;
+  }
+}
+
+auto LocalTimeField(utils::LocalTime const &time, ValueField field) -> std::optional<PropertyValue> {
+  switch (field) {
+    case ValueField::Hour:
+      return PropertyValue{static_cast<int64_t>(time.hour)};
+    case ValueField::Minute:
+      return PropertyValue{static_cast<int64_t>(time.minute)};
+    case ValueField::Second:
+      return PropertyValue{static_cast<int64_t>(time.second)};
+    case ValueField::Millisecond:
+      return PropertyValue{static_cast<int64_t>(time.millisecond)};
+    case ValueField::Microsecond:
+      return PropertyValue{static_cast<int64_t>(time.microsecond)};
+    default:
+      return std::nullopt;
+  }
+}
+
+/// A duration's fields are the whole days it spans and then what is left over, so its `day` is
+/// a count of days and not a day of the month as a date's is.
+auto DurationField(utils::Duration const &duration, ValueField field) -> std::optional<PropertyValue> {
+  switch (field) {
+    case ValueField::Day:
+      return PropertyValue{duration.Days()};
+    case ValueField::Hour:
+      return PropertyValue{duration.SubDaysAsHours()};
+    case ValueField::Minute:
+      return PropertyValue{duration.SubDaysAsMinutes()};
+    case ValueField::Second:
+      return PropertyValue{duration.SubDaysAsSeconds()};
+    case ValueField::Millisecond:
+      return PropertyValue{duration.SubDaysAsMilliseconds()};
+    case ValueField::Microsecond:
+      return PropertyValue{duration.SubDaysAsMicroseconds()};
+    case ValueField::Nanosecond:
+      return PropertyValue{duration.SubDaysAsNanoseconds()};
+    default:
+      return std::nullopt;
+  }
+}
+
+/// Read in the zone the moment is written in, which is what makes a year a year where it was
+/// recorded rather than where it is read.
+auto ZonedField(utils::ZonedDateTime const &zoned, ValueField field) -> std::optional<PropertyValue> {
+  switch (field) {
+    case ValueField::Year:
+      return PropertyValue{zoned.LocalYear()};
+    case ValueField::Month:
+      return PropertyValue{static_cast<int64_t>(zoned.LocalMonth())};
+    case ValueField::Day:
+      return PropertyValue{static_cast<int64_t>(zoned.LocalDay())};
+    case ValueField::Hour:
+      return PropertyValue{zoned.LocalHour()};
+    case ValueField::Minute:
+      return PropertyValue{zoned.LocalMinute()};
+    case ValueField::Second:
+      return PropertyValue{zoned.LocalSecond()};
+    case ValueField::Millisecond:
+      return PropertyValue{zoned.LocalMillisecond()};
+    case ValueField::Microsecond:
+      return PropertyValue{zoned.LocalMicrosecond()};
+    case ValueField::Timezone:
+      return PropertyValue{zoned.GetTimezone().ToString()};
+    default:
+      return std::nullopt;
+  }
+}
+
+/// A point given in longitude and latitude carries those; one given in coordinates carries x
+/// and y. Both carry whichever pair they are given in, so asking a cartesian point for its
+/// longitude reads as nothing.
+auto PointField(CoordinateReferenceSystem crs, double x, double y, std::optional<double> z, ValueField field)
+    -> std::optional<PropertyValue> {
+  auto const geographic = crs == CoordinateReferenceSystem::WGS84_2d || crs == CoordinateReferenceSystem::WGS84_3d;
+  switch (field) {
+    case ValueField::X:
+      return PropertyValue{x};
+    case ValueField::Y:
+      return PropertyValue{y};
+    case ValueField::Z:
+      if (!z) return std::nullopt;
+      return PropertyValue{*z};
+    case ValueField::Longitude:
+      if (!geographic) return std::nullopt;
+      return PropertyValue{x};
+    case ValueField::Latitude:
+      if (!geographic) return std::nullopt;
+      return PropertyValue{y};
+    case ValueField::Height:
+      if (!geographic || !z) return std::nullopt;
+      return PropertyValue{*z};
+    case ValueField::Crs:
+      return PropertyValue{std::string{CrsToString(crs)}};
+    case ValueField::Srid:
+      return PropertyValue{static_cast<int64_t>(CrsToSrid(crs).value_of())};
+    default:
+      return std::nullopt;
+  }
+}
+
+}  // namespace
+
+auto FieldNamed(std::string_view name) -> std::optional<ValueField> {
+  if (name == "year") return ValueField::Year;
+  if (name == "month") return ValueField::Month;
+  if (name == "day") return ValueField::Day;
+  if (name == "hour") return ValueField::Hour;
+  if (name == "minute") return ValueField::Minute;
+  if (name == "second") return ValueField::Second;
+  if (name == "millisecond") return ValueField::Millisecond;
+  if (name == "microsecond") return ValueField::Microsecond;
+  if (name == "nanosecond") return ValueField::Nanosecond;
+  if (name == "timezone") return ValueField::Timezone;
+  if (name == "x") return ValueField::X;
+  if (name == "y") return ValueField::Y;
+  if (name == "z") return ValueField::Z;
+  if (name == "longitude") return ValueField::Longitude;
+  if (name == "latitude") return ValueField::Latitude;
+  if (name == "height") return ValueField::Height;
+  if (name == "crs") return ValueField::Crs;
+  if (name == "srid") return ValueField::Srid;
+  return std::nullopt;
+}
+
+auto ReadField(PropertyValue const &value, ValueField field) -> std::optional<PropertyValue> {
+  if (value.IsTemporalData()) {
+    auto const &temporal = value.ValueTemporalData();
+    auto const micros = std::chrono::microseconds{temporal.microseconds};
+    switch (temporal.type) {
+      case TemporalType::Date:
+        return DateField(utils::Date{micros}, field);
+      case TemporalType::LocalTime:
+        return LocalTimeField(utils::LocalTime{temporal.microseconds}, field);
+      case TemporalType::LocalDateTime: {
+        // A moment carries both a date's fields and a time's, so whichever of the two has the
+        // field asked for answers.
+        auto const local = utils::LocalDateTime{temporal.microseconds};
+        if (auto const date = DateField(local.date(), field)) return date;
+        return LocalTimeField(local.local_time(), field);
+      }
+      case TemporalType::Duration:
+        return DurationField(utils::Duration{temporal.microseconds}, field);
+    }
+  }
+  if (value.IsZonedTemporalData()) {
+    auto const &zoned = value.ValueZonedTemporalData();
+    return ZonedField(utils::ZonedDateTime{zoned.microseconds, zoned.timezone}, field);
+  }
+  if (value.IsPoint2d()) {
+    auto const &point = value.ValuePoint2d();
+    return PointField(point.crs(), point.x(), point.y(), std::nullopt, field);
+  }
+  if (value.IsPoint3d()) {
+    auto const &point = value.ValuePoint3d();
+    return PointField(point.crs(), point.x(), point.y(), point.z(), field);
+  }
+  return std::nullopt;
+}
+
+}  // namespace memgraph::storage
