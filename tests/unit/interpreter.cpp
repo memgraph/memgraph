@@ -1937,6 +1937,14 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
   this->Interpret("ROLLBACK");
 }
 
+TYPED_TEST(InterpreterTest, SessionQueriesInMulticommandTransaction) {
+  this->Interpret("BEGIN");
+  ASSERT_THROW(this->Interpret("SHOW SESSIONS"), memgraph::query::SessionQueryInMulticommandTxException);
+  ASSERT_THROW(this->Interpret("TERMINATE SESSIONS 'some-session-id'"),
+               memgraph::query::SessionQueryInMulticommandTxException);
+  this->Interpret("ROLLBACK");
+}
+
 TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
   auto stream = this->Interpret("SHOW STORAGE INFO");
   ASSERT_EQ(stream.GetHeader().size(), 2U);
