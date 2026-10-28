@@ -2103,14 +2103,15 @@ enum class ExpectedPropertyStatus {
 // Similar to FindSpecificProperty, except that the reader will not consume
 // the next property if it is ordered after the requested property.
 //
-// `limit` is the offset the search must stop at, for searching among the properties held
-// inside one value rather than among the record's own. Stopping there reports the property
-// absent, which is what it is: the bytes beyond belong to whatever holds that value.
+// `limit` is the offset the search must stop at, and has to be given: a search among the
+// properties held inside one value must not run past that value, and one among the record's
+// own is bounded by the reader itself and passes the largest offset there is. Stopping at the
+// limit reports the property absent, which is what it is: the bytes beyond belong to whatever
+// holds that value.
 //
 // @sa FindSpecificProperty
 // @sa FindSpecificPropertyAndBufferInfo
-[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property,
-                                         uint64_t limit = std::numeric_limits<uint64_t>::max())
+[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property, uint64_t limit)
     -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
   while (true) {
     // A key held inside a value is searched for among that value's bytes and no further.
@@ -2675,11 +2676,14 @@ class ReaderPropPositionHistory {
 
       reader.SetPosition(info.property_begin);
       auto metadata = reader.ReadMetadata();
+      // These are the bytes the search above read to recognise the property, so they are there
+      // to be read again.
+      DMG_ASSERT(metadata, "A property was found and then could not be read");
       // A path goes on only into a map, since nothing else holds keys. Stepping into any other
       // kind would read its payload as though it were a list of properties, and running off the
       // end of that would be taken for the record itself running out, which stops every later
       // path being read at all. The path names nothing, which is what GREATER says.
-      if (!metadata || metadata->type != Type::MAP) {
+      if (metadata->type != Type::MAP) {
         reader.SetPosition(info.property_end);
         return ExpectedPropertyStatus::GREATER;
       }
@@ -2714,8 +2718,7 @@ namespace {
 // to `sink`. Shared by the vector-returning and into-buffer overloads.
 template <typename Sink>
 void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath const> ordered_properties, Sink sink) {
-  // Asking about no paths yields no values, and the deepest of none is not a question the
-  // line below can ask.
+  // No paths means no values, and `max_element` below would read the first of none.
   if (ordered_properties.empty()) return;
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
@@ -2775,15 +2778,12 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup, std::vector<bool> &result) const {
-  result.clear();
-  // Asking about no paths yields no answers, and the deepest of none is not a question the
-  // line below can ask.
+  // assign rather than construct: a reused buffer keeps its capacity
+  result.assign(ordered_properties.size(), false);
+  // No paths means no answers, and `max_element` below would read the first of none.
   if (ordered_properties.empty()) return;
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
-
-  // assign rather than construct: a reused buffer keeps its capacity
-  result.assign(ordered_properties.size(), false);
 
   auto properties_are_equal = [&](Reader &reader) {
     auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {

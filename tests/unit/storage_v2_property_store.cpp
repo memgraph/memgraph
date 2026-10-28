@@ -1550,6 +1550,32 @@ TEST(PropertyStore, AskingAboutNoPathsAtAllYieldsNoAnswers) {
   EXPECT_TRUE(store.ExtractPropertyValuesMissingAsNull(std::vector<PropertyPath>{}).empty());
 }
 
+// Giving up on a path has to leave the reader after the value it gave up on, which is where a
+// plain read of that value would leave it, because the paths after it are read from there. The
+// value here is long enough that a reader left inside it is left well short of the property
+// that follows.
+TEST(PropertyStore, ArePropertiesEqual_GivingUpOnAPathLeavesTheReaderAfterTheValueItGaveUpOn) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p9 = PropertyId::FromInt(9);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue{std::string(400, 'x')}},
+      {p9, PropertyValue{"outer"}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p3}, PropertyPath{p9}},
+                         std::array{PropertyValue{"outer"}},
+                         std::array<std::size_t, 2>{0, 0}),
+            (std::vector{false, true}));
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p3}, PropertyPath{p9}}),
+            (std::vector{PropertyValue(), PropertyValue("outer")}));
+}
+
 // A key is looked for inside the value that holds it and nowhere else. The ids here are chosen
 // so that a search for the key inside the nested map passes the one key it does hold and so
 // would carry on into what follows the map if it were not stopped at its end, where a property
