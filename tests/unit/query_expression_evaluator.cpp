@@ -3846,17 +3846,6 @@ TYPED_TEST(FunctionTest, ToUpper) {
   EXPECT_EQ(this->EvaluateFunction("TOUPPER", "Ab__C").ValueString(), "AB__C");
 }
 
-TYPED_TEST(FunctionTest, NaturalSortKey) {
-  EXPECT_THROW(this->EvaluateFunction("NATURALSORTKEY"), QueryRuntimeException);
-  EXPECT_THROW(this->EvaluateFunction("NATURALSORTKEY", 42), QueryRuntimeException);
-  EXPECT_THROW(this->EvaluateFunction("NATURALSORTKEY", "a", "b"), QueryRuntimeException);
-  EXPECT_TRUE(this->EvaluateFunction("NATURALSORTKEY", TypedValue()).IsNull());
-  auto key = [this](const char *s) { return std::string(this->EvaluateFunction("NATURALSORTKEY", s).ValueString()); };
-  EXPECT_LT(key("T2"), key("T10"));
-  EXPECT_EQ(key("Caf\u00E9 01"), key("cafe 1"));
-  EXPECT_LT(key("T-1"), key("T1"));
-}
-
 TYPED_TEST(FunctionTest, ToByteString) {
   EXPECT_THROW(this->EvaluateFunction("TOBYTESTRING"), QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("TOBYTESTRING", 42), QueryRuntimeException);

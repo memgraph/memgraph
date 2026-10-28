@@ -52,6 +52,7 @@ add_custom_library(text_search text_search_module.cpp fmt::fmt)
 add_custom_library(vector_search vector_search_module.cpp fmt::fmt)
 add_custom_library(convert convert.cpp fmt::fmt nlohmann_json::nlohmann_json)
 add_custom_library(convert_c convert.c)
+add_custom_library(natsort natsort.cpp)
 
 
 set(QUERY_MODULES_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
@@ -135,7 +136,7 @@ endif() # MG_PYTHON_SUPPORT
 
 # Install C++ query modules
 install(TARGETS
-    convert convert_c example_c example_cpp schema mgps_cpp
+    convert convert_c example_c example_cpp natsort schema mgps_cpp
     text_search vector_search pagerank_online
     community_detection_online katz_centrality_online node2vec_online
     DESTINATION lib/memgraph/query_modules

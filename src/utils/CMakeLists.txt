@@ -43,7 +43,6 @@ target_sources(mg-utils
     exponential_backoff.cpp
     compressor.cpp
     logging.cpp
-    natural_sort.cpp
     string.cpp
     scheduler.cpp
     skip_list.cpp
@@ -69,8 +68,6 @@ target_sources(mg-utils
     static_vector.hpp
     logging.hpp
     session_context.hpp
-    natural_sort.hpp
-    natural_sort_table.hpp
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
