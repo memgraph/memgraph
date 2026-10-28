@@ -305,16 +305,21 @@ TEST_F(VersioningGatedTest, CreateShowCheckoutDropHappyPath) {
 
   {
     auto stream = faker.Interpret("SHOW BRANCHES");
-    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"number", "version", "description"}));
+    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"number", "version", "description", "created_at"}));
     ASSERT_EQ(stream.GetResults().size(), 2U);
     EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "main");
+    EXPECT_EQ(stream.GetResults()[0][3].type(), memgraph::communication::bolt::Value::Type::Null);
     EXPECT_EQ(stream.GetResults()[1][1].ValueString(), "feature");
+    EXPECT_EQ(stream.GetResults()[1][3].type(), memgraph::communication::bolt::Value::Type::String);
+    EXPECT_FALSE(stream.GetResults()[1][3].ValueString().empty());
   }
 
   {
     auto stream = faker.Interpret("SHOW BRANCH");
+    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "created_at"}));
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
+    EXPECT_EQ(stream.GetResults()[0][3].type(), memgraph::communication::bolt::Value::Type::Null);
   }
 
   faker.Interpret("CHECKOUT BRANCH 'feature'");
@@ -324,6 +329,7 @@ TEST_F(VersioningGatedTest, CreateShowCheckoutDropHappyPath) {
     auto stream = faker.Interpret("SHOW BRANCH");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
+    EXPECT_EQ(stream.GetResults()[0][3].type(), memgraph::communication::bolt::Value::Type::String);
   }
 
   // Switching to a non-existent branch fails and does not move the session.

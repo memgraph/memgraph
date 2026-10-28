@@ -12,6 +12,7 @@
 #include "versioning/version_store.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <mutex>
 
 #include <fmt/format.h>
@@ -132,6 +133,9 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
       .fork_ts = fork_ts,
       .recorded_fork_ts = fork_ts,
       .description = std::move(description),
+      .created_at_us = static_cast<uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+              .count()),
   };
 
   ++next.next_number;

@@ -95,6 +95,7 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   in.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 10, .description = "d \"q\"\n"}});
   in.branches[0].info.vertex_gid_floor = 11;
   in.branches[0].info.edge_gid_floor = 13;
+  in.branches[0].info.created_at_us = 1'700'000'000'123'456;
   in.branches.push_back({"b", {.number = 4, .parent = "a", .fork_ts = 20, .description = std::nullopt}});
 
   BranchLedger ledger{file_};
@@ -109,6 +110,8 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   EXPECT_EQ(out.branches[0].info.description, "d \"q\"\n");
   EXPECT_EQ(out.branches[0].info.vertex_gid_floor, 11);
   EXPECT_EQ(out.branches[0].info.edge_gid_floor, 13);
+  EXPECT_EQ(out.branches[0].info.created_at_us, 1'700'000'000'123'456);
+  EXPECT_EQ(out.branches[1].info.created_at_us, std::nullopt);
   EXPECT_EQ(out.branches[1].info.parent, "a");
   EXPECT_EQ(out.branches[1].info.description, std::nullopt);
   EXPECT_EQ(out.branches[1].info.vertex_gid_floor, std::nullopt);
@@ -200,6 +203,9 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   EXPECT_EQ((*loaded)->branches[0].name, "a");
   EXPECT_EQ((*loaded)->branches[0].info.fork_ts, a->fork_ts);
   EXPECT_EQ((*loaded)->branches[1].info.parent, "a");
+  ASSERT_TRUE(a->created_at_us.has_value());
+  EXPECT_GT(*a->created_at_us, 0U);
+  EXPECT_EQ((*loaded)->branches[0].info.created_at_us, a->created_at_us);
 
   ASSERT_TRUE(store->RecordGidFloors(a->number, 7, 9).has_value());
   EXPECT_TRUE(store->RecordGidFloors(a->number, 99, 99).has_value()) << "second call is a no-op";

@@ -9068,6 +9068,12 @@ namespace {
 // `main` is the implicit version 1 and never appears in VersionStore::Get/List.
 constexpr uint64_t kMainVersionNumber{1};
 
+// Same rendering as SHOW SNAPSHOTS' creation_time; null for branches recorded before the time was kept.
+TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
+  if (!info.created_at_us) return TypedValue();
+  return TypedValue(utils::LocalDateTime(static_cast<int64_t>(*info.created_at_us)).ToStringWTZ());
+}
+
 // CREATE BRANCH / CHECKOUT ... FROM return row: {version, number, description, parent}.
 std::vector<TypedValue> VersioningDetailRow(std::string_view name, const versioning::BranchInfo &info) {
   return {TypedValue(std::string(name)),
@@ -9346,7 +9352,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
     }
     case VersioningQuery::Action::SHOW_BRANCH: {
       return PreparedQuery{
-          .header = {"version", "number", "description"},
+          .header = {"version", "number", "description", "created_at"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [version_store, &current_db, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -9363,10 +9369,12 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 }
                 rows.push_back({TypedValue(*current),
                                 TypedValue(static_cast<int64_t>(info->number)),
-                                info->description ? TypedValue(*info->description) : TypedValue()});
+                                info->description ? TypedValue(*info->description) : TypedValue(),
+                                CreatedAtValue(*info)});
               } else {
                 rows.push_back({TypedValue(std::string("main")),
                                 TypedValue(static_cast<int64_t>(kMainVersionNumber)),
+                                TypedValue(),
                                 TypedValue()});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
@@ -9408,7 +9416,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       }
 
       return PreparedQuery{
-          .header = {"number", "version", "description"},
+          .header = {"number", "version", "description", "created_at"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [target_db_acc, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -9416,11 +9424,13 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               std::vector<std::vector<TypedValue>> rows;
               rows.push_back({TypedValue(static_cast<int64_t>(kMainVersionNumber)),
                               TypedValue(std::string("main")),
+                              TypedValue(),
                               TypedValue()});
               for (const auto &[branch_name, info] : target_db_acc->version_store()->List()) {
                 rows.push_back({TypedValue(static_cast<int64_t>(info.number)),
                                 TypedValue(branch_name),
-                                info.description ? TypedValue(*info.description) : TypedValue()});
+                                info.description ? TypedValue(*info.description) : TypedValue(),
+                                CreatedAtValue(info)});
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }

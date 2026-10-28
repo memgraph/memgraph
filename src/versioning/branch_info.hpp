@@ -30,6 +30,8 @@ struct BranchInfo {
   std::optional<std::string> description;
   std::optional<uint64_t> vertex_gid_floor;
   std::optional<uint64_t> edge_gid_floor;
+  // Wall-clock creation time, microseconds since the Unix epoch. Absent in ledgers written before it was recorded.
+  std::optional<uint64_t> created_at_us;
 };
 
 }  // namespace memgraph::versioning
