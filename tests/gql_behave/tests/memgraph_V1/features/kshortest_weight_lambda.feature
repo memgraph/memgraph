@@ -395,3 +395,18 @@ Feature: KSHORTEST weight lambda
         Then the result should be:
             | total                 |
             | 6.917529027641082e+18 |
+
+    # A literal weight reaches the cursor as a parameter and takes the hop-count search, which checks
+    # the constant at the first searched row. The weighted search would weigh no edge here and give no row.
+    Scenario: A constant weight is checked on a row with no edge to take
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {id: 'a'}), (:N {id: 'b'})
+            """
+        When executing query:
+            """
+            MATCH (a:N {id: 'a'}), (b:N {id: 'b'}) WITH a, b
+            MATCH p=(a)-[:R *KSHORTEST (e, n | true)]->(b) RETURN p
+            """
+        Then an error should be raised
