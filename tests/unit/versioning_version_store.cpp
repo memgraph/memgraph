@@ -433,6 +433,75 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllPersistsEmptyRegistryAndRemovesDi
   EXPECT_FALSE(std::filesystem::exists(root / std::to_string(b->number)));
 }
 
+TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchIsRemovedWhenSessionReleasesItsCore) {
+  auto store = MakeLedgerStore();
+  auto b = store->CreateBranch("b", "main", std::nullopt);
+  ASSERT_TRUE(b.has_value());
+  const auto directory = file_.parent_path() / std::to_string(b->number);
+  std::filesystem::create_directories(directory);
+
+  ASSERT_TRUE(store->TryAcquireCheckout("b").has_value());
+  std::weak_ptr<int> observer;
+  auto core = store->GetOrBuildCore(b->number, [&] { return MakeSentinelCore(observer); });
+  ASSERT_TRUE(core.has_value());
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+  EXPECT_TRUE(std::filesystem::exists(directory));
+
+  core->reset();
+  store->ReleaseCheckout("b");
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
+TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchSurvivesUntilLastNestedHolderReleases) {
+  auto store = MakeLedgerStore();
+  auto b = store->CreateBranch("b", "main", std::nullopt);
+  ASSERT_TRUE(b.has_value());
+  const auto directory = file_.parent_path() / std::to_string(b->number);
+  std::filesystem::create_directories(directory);
+
+  ASSERT_TRUE(store->TryAcquireCheckout("b").has_value());
+  ASSERT_TRUE(store->TryAcquireCheckout("b").has_value());
+  std::weak_ptr<int> observer;
+  auto outer = store->GetOrBuildCore(b->number, [&] { return MakeSentinelCore(observer); });
+  ASSERT_TRUE(outer.has_value());
+  auto nested = *outer;
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+
+  nested.reset();
+  store->ReleaseCheckout("b");
+  EXPECT_TRUE(std::filesystem::exists(directory));
+
+  outer->reset();
+  store->ReleaseCheckout("b");
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
+TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchIsKeptWhileACheckoutIsHeldEvenIfCoreIsGone) {
+  auto store = MakeLedgerStore();
+  auto b = store->CreateBranch("b", "main", std::nullopt);
+  ASSERT_TRUE(b.has_value());
+  const auto directory = file_.parent_path() / std::to_string(b->number);
+  std::filesystem::create_directories(directory);
+
+  ASSERT_TRUE(store->TryAcquireCheckout("b").has_value());
+  ASSERT_TRUE(store->TryAcquireCheckout("b").has_value());
+  std::weak_ptr<int> observer;
+  auto core = store->GetOrBuildCore(b->number, [&] { return MakeSentinelCore(observer); });
+  ASSERT_TRUE(core.has_value());
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+
+  core->reset();
+  EXPECT_TRUE(observer.expired());
+  store->ReleaseCheckout("b");
+  EXPECT_TRUE(std::filesystem::exists(directory));
+
+  store->ReleaseCheckout("b");
+  EXPECT_FALSE(std::filesystem::exists(directory));
+}
+
 TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureChangesNothingAndDoesNotFreeze) {
   auto store = MakeLedgerStore();
   auto a = store->CreateBranch("a", "main", std::nullopt);

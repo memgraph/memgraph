@@ -194,18 +194,9 @@ std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name,
     memgraph::metrics::Metrics().global.versioning_active_branches->Decrement();
   }
   PublishRetentionFloor();
-  const bool retired = RetireCore(number);
+  auto remaining = RetireCore(number);
   if (remove_files && !branches_root_.empty()) {
-    const auto directory = branches_root_ / std::to_string(number);
-    if (!retired) {
-      spdlog::warn("Graph Versioning: branch directory {} kept, its engine is still referenced.", directory.string());
-    } else {
-      std::error_code ec;
-      std::filesystem::remove_all(directory, ec);
-      if (ec) {
-        spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
-      }
-    }
+    RemoveOrDefer(name, number, std::move(remaining));
   }
   return true;
 }
@@ -229,13 +220,13 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
     return std::unexpected(std::move(written.error()));
   }
 
-  std::vector<uint64_t> numbers;
+  std::vector<std::pair<std::string, uint64_t>> dropped_branches;
   {
     std::lock_guard guard{lock_};
-    numbers.reserve(branches_.size());
-    for (const auto &[_, info] : branches_) {
+    dropped_branches.reserve(branches_.size());
+    for (const auto &[branch_name, info] : branches_) {
       release_pin_(info.fork_ts);
-      numbers.push_back(info.number);
+      dropped_branches.emplace_back(branch_name, info.number);
     }
     const auto dropped = static_cast<double>(branches_.size());
     branches_.clear();
@@ -245,18 +236,9 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
     global.versioning_active_branches->Decrement(dropped);
   }
   PublishRetentionFloor();
-  for (const auto number : numbers) {
-    const bool retired = RetireCore(number);
-    if (branches_root_.empty()) continue;
-    const auto directory = branches_root_ / std::to_string(number);
-    if (!retired) {
-      spdlog::warn("Graph Versioning: branch directory {} kept, its engine is still referenced.", directory.string());
-      continue;
-    }
-    std::error_code ec;
-    std::filesystem::remove_all(directory, ec);
-    if (ec) {
-      spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
+  if (!branches_root_.empty()) {
+    for (auto &[branch_name, number] : dropped_branches) {
+      RemoveOrDefer(branch_name, number, RetireCore(number));
     }
   }
   return {};
@@ -365,12 +347,14 @@ std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::str
 }
 
 void VersionStore::ReleaseCheckout(std::string_view name) {
-  std::lock_guard guard{lock_};
+  std::unique_lock guard{lock_};
   if (auto it = checked_out_.find(name); it != checked_out_.end()) {
     --total_checkouts_;
     if (--it->second == 0) checked_out_.erase(it);
     memgraph::metrics::Metrics().global.versioning_active_checkouts->Decrement();
   }
+  guard.unlock();
+  SweepPendingRemovals();
 }
 
 size_t VersionStore::CheckoutCount(std::string_view name) const {
@@ -409,7 +393,7 @@ std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuild
   return winner;
 }
 
-bool VersionStore::RetireCore(uint64_t number) {
+std::weak_ptr<BranchCore> VersionStore::RetireCore(uint64_t number) {
   std::shared_ptr<BranchCore> retired;
   {
     std::lock_guard guard{cores_mutex_};
@@ -418,9 +402,53 @@ bool VersionStore::RetireCore(uint64_t number) {
       cores_.erase(it);
     }
   }
-  const bool sole_owner = retired.use_count() <= 1;
+  std::weak_ptr<BranchCore> remaining = retired;
   retired.reset();
-  return sole_owner;
+  return remaining;
+}
+
+void VersionStore::RemoveOrDefer(std::string_view name, uint64_t number, std::weak_ptr<BranchCore> remaining) {
+  auto directory = branches_root_ / std::to_string(number);
+  if (!remaining.expired() || CheckoutCount(name) != 0) {
+    spdlog::info("Graph Versioning: branch directory {} will be removed once its engine is released.",
+                 directory.string());
+    std::lock_guard guard{pending_mutex_};
+    pending_removals_.push_back({std::move(remaining), std::string{name}, std::move(directory)});
+  } else {
+    RemoveDirectory(directory);
+  }
+  SweepPendingRemovals();
+}
+
+void VersionStore::SweepPendingRemovals() {
+  {
+    std::lock_guard guard{pending_mutex_};
+    if (pending_removals_.empty()) return;
+  }
+  std::vector<std::filesystem::path> ready;
+  {
+    // Order: lock_ then pending_mutex_ (leaf). A holder's checkout stays counted while its core is destroyed, so a
+    // removable entry has no holder mid-teardown. A re-created same-name branch with checkouts only delays removal.
+    std::lock_guard guard{lock_};
+    std::lock_guard pending_guard{pending_mutex_};
+    for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {
+      if (it->core.expired() && !checked_out_.contains(it->name)) {
+        ready.push_back(std::move(it->directory));
+        it = pending_removals_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (const auto &directory : ready) RemoveDirectory(directory);
+}
+
+void VersionStore::RemoveDirectory(const std::filesystem::path &directory) {
+  std::error_code ec;
+  std::filesystem::remove_all(directory, ec);
+  if (ec) {
+    spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
+  }
 }
 
 }  // namespace memgraph::versioning

@@ -159,8 +159,17 @@ class VersionStore {
   void PublishRetentionFloor() const;
 
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
-  // Returns false if another holder still keeps the core (and its directory) alive.
-  bool RetireCore(uint64_t number);
+  // Returns a weak reference that is non-expired iff another holder still keeps the core (and its directory) alive.
+  std::weak_ptr<BranchCore> RetireCore(uint64_t number);
+
+  // Removes the branch directory now if `remaining` is expired, else queues it for the last holder's release.
+  // Call without lock_, cores_mutex_ or pending_mutex_ held; the caller holds ledger_mutex_ (reads branches_root_).
+  // Deferred while the core is referenced or any session of `name` is attached.
+  void RemoveOrDefer(std::string_view name, uint64_t number, std::weak_ptr<BranchCore> remaining);
+  // Removes queued directories whose core is gone and whose branch name has no attached session. Call without lock_;
+  // file removal runs unlocked.
+  void SweepPendingRemovals();
+  static void RemoveDirectory(const std::filesystem::path &directory);
 
   // Takes lock_; call without it.
   bool IsLiveNumber(uint64_t number) const;
@@ -170,6 +179,17 @@ class VersionStore {
   // Guards cores_ only; never nested with lock_.
   mutable std::mutex cores_mutex_;
   std::map<uint64_t, std::shared_ptr<BranchCore>> cores_;
+
+  struct PendingRemoval {
+    std::weak_ptr<BranchCore> core;
+    std::string name;
+    std::filesystem::path directory;
+  };
+
+  // Dropped branches whose directory awaits the last core holder. Taken after lock_ when both are needed; nothing is
+  // acquired under it.
+  std::mutex pending_mutex_;
+  std::vector<PendingRemoval> pending_removals_;
 };
 
 }  // namespace memgraph::versioning
