@@ -206,7 +206,7 @@ std::string PermissionToString(Permission permission);
 // Class that indicates what permission level the user/role has.
 enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 
-enum class DenyStrength : uint8_t { WEAK, STRONG };
+enum class DenyStrength : uint8_t { STRONG, WEAK };
 
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);

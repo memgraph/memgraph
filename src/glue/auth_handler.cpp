@@ -70,13 +70,13 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
   const auto permission = memgraph::glue::PrivilegeToPermission(privilege);
   container.permission = memgraph::auth::PermissionToString(permission);
   container.permission_level = permissions.Has(permission);
-  container.weak_deny = (permissions.strong_denies() & std::to_underlying(permission)) == 0;
 
   switch (container.permission_level) {
     case memgraph::auth::PermissionLevel::GRANT:
       container.description = "GRANTED TO " + user_or_role;
       break;
     case memgraph::auth::PermissionLevel::DENY:
+      container.weak_deny = (permissions.strong_denies() & std::to_underlying(permission)) == 0;
       container.description = "DENIED TO " + user_or_role;
       break;
     case memgraph::auth::PermissionLevel::NEUTRAL:
