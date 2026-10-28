@@ -576,7 +576,9 @@ bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesVec &all_indexes,
   if (properties_map.find(properties) != properties_map.end()) {
     return false;
   }
-  auto helper = PropertiesPermutationHelper{properties, name_id_mapper};
+  auto helper = name_id_mapper != nullptr
+                    ? PropertiesPermutationHelper{properties, *name_id_mapper}
+                    : PropertiesPermutationHelper{properties, PropertiesPermutationHelper::WithoutNames{}};
   auto [it3, _2] = properties_map.emplace(properties, MakeIndexVariant<Order>(properties.size(), std::move(helper)));
   auto new_all_indexes = *all_indexes;
   new_all_indexes.emplace_back(it3->second, label, properties);

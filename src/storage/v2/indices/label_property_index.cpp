@@ -53,9 +53,41 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }
 }  // end namespace
 
-PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties,
-                                                         NameIdMapper *name_id_mapper)
-    : sorted_properties_(properties.begin(), properties.end()) {
+namespace {
+
+/// Which of `properties` end in the name of a field a value carries. Asked as "which id is
+/// this name" rather than the other way about: asking for the name behind an id the mapper
+/// does not know is fatal, and asking for the id behind an unused name would mint one.
+auto FieldsOfPaths(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper)
+    -> std::vector<std::optional<ValueField>> {
+  auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
+  for (auto const &[name, field] : FieldNames()) {
+    if (auto const id = name_id_mapper.NameToIdIfExists(name)) {
+      field_ids.emplace_back(PropertyId::FromUint(*id), field);
+    }
+  }
+
+  auto fields = std::vector<std::optional<ValueField>>{};
+  fields.reserve(properties.size());
+  for (auto const &path : properties) {
+    auto found = std::optional<ValueField>{};
+    if (path.size() > 1) {
+      for (auto const &[id, field] : field_ids) {
+        if (id == path.back()) {
+          found = field;
+          break;
+        }
+      }
+    }
+    fields.push_back(found);
+  }
+  return fields;
+}
+
+}  // namespace
+
+void PropertiesPermutationHelper::OrderPaths(std::span<PropertyPath const> properties) {
+  sorted_properties_.assign(properties.begin(), properties.end());
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{}, [](auto const &value) -> decltype(auto) {
     return std::get<1>(value);
@@ -66,37 +98,23 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
     auto const outer_prop_id = path[0];
     grouped_by_outer_prop_id_[outer_prop_id].emplace_back(pos);
   }
+}
 
-  // Which of these paths end in the name of a field a value carries, worked out once here
-  // because resolving a name is a lookup and these paths are read for every record.
-  auto const any_nested = r::any_of(sorted_properties_, [](auto const &path) { return path.size() > 1; });
-  DMG_ASSERT(!any_nested || name_id_mapper != nullptr,
-             "Telling a key inside a value from a field of it takes the names behind the ids");
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties,
+                                                         NameIdMapper &name_id_mapper) {
+  OrderPaths(properties);
+  // Worked out once here rather than for every record read, because resolving a name is a
+  // lookup and these paths are read for every record.
+  fields_ = FieldsOfPaths(sorted_properties_, name_id_mapper);
+}
 
-  // Asked as "which id is this name" rather than the other way about: asking for the name of
-  // an id the mapper does not know is fatal, and asking for the id of an unused name would
-  // mint one.
-  auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
-  if (any_nested) {
-    for (auto const &[name, field] : FieldNames()) {
-      if (auto const id = name_id_mapper->NameToIdIfExists(name)) {
-        field_ids.emplace_back(PropertyId::FromUint(*id), field);
-      }
-    }
-  }
-  fields_.reserve(sorted_properties_.size());
-  for (auto const &path : sorted_properties_) {
-    auto found = std::optional<ValueField>{};
-    if (path.size() > 1) {
-      for (auto const &[id, field] : field_ids) {
-        if (id == path.back()) {
-          found = field;
-          break;
-        }
-      }
-    }
-    fields_.push_back(found);
-  }
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties, WithoutNames) {
+  OrderPaths(properties);
+  // Not an assertion that compiles away: a caller reaching here with a nested path would
+  // otherwise have that path read as naming no field, silently.
+  MG_ASSERT(r::none_of(sorted_properties_, [](auto const &path) { return path.size() > 1; }),
+            "Reading a key inside a value takes the names behind the ids");
+  fields_.assign(sorted_properties_.size(), std::nullopt);
 }
 
 auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const &value) const
