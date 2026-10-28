@@ -4387,6 +4387,10 @@ class KShortestPathsCursor : public Cursor {
       }
     }
 
+    // A spur search the hops limit cut short may have missed a shorter candidate, so the best one left is not
+    // necessarily the next path. The paths already served stay a prefix of the k shortest.
+    if (context.hops_limit.IsLimitReached()) return false;
+
     // Find the best candidate path
     while (!candidate_paths_.empty()) {
       std::ranges::pop_heap(candidate_paths_, PathComparator{});
