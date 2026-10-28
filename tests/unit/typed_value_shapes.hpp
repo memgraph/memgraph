@@ -33,11 +33,11 @@ inline constexpr std::array kEveryTypedValueType{
     query::TypedValue::Type::LocalDateTime, query::TypedValue::Type::ZonedDateTime,
     query::TypedValue::Type::Duration,      query::TypedValue::Type::Enum,
     query::TypedValue::Type::Point2d,       query::TypedValue::Type::Point3d,
-    query::TypedValue::Type::VectorRef,     query::TypedValue::Type::String,
-    query::TypedValue::Type::List,          query::TypedValue::Type::Map,
-    query::TypedValue::Type::Path,          query::TypedValue::Type::Graph,
-    query::TypedValue::Type::VirtualGraph,  query::TypedValue::Type::Function,
-    query::TypedValue::Type::VirtualEdge,   query::TypedValue::Type::VirtualNode,
+    query::TypedValue::Type::String,        query::TypedValue::Type::List,
+    query::TypedValue::Type::Map,           query::TypedValue::Type::Path,
+    query::TypedValue::Type::Graph,         query::TypedValue::Type::VirtualGraph,
+    query::TypedValue::Type::Function,      query::TypedValue::Type::VirtualEdge,
+    query::TypedValue::Type::VirtualNode,   query::TypedValue::Type::VectorRef,
 };
 
 /// The types whose value is held in the union outright, owning nothing that has to be released:
