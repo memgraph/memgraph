@@ -465,7 +465,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     // With lazy refs on, embeddings stay lazy VectorRefs: a retained map costs O(references), not O(N*dim) floats.
-    auto maybe_props = record_accessor.Properties(ctx.view, !ctx.lazy_vector_refs);
+    auto maybe_props =
+        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -483,7 +484,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       if (is_allowed(property.first)) {
         if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
           properties.emplace(std::move(key),
-                             TypedValue(LazyVectorRef{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
+                             TypedValue(VectorRefValue{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
         } else {
           auto typed_value =
               TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
@@ -545,6 +546,9 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsList()) {
+    if (value.IsVectorRef()) [[unlikely]] {
+      return TypedValue(static_cast<int64_t>(value.ReadVectorRef().size()), ctx.memory);
+    }
     return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
   } else if (value.IsString()) {
     return TypedValue(static_cast<int64_t>(utils::CountUtf8CodePoints(value.ValueString())), ctx.memory);
@@ -632,7 +636,7 @@ TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext 
     case List:
       return TypedValue(arg.UnsafeValueList().empty(), ctx.memory);
     case VectorRef:
-      return TypedValue(arg.ValueList().empty(), ctx.memory);
+      return TypedValue(arg.ReadVectorRef().empty(), ctx.memory);
     case Map:
       return TypedValue(arg.UnsafeValueMap().empty(), ctx.memory);
     case String:
@@ -1014,7 +1018,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     // Like properties(n): with lazy refs on, embeddings stay VectorRefs.
-    auto maybe_props = record_accessor.Properties(ctx.view, !ctx.lazy_vector_refs);
+    auto maybe_props =
+        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1030,7 +1035,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
         if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
-          values.emplace_back(LazyVectorRef{record_accessor.impl_, key, ctx.view});
+          values.emplace_back(VectorRefValue{record_accessor.impl_, key, ctx.view});
         } else {
           values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
         }

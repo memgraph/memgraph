@@ -406,14 +406,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, bool with_vector_reconstruction) const {
-  return GetPropertyImpl(property, view, with_vector_reconstruction, nullptr);
-}
-
-template <typename OnResolved>
-Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
-                                                    OnResolved &&on_resolved) const {
+template <bool kCompact, typename OnResolved>
+Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View view, OnResolved &&on_resolved) const {
   constexpr bool kHoldLock = !std::is_null_pointer_v<std::remove_cvref_t<OnResolved>>;
+  static_assert(kCompact || !kHoldLock);
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
@@ -422,14 +418,14 @@ Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View vi
   auto guard = std::shared_lock{edge_.ptr->lock};
   {
     deleted = edge_.ptr->deleted();
-    // Without reconstruction, an embedding stays a compact VectorIndexId reference (see VertexAccessor).
-    value.emplace(with_vector_reconstruction
-                      ? edge_.ptr->properties.GetProperty(
-                            property,
-                            IndexedPropertyDecoder<Edge>{.indices = &storage_->indices_,
-                                                         .name_id_mapper = storage_->name_id_mapper_.get(),
-                                                         .entity = edge_.ptr})
-                      : edge_.ptr->properties.GetProperty(property));
+    if constexpr (kCompact) {
+      value.emplace(edge_.ptr->properties.GetProperty(property));
+    } else {
+      value.emplace(edge_.ptr->properties.GetProperty(
+          property,
+          IndexedPropertyDecoder<Edge>{
+              .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    }
     delta = edge_.ptr->delta();
   }
   if constexpr (!kHoldLock) guard.unlock();
@@ -465,6 +461,14 @@ Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View vi
   return *std::move(value);
 }
 
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+  return GetPropertyImpl<false>(property, view, nullptr);
+}
+
+Result<PropertyValue> EdgeAccessor::GetPropertyCompact(PropertyId property, View view) const {
+  return GetPropertyImpl<true>(property, view, nullptr);
+}
+
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return 0;
 
@@ -486,7 +490,8 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, bool with_vector_reconstruction) const {
+template <bool kCompact>
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesImpl(View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
@@ -495,13 +500,12 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    // Without reconstruction, embeddings come back as compact VectorIndexId references (empty float
-    // list) — the caller keeps them lazy instead of paying an O(dim) reconstruction per property.
-    properties = with_vector_reconstruction ? edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-                                                  .indices = &storage_->indices_,
-                                                  .name_id_mapper = storage_->name_id_mapper_.get(),
-                                                  .entity = edge_.ptr})
-                                            : edge_.ptr->properties.Properties();
+    if constexpr (kCompact) {
+      properties = edge_.ptr->properties.Properties();
+    } else {
+      properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+          .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    }
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -544,20 +548,27 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, 
   return std::move(properties);
 }
 
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+  return PropertiesImpl<false>(view);
+}
+
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesCompact(View view) const {
+  return PropertiesImpl<true>(view);
+}
+
 bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
   // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
   // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
   // the usearch index, which is written at SetProperty time and so is only correct for the live value.
   // That index read runs under the edge lock so a concurrent SetProperty cannot interleave.
   bool found = false;
-  const auto maybe_value =
-      GetPropertyImpl(property, view, /*with_vector_reconstruction=*/false, [&](const PropertyValue &value) {
-        if (!value.IsVectorIndexId()) return;
-        if (!value.ValueVectorIndexList().empty()) return;
-        const auto &ids = value.ValueVectorIndexIds();
-        if (ids.empty()) return;
-        found = storage_->indices_.vector_edge_index_.GetVectorInto(edge_.ptr, ids[0], out);
-      });
+  const auto maybe_value = GetPropertyImpl<true>(property, view, [&](const PropertyValue &value) {
+    if (!value.IsVectorIndexId()) return;
+    if (!value.ValueVectorIndexList().empty()) return;
+    const auto &ids = value.ValueVectorIndexIds();
+    if (ids.empty()) return;
+    found = storage_->indices_.vector_edge_index_.GetVectorInto(edge_.ptr, ids[0], out);
+  });
   if (!maybe_value) return false;
   if (maybe_value->IsVectorIndexId()) {
     if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
