@@ -55,14 +55,16 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b);
 /// The types equality declines to decide against themselves, as a bit per type,
 /// so that ruling a type out is one test rather than one per type.
 ///
-/// The two containers are absent because a container is answered for before
-/// equality is asked at all.
+/// A list and a map are absent because they are answered for before equality is
+/// asked at all. A lazy embedding is present: it holds a NaN as a list of
+/// doubles does, and is kept off the inline path for that.
 ///
 /// One bit per type is only a mask while the types fit the word holding it.
 static_assert(TypedValue::kTypeCount <= std::numeric_limits<unsigned>::digits, "More types than a bit each fits in");
 inline constexpr unsigned kDeclinedOver = (1U << static_cast<unsigned>(TypedValue::Type::Double)) |
                                           (1U << static_cast<unsigned>(TypedValue::Type::Point2d)) |
-                                          (1U << static_cast<unsigned>(TypedValue::Type::Point3d));
+                                          (1U << static_cast<unsigned>(TypedValue::Type::Point3d)) |
+                                          (1U << static_cast<unsigned>(TypedValue::Type::VectorRef));
 
 inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
@@ -72,8 +74,7 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   // one holds a Null there is nothing to be gained by the first walk: equality
   // reaches the end of it only to say it could not decide, which is a walk
   // spent to learn that the second one is needed.
-  if (lhs.type() == TypedValue::Type::List || lhs.type() == TypedValue::Type::Map ||
-      lhs.type() == TypedValue::Type::VectorRef) {
+  if (lhs.type() == TypedValue::Type::List || lhs.type() == TypedValue::Type::Map) {
     return EquivalentOfContainers(lhs, rhs);
   }
 
@@ -100,6 +101,10 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.type() == TypedValue::Type::Double) {
     return std::isnan(lhs.UnsafeValueDouble()) && rhs.type() == TypedValue::Type::Double &&
            std::isnan(rhs.UnsafeValueDouble());
+  }
+
+  if (lhs.type() == TypedValue::Type::VectorRef) {
+    return EquivalentOfContainers(lhs, rhs);
   }
 
   return EquivalentOfPoints(lhs, rhs);

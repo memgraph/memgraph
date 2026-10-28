@@ -13,11 +13,15 @@
 
 #include <algorithm>
 #include <cmath>
-#include <vector>
+#include <type_traits>
+
+#include "utils/logging.hpp"
 
 namespace memgraph::query::relations::equality {
 
 namespace {
+
+constexpr auto kIsNull = [](const TypedValue &value) { return value.IsNull(); };
 
 /// Whether any value held within this one, however deeply nested, answers the
 /// predicate. A container is walked; anything else is asked directly.
@@ -34,18 +38,20 @@ bool AnyValueWithin(const TypedValue &value, auto const &holds) {
       return std::ranges::any_of(value.UnsafeValueMap(),
                                  [&](auto const &entry) { return AnyValueWithin(entry.second, holds); });
     case TypedValue::Type::VectorRef: {
-      // Read as the list of doubles it materializes to, without making one.
-      thread_local std::vector<float> floats;
-      value.MaterializeVectorRefInto(floats);
-      return std::ranges::any_of(floats,
-                                 [&](float element) { return holds(TypedValue(static_cast<double>(element))); });
+      // An embedding is floats, so it never holds a Null and the search need not read it. Any other
+      // question is asked of each element as a double, read at a leaf.
+      if constexpr (std::is_same_v<std::remove_cvref_t<decltype(holds)>, std::remove_cvref_t<decltype(kIsNull)>>) {
+        return false;
+      } else {
+        const auto floats = value.ReadVectorRef();
+        return std::ranges::any_of(floats,
+                                   [&](float element) { return holds(TypedValue(static_cast<double>(element))); });
+      }
     }
     default:
       return holds(value);
   }
 }
-
-constexpr auto kIsNull = [](const TypedValue &value) { return value.IsNull(); };
 
 /// The two values equality does not hold equal to themselves, for its two
 /// reasons: a Null leaves the pair undecided, a NaN answers false.
@@ -74,11 +80,7 @@ constexpr auto kIsUndecidable = [](const TypedValue &value) {
 
 }  // namespace
 
-bool HoldsANull(const TypedValue &value) {
-  // An embedding is floats, so there is nothing to materialize to learn it holds no Null.
-  if (value.type() == TypedValue::Type::VectorRef) return false;
-  return AnyValueWithin(value, kIsNull);
-}
+bool HoldsANull(const TypedValue &value) { return AnyValueWithin(value, kIsNull); }
 
 bool EqualsItself(const TypedValue &value) { return !AnyValueWithin(value, kIsUndecidable); }
 
@@ -122,22 +124,46 @@ TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, Typ
   return undecided ? TypedValue(alloc) : TypedValue(true, alloc);
 }
 
-TypedValue EqualOfVectorRefs(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc) {
-  thread_local std::vector<float> floats_a;
-  thread_local std::vector<float> floats_b;
-  a.MaterializeVectorRefInto(floats_a);
-  b.MaterializeVectorRefInto(floats_b);
-  return TypedValue(floats_a == floats_b, alloc);
+namespace {
+
+TypedValue EqualOfTwoVectorRefs(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc) {
+  DMG_ASSERT(a.IsVectorRef() && b.IsVectorRef(), "EqualOfTwoVectorRefs needs two VectorRefs");
+  // Not a bit comparison: a NaN is equal to nothing, itself included.
+  const auto floats_a = a.ReadVectorRef();
+  const auto floats_b = b.ReadVectorRef();
+  return TypedValue(std::ranges::equal(floats_a, floats_b), alloc);
 }
 
 TypedValue EqualOfVectorRefAndOther(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc) {
-  // Only a list can be equal to an embedding. It is materialized with the default allocator so that
-  // the transient list is freed here rather than held by the query's arena.
-  auto const &embedding = a.type() == TypedValue::Type::VectorRef ? a : b;
-  auto const &other = a.type() == TypedValue::Type::VectorRef ? b : a;
-  if (other.type() != TypedValue::Type::List) return TypedValue(false, alloc);
-  auto const list = embedding.MaterializeVectorRef(TypedValue::allocator_type{});
-  return EqualOfLists(list.UnsafeValueList(), other.UnsafeValueList(), alloc);
+  DMG_ASSERT(a.IsVectorRef() != b.IsVectorRef(), "EqualOfVectorRefAndOther needs exactly one VectorRef");
+  auto const &embedding = a.IsVectorRef() ? a : b;
+  auto const &other = a.IsVectorRef() ? b : a;
+  // Only a list can be equal to an embedding.
+  if (!other.IsPlainList()) return TypedValue(false, alloc);
+
+  // Elementwise as EqualOfLists does, with each float read as the double it widens to.
+  auto const &list = other.UnsafeValueList();
+  auto const floats = embedding.ReadVectorRef();
+  if (floats.size() != list.size()) return TypedValue(false, alloc);
+
+  auto undecided = false;
+  for (size_t i = 0; i != floats.size(); ++i) {
+    auto const element = Equal(TypedValue(static_cast<double>(floats[i])), list[i]);
+    if (element.IsNull()) {
+      undecided = true;
+    } else if (!element.UnsafeValueBool()) {
+      return TypedValue(false, alloc);
+    }
+  }
+  return undecided ? TypedValue(alloc) : TypedValue(true, alloc);
+}
+
+}  // namespace
+
+TypedValue EqualOfAnyVectorRef(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc) {
+  DMG_ASSERT(a.IsVectorRef() || b.IsVectorRef(), "EqualOfAnyVectorRef needs a VectorRef");
+  if (a.IsVectorRef() && b.IsVectorRef()) return EqualOfTwoVectorRefs(a, b, alloc);
+  return EqualOfVectorRefAndOther(a, b, alloc);
 }
 
 }  // namespace memgraph::query::relations::equality
