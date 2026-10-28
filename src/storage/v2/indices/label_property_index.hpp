@@ -340,10 +340,21 @@ struct PropertiesPermutationHelper {
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
-  /// Only the paths whose last segment names a field: where each sits, and which field it
-  /// names. An index over whole properties holds none of these, and then reading a record is
-  /// reading its properties with nothing further to do.
-  std::vector<std::pair<std::size_t, ValueField>> fields_;
+
+  /// The paths that name a field, gathered under the property each starts at, so that reading
+  /// them reads that property once however many of them there are. An index over whole
+  /// properties holds no groups, and then reading a record is reading its properties with
+  /// nothing further to do.
+  struct FieldsOf {
+    PropertyId outer;
+    std::vector<std::pair<std::size_t, ValueField>> named;
+  };
+
+  /// Which of `properties` name a field, gathered under the property each starts at.
+  static auto GatherFields(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper)
+      -> std::vector<FieldsOf>;
+
+  std::vector<FieldsOf> fields_;
 };
 
 using LabelPropertyIndexAbortableInfo =
