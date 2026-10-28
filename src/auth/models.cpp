@@ -644,7 +644,11 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
           weak_denies == FineGrainedPermission::NONE) {
         continue;
       }
-      rules.push_back({symbols, grants, denies, matching_mode, weak_denies});
+      rules.push_back({.symbols = symbols,
+                       .grants = grants,
+                       .strong_denies = denies,
+                       .matching_mode = matching_mode,
+                       .weak_denies = weak_denies});
     }
   }
 
