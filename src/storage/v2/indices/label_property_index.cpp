@@ -119,7 +119,6 @@ void PropertiesPermutationHelper::ReadFieldsInto(PropertyStore const &properties
   for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
     if (!field) continue;
     auto read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
-    // An index keys a record the path names nothing in on Null.
     out[pos] = read ? *std::move(read) : PropertyValue{};
   }
 }
@@ -165,7 +164,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
     auto const &cmp_value = cmp_values[position_lookup_[index]];
     DMG_ASSERT(!path.empty(), "PropertyPath should be at least 1");
     auto const read = ReadPath(index, value);
-    return {index, read && *read == cmp_value};
+    return {index, read ? *read == cmp_value : cmp_value.IsNull()};
   };
   return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
@@ -173,7 +172,6 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
                                                 std::vector<bool> &out) const {
   properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
-  // A path arriving at nothing is equivalent to Null, which is how the read above places one.
   for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
     if (!field) continue;
     auto const read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));

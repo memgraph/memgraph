@@ -232,6 +232,10 @@ using IndexOrderedValues =
  * This class efficiently handles reading an abitrarily ordered list of
  * properties, rearranging the reads them so that the internal ordering
  * requirement is handled transparently.
+ *
+ * A path that arrives at nothing, because the record lacks the property or the value it lands
+ * on holds neither that key nor that field, is keyed as Null and compared as Null. Every
+ * reading below answers that way, so a record is never judged to lack what it holds.
  */
 struct PropertiesPermutationHelper {
   using permutation_cycles = std::vector<std::vector<std::size_t>>;
@@ -296,6 +300,15 @@ struct PropertiesPermutationHelper {
    */
   void MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const;
 
+  /// Reads the path at `pos` out of `value`, which must be the record's own property that
+  /// path starts at, with the field this index resolved for that path. `WithPropertyId` hands
+  /// out the positions.
+  ///
+  /// Only the value in hand settles whether a path's last segment is a key or a field, so
+  /// reading a record's bytes answers the key and nothing else. Anything holding an outer
+  /// value and wanting what the path names has to come through here.
+  auto ReadPath(std::size_t pos, PropertyValue const &value) const -> std::optional<PropertyValue>;
+
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).
    */
@@ -306,13 +319,6 @@ struct PropertiesPermutationHelper {
   }
 
  private:
-  /// `ReadPropertyPath` for the path at `pos`, with the field this index resolved for it.
-  ///
-  /// Only the value in hand settles whether that path's last segment is a key or a field, so
-  /// reading a record's bytes answers the key and nothing else. A path that could end in a
-  /// field is read this way instead.
-  auto ReadPath(std::size_t pos, PropertyValue const &value) const -> std::optional<PropertyValue>;
-
   /// Re-reads the paths that could end in a field. Leaves every other position as it was.
   void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 

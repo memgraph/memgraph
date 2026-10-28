@@ -1816,6 +1816,34 @@ TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
 // A path's last segment reads a key when the value it is read off is a map and a field of that
 // value when it is not. An index over `a.year` therefore has to answer 2024 for a date, which
 // is what a lookup on `a.year` answers, and the key for a map that holds one.
+// A path arriving at nothing is keyed as Null, and the two ways of asking whether a record
+// still matches an entry have to say the same about that. One is asked of the record as it
+// stands and the other of each change behind it, and the second overwrites the first position
+// by position, so a record can be judged not to hold what it holds if they differ.
+TEST(PropertiesPermutationHelper, BothComparisonsPlaceAPathThatArrivesAtNothingAlike) {
+  NameIdMapper mapper;
+  auto const outer = PropertyId::FromUint(mapper.NameToId("a"));
+  auto const key = PropertyId::FromUint(mapper.NameToId("k"));
+  auto const paths = std::vector<PropertyPath>{PropertyPath{outer, key}};
+  PropertiesPermutationHelper helper{paths, &mapper};
+
+  // `a` is an integer, so `a.k` names nothing in it.
+  auto const outer_value = PropertyValue{int64_t{300}};
+  PropertyStore store;
+  store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{{outer, outer_value}});
+
+  // What the record is keyed on, which is the value the two comparisons are asked about.
+  auto const keyed = helper.ApplyPermutation(helper.Extract(store));
+  ASSERT_TRUE(keyed.values_[0].IsNull());
+
+  auto const against_keyed = IndexOrderedValuesVector{std::vector<PropertyValue>{keyed.values_[0]}};
+  EXPECT_EQ(EqualityMask(helper, store, against_keyed), (std::vector{true}));
+
+  auto const one = helper.MatchesValue(outer, outer_value, against_keyed);
+  ASSERT_EQ(one.size(), 1U);
+  EXPECT_TRUE(one[0].second) << "asked of a change behind the record";
+}
+
 TEST(PropertiesPermutationHelper, ReadsAFieldOfAValueThatIsNotAMap) {
   NameIdMapper mapper;
   auto const outer = PropertyId::FromUint(mapper.NameToId("a"));

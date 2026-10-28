@@ -148,14 +148,13 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
         bool all_matched = true;
         bool all_exist = true;
 
-        for (auto &&[_, property_path, value] : helper.WithPropertyId(values)) {
+        for (auto &&[pos, property_path, value] : helper.WithPropertyId(values)) {
           auto resProp = cache.GetProperty(view, &vertex, property_path.get()[0]);
           if (resProp) {
             // Only test if so far everything has already matched
             if (all_matched) {
-              auto const *nested_value_ptr = ReadNestedPropertyValue(*resProp, property_path.get() | rv::drop(1));
-              if ((nested_value_ptr && *nested_value_ptr != value.get()) ||
-                  (!nested_value_ptr && !value.get().IsNull())) {
+              auto const read = helper.ReadPath(pos, *resProp);
+              if ((read && *read != value.get()) || (!read && !value.get().IsNull())) {
                 all_matched = false;
               }
             }
