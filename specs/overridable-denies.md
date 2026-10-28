@@ -206,19 +206,21 @@ held, because prohibitions are what block each other. Permissions simply add up.
 `DENY` and gains `STRONG DENY` (replacing `DENY`) and `WEAK DENY`. No column is added, so nothing
 parsing the result by position breaks.
 
-For a role, each label, edge-type, and property entry the role carries gets its
-own row.
+For a role, the role's own entries are listed as stored. Entries on the same
+rule with the same level share a row, such as `READ {salary, ssn}`.
 
 For a user, every row shows the result on the database being queried, combined
 the way enforcement combines it: the user's own entries and those of every role
 they hold on that database. Privileges such as `CREATE` already worked this way;
 labels, edge types, and properties now do too. Each row's `effective` value is
-the result, and its `description` says what the user's own entries and their
-roles each resolve to, for example `PROPERTY PERMISSION WEAKLY DENIED TO USER,
-PROPERTY PERMISSION GRANTED TO ROLE`. A description says `WEAKLY DENIED` for a
-weak deny and `DENIED` for a strong one, for users and roles alike. A weak deny that a grant overrides shows
-as `GRANT`, and a weak deny under a strong deny shows as `STRONG DENY`; the
-role's own rows still list it.
+the result, and its `description` says which of the user's own entries and
+their roles' entries hold that privilege, for example `PROPERTY PERMISSION
+WEAKLY DENIED TO USER, PROPERTY PERMISSION GRANTED TO ROLE`. `{salary}` and
+`{*}` are separate entries with separate rows, so a role's `{*}` grant appears
+on the `{*}` row only. A description says `WEAKLY DENIED` for a weak deny and
+`DENIED` for a strong one, for users and roles alike. A weak deny that a grant
+overrides shows as `GRANT`, and a weak deny under a strong deny shows as
+`STRONG DENY`; the role's own rows still list it.
 
 A row covers one rule. A node can match several label rules as well as the
 global `LABELS *` rules, and access to it combines all of them, so a row is not
@@ -235,10 +237,10 @@ so this only affects something matching the `effective` value as an exact
 string. Accepted: leaving it as `DENY` would force an auditor to ask which
 strength it is, which is the doubt the column exists to remove.
 
-A second visible change: `SHOW PRIVILEGES FOR <user>` lists one resolved row
-for each label, edge-type, and property rule, where it used to list each role's
-entries separately, and leaves out roles that do not cover the queried
-database.
+A second visible change: `SHOW PRIVILEGES FOR <user>` lists the resolved result
+for each label, edge-type, and property rule, one row per result and
+description, where it used to list each role's entries separately, and leaves
+out roles that do not cover the queried database.
 
 Weak denies are stored in a new optional field beside the existing grant and
 deny records. The existing deny record keeps its meaning and holds strong
