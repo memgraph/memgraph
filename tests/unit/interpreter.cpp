@@ -19,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "auth_query_handler_fixture.hpp"
@@ -2793,20 +2794,23 @@ TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
   this->interpreter_context.auth = &auth.handler;
   this->default_interpreter.Interpret("CREATE USER alice");
 
-  auto const notification_codes = [this](std::string const &query) {
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
     auto [stream, qid] = this->Prepare(query);
     this->Pull(&stream);
-    std::vector<std::string> codes;
+    std::vector<CodeAndSeverity> result;
     if (stream.GetSummary().contains("notifications")) {
       for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
-        codes.push_back(notification.ValueMap().at("code").ValueString());
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
       }
     }
-    return codes;
+    return result;
   };
 
-  EXPECT_EQ(notification_codes("DENY DATABASE * FROM alice"), std::vector<std::string>{"DeprecatedQuery"});
-  EXPECT_TRUE(notification_codes("DENY DATABASE * TO alice").empty());
+  EXPECT_EQ(notifications("DENY DATABASE * FROM alice"),
+            (std::vector<CodeAndSeverity>{{"DeprecatedQuery", "WARNING"}}));
+  EXPECT_TRUE(notifications("DENY DATABASE * TO alice").empty());
 }
 #endif
 
