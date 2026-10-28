@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <latch>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -29,7 +30,10 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/replication.hpp"
 #include "memory/db_arena.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
@@ -46,6 +50,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -863,7 +868,27 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
 }
 
+namespace {
+
+// Polls until the predicate holds; false once the deadline passes, so a stuck replica fails the test instead of
+// hanging the binary.
+auto WaitUntil(auto const &predicate) -> bool {
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (!predicate()) {
+    if (std::chrono::steady_clock::now() > deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return true;
+}
+
+}  // namespace
+
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
+  auto const saved_interval = FLAGS_replication_async_recovery_interval_sec;
+  FLAGS_replication_async_recovery_interval_sec = 0;
+  memgraph::utils::OnScopeExit const restore_interval{
+      [saved_interval] { FLAGS_replication_async_recovery_interval_sec = saved_interval; }};
+
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);
 
@@ -889,17 +914,12 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     created_vertices.push_back(v.Gid());
     ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
 
-    if (i == 0) {
-      ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
-    } else {
-      auto const state = main.db.storage()->GetReplicaState("REPLICA_ASYNC");
-      ASSERT_TRUE(state == ReplicaState::RECOVERY || state == ReplicaState::MAYBE_BEHIND);
-    }
+    // ASYNC transactions are not streamed or finalized on the client's thread pool. Every commit marks the replica
+    // behind so the periodic check catches it up from snapshot/WAL/current-WAL durability files.
+    ASSERT_NE(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
   }
 
-  while (main.db.storage()->GetReplicaState("REPLICA_ASYNC") != ReplicaState::READY) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState("REPLICA_ASYNC") == ReplicaState::READY; }));
 
   ASSERT_TRUE(std::ranges::all_of(created_vertices, [&](const auto vertex_gid) {
     const memgraph::memory::DbArenaScope arena_scope{&replica_async.db.Arena()};
@@ -909,6 +929,66 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     EXPECT_FALSE(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     return exists;
   }));
+}
+
+TEST_F(ReplicationTest, AsyncRecoveryIntervalSpacesRounds) {
+  auto const saved_interval = FLAGS_replication_async_recovery_interval_sec;
+  memgraph::utils::OnScopeExit const restore_interval{
+      [saved_interval] { FLAGS_replication_async_recovery_interval_sec = saved_interval; }};
+  // The maintenance thread reads the flag, so it is set before the client starts and restored after main is gone.
+  constexpr auto kInterval = std::chrono::seconds{3};
+  FLAGS_replication_async_recovery_interval_sec = kInterval.count();
+
+  MinMemgraph main(main_conf);
+  MinMemgraph replica_async(repl_conf);
+
+  replica_async.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
+
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA_ASYNC",
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[1]),
+                  })
+                  .has_value());
+
+  auto const create_vertex = [&] {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto const gid = acc->CreateVertex().Gid();
+    EXPECT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    return gid;
+  };
+
+  auto const replica_has_vertex = [&](Gid const gid) {
+    const memgraph::memory::DbArenaScope arena_scope{&replica_async.db.Arena()};
+    auto acc = replica_async.db.Access(memgraph::storage::READ);
+    return acc->FindVertex(gid, View::OLD).has_value();
+  };
+
+  auto const wait_for_ready = [&] {
+    return WaitUntil([&] { return main.db.storage()->GetReplicaState("REPLICA_ASYNC") == ReplicaState::READY; });
+  };
+
+  // No round has run yet, so the first commit is recovered without waiting for the interval.
+  auto const first = create_vertex();
+  ASSERT_TRUE(wait_for_ready());
+  ASSERT_TRUE(replica_has_vertex(first));
+
+  // The next commit marks the replica behind, but a second round is held back for the interval.
+  auto const second = create_vertex();
+  auto const hold_until = std::chrono::steady_clock::now() + kInterval / 3;
+  while (std::chrono::steady_clock::now() < hold_until) {
+    ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::MAYBE_BEHIND);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  ASSERT_FALSE(replica_has_vertex(second));
+
+  // Once the interval elapses the frequent check starts the held-back round.
+  ASSERT_TRUE(wait_for_ready());
+  ASSERT_TRUE(replica_has_vertex(second));
 }
 
 TEST_F(ReplicationTest, EpochTest) {
@@ -1025,6 +1105,152 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+}
+
+namespace {
+
+auto FindReplicationClient(MinMemgraph &main, std::string_view name) -> memgraph::replication::ReplicationClient * {
+  auto locked_repl_state = main.repl_state.Lock();
+  auto &main_data = std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData());
+  auto const it =
+      std::ranges::find_if(main_data.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
+  return it == main_data.registered_replicas_.end() ? nullptr : &*it;
+}
+
+// Occupies the replica client's maintenance pool until released, so the tasks queued behind it start in a
+// controlled order.
+class MaintenancePoolHold {
+ public:
+  explicit MaintenancePoolHold(memgraph::replication::ReplicationClient &client) {
+    // The task shares the latch so it outlives this object even if a failed assertion ends the test early.
+    client.maintenance_pool_.AddTask([release = release_] { release->wait(); });
+  }
+
+  MaintenancePoolHold(MaintenancePoolHold const &) = delete;
+  MaintenancePoolHold &operator=(MaintenancePoolHold const &) = delete;
+
+  ~MaintenancePoolHold() { Release(); }
+
+  void Release() {
+    if (!released_) {
+      released_ = true;
+      release_->count_down();
+    }
+  }
+
+ private:
+  std::shared_ptr<std::latch> release_ = std::make_shared<std::latch>(1);
+  bool released_{false};
+};
+
+auto CreateVertex(MinMemgraph &instance, memgraph::storage::CommitArgs commit_args) -> Gid {
+  const memgraph::memory::DbArenaScope arena_scope{&instance.db.Arena()};
+  auto acc = instance.db.Access(memgraph::storage::WRITE);
+  auto const gid = acc->CreateVertex().Gid();
+  EXPECT_TRUE(acc->PrepareForCommitPhase(std::move(commit_args)).has_value());
+  return gid;
+}
+
+auto HasVertex(MinMemgraph &instance, Gid const gid) -> bool {
+  const memgraph::memory::DbArenaScope arena_scope{&instance.db.Arena()};
+  auto acc = instance.db.Access(memgraph::storage::READ);
+  return acc->FindVertex(gid, View::OLD).has_value();
+}
+
+}  // namespace
+
+// RECOVER SNAPSHOT queues a forced reset while a check or round may still be running on the maintenance pool.
+// That task finishes afterwards and overwrites the state, and nothing re-detects that the replica's base changed,
+// so the reset has to run anyway.
+TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  auto const replicated_gid = CreateVertex(main, MakeCommitArgs(main.db_acc));
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+  ASSERT_TRUE(HasVertex(replica, replicated_gid));
+
+  auto const &metrics = memgraph::metrics::Metrics().global;
+  auto const success_before = metrics.replica_recovery_success->Value();
+  auto const skip_before = metrics.replica_recovery_skip->Value();
+
+  auto *client = FindReplicationClient(main, replicas[0]);
+  ASSERT_NE(client, nullptr);
+  MaintenancePoolHold hold{*client};
+
+  auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+  ASSERT_TRUE(main.db.storage()->repl_storage_state_.WithClient(replicas[0], [&](auto &storage_client) {
+    storage_client.ForceRecoverReplica(main.db.storage(), protector);
+    EXPECT_EQ(storage_client.State(), ReplicaState::RECOVERY);
+    // The task that was in flight when the reset was queued finishes and overwrites the state.
+    storage_client.SetMaybeBehind();
+  }));
+
+  // Only the replica has this vertex; the reset wipes it.
+  auto const canary_gid = CreateVertex(replica, memgraph::tests::MakeMainCommitArgs());
+  ASSERT_TRUE(HasVertex(replica, canary_gid));
+
+  hold.Release();
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  EXPECT_FALSE(HasVertex(replica, canary_gid));
+  EXPECT_TRUE(HasVertex(replica, replicated_gid));
+  EXPECT_EQ(metrics.replica_recovery_success->Value() - success_before, 1);
+  EXPECT_EQ(metrics.replica_recovery_skip->Value() - skip_before, 0);
+}
+
+// The frequent check re-queues a MAYBE_BEHIND replica on every tick, so a second check queued while one is
+// pending is dropped, and the slot is free again once the pending one has run.
+TEST_F(ReplicationTest, DuplicateStateChecksCoalesce) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  // READY is set only after the registration-time check has sent its heartbeat, so the count below is settled.
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  auto const heartbeats = [] {
+    return memgraph::metrics::Metrics().global.heartbeat_rpc_seconds->Collect().histogram.sample_count;
+  };
+  auto const before = heartbeats();
+
+  auto *client = FindReplicationClient(main, replicas[0]);
+  ASSERT_NE(client, nullptr);
+  MaintenancePoolHold hold{*client};
+
+  auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+  ASSERT_TRUE(main.db.storage()->repl_storage_state_.WithClient(replicas[0], [&](auto &storage_client) {
+    storage_client.TryCheckReplicaStateAsync(main.db.storage(), protector);
+    storage_client.TryCheckReplicaStateAsync(main.db.storage(), protector);
+  }));
+
+  hold.Release();
+  ASSERT_TRUE(WaitUntil([&] { return client->maintenance_pool_.UnfinishedTasksNum() == 0; }));
+  EXPECT_EQ(heartbeats() - before, 1);
+
+  ASSERT_TRUE(main.db.storage()->repl_storage_state_.WithClient(replicas[0], [&](auto &storage_client) {
+    storage_client.TryCheckReplicaStateAsync(main.db.storage(), protector);
+  }));
+  ASSERT_TRUE(WaitUntil([&] { return client->maintenance_pool_.UnfinishedTasksNum() == 0; }));
+  EXPECT_EQ(heartbeats() - before, 2);
 }
 
 TEST_F(ReplicationTest, ReplicationInformation) {

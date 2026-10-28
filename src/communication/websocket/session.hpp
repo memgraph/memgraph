@@ -63,6 +63,7 @@ class Session : public std::enable_shared_from_this<Session> {
   std::expected<void, std::string> Authorize(const nlohmann::json &creds);
 
   void DoShutdown();
+  void Disconnect();
 
   auto GetExecutor() {
     return std::visit(utils::Overloaded{[](auto &&ws) { return ws.get_executor(); }}, ws_);
@@ -78,11 +79,14 @@ class Session : public std::enable_shared_from_this<Session> {
   std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   std::variant<PlainWebSocket, SSLWebSocket> ws_;
   boost::beast::flat_buffer buffer_;
+  // Messages waiting to be sent; the one being sent is held in in_flight_ until its write completes.
   std::deque<std::shared_ptr<std::string>> messages_;
+  std::shared_ptr<std::string> in_flight_;
   boost::asio::strand<PlainWebSocket::executor_type> strand_;
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
   bool close_{false};
+  bool overflow_reported_{false};
   AuthenticationInterface &auth_;
 };
 }  // namespace memgraph::communication::websocket

@@ -14,10 +14,12 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/stream_traits.hpp>
 #include <nlohmann/json.hpp>
@@ -28,6 +30,11 @@
 
 namespace memgraph::communication::websocket {
 namespace {
+// A client that stops reading must not make the server hold its log backlog forever, so the queue is capped and the
+// oldest queued message is dropped for each new one. Overflow is reported from a posted handler rather than inline:
+// Write can run inside the logging sink that feeds it, and a nested log call there would deadlock on the sink's lock.
+constexpr size_t kMaxQueuedMessages = 65536;
+
 void LogError(const boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("Websocket session failed on {}: {}", what, ec.message());
 }
@@ -96,40 +103,48 @@ void Session::Write(std::shared_ptr<std::string> message) {
     if (!shared_this->IsAuthenticated()) {
       return;
     }
-    shared_this->messages_.push_back(std::move(message));
-    if (shared_this->messages_.size() > 1) {
-      return;
+    if (shared_this->messages_.size() >= kMaxQueuedMessages) {
+      shared_this->messages_.pop_front();
+      if (!std::exchange(shared_this->overflow_reported_, true)) {
+        boost::asio::post(shared_this->strand_, [] {
+          spdlog::warn("Websocket client is not keeping up; dropping the oldest queued log messages");
+        });
+      }
     }
-    shared_this->DoWrite();
+    shared_this->messages_.push_back(std::move(message));
+    if (!shared_this->in_flight_) {
+      shared_this->DoWrite();
+    }
   });
 }
 
 bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
 
 void Session::DoWrite() {
+  in_flight_ = std::move(messages_.front());
+  messages_.pop_front();
   ExecuteForWebsocket([this](auto &&ws) {
-    auto next_message = messages_.front();
-    auto buffer = boost::asio::buffer(*next_message);
     ws.async_write(
-        buffer,
-        boost::asio::bind_executor(strand_,
-                                   [message_string = std::move(next_message), shared_this = shared_from_this()](
-                                       boost::beast::error_code ec, const size_t bytes_transferred) {
-                                     shared_this->OnWrite(ec, bytes_transferred);
-                                   }));
+        boost::asio::buffer(*in_flight_),
+        boost::asio::bind_executor(
+            strand_, [shared_this = shared_from_this()](boost::beast::error_code ec, const size_t bytes_transferred) {
+              shared_this->OnWrite(ec, bytes_transferred);
+            }));
   });
 }
 
 void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
-  messages_.pop_front();
-
-  if (close_) {
-    DoShutdown();
+  in_flight_.reset();
+  if (!connected_.load(std::memory_order_relaxed)) {
     return;
   }
   if (ec) {
-    close_ = true;
+    Disconnect();
     return LogError(ec, "write");
+  }
+  if (close_) {
+    DoShutdown();
+    return;
   }
   if (!messages_.empty()) {
     DoWrite();
@@ -154,9 +169,19 @@ void Session::DoClose() {
 
 void Session::OnClose(boost::beast::error_code ec) {
   connected_.store(false, std::memory_order_relaxed);
+  messages_.clear();
   if (ec) {
     return LogError(ec, "close");
   }
+}
+
+// Tears the session down after a transport error. Nothing can be delivered any more, so the backlog is released,
+// further messages are refused and the listener drops the session on its next accept. Closing the socket cancels the
+// outstanding read, whose completion is then ignored.
+void Session::Disconnect() {
+  connected_.store(false, std::memory_order_relaxed);
+  messages_.clear();
+  ExecuteForWebsocket([](auto &&ws) { boost::beast::get_lowest_layer(ws).close(); });
 }
 
 std::expected<void, std::string> Session::Authorize(const nlohmann::json &creds) {
@@ -178,7 +203,10 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   }
 
   if (ec) {
-    LogError(ec, "read");
+    if (connected_.load(std::memory_order_relaxed)) {
+      Disconnect();
+      LogError(ec, "read");
+    }
     return;
   }
 

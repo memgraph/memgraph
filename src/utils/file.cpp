@@ -734,10 +734,7 @@ std::unexpected<FileWriteError> OutputFile::ReportNoSpace(std::string_view const
 
 void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
 
-void OutputFile::EnableFlushing() {
-  flush_lock_.unlock_shared();
-  TryFlushing();
-}
+void OutputFile::EnableFlushing() { flush_lock_.unlock_shared(); }
 
 std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
   return {buffer_.data(), buffer_position_.load(std::memory_order_acquire)};
