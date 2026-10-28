@@ -97,7 +97,7 @@ void ManifestRegistry::Publish(uint32_t id, PropertyManifest *manifest) {
     slot.store(chunk, std::memory_order_release);
   }
   (*chunk)[id & kChunkMask].store(manifest, std::memory_order_release);
-  // Last, so a reader that sees this count sees a filled slot beneath it.
+  // Last, and the store that admits the id: the slot above must be filled before it.
   count_.store(id + 1, std::memory_order_release);
 }
 
