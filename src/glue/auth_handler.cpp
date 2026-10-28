@@ -70,6 +70,11 @@ constexpr std::string_view DescriptionVerb(memgraph::auth::PermissionLevel const
   return weak ? "WEAKLY DENIED" : "DENIED";
 }
 
+constexpr int Rank(memgraph::auth::PermissionLevel const level, bool const weak) {
+  if (level == memgraph::auth::PermissionLevel::GRANT) return 0;
+  return weak ? 2 : 1;
+}
+
 PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::Permissions &permissions, const memgraph::query::AuthQuery::Privilege &privilege,
     const std::string &user_or_role) {
@@ -248,8 +253,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   }
 
   auto const global_masks = [](memgraph::auth::FineGrainedAccessPermissions const &perms) {
-    return FineGrainedMasks{
-        perms.GetGlobalGrants().value_or(0), perms.GetGlobalStrongDenies().value_or(0), perms.GetGlobalWeakDenies()};
+    return FineGrainedMasks{.grants = perms.GetGlobalGrants().value_or(0),
+                            .strong_denies = perms.GetGlobalStrongDenies().value_or(0),
+                            .weak_denies = perms.GetGlobalWeakDenies()};
   };
   auto const rule_masks = [](memgraph::auth::FineGrainedAccessPermissions const &perms,
                              memgraph::auth::FineGrainedAccessRule const &rule) {
@@ -257,9 +263,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
       return other.symbols == rule.symbols && other.matching_mode == rule.matching_mode;
     });
     if (it == perms.GetRules().end()) return FineGrainedMasks{};
-    return FineGrainedMasks{static_cast<uint64_t>(it->grants),
-                            static_cast<uint64_t>(it->strong_denies),
-                            static_cast<uint64_t>(it->weak_denies)};
+    return FineGrainedMasks{.grants = static_cast<uint64_t>(it->grants),
+                            .strong_denies = static_cast<uint64_t>(it->strong_denies),
+                            .weak_denies = static_cast<uint64_t>(it->weak_denies)};
   };
 
   auto add_resolved = [&](std::string const &entity_name,
@@ -286,7 +292,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
                                     DescriptionVerb(source_level, (source.strong_denies & bit) == 0),
                                     name));
       }
-      auto const rank = level == PermissionLevel::GRANT ? 0 : (weak ? 2 : 1);
+      auto const rank = Rank(level, weak);
       auto description = memgraph::utils::Join(parts, ", ");
       auto &entry = groups[{rank, description}];
       entry.permission = entity_name;
@@ -417,7 +423,7 @@ void EmitPropertyMap(PropertyMap const &merged, PropertySources const &sources, 
       if (level == PermissionLevel::NEUTRAL) continue;
       auto const weak = (perm.strong_denies & bit) == PPT::NONE;
       auto const effective = level == PermissionLevel::GRANT ? std::string_view{"GRANT"} : DenyEffective(weak);
-      auto const rank = level == PermissionLevel::GRANT ? 0 : (weak ? 2 : 1);
+      auto const rank = Rank(level, weak);
 
       std::vector<std::string> parts;
       for (auto const &[source, name] : sources) {
