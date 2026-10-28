@@ -76,11 +76,9 @@ std::expected<bool, std::string> HasRegularFiles(const std::filesystem::path &di
   return false;
 }
 
-// The branch's WAL files, oldest first, selected the way main's GetWalFiles does: a file that is not a readable regular
-// file, whose header cannot be read, or that holds no complete transaction is warned about and skipped - never renamed
-// or deleted. A finalized file is taken at its summary and an unfinalized one up to its last whole transaction.
-// The sort key is (first timestamp, seq).
-// @throw utils::BasicException the directory cannot be listed, or the files' sequence numbers show a missing file
+// The branch's WAL files ordered by (first timestamp, seq), selected as main's GetWalFiles does: unreadable files and
+// files with no complete transaction are warned about and skipped, never renamed or deleted.
+// @throw utils::BasicException the directory cannot be listed
 std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   std::vector<WalFileEntry> files;
   std::error_code ec;
@@ -101,10 +99,9 @@ std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   return files;
 }
 
-// Main's chain rules (RecoverData) for a durability base with no snapshot, applied to the files that were read: the
-// first has sequence number 0 and each next one follows its predecessor. The numbering continues across runs
-// (RecoverBranchContents hands the next number to the diff engine), so a missing file anywhere shows as a gap. A
-// skipped newest file leaves no gap: its number is reused by the next run, as in main.
+// Main's chain rules (RecoverData) with no snapshot: the first file has seq 0 and each next one follows its
+// predecessor. BranchWalReplayer::Run continues the numbering across runs, so a missing file anywhere shows as a gap; a
+// skipped newest file leaves none, as its number is reused.
 // @throw utils::BasicException a file is missing
 void CheckWalChain(const std::vector<WalFileEntry> &files) {
   if (files.empty()) return;

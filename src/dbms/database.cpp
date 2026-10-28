@@ -141,7 +141,7 @@ std::string BranchNames(const versioning::LedgerContents &ledger) {
   return names;
 }
 
-// One past the highest numeric directory name under branches/; ignores non-numeric entries such as the ledger file.
+// Non-numeric entries such as the ledger file are ignored.
 uint64_t NextFreeBranchNumber(const std::filesystem::path &branches_directory) {
   uint64_t next = 0;
   std::error_code ec;

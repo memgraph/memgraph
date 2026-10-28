@@ -601,7 +601,7 @@ void RecordWalEpoch(ReplicationStorageState &repl_storage_state, std::string con
   if (!epoch_history.empty() && epoch_history.back().first == epoch_id) {
     epoch_history.back().second = ldt;
     spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.", epoch_id, ldt);
-  } else {  // Update history with new epoch that contains new timestamp
+  } else {
     epoch_history.emplace_back(epoch_id, ldt);
     repl_storage_state.epoch_.SetEpoch(epoch_id);
     spdlog::trace("Set epoch to {} for db {} with ldt {}", epoch_id, db_name, ldt);

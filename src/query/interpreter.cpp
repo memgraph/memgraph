@@ -9120,8 +9120,7 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
       std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name, info->number);
 }
 
-// A branch is durable only when main keeps a WAL (the predicate BranchCore::Build applies); otherwise it is dropped
-// on restart.
+// A branch is durable only when main keeps a WAL (same predicate BranchCore::Build applies).
 void NotifyIfBranchNotDurable(storage::Storage *storage, std::string_view name,
                               std::vector<Notification> *notifications) {
   if (versioning::BranchCore::WritesWal(*static_cast<storage::InMemoryStorage *>(storage))) return;
