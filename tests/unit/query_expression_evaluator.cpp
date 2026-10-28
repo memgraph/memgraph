@@ -2094,11 +2094,11 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
   EXPECT_EQ(total_nano.ValueInt(), expected_nano);
 }
 
-// An index over a path like `a.year` has to answer with the field a lookup would read, or the
-// same filter answers one way through the index and another way without it. Reading a field is
-// written once, in storage, and this is what holds the two to each other: for every value that
-// carries fields and every name that denotes one, a lookup and that reading agree, and a
-// lookup raises exactly where the reading finds nothing.
+// A field is named two ways over one set of tables: by a reader that has the value in hand and
+// walks only that kind's names, and by an index that names the field once from the whole set
+// and keeps it. This holds the two to each other, for every value that carries fields against
+// every name that denotes one, so an index and a lookup cannot come to disagree about what a
+// path answers. A lookup raises exactly where naming the field finds nothing.
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, ReadingAFieldAgreesWithLookingItUp) {
   auto const values = std::vector<TypedValue>{
       TypedValue(memgraph::utils::Date({1996, 11, 22})),

@@ -277,144 +277,16 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     expression_result = property_lookup.expression_->Accept(*this);
     expression_result_ptr = &expression_result;
   }
-  auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
-    if (prop_name == "year") {
-      return TypedValue(date.year, ctx_->memory);
+  // A cartesian point has x and y where a geographic one has longitude and latitude, and
+  // naming the one to use instead is more help than reporting the name as unknown.
+  auto field_error = [](std::string_view prop_name, bool geographic, std::string_view kind) {
+    if (!geographic) {
+      if (prop_name == "longitude")
+        return QueryRuntimeException("Use x instead of longitude for cartesian point types");
+      if (prop_name == "latitude") return QueryRuntimeException("Use y instead of latitude for cartesian point types");
+      if (prop_name == "height") return QueryRuntimeException("Use z instead of height for cartesian point types");
     }
-    if (prop_name == "month") {
-      return TypedValue(date.month, ctx_->memory);
-    }
-    if (prop_name == "day") {
-      return TypedValue(date.day, ctx_->memory);
-    }
-    return std::nullopt;
-  };
-  auto maybe_local_time = [this](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
-    if (prop_name == "hour") {
-      return TypedValue(lt.hour, ctx_->memory);
-    }
-    if (prop_name == "minute") {
-      return TypedValue(lt.minute, ctx_->memory);
-    }
-    if (prop_name == "second") {
-      return TypedValue(lt.second, ctx_->memory);
-    }
-    if (prop_name == "millisecond") {
-      return TypedValue(lt.millisecond, ctx_->memory);
-    }
-    if (prop_name == "microsecond") {
-      return TypedValue(lt.microsecond, ctx_->memory);
-    }
-    return std::nullopt;
-  };
-  auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
-    if (prop_name == "day") {
-      return TypedValue(dur.Days(), ctx_->memory);
-    }
-    if (prop_name == "hour") {
-      return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
-    }
-    if (prop_name == "minute") {
-      return TypedValue(dur.SubDaysAsMinutes(), ctx_->memory);
-    }
-    if (prop_name == "second") {
-      return TypedValue(dur.SubDaysAsSeconds(), ctx_->memory);
-    }
-    if (prop_name == "millisecond") {
-      return TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory);
-    }
-    if (prop_name == "microsecond") {
-      return TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory);
-    }
-    if (prop_name == "nanosecond") {
-      return TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory);
-    }
-    return std::nullopt;
-  };
-  auto maybe_zoned_date_time = [this](const auto &zdt, const auto &prop_name) -> std::optional<TypedValue> {
-    if (prop_name == "year") {
-      return TypedValue(zdt.LocalYear(), ctx_->memory);
-    }
-    if (prop_name == "month") {
-      return TypedValue(std::bit_cast<int64_t>(zdt.LocalMonth()), ctx_->memory);
-    }
-    if (prop_name == "day") {
-      return TypedValue(std::bit_cast<int64_t>(zdt.LocalDay()), ctx_->memory);
-    }
-    if (prop_name == "hour") {
-      return TypedValue(zdt.LocalHour(), ctx_->memory);
-    }
-    if (prop_name == "minute") {
-      return TypedValue(zdt.LocalMinute(), ctx_->memory);
-    }
-    if (prop_name == "second") {
-      return TypedValue(zdt.LocalSecond(), ctx_->memory);
-    }
-    if (prop_name == "millisecond") {
-      return TypedValue(zdt.LocalMillisecond(), ctx_->memory);
-    }
-    if (prop_name == "microsecond") {
-      return TypedValue(zdt.LocalMicrosecond(), ctx_->memory);
-    }
-    if (prop_name == "timezone") {
-      return TypedValue(zdt.GetTimezone().ToString(), ctx_->memory);
-    }
-    return std::nullopt;
-  };
-  auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
-    auto is_wgs = point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d;
-    if (prop_name == "x") {
-      return TypedValue(point_2d.x(), ctx_->memory);
-    }
-    if (prop_name == "longitude") {
-      if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
-      return TypedValue(point_2d.x(), ctx_->memory);
-    }
-    if (prop_name == "y") {
-      return TypedValue(point_2d.y(), ctx_->memory);
-    }
-    if (prop_name == "latitude") {
-      if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
-      return TypedValue(point_2d.y(), ctx_->memory);
-    }
-    if (prop_name == "crs") {
-      return TypedValue(storage::CrsToString(point_2d.crs()), ctx_->memory);
-    }
-    if (prop_name == "srid") {
-      return TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory);
-    }
-    return std::nullopt;
-  };
-  auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
-    auto is_wgs = point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d;
-    if (prop_name == "x") {
-      return TypedValue(point_3d.x(), ctx_->memory);
-    }
-    if (prop_name == "longitude") {
-      if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
-      return TypedValue(point_3d.x(), ctx_->memory);
-    }
-    if (prop_name == "y") {
-      return TypedValue(point_3d.y(), ctx_->memory);
-    }
-    if (prop_name == "latitude") {
-      if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
-      return TypedValue(point_3d.y(), ctx_->memory);
-    }
-    if (prop_name == "z") {
-      return TypedValue(point_3d.z(), ctx_->memory);
-    }
-    if (prop_name == "height") {
-      if (!is_wgs) throw QueryRuntimeException("Use z instead of height for cartesian point types");
-      return TypedValue(point_3d.z(), ctx_->memory);
-    }
-    if (prop_name == "crs") {
-      return TypedValue(storage::CrsToString(point_3d.crs()), ctx_->memory);
-    }
-    if (prop_name == "srid") {
-      return TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory);
-    }
-    return std::nullopt;
+    return QueryRuntimeException("Invalid property name {} for {}", prop_name, kind);
   };
   auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") return RangeToTypedValueList(graph.vertices(), ctx_->memory);
@@ -469,62 +341,54 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     }
     case TypedValue::Type::Duration: {
       const auto &prop_name = property_lookup.property_.name;
-      const auto &dur = expression_result_ptr->ValueDuration();
-      if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
-        return {*dur_field, ctx_->memory};
+      if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueDuration(), prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
+      throw field_error(prop_name, true, "Duration");
     }
     case TypedValue::Type::Date: {
       const auto &prop_name = property_lookup.property_.name;
-      const auto &date = expression_result_ptr->ValueDate();
-      if (auto date_field = maybe_date(date, prop_name); date_field) {
-        return {*date_field, ctx_->memory};
+      if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueDate(), prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
+      throw field_error(prop_name, true, "Date");
     }
     case TypedValue::Type::LocalTime: {
       const auto &prop_name = property_lookup.property_.name;
-      const auto &lt = expression_result_ptr->ValueLocalTime();
-      if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
-        return std::move(*lt_field);
+      if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueLocalTime(), prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
+      throw field_error(prop_name, true, "LocalTime");
     }
     case TypedValue::Type::LocalDateTime: {
       const auto &prop_name = property_lookup.property_.name;
-      const auto &ldt = expression_result_ptr->ValueLocalDateTime();
-      if (auto date_field = maybe_date(ldt.date(), prop_name); date_field) {
-        return std::move(*date_field);
+      if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueLocalDateTime(), prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      if (auto lt_field = maybe_local_time(ldt.local_time(), prop_name); lt_field) {
-        return {*lt_field, ctx_->memory};
-      }
-      throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
+      throw field_error(prop_name, true, "LocalDateTime");
     }
     case TypedValue::Type::ZonedDateTime: {
       const auto &prop_name = property_lookup.property_.name;
-      const auto &zdt = expression_result_ptr->ValueZonedDateTime();
-      if (auto zdt_field = maybe_zoned_date_time(zdt, prop_name); zdt_field) {
-        return {*zdt_field, ctx_->memory};
+      if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueZonedDateTime(), prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
+      throw field_error(prop_name, true, "ZonedDateTime");
     }
     case TypedValue::Type::Point2d: {
       const auto &prop_name = property_lookup.property_.name;
       const auto &point_2d = expression_result_ptr->ValuePoint2d();
-      if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
-        return {*point_2d_field, ctx_->memory};
+      if (auto read = storage::ReadFieldNamed(point_2d, prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
+      throw field_error(prop_name, point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d, "Point2d");
     }
     case TypedValue::Type::Point3d: {
       const auto &prop_name = property_lookup.property_.name;
       const auto &point_3d = expression_result_ptr->ValuePoint3d();
-      if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
-        return {*point_3d_field, ctx_->memory};
+      if (auto read = storage::ReadFieldNamed(point_3d, prop_name)) {
+        return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
+      throw field_error(prop_name, point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d, "Point3d");
     }
     case TypedValue::Type::Graph: {
       const auto &prop_name = property_lookup.property_.name;

@@ -13,6 +13,7 @@
 
 #include <array>
 #include <chrono>
+#include <vector>
 
 #include "storage/v2/point.hpp"
 #include "storage/v2/temporal.hpp"
@@ -136,37 +137,117 @@ auto PointField(CoordinateReferenceSystem crs, double x, double y, std::optional
 
 }  // namespace
 
-auto FieldNames() -> std::span<std::pair<std::string_view, ValueField> const> {
-  using namespace std::string_view_literals;
-  static constexpr auto kNames = std::array{
-      std::pair{"year"sv, ValueField::Year},
-      std::pair{"month"sv, ValueField::Month},
-      std::pair{"day"sv, ValueField::Day},
-      std::pair{"hour"sv, ValueField::Hour},
-      std::pair{"minute"sv, ValueField::Minute},
-      std::pair{"second"sv, ValueField::Second},
-      std::pair{"millisecond"sv, ValueField::Millisecond},
-      std::pair{"microsecond"sv, ValueField::Microsecond},
-      std::pair{"nanosecond"sv, ValueField::Nanosecond},
-      std::pair{"timezone"sv, ValueField::Timezone},
-      std::pair{"x"sv, ValueField::X},
-      std::pair{"y"sv, ValueField::Y},
-      std::pair{"z"sv, ValueField::Z},
-      std::pair{"longitude"sv, ValueField::Longitude},
-      std::pair{"latitude"sv, ValueField::Latitude},
-      std::pair{"height"sv, ValueField::Height},
-      std::pair{"crs"sv, ValueField::Crs},
-      std::pair{"srid"sv, ValueField::Srid},
-  };
-  return kNames;
-}
+using NamedField = std::pair<std::string_view, ValueField>;
 
-auto FieldNamed(std::string_view name) -> std::optional<ValueField> {
-  for (auto const &[known, field] : FieldNames()) {
+namespace {
+
+using namespace std::string_view_literals;
+
+/// What each kind of value carries. The one place these names are written: a reader holding a
+/// value walks only its own kind's names, and the whole set below is their union.
+constexpr auto kDateNames = std::array{
+    NamedField{"year"sv, ValueField::Year},
+    NamedField{"month"sv, ValueField::Month},
+    NamedField{"day"sv, ValueField::Day},
+};
+constexpr auto kLocalTimeNames = std::array{
+    NamedField{"hour"sv, ValueField::Hour},
+    NamedField{"minute"sv, ValueField::Minute},
+    NamedField{"second"sv, ValueField::Second},
+    NamedField{"millisecond"sv, ValueField::Millisecond},
+    NamedField{"microsecond"sv, ValueField::Microsecond},
+};
+constexpr auto kDurationNames = std::array{
+    NamedField{"day"sv, ValueField::Day},
+    NamedField{"hour"sv, ValueField::Hour},
+    NamedField{"minute"sv, ValueField::Minute},
+    NamedField{"second"sv, ValueField::Second},
+    NamedField{"millisecond"sv, ValueField::Millisecond},
+    NamedField{"microsecond"sv, ValueField::Microsecond},
+    NamedField{"nanosecond"sv, ValueField::Nanosecond},
+};
+/// A zoned moment carries a date's and a time's fields, and the zone besides.
+constexpr auto kZoneNames = std::array{
+    NamedField{"timezone"sv, ValueField::Timezone},
+};
+constexpr auto kPointNames = std::array{
+    NamedField{"x"sv, ValueField::X},
+    NamedField{"y"sv, ValueField::Y},
+    NamedField{"z"sv, ValueField::Z},
+    NamedField{"longitude"sv, ValueField::Longitude},
+    NamedField{"latitude"sv, ValueField::Latitude},
+    NamedField{"height"sv, ValueField::Height},
+    NamedField{"crs"sv, ValueField::Crs},
+    NamedField{"srid"sv, ValueField::Srid},
+};
+
+auto FieldIn(std::span<NamedField const> names, std::string_view name) -> std::optional<ValueField> {
+  for (auto const &[known, field] : names) {
     if (known == name) return field;
   }
   return std::nullopt;
 }
+
+}  // namespace
+
+auto FieldNames() -> std::span<NamedField const> {
+  // Their union, so a name reaches a caller holding ids by being carried by some value rather
+  // than by being written down a second time. A name two kinds share appears once.
+  static auto const kAll = [] {
+    auto all = std::vector<NamedField>{};
+    for (auto const &names : {std::span<NamedField const>{kDateNames},
+                              std::span<NamedField const>{kLocalTimeNames},
+                              std::span<NamedField const>{kDurationNames},
+                              std::span<NamedField const>{kZoneNames},
+                              std::span<NamedField const>{kPointNames}}) {
+      for (auto const &named : names) {
+        if (!FieldIn(all, named.first)) all.push_back(named);
+      }
+    }
+    return all;
+  }();
+  return kAll;
+}
+
+auto ReadFieldNamed(utils::Date const &date, std::string_view name) -> std::optional<PropertyValue> {
+  auto const field = FieldIn(kDateNames, name);
+  return field ? DateField(date, *field) : std::nullopt;
+}
+
+auto ReadFieldNamed(utils::LocalTime const &time, std::string_view name) -> std::optional<PropertyValue> {
+  auto const field = FieldIn(kLocalTimeNames, name);
+  return field ? LocalTimeField(time, *field) : std::nullopt;
+}
+
+auto ReadFieldNamed(utils::LocalDateTime const &moment, std::string_view name) -> std::optional<PropertyValue> {
+  if (auto const date = FieldIn(kDateNames, name)) return DateField(moment.date(), *date);
+  auto const time = FieldIn(kLocalTimeNames, name);
+  return time ? LocalTimeField(moment.local_time(), *time) : std::nullopt;
+}
+
+auto ReadFieldNamed(utils::Duration const &duration, std::string_view name) -> std::optional<PropertyValue> {
+  auto const field = FieldIn(kDurationNames, name);
+  return field ? DurationField(duration, *field) : std::nullopt;
+}
+
+auto ReadFieldNamed(utils::ZonedDateTime const &zoned, std::string_view name) -> std::optional<PropertyValue> {
+  if (auto const date = FieldIn(kDateNames, name)) return ZonedField(zoned, *date);
+  if (auto const time = FieldIn(kLocalTimeNames, name)) return ZonedField(zoned, *time);
+  auto const zone = FieldIn(kZoneNames, name);
+  return zone ? ZonedField(zoned, *zone) : std::nullopt;
+}
+
+auto ReadFieldNamed(Point2d const &point, std::string_view name) -> std::optional<PropertyValue> {
+  auto const field = FieldIn(kPointNames, name);
+  return field ? PointField(point.crs(), point.x(), point.y(), std::nullopt, *field) : std::nullopt;
+}
+
+auto ReadFieldNamed(Point3d const &point, std::string_view name) -> std::optional<PropertyValue> {
+  auto const field = FieldIn(kPointNames, name);
+  return field ? PointField(point.crs(), point.x(), point.y(), point.z(), *field) : std::nullopt;
+}
+
+auto FieldNamed(std::string_view name) -> std::optional<ValueField> { return FieldIn(FieldNames(), name); }
 
 auto ReadPropertyPath(PropertyValue const &value, std::span<PropertyId const> path, std::optional<ValueField> field)
     -> std::optional<PropertyValue> {
