@@ -52,7 +52,8 @@ class VersionStore {
   VersionStore &operator=(const VersionStore &) = delete;
   VersionStore(VersionStore &&) = delete;
   VersionStore &operator=(VersionStore &&) = delete;
-  ~VersionStore() = default;
+  // Withdraws this store's branches and checkouts from the process-wide active gauges.
+  ~VersionStore();
 
   // Receives the durable timestamp branches still need recoverable (oldest recorded_fork_ts - 1), or nullopt when no
   // branch exists; invoked after Restore, a failed CREATE and a DROP. Set before use. Never called with lock_ held, but

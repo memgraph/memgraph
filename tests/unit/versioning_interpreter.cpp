@@ -110,18 +110,20 @@ void ExpectPlanUses(InterpreterFaker &session, const std::string &query, std::st
 }  // namespace
 
 // `kPropertiesOnEdges = false` builds the storage with reference (light) edges.
-template <bool kPropertiesOnEdges>
+template <bool kPropertiesOnEdges, bool kWal = true>
 class VersioningFixture : public ::testing::Test {
  protected:
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() /
-                                         (kPropertiesOnEdges ? "MG_tests_unit_versioning_interpreter"
-                                                             : "MG_tests_unit_versioning_interpreter_reference_edge");
+                                         (!kWal                ? "MG_tests_unit_versioning_interpreter_no_wal"
+                                          : kPropertiesOnEdges ? "MG_tests_unit_versioning_interpreter"
+                                                               : "MG_tests_unit_versioning_interpreter_reference_edge");
 
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
     config.durability.snapshot_wal_mode =
-        memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+        kWal ? memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
+             : memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
     config.disk.main_storage_directory = data_directory / "disk";
     config.salient.items.properties_on_edges = kPropertiesOnEdges;
     return config;
@@ -188,6 +190,33 @@ class VersioningGatedTest : public VersioningInterpreterTest {
     SatisfyGate();
   }
 };
+
+class VersioningNoWalTest : public VersioningFixture<true, false> {
+ protected:
+  void SetUp() override {
+    VersioningFixture<true, false>::SetUp();
+    SatisfyGate();
+  }
+};
+
+bool HasBranchNotDurableNotification(const ResultStreamFaker &stream) {
+  const auto &summary = stream.GetSummary();
+  if (!summary.contains("notifications")) return false;
+  for (const auto &n : summary.at("notifications").ValueList()) {
+    if (n.ValueMap().at("code").ValueString() == "BranchNotDurable") return true;
+  }
+  return false;
+}
+
+TEST_F(VersioningNoWalTest, CreateAndCheckoutFromNotifyBranchNotDurable) {
+  EXPECT_TRUE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a' FROM 'main'")));
+  EXPECT_TRUE(HasBranchNotDurableNotification(faker.Interpret("CHECKOUT BRANCH 'b' FROM 'main'")));
+}
+
+TEST_F(VersioningGatedTest, DurableBranchHasNoNotDurableNotification) {
+  EXPECT_FALSE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a' FROM 'main'")));
+  EXPECT_FALSE(HasBranchNotDurableNotification(faker.Interpret("CHECKOUT BRANCH 'b' FROM 'main'")));
+}
 
 // One satisfied precondition (feature flag or license) is not sufficient on its own.
 TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {

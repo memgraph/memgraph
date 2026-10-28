@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "dbms/database.hpp"
+#include "flags/general.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -605,11 +606,13 @@ void ExpectTornLastTransactionIsDropped(LastTxn kind) {
 class VersioningCrashRecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    FLAGS_versioning_enabled = true;
     fs::remove_all(kStorageDirectory);
     fs::remove_all(kImageDirectory);
   }
 
   void TearDown() override {
+    FLAGS_versioning_enabled = false;
     fs::remove_all(kStorageDirectory);
     fs::remove_all(kImageDirectory);
   }

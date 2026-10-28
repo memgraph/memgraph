@@ -173,6 +173,14 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   std::ranges::stable_sort(plan.ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
   if (plan.ledger.branches.empty()) return plan;
 
+  if (!FLAGS_versioning_enabled) {
+    spdlog::warn(
+        "Graph Versioning is disabled (--versioning-enabled=false); the {} existing branches [{}] are dropped.",
+        plan.ledger.branches.size(),
+        BranchNames(plan.ledger));
+    return plan;
+  }
+
   const bool can_replay =
       config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
       config.durability.recover_on_startup &&

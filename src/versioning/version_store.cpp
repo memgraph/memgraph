@@ -26,6 +26,12 @@ namespace memgraph::versioning {
 VersionStore::VersionStore(std::function<uint64_t()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}
 
+VersionStore::~VersionStore() {
+  auto &global = memgraph::metrics::Metrics().global;
+  global.versioning_active_branches->Decrement(static_cast<double>(branches_.size()));
+  global.versioning_active_checkouts->Decrement(static_cast<double>(total_checkouts_));
+}
+
 void VersionStore::SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback) {
   retention_floor_callback_ = std::move(callback);
 }
@@ -82,7 +88,7 @@ void VersionStore::Restore(const LedgerContents &contents, std::span<const uint6
       info.fork_ts = pins[i];
       branches_.emplace(recorded.name, std::move(info));
     }
-    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+    memgraph::metrics::Metrics().global.versioning_active_branches->Increment(static_cast<double>(pins.size()));
   }
   PublishRetentionFloor();
 }
@@ -136,7 +142,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
     branches_.emplace(std::move(name), info);
 
     memgraph::metrics::Metrics().global.versioning_branches_created->Increment();
-    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+    memgraph::metrics::Metrics().global.versioning_active_branches->Increment();
   }
   return info;
 }
@@ -175,7 +181,7 @@ std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name,
     dropping_.erase(dropping_.find(name));
 
     memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
-    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
+    memgraph::metrics::Metrics().global.versioning_active_branches->Decrement();
   }
   PublishRetentionFloor();
   const bool retired = RetireCore(number);
@@ -270,7 +276,7 @@ std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::str
   ++checked_out_[std::string{name}];
   ++total_checkouts_;
 
-  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(total_checkouts_));
+  memgraph::metrics::Metrics().global.versioning_active_checkouts->Increment();
   return it->second;
 }
 
@@ -279,9 +285,8 @@ void VersionStore::ReleaseCheckout(std::string_view name) {
   if (auto it = checked_out_.find(name); it != checked_out_.end()) {
     --total_checkouts_;
     if (--it->second == 0) checked_out_.erase(it);
+    memgraph::metrics::Metrics().global.versioning_active_checkouts->Decrement();
   }
-
-  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(total_checkouts_));
 }
 
 size_t VersionStore::CheckoutCount(std::string_view name) const {

@@ -306,3 +306,54 @@ TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupDropsTheBranches) {
   ASSERT_NE(db.version_store(), nullptr);
   EXPECT_FALSE(db.version_store()->Exists("b"));
 }
+
+TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledDropsTheBranches) {
+  auto const saved = FLAGS_versioning_enabled;
+
+  struct Restore {
+    bool value;
+
+    ~Restore() { FLAGS_versioning_enabled = value; }
+  } const restore{saved};
+
+  FLAGS_versioning_enabled = true;
+  {
+    memgraph::dbms::Database db{MakeConfig(false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    for (int i = 0; i < 2; ++i) {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      Commit(*acc);
+    }
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      Commit(*acc);
+    }
+  }
+
+  auto const ledger_file = kRoot / "branches" / "ledger";
+  auto const before = memgraph::versioning::BranchLedger{ledger_file}.Read();
+  ASSERT_TRUE(before.has_value() && before->has_value());
+  ASSERT_EQ((*before)->branches.size(), 1U);
+  auto const next_number = (*before)->next_number;
+
+  FLAGS_versioning_enabled = false;
+  {
+    memgraph::dbms::Database db{MakeConfig(true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    // Main is recovered unbounded: every commit is present.
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
+  }
+
+  auto const after = memgraph::versioning::BranchLedger{ledger_file}.Read();
+  ASSERT_TRUE(after.has_value() && after->has_value());
+  EXPECT_TRUE((*after)->branches.empty());
+  EXPECT_EQ((*after)->next_number, next_number);
+
+  FLAGS_versioning_enabled = true;
+  memgraph::dbms::Database db{MakeConfig(true)};
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_FALSE(db.version_store()->Exists("b"));
+}

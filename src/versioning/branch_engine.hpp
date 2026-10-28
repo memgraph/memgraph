@@ -85,6 +85,9 @@ class BranchCore {
   // Builds an empty diff engine, records the gid floors (main's counters unless `recorded` supplies them), and mirrors
   // main's index and enum definitions. With a `branch_number` and a WAL-enabled main, branch commits (native deltas and
   // overlay records) go to a WAL in <main storage dir>/branches/<branch_number>/; otherwise the branch is not durable.
+  // True when main keeps a WAL, the config half of whether a numbered branch gets its own durable WAL.
+  static bool WritesWal(const storage::InMemoryStorage &main);
+
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt,
       std::optional<RecordedFloors> recorded = std::nullopt);

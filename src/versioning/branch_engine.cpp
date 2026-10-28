@@ -139,6 +139,11 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 
 }  // namespace
 
+bool BranchCore::WritesWal(const storage::InMemoryStorage &main) {
+  return main.config_.durability.snapshot_wal_mode ==
+         storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+}
+
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
     storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number,
     std::optional<RecordedFloors> recorded) {
@@ -163,9 +168,7 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   config.salient.uuid = utils::UUID{};
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
-  bool const durable =
-      branch_number.has_value() && main.config_.durability.snapshot_wal_mode ==
-                                       storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  bool const durable = branch_number.has_value() && WritesWal(main);
   config.durability.snapshot_wal_mode = durable
                                             ? storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
                                             : storage::Config::Durability::SnapshotWalMode::DISABLED;

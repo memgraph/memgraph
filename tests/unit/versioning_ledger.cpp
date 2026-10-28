@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "dbms/database.hpp"
+#include "flags/general.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -303,7 +304,14 @@ std::vector<uint64_t> BranchDirectoryNumbers() {
 }
 }  // namespace
 
-TEST(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {
+class BranchLedgerRestartTest : public ::testing::Test {
+ protected:
+  void SetUp() override { FLAGS_versioning_enabled = true; }
+
+  void TearDown() override { FLAGS_versioning_enabled = false; }
+};
+
+TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {
   fs::remove_all(kRestartDirectory);
   const auto cleanup = [] {
     std::error_code ec;

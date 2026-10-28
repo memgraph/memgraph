@@ -186,10 +186,14 @@ class VersioningHistoryReplayTest : public ::testing::Test {
  protected:
   void SetUp() override {
     FLAGS_metrics_format = "OpenMetrics";
+    FLAGS_versioning_enabled = true;
     std::filesystem::remove_all(kRoot);
   }
 
-  void TearDown() override { std::filesystem::remove_all(kRoot); }
+  void TearDown() override {
+    FLAGS_versioning_enabled = false;
+    std::filesystem::remove_all(kRoot);
+  }
 };
 
 TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) {

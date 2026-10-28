@@ -9101,12 +9101,24 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
 
   current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name);
 }
+
+// A branch is durable only when main keeps a WAL (the predicate BranchCore::Build applies); otherwise it is dropped
+// on restart.
+void NotifyIfBranchNotDurable(storage::Storage *storage, std::string_view name,
+                              std::vector<Notification> *notifications) {
+  if (versioning::BranchCore::WritesWal(*static_cast<storage::InMemoryStorage *>(storage))) return;
+  notifications->emplace_back(
+      SeverityLevel::WARNING,
+      NotificationCode::BRANCH_NOT_DURABLE,
+      fmt::format("Branch '{}' is not durable: the WAL is disabled, so it will be dropped when Memgraph restarts.",
+                  name));
+}
 }  // namespace
 
 // Management-query dispatch for CREATE/CHECKOUT/DROP/SHOW BRANCH*. Opens no storage accessor (VersionStore has its
 // own locking); CHECKOUT only attaches the session to a branch, ordinary Cypher routing lives in CurrentDB.
 PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                     CurrentDB &current_db) {
+                                     CurrentDB &current_db, std::vector<Notification> *notifications) {
   auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
   MG_ASSERT(query);
 
@@ -9168,6 +9180,8 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           .header = {"version", "number", "description", "parent"},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [version_store,
+                            storage,
+                            notifications,
                             name = *name,
                             parent = *parent,
                             description,
@@ -9178,6 +9192,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               if (!created) {
                 throw QueryRuntimeException(created.error());
               }
+              NotifyIfBranchNotDurable(storage, name, notifications);
               std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -9203,6 +9218,8 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
             .query_handler = [version_store,
                               &current_db,
                               db_acc,
+                              storage,
+                              notifications,
                               name = *name,
                               parent = *parent,
                               description,
@@ -9216,6 +9233,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 if (current_db.CurrentVersion()) {
                   current_db.SetCurrentVersion(std::nullopt);
                 }
+                NotifyIfBranchNotDurable(storage, name, notifications);
                 CheckoutBranchEngine(current_db, version_store, db_acc, name);
                 current_db.SetCurrentVersion(name);
                 std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
@@ -11677,7 +11695,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw VersioningQueryInMulticommandTxException();
       }
-      prepared_query = PrepareVersioningQuery(std::move(parsed_query), interpreter_context_, current_db_);
+      prepared_query = PrepareVersioningQuery(
+          std::move(parsed_query), interpreter_context_, current_db_, &query_execution->notifications);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();

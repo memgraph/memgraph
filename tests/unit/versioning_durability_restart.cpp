@@ -21,6 +21,7 @@
 #include <string>
 
 #include "dbms/database.hpp"
+#include "flags/general.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -172,9 +173,15 @@ void Snapshot(memgraph::dbms::Database &db) { ASSERT_TRUE(Mem(db)->CreateSnapsho
 
 class VersioningDurabilityRestartTest : public ::testing::Test {
  protected:
-  void SetUp() override { std::filesystem::remove_all(kStorageDirectory); }
+  void SetUp() override {
+    FLAGS_versioning_enabled = true;
+    std::filesystem::remove_all(kStorageDirectory);
+  }
 
-  void TearDown() override { std::filesystem::remove_all(kStorageDirectory); }
+  void TearDown() override {
+    FLAGS_versioning_enabled = false;
+    std::filesystem::remove_all(kStorageDirectory);
+  }
 };
 
 TEST_F(VersioningDurabilityRestartTest, BranchReadsMainAtItsForkAfterRestart) {

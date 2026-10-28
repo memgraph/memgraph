@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "versioning/version_store.hpp"
 
 using memgraph::versioning::BranchInfo;
@@ -277,4 +278,30 @@ TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   ASSERT_TRUE(a2.has_value());
   ASSERT_TRUE(store->GetOrBuildCore(a2->number, build_a).has_value());
   EXPECT_EQ(a_builds, 2);
+}
+
+TEST_F(VersionStoreTest, ActiveGaugesSumAcrossStores) {
+  auto &global = memgraph::metrics::Metrics().global;
+  const auto branches0 = global.versioning_active_branches->Value();
+  const auto checkouts0 = global.versioning_active_checkouts->Value();
+
+  auto a = MakeStore();
+  auto b = MakeStore();
+  ASSERT_TRUE(a->CreateBranch("x", "main", std::nullopt));
+  ASSERT_TRUE(b->CreateBranch("y", "main", std::nullopt));
+  EXPECT_EQ(global.versioning_active_branches->Value(), branches0 + 2);
+
+  ASSERT_TRUE(a->TryAcquireCheckout("x"));
+  ASSERT_TRUE(b->TryAcquireCheckout("y"));
+  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 2);
+
+  a->ReleaseCheckout("x");
+  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 1);
+  ASSERT_TRUE(a->DropBranch("x", /*remove_files=*/false).value());
+  EXPECT_EQ(global.versioning_active_branches->Value(), branches0 + 1);
+
+  // Destroying a store that still holds a branch and a checkout withdraws exactly its share.
+  b.reset();
+  EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
+  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0);
 }

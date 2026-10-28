@@ -116,6 +116,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "CreateUser"sv;
     case NotificationCode::CREATE_ROLE:
       return "CreateRole"sv;
+    case NotificationCode::BRANCH_NOT_DURABLE:
+      return "BranchNotDurable"sv;
   }
 }
 }  // namespace
