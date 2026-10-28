@@ -1141,7 +1141,7 @@ TEST_F(AuthWithStorage, CommunityFirstUserHasAllPermissions) {
   for (auto const permission : memgraph::auth::kPermissionsAll) {
     EXPECT_EQ(saved->permissions().Has(permission), memgraph::auth::PermissionLevel::GRANT);
   }
-  EXPECT_EQ(saved->permissions().denies(), 0);
+  EXPECT_EQ(saved->permissions().strong_denies(), 0);
 }
 #endif
 
@@ -1194,34 +1194,34 @@ TEST_F(AuthWithStorage, PasswordStrength) {
 TEST(AuthWithoutStorage, Permissions) {
   Permissions permissions;
   ASSERT_EQ(permissions.grants(), 0);
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Revoke(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.grants(), 0);
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Deny(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::MATCH));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.grants(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Deny(Permission::CREATE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Grant(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
@@ -1229,7 +1229,7 @@ TEST(AuthWithoutStorage, Permissions) {
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH) | std::to_underlying(Permission::DELETE));
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Revoke(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
@@ -1237,25 +1237,108 @@ TEST(AuthWithoutStorage, Permissions) {
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::CREATE));
 }
 
 TEST(AuthWithoutStorage, PermissionsMaskTest) {
   Permissions p1(0, 0);
   ASSERT_EQ(p1.grants(), 0);
-  ASSERT_EQ(p1.denies(), 0);
+  ASSERT_EQ(p1.strong_denies(), 0);
 
   Permissions p2(1, 0);
   ASSERT_EQ(p2.grants(), 1);
-  ASSERT_EQ(p2.denies(), 0);
+  ASSERT_EQ(p2.strong_denies(), 0);
 
   Permissions p3(1, 1);
   ASSERT_EQ(p3.grants(), 0);
-  ASSERT_EQ(p3.denies(), 1);
+  ASSERT_EQ(p3.strong_denies(), 1);
 
   Permissions p4(3, 2);
   ASSERT_EQ(p4.grants(), 1);
-  ASSERT_EQ(p4.denies(), 2);
+  ASSERT_EQ(p4.strong_denies(), 2);
+
+  Permissions p5(1, 0, 1);
+  ASSERT_EQ(p5.grants(), 1);
+  ASSERT_EQ(p5.strong_denies(), 0);
+  ASSERT_EQ(p5.weak_denies(), 1);
+}
+
+TEST(AuthWithoutStorage, PermissionsWeakDeny) {
+  auto const match = std::to_underlying(Permission::MATCH);
+  Permissions permissions;
+
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(permissions.strong_denies(), 0);
+  ASSERT_EQ(permissions.weak_denies(), match);
+
+  permissions.Deny(Permission::MATCH);
+  ASSERT_EQ(permissions.strong_denies(), match);
+  ASSERT_EQ(permissions.weak_denies(), 0);
+
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  permissions.Grant(Permission::MATCH);
+  ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(permissions.weak_denies(), 0);
+
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  permissions.Revoke(Permission::MATCH);
+  ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(permissions.weak_denies(), 0);
+}
+
+TEST(AuthWithoutStorage, PermissionsMergeWeakDeny) {
+  Permissions grant;
+  grant.Grant(Permission::MATCH);
+  Permissions weak;
+  weak.Deny(Permission::MATCH, DenyStrength::WEAK);
+  Permissions strong;
+  strong.Deny(Permission::MATCH);
+
+  ASSERT_EQ(Merge(weak, grant).Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(grant, weak).Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(weak, Permissions{}).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(strong, grant).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(Merge(strong, grant), weak).Has(Permission::MATCH), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, PermissionsSerializeWeakDeny) {
+  Permissions permissions;
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  permissions.Deny(Permission::CREATE);
+  auto const loaded = Permissions::Deserialize(permissions.Serialize());
+  ASSERT_EQ(loaded, permissions);
+  ASSERT_EQ(loaded.weak_denies(), std::to_underlying(Permission::MATCH));
+
+  auto const legacy =
+      Permissions::Deserialize({{"grants", uint64_t{0}}, {"denies", std::to_underlying(Permission::MATCH)}});
+  ASSERT_EQ(legacy.weak_denies(), 0);
+  ASSERT_EQ(legacy.Has(Permission::MATCH), PermissionLevel::DENY);
+
+  auto const weak_only = Permissions::Deserialize(
+      {{"grants", uint64_t{0}}, {"denies", uint64_t{0}}, {"weak_denies", std::to_underlying(Permission::MATCH)}});
+  ASSERT_EQ(weak_only.Has(Permission::MATCH), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, UserRolePermissionsWeakDeny) {
+  Permissions weak;
+  weak.Deny(Permission::MATCH, DenyStrength::WEAK);
+  Permissions grant;
+  grant.Grant(Permission::MATCH);
+
+  User user_grant{"alice", std::nullopt, grant};
+  user_grant.AddRole(Role{"engineer", weak});
+  ASSERT_EQ(user_grant.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+
+  User user_weak{"bob", std::nullopt, weak};
+  user_weak.AddRole(Role{"hr", grant});
+  ASSERT_EQ(user_weak.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+
+  User user_roles{"carol"};
+  user_roles.AddRole(Role{"engineer", weak});
+  user_roles.AddRole(Role{"hr", grant});
+  ASSERT_EQ(user_roles.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
 }
 
 #ifdef MG_ENTERPRISE
@@ -1277,7 +1360,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     FineGrainedAccessPermissions fga_permissions;
     ASSERT_TRUE(fga_permissions.GetRules().empty());
     ASSERT_EQ(fga_permissions.GetGlobalGrants(), std::nullopt);
-    ASSERT_EQ(fga_permissions.GetGlobalDenies(), std::nullopt);
+    ASSERT_EQ(fga_permissions.GetGlobalStrongDenies(), std::nullopt);
 
     ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
     ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
@@ -1510,84 +1593,94 @@ TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   }
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeWildcardClearsAllProperties) {
+TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeWildcardKeepsNamedRecords) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
   std::vector<std::string> const emp = {"Employee"};
 
-  // REVOKE READ {*} should clear all READ grants, not just a literal "*" key
-  {
-    PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
-    perms.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
-    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-  }
-
-  // REVOKE READ {*} should clear all READ denies too
-  {
-    PropertyAccessPermissions perms;
-    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
-    perms.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
-    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-  }
-
-  // REVOKE READ {*} should not affect WRITE bits
-  {
-    PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
-    perms.Grant({"Employee"}, "name", PropertyPermissionType::WRITE);
-    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
-  }
+  PropertyAccessPermissions perms;
+  perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
+  perms.Grant({"Employee"}, "*", PropertyPermissionType::WRITE);
+  perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+  perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+  perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
+  EXPECT_EQ(perms.Has(emp, "age", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has(emp, "age", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardClearsNamedGrants) {
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardKeepsNamedRecords) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
   std::vector<std::string> const emp = {"Employee"};
 
   PropertyAccessPermissions perms;
   perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
-  perms.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
   perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
 
-  // Wildcard grant + named deny survive; named grants cleared
   perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
   auto const &rules = perms.GetRules();
   ASSERT_EQ(rules.size(), 1);
-  EXPECT_EQ(rules[0].properties.size(), 2);
-  EXPECT_TRUE(rules[0].properties.contains("*"));
-  EXPECT_TRUE(rules[0].properties.contains("ssn"));
+  EXPECT_EQ(rules[0].properties.size(), 3);
   EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::GRANT);
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardClearsNamedDenies) {
+TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardKeepsNamedRecords) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
   std::vector<std::string> const emp = {"Employee"};
 
   PropertyAccessPermissions perms;
   perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
-  perms.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
   perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
 
-  // Wildcard deny + named grant survive; named denies cleared
   perms.Deny({"Employee"}, "*", PropertyPermissionType::READ);
   auto const &rules = perms.GetRules();
   ASSERT_EQ(rules.size(), 1);
-  EXPECT_EQ(rules[0].properties.size(), 2);
-  EXPECT_TRUE(rules[0].properties.contains("*"));
-  EXPECT_TRUE(rules[0].properties.contains("name"));
+  EXPECT_EQ(rules[0].properties.size(), 3);
   EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsWildcardDenyOrderDoesNotMatter) {
+  using memgraph::auth::Merge;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  PropertyAccessPermissions other;
+  other.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
+
+  PropertyAccessPermissions named_first;
+  named_first.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
+  named_first.Deny({"Employee"}, "*", PropertyPermissionType::READ);
+
+  PropertyAccessPermissions wildcard_first;
+  wildcard_first.Deny({"Employee"}, "*", PropertyPermissionType::READ);
+  wildcard_first.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
+
+  EXPECT_EQ(Merge(named_first, other).Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(wildcard_first, other).Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeGlobalWildcardKeepsNamedRecords) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  PropertyAccessPermissions perms;
+  perms.GrantGlobal("*", PropertyPermissionType::READ);
+  perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+  perms.GrantGlobal("name", PropertyPermissionType::READ);
+  perms.DenyGlobal("ssn", PropertyPermissionType::READ);
+  perms.RevokeGlobal("*", PropertyPermissionType::READ);
+  EXPECT_EQ(perms.HasGlobal("age", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.HasGlobal("name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.HasGlobal("ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.HasGlobal("age", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardPreservesNamedDenyOnOtherBit) {
@@ -1704,6 +1797,21 @@ TEST(AuthWithoutStorage, PropertyAccessHandlerSerializeRoundtrip) {
   EXPECT_EQ(deserialized.edge_type_properties().Has(paid, "amount", PropertyPermissionType::READ),
             PermissionLevel::GRANT);
   EXPECT_EQ(handler, deserialized);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsSerializeWeakDeny) {
+  auto const read = PropertyPermissionType::READ;
+  PropertyAccessPermissions perms;
+  perms.Deny({"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  perms.DenyGlobal("amount", read, DenyStrength::WEAK);
+  EXPECT_EQ(PropertyAccessPermissions::Deserialize(perms.Serialize()), perms);
+
+  auto json = perms.Serialize();
+  json["global"]["amount"].erase("weak_denies");
+  json["rules"][0]["properties"]["salary"].erase("weak_denies");
+  auto const legacy = PropertyAccessPermissions::Deserialize(json);
+  EXPECT_EQ(legacy.GetGlobalRules().at("amount").weak_denies, PropertyPermissionType::NONE);
+  EXPECT_EQ(legacy.GetRules()[0].properties.at("salary").weak_denies, PropertyPermissionType::NONE);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessHandlerDeserializeMissingKey) {
@@ -2122,6 +2230,89 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityMerge) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
+  std::vector<std::string> const emp = {"Employee"};
+  auto const read = PropertyPermissionType::READ;
+
+  PropertyAccessPermissions weak;
+  weak.Deny({"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(weak.Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions grant;
+  grant.Grant({"Employee"}, "salary", read);
+  EXPECT_EQ(Merge(weak, grant).Has(emp, "salary", read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(grant, weak).Has(emp, "salary", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions strong;
+  strong.Deny({"Employee"}, "salary", read);
+  EXPECT_EQ(Merge(Merge(weak, grant), strong).Has(emp, "salary", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(strong, Merge(weak, grant)).Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions wildcard;
+  wildcard.Grant({"Employee"}, "*", read);
+  auto const with_wildcard = Merge(weak, wildcard);
+  EXPECT_EQ(with_wildcard.Has(emp, "salary", read), PermissionLevel::DENY);
+  EXPECT_EQ(with_wildcard.Has(emp, "name", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions regranted = weak;
+  regranted.Grant({"Employee"}, "salary", read);
+  EXPECT_EQ(regranted, grant);
+
+  PropertyAccessPermissions weak_wildcard_after_strong = strong;
+  weak_wildcard_after_strong.Deny({"Employee"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(weak_wildcard_after_strong, grant).Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions weak_wildcard;
+  weak_wildcard.Deny({"Employee"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(weak_wildcard, wildcard).Has(emp, "name", read), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalWeakDeny) {
+  std::vector<std::string> const emp = {"Employee"};
+  auto const read = PropertyPermissionType::READ;
+
+  PropertyAccessPermissions weak;
+  weak.DenyGlobal("salary", read, DenyStrength::WEAK);
+  EXPECT_EQ(weak.Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions grant;
+  grant.GrantGlobal("salary", read);
+  EXPECT_EQ(Merge(weak, grant).Has(emp, "salary", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions strong;
+  strong.DenyGlobal("salary", read);
+  EXPECT_EQ(Merge(Merge(weak, grant), strong).Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions regranted = weak;
+  regranted.GrantGlobal("salary", read);
+  EXPECT_EQ(regranted, grant);
+}
+
+TEST(AuthWithoutStorage, UserPropertyPermissionsWeakDeny) {
+  std::vector<std::string> const emp = {"Employee"};
+  auto const read = PropertyPermissionType::READ;
+
+  Role worker{"worker"};
+  worker.db_access().Grant("db1");
+  worker.db_access().Grant("db2");
+  worker.property_access_handler().label_properties().Deny(
+      {"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  Role ceo{"ceo"};
+  ceo.db_access().Grant("db1");
+  ceo.property_access_handler().label_properties().Grant({"Employee"}, "salary", read);
+
+  User user_roles{"alice"};
+  user_roles.AddRole(worker);
+  user_roles.AddRole(ceo);
+  EXPECT_EQ(user_roles.GetPropertyLabelPermissions("db1").Has(emp, "salary", read), PermissionLevel::GRANT);
+  EXPECT_EQ(user_roles.GetPropertyLabelPermissions("db2").Has(emp, "salary", read), PermissionLevel::DENY);
+
+  User user_grant{"bob"};
+  user_grant.property_access_handler().label_properties().Grant({"Employee"}, "salary", read);
+  user_grant.AddRole(worker);
+  EXPECT_EQ(user_grant.GetPropertyLabelPermissions("db2").Has(emp, "salary", read), PermissionLevel::GRANT);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
   using memgraph::auth::PropertyAccessPermissions;
   using memgraph::auth::PropertyPermissionType;
@@ -2369,18 +2560,121 @@ TEST(AuthWithFineGrainedTest, DenyBehavior) {
 
   // Test global deny
   perms.DenyGlobal(FineGrainedPermission::READ);
-  ASSERT_TRUE(perms.GetGlobalDenies().has_value());
-  ASSERT_EQ(perms.GetGlobalDenies().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
+  ASSERT_TRUE(perms.GetGlobalStrongDenies().has_value());
+  ASSERT_EQ(perms.GetGlobalStrongDenies().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
   // Revoke global deny
   perms.RevokeGlobal(FineGrainedPermission::READ);
-  ASSERT_FALSE(perms.GetGlobalDenies().has_value());
+  ASSERT_FALSE(perms.GetGlobalStrongDenies().has_value());
 
   // Grant global READ, then deny - deny should clear grant
   perms.GrantGlobal(FineGrainedPermission::READ);
   ASSERT_TRUE(perms.GetGlobalGrants().has_value());
   perms.DenyGlobal(FineGrainedPermission::READ);
   ASSERT_FALSE(perms.GetGlobalGrants().has_value());
-  ASSERT_TRUE(perms.GetGlobalDenies().has_value());
+  ASSERT_TRUE(perms.GetGlobalStrongDenies().has_value());
+}
+
+TEST(AuthWithFineGrainedTest, WeakDeny) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const person = std::array{"Person"s};
+  auto const read = FineGrainedPermission::READ;
+
+  FineGrainedAccessPermissions weak;
+  weak.Deny({"Person"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  ASSERT_EQ(weak.Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions grant;
+  grant.Grant({"Person"}, read);
+  ASSERT_EQ(Merge(weak, grant).Has(person, read), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(grant, weak).Has(person, read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions strong;
+  strong.Deny({"Person"}, read);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).Has(person, read), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(strong, Merge(weak, grant)).Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions other_rule;
+  other_rule.Grant({"Person", "Employee"}, read);
+  ASSERT_EQ(Merge(weak, other_rule).Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions global_grant;
+  global_grant.GrantGlobal(read);
+  ASSERT_EQ(Merge(weak, global_grant).Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions regranted = weak;
+  regranted.Grant({"Person"}, read);
+  ASSERT_EQ(regranted, grant);
+}
+
+TEST(AuthWithFineGrainedTest, GlobalWeakDeny) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const read = FineGrainedPermission::READ;
+
+  FineGrainedAccessPermissions weak;
+  weak.DenyGlobal(read, DenyStrength::WEAK);
+  ASSERT_EQ(weak.HasGlobal(read), PermissionLevel::DENY);
+  ASSERT_EQ(weak.GetGlobalWeakDenies(), std::to_underlying(read));
+
+  FineGrainedAccessPermissions grant;
+  grant.GrantGlobal(read);
+  ASSERT_EQ(Merge(weak, grant).HasGlobal(read), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(grant, weak).HasGlobal(read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions strong;
+  strong.DenyGlobal(read);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).HasGlobal(read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions regranted = weak;
+  regranted.GrantGlobal(read);
+  ASSERT_EQ(regranted, grant);
+}
+
+TEST(AuthWithFineGrainedTest, SerializeWeakDeny) {
+  FineGrainedAccessPermissions perms;
+  perms.Deny({"Person"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  perms.Deny({"Person"}, FineGrainedPermission::CREATE);
+  perms.DenyGlobal(FineGrainedPermission::DELETE, DenyStrength::WEAK);
+  ASSERT_EQ(FineGrainedAccessPermissions::Deserialize(perms.Serialize()), perms);
+
+  auto json = perms.Serialize();
+  json.erase("global_weak_denies");
+  json["permissions"][0].erase("weak_denied");
+  auto const legacy = FineGrainedAccessPermissions::Deserialize(json);
+  ASSERT_EQ(legacy.GetGlobalWeakDenies(), 0);
+  ASSERT_EQ(legacy.GetRules()[0].weak_denies, FineGrainedPermission::NONE);
+}
+
+TEST(AuthWithFineGrainedTest, SerializeWeakDenyOnlyRule) {
+  FineGrainedAccessPermissions perms;
+  perms.Deny({"Secret"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  ASSERT_EQ(FineGrainedAccessPermissions::Deserialize(perms.Serialize()), perms);
+}
+
+TEST(AuthWithFineGrainedTest, RevokeClearsWeakDenies) {
+  FineGrainedAccessPermissions labels;
+  labels.Deny({"Secret"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  labels.DenyGlobal(FineGrainedPermission::CREATE, DenyStrength::WEAK);
+  labels.Revoke({"Secret"}, FineGrainedPermission::READ);
+  labels.RevokeGlobal(FineGrainedPermission::CREATE);
+  ASSERT_EQ(labels, FineGrainedAccessPermissions{});
+
+  PropertyAccessPermissions props;
+  props.Deny({"Employee"}, "salary", PropertyPermissionType::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  props.DenyGlobal("ssn", PropertyPermissionType::READ, DenyStrength::WEAK);
+  props.Revoke({"Employee"}, "salary", PropertyPermissionType::READ);
+  props.RevokeGlobal("ssn", PropertyPermissionType::READ);
+  ASSERT_EQ(props, PropertyAccessPermissions{});
+}
+
+TEST(AuthWithFineGrainedTest, DeserializeIgnoresNonNumericWeakDenies) {
+  FineGrainedAccessPermissions perms;
+  perms.Deny({"Person"}, FineGrainedPermission::READ);
+  auto json = perms.Serialize();
+  json["global_weak_denies"] = "corrupt";
+  json["permissions"][0]["weak_denied"] = "corrupt";
+  auto const loaded = FineGrainedAccessPermissions::Deserialize(json);
+  ASSERT_EQ(loaded.GetGlobalWeakDenies(), 0);
+  ASSERT_EQ(loaded.GetRules()[0].weak_denies, FineGrainedPermission::NONE);
 }
 
 TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
@@ -3374,19 +3668,19 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
   ASSERT_TRUE(user1);
   auto const &user1_label_perms = user1->GetFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(user1_label_perms.GetGlobalGrants().has_value());
-  ASSERT_FALSE(user1_label_perms.GetGlobalDenies().has_value());
+  ASSERT_FALSE(user1_label_perms.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(user1_label_perms.GetRules().empty());
   auto const &user1_edge_perms = user1->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(user1_edge_perms.GetGlobalGrants().has_value());
-  ASSERT_FALSE(user1_edge_perms.GetGlobalDenies().has_value());
+  ASSERT_FALSE(user1_edge_perms.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(user1_edge_perms.GetRules().empty());
 
   auto const user2 = auth->GetUser("user2");
   ASSERT_TRUE(user2);
   auto const &user2_label_perms = user2->GetFineGrainedAccessLabelPermissions();
   // Legacy NOTHING (0) is migrated to global deny of all permissions
-  ASSERT_TRUE(user2_label_perms.GetGlobalDenies().has_value());
-  ASSERT_EQ(user2_label_perms.GetGlobalDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
+  ASSERT_TRUE(user2_label_perms.GetGlobalStrongDenies().has_value());
+  ASSERT_EQ(user2_label_perms.GetGlobalStrongDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
   ASSERT_TRUE(user2_label_perms.GetRules().empty());
   auto const &user2_edge_perms = user2->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(user2_edge_perms.GetGlobalGrants().has_value());
@@ -3417,11 +3711,11 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(user1);
   auto const u1_label = user1->GetUserFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(u1_label.GetGlobalGrants().has_value());
-  ASSERT_FALSE(u1_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u1_label.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u1_label.GetRules().empty());
   auto const u1_edge = user1->GetUserFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(u1_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(u1_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u1_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u1_edge.GetRules().empty());
 
   // user2: label global_permission=0 (NOTHING) -> deny all; edge unset
@@ -3429,12 +3723,12 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(user2);
   auto const u2_label = user2->GetUserFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(u2_label.GetGlobalGrants().has_value());
-  ASSERT_TRUE(u2_label.GetGlobalDenies().has_value());
-  ASSERT_EQ(u2_label.GetGlobalDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
+  ASSERT_TRUE(u2_label.GetGlobalStrongDenies().has_value());
+  ASSERT_EQ(u2_label.GetGlobalStrongDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
   ASSERT_TRUE(u2_label.GetRules().empty());
   auto const u2_edge = user2->GetUserFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(u2_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(u2_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u2_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u2_edge.GetRules().empty());
 
   // user3: label global_permission=3 (READ|UPDATE) -> UPDATE expands for labels
@@ -3445,12 +3739,12 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(u3_label.GetGlobalGrants().has_value());
   ASSERT_EQ(u3_label.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::READ | kVertexLabelUpdatePermissions));
-  ASSERT_FALSE(u3_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u3_label.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u3_label.GetRules().empty());
   auto const u3_edge = user3->GetUserFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(u3_edge.GetGlobalGrants().has_value());
   ASSERT_EQ(u3_edge.GetGlobalGrants().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
-  ASSERT_FALSE(u3_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u3_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u3_edge.GetRules().empty());
 
   // role1: label per-entity rule granted=0 (NOTHING) -> deny all rule; edge unset
@@ -3458,13 +3752,13 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(role1);
   auto const &r1_label = role1->GetFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(r1_label.GetGlobalGrants().has_value());
-  ASSERT_FALSE(r1_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r1_label.GetGlobalStrongDenies().has_value());
   ASSERT_EQ(r1_label.GetRules().size(), 1);
-  ASSERT_EQ(r1_label.GetRules()[0].denies, kAllLabelPermissions);
+  ASSERT_EQ(r1_label.GetRules()[0].strong_denies, kAllLabelPermissions);
   ASSERT_EQ(r1_label.GetRules()[0].grants, FineGrainedPermission::NONE);
   auto const &r1_edge = role1->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(r1_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(r1_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r1_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(r1_edge.GetRules().empty());
 
   // role2: label global_permission=27 (READ|UPDATE|CREATE|DELETE) -> UPDATE expands
@@ -3476,14 +3770,14 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_EQ(r2_label.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::READ | kVertexLabelUpdatePermissions |
                                   FineGrainedPermission::CREATE | FineGrainedPermission::DELETE));
-  ASSERT_FALSE(r2_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r2_label.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(r2_label.GetRules().empty());
   auto const &r2_edge = role2->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(r2_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(r2_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r2_edge.GetGlobalStrongDenies().has_value());
   ASSERT_EQ(r2_edge.GetRules().size(), 1);
   ASSERT_EQ(r2_edge.GetRules()[0].grants, FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY);
-  ASSERT_EQ(r2_edge.GetRules()[0].denies, FineGrainedPermission::NONE);
+  ASSERT_EQ(r2_edge.GetRules()[0].strong_denies, FineGrainedPermission::NONE);
 }
 
 TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
@@ -4260,6 +4554,19 @@ constexpr auto kLabelUpdateExpanded =
     std::to_underlying(memgraph::auth::kVertexLabelUpdatePermissions | FineGrainedPermission::READ);
 constexpr int64_t kUnset = -1;
 }  // namespace
+
+TEST(MigrateAuthJson, V4MigrationToCurrentVersion) {
+  auto data = nlohmann::json::parse(R"({
+    "rolename": "r",
+    "permissions": {"grants": 0, "denies": 2},
+    "version": 4
+  })");
+  MigrateAuthJson(data);
+  ASSERT_EQ(data["version"], kCurrentEntityVersion);
+  auto const role = Role::Deserialize(data);
+  ASSERT_EQ(role.permissions().strong_denies(), 2);
+  ASSERT_EQ(role.permissions().weak_denies(), 0);
+}
 
 TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
   // CREATE_DELETE (7) -> full label grants
