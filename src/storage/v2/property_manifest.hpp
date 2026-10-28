@@ -107,7 +107,7 @@ class PropertyManifest {
 
  private:
   std::vector<ManifestEntry> entries_;
-  /// Parallel to `entries_`: byte offset for fixed values, offset-table index for variable ones.
+  /// Parallel to `entries_`, holding each one's `Location::offset`.
   std::vector<uint32_t> offsets_;
   uint32_t fixed_region_size_{};
   uint32_t variable_count_{};

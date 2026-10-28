@@ -405,23 +405,21 @@ class Timezone {
 
   const Timezone *operator->() const { return this; }
 
-  // Compares the offset two timezones given as one hold, and the identity of two taken from the
-  // database, which is one object per zone so that an alias and the name it stands for are the
+  // Compares the offset two timezones given as one hold, and the object two taken from the
+  // database are. There is one object per zone, so an alias and the name it stands for are the
   // same timezone.
   bool operator==(const Timezone &) const = default;
 
-  // A timezone given as an offset and one named in the database are different kinds of thing, so
-  // they are placed by kind before anything else. Within a kind they are placed by what
-  // distinguishes them: the offset itself, or the name.
+  // An offset and a name are different kinds of thing, so kind is placed first, and within a
+  // kind what tells them apart: the offset itself, or the name.
   //
-  // Not by name alone. Every timezone given as an offset answers "" to its name, so that would
-  // place all of them together while equality tells them apart, and two unequal timezones would
-  // compare equivalent. Not by the database pointer either, which would order them differently
-  // from one run to the next. The same zone always has the same pointer, so comparing names
-  // here agrees with equality comparing pointers.
+  // Three alternatives are wrong. By name alone: every offset answers "" to its name, so all of
+  // them would place together while equality tells them apart, which is two unequal timezones
+  // comparing equivalent. By the database pointer: that orders zones differently from one run
+  // to the next. By the offset a named zone is at: that moves through the year.
   //
-  // Comparing by the offset a zone is at right now would be wrong whichever way it is done: a
-  // named zone's offset moves through the year.
+  // Comparing names here agrees with equality comparing pointers, because one zone has one
+  // object.
   std::strong_ordering operator<=>(const Timezone &other) const {
     if (auto const kind = InTzDatabase() <=> other.InTzDatabase(); kind != std::strong_ordering::equal) {
       return kind;
