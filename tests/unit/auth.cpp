@@ -2261,6 +2261,10 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
   PropertyAccessPermissions weak_wildcard_after_strong = strong;
   weak_wildcard_after_strong.Deny({"Employee"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
   EXPECT_EQ(Merge(weak_wildcard_after_strong, grant).Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions weak_wildcard;
+  weak_wildcard.Deny({"Employee"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(weak_wildcard, wildcard).Has(emp, "name", read), PermissionLevel::GRANT);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalWeakDeny) {
@@ -2282,6 +2286,31 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalWeakDeny) {
   PropertyAccessPermissions regranted = weak;
   regranted.GrantGlobal("salary", read);
   EXPECT_EQ(regranted, grant);
+}
+
+TEST(AuthWithoutStorage, UserPropertyPermissionsWeakDeny) {
+  std::vector<std::string> const emp = {"Employee"};
+  auto const read = PropertyPermissionType::READ;
+
+  Role worker{"worker"};
+  worker.db_access().Grant("db1");
+  worker.db_access().Grant("db2");
+  worker.property_access_handler().label_properties().Deny(
+      {"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  Role ceo{"ceo"};
+  ceo.db_access().Grant("db1");
+  ceo.property_access_handler().label_properties().Grant({"Employee"}, "salary", read);
+
+  User user_roles{"alice"};
+  user_roles.AddRole(worker);
+  user_roles.AddRole(ceo);
+  EXPECT_EQ(user_roles.GetPropertyLabelPermissions("db1").Has(emp, "salary", read), PermissionLevel::GRANT);
+  EXPECT_EQ(user_roles.GetPropertyLabelPermissions("db2").Has(emp, "salary", read), PermissionLevel::DENY);
+
+  User user_grant{"bob"};
+  user_grant.property_access_handler().label_properties().Grant({"Employee"}, "salary", read);
+  user_grant.AddRole(worker);
+  EXPECT_EQ(user_grant.GetPropertyLabelPermissions("db2").Has(emp, "salary", read), PermissionLevel::GRANT);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
