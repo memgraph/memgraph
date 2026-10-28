@@ -1049,3 +1049,26 @@ Feature: Vector search related features
             | 'label+property_vector'     | ':Person'         | 'embedding' | 0     |
             | 'label+property_vector'     | ':Person&Star'    | 'embedding' | 0     |
             | 'label+property_vector'     | ':Person\|Movie'  | 'embedding' | 0     |
+
+    Scenario: Vector search cosine metric calculates negative similarity for opposite vectors
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX cos_idx ON :VectorNode(embedding) WITH CONFIG {"dimension": 2, "metric": "cos", "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:VectorNode {id: 'same', embedding: [1.0, 0.0]}),
+                   (:VectorNode {id: 'ortho', embedding: [0.0, 1.0]}),
+                   (:VectorNode {id: 'opp', embedding: [-1.0, 0.0]});
+            """
+        When executing query:
+            """
+            CALL vector_search.search("cos_idx", 3, [1.0, 0.0]) YIELD node, distance, similarity
+            RETURN node.id AS id, distance, similarity;
+            """
+        Then the result should be:
+            | id      | distance | similarity |
+            | 'same'  | 0.0      | 1.0        |
+            | 'ortho' | 1.0      | 0.0        |
+            | 'opp'   | 2.0      | -1.0       |
