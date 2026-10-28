@@ -1534,6 +1534,22 @@ TEST(PropertyStore, ArePropertiesEqual_APathIntoSomethingThatIsNotAMapLeavesLate
             (std::vector{false, true}));
 }
 
+// Asking about no paths at all is answerable, and every caller happens to ask about at least
+// one, so nothing else would notice if it stopped being.
+TEST(PropertyStore, AskingAboutNoPathsAtAllYieldsNoAnswers) {
+  auto const p1 = PropertyId::FromInt(1);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1, PropertyValue{int64_t{300}}}};
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_TRUE(
+      EqualityMask(
+          store, std::span<PropertyPath const>{}, std::span<PropertyValue const>{}, std::span<std::size_t const>{})
+          .empty());
+  EXPECT_TRUE(store.ExtractPropertyValuesMissingAsNull(std::vector<PropertyPath>{}).empty());
+}
+
 // A key is looked for inside the value that holds it and nowhere else. The ids here are chosen
 // so that a search for the key inside the nested map passes the one key it does hold and so
 // would carry on into what follows the map if it were not stopped at its end, where a property
