@@ -149,10 +149,8 @@ The user reads `salary` on `db1`, where `HR` is one of their roles and its grant
 overrides the weak deny. On `db2` they get `Null`, because `HR` is not a role
 they hold there and nothing overrides the deny.
 
-This follows from how roles are already scoped rather than from anything new,
-but it becomes visible here: until now a deny held everywhere regardless of
-which roles applied, so there was nothing for the scoping to change. An
-administrator diagnosing an unexpected `Null` should check which databases the
+This follows from how roles are already scoped: a role's grants and denies
+apply only on the databases it covers. An administrator diagnosing an unexpected `Null` should check which databases the
 overriding role covers, not just that the role exists.
 
 ### Across roles, the strongest deny wins
@@ -237,6 +235,13 @@ loads with every deny strong. A deny present in both records counts as strong,
 the stronger of the two, so every combination has a meaning. The stored entity
 version, `kCurrentEntityVersion`, goes from 4 to 5. No migration step is needed:
 a version 4 record has no weak fields, so it loads with every deny strong.
+
+During a rolling upgrade, a replica still on an earlier version can receive a
+version 5 user or role from an upgraded main. From 3.14.0, the replica rejects
+it and system replication to that replica fails until it is upgraded. Earlier
+versions accept it and ignore the weak field, so a weak deny is not enforced
+on that replica. When upgrading from 3.13 or earlier, don't issue `WEAK DENY`
+until every instance is upgraded.
 
 ## Testing Decisions
 
