@@ -441,19 +441,19 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
         return CachedPropertyValue<RecordIdentity::Kind::Vertex>(expression_result_ptr->ValueVertex(), property_lookup);
       } else {
-        // GetProperty checks the accessor (and throws without one) before we index ctx_->properties below.
-        auto value = GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_);
-        return MakePropertyValue(
-            expression_result_ptr->ValueVertex(), ctx_->properties[property_lookup.property_.ix], std::move(value));
+        const auto &vertex = expression_result_ptr->ValueVertex();
+        if (ctx_->lazy_vector_refs) [[unlikely]]
+          return LazyPropertyValue(vertex, property_lookup.property_);
+        return {GetProperty(vertex, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
         return CachedPropertyValue<RecordIdentity::Kind::Edge>(expression_result_ptr->ValueEdge(), property_lookup);
       } else {
-        // GetProperty checks the accessor (and throws without one) before we index ctx_->properties below.
-        auto value = GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_);
-        return MakePropertyValue(
-            expression_result_ptr->ValueEdge(), ctx_->properties[property_lookup.property_.ix], std::move(value));
+        const auto &edge = expression_result_ptr->ValueEdge();
+        if (ctx_->lazy_vector_refs) [[unlikely]]
+          return LazyPropertyValue(edge, property_lookup.property_);
+        return {GetProperty(edge, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
       }
     case TypedValue::Type::VirtualEdge: {
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);

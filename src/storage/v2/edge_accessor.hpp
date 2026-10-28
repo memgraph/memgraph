@@ -31,9 +31,11 @@ class EdgeAccessor final {
 
   /// GetProperty's body. A non-null `on_resolved(const PropertyValue &)` runs with the MVCC-resolved value
   /// while the edge's shared lock is still held; with nullptr the lock is released before delta resolution.
-  template <typename OnResolved>
-  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, bool with_vector_reconstruction,
-                                        OnResolved &&on_resolved) const;
+  template <bool kCompact, typename OnResolved>
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, OnResolved &&on_resolved) const;
+
+  template <bool kCompact>
+  Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
 
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
@@ -85,16 +87,22 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
-  /// When `with_vector_reconstruction` is false, an embedding is returned as its compact VectorIndexId reference.
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view, bool with_vector_reconstruction = true) const;
+  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+
+  /// Like GetProperty, but an embedding stays its compact VectorIndexId reference instead of being reconstructed.
+  /// @throw std::bad_alloc
+  Result<PropertyValue> GetPropertyCompact(PropertyId property, View view) const;
 
   /// Returns the size of the encoded edge property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
-  /// When `with_vector_reconstruction` is false, embeddings are returned as their compact VectorIndexId references.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view, bool with_vector_reconstruction = true) const;
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+
+  /// Like Properties, but embeddings stay compact VectorIndexId references.
+  /// @throw std::bad_alloc
+  Result<std::map<PropertyId, PropertyValue>> PropertiesCompact(View view) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
