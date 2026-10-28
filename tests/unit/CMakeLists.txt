@@ -662,6 +662,11 @@ add_unit_test(utils_string
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_natural_sort
+    SOURCES utils_natural_sort.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_synchronized
     SOURCES utils_synchronized.cpp
     LINK_TARGETS mg-utils

@@ -40,6 +40,7 @@
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/natural_sort.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -1576,6 +1577,14 @@ TypedValue ToUpper(const TypedValue *args, int64_t nargs, const FunctionContext 
   });
 }
 
+TypedValue NaturalSortKey(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "naturalSortKey", [&](const auto &str) {
+    TypedValue::TString res(ctx.memory);
+    utils::NaturalSortKey(&res, str);
+    return res;
+  });
+}
+
 TypedValue Replace(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, String>, Or<Null, String>>("replace", args, nargs);
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
@@ -2243,6 +2252,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {kEndsWith, func_info{.func_ = EndsWith, .is_pure_ = true}},
     {"LEFT", func_info{.func_ = Left, .is_pure_ = true}},
     {"LTRIM", func_info{.func_ = LTrim, .is_pure_ = true}},
+    {"NATURALSORTKEY", func_info{.func_ = NaturalSortKey, .is_pure_ = true}},
     {"REPLACE", func_info{.func_ = Replace, .is_pure_ = true}},
     {"REVERSE", func_info{.func_ = Reverse, .is_pure_ = true}},
     {"RIGHT", func_info{.func_ = Right, .is_pure_ = true}},
