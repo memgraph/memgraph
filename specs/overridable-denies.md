@@ -214,8 +214,9 @@ the way enforcement combines it: the user's own entries and those of every role
 they hold on that database. Privileges such as `CREATE` already worked this way;
 labels, edge types, and properties now do too. Each row's `effective` value is
 the result, and its `description` says what the user's own entries and their
-roles each resolve to, for example `PROPERTY PERMISSION DENIED TO USER,
-PROPERTY PERMISSION GRANTED TO ROLE`. A weak deny that a grant overrides shows
+roles each resolve to, for example `PROPERTY PERMISSION WEAKLY DENIED TO USER,
+PROPERTY PERMISSION GRANTED TO ROLE`. A description says `WEAKLY DENIED` for a
+weak deny and `DENIED` for a strong one, for users and roles alike. A weak deny that a grant overrides shows
 as `GRANT`, and a weak deny under a strong deny shows as `STRONG DENY`; the
 role's own rows still list it.
 

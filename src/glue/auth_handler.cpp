@@ -63,6 +63,11 @@ struct FineGrainedPermissionForPrivilegeResult {
 
 constexpr std::string_view DenyEffective(bool const weak) { return weak ? "WEAK DENY" : "STRONG DENY"; }
 
+constexpr std::string_view DescriptionVerb(memgraph::auth::PermissionLevel const level, bool const weak) {
+  if (level == memgraph::auth::PermissionLevel::GRANT) return "GRANTED";
+  return weak ? "WEAKLY DENIED" : "DENIED";
+}
+
 PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::Permissions &permissions, const memgraph::query::AuthQuery::Privilege &privilege,
     const std::string &user_or_role) {
@@ -78,7 +83,8 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
       break;
     case memgraph::auth::PermissionLevel::DENY:
       container.weak_deny = (permissions.strong_denies() & std::to_underlying(permission)) == 0;
-      container.description = "DENIED TO " + user_or_role;
+      container.description =
+          fmt::format("{} TO {}", DescriptionVerb(container.permission_level, container.weak_deny), user_or_role);
       break;
     case memgraph::auth::PermissionLevel::NEUTRAL:
       break;
@@ -263,7 +269,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
         parts.push_back(fmt::format("{}{} PERMISSION {} TO {}",
                                     is_global ? "GLOBAL " : "",
                                     permission_type,
-                                    source_level == PermissionLevel::GRANT ? "GRANTED" : "DENIED",
+                                    DescriptionVerb(source_level, (source.strong_denies & bit) == 0),
                                     name));
       }
       auto const rank = level == PermissionLevel::GRANT ? 0 : (weak ? 2 : 1);
@@ -410,7 +416,7 @@ void EmitPropertyMap(PropertyMap const &merged, PropertySources const &sources, 
         if (source_level == PermissionLevel::NEUTRAL) continue;
         parts.push_back(fmt::format("{}PROPERTY PERMISSION {} TO {}",
                                     is_global ? "GLOBAL " : "",
-                                    source_level == PermissionLevel::GRANT ? "GRANTED" : "DENIED",
+                                    DescriptionVerb(source_level, (it->second.strong_denies & bit) == PPT::NONE),
                                     name));
       }
       auto &group = groups[{rank, memgraph::utils::Join(parts, ", ")}];

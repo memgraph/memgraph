@@ -165,10 +165,15 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenWeakAndStrongDeniedThenStrengthIsDi
   auto privileges = auth_handler.GetPrivileges(
       user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
   ASSERT_EQ(privileges.size(), 2);
-  std::map<std::string, std::string> effective;
-  for (auto const &row : privileges) effective[std::string{row[0].ValueString()}] = row[1].ValueString();
-  EXPECT_EQ(effective["MATCH"], "WEAK DENY");
-  EXPECT_EQ(effective["CREATE"], "STRONG DENY");
+  using Row = std::vector<std::string>;
+  std::set<Row> rows;
+  for (auto const &row : privileges) {
+    rows.insert(
+        {std::string{row[0].ValueString()}, std::string{row[1].ValueString()}, std::string{row[2].ValueString()}});
+  }
+  EXPECT_EQ(
+      rows,
+      (std::set<Row>{{"MATCH", "WEAK DENY", "WEAKLY DENIED TO USER"}, {"CREATE", "STRONG DENY", "DENIED TO USER"}}));
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturned) {
@@ -702,7 +707,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWeakLabelDenyWhenRoleGrantsThenRowNames
   ASSERT_EQ(privileges.size(), 1);
   EXPECT_EQ(privileges[0][0].ValueString(), "READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
   EXPECT_EQ(privileges[0][1].ValueString(), "GRANT");
-  EXPECT_EQ(privileges[0][2].ValueString(), "LABEL PERMISSION DENIED TO USER, LABEL PERMISSION GRANTED TO ROLE");
+  EXPECT_EQ(privileges[0][2].ValueString(), "LABEL PERMISSION WEAKLY DENIED TO USER, LABEL PERMISSION GRANTED TO ROLE");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWeakGlobalDenyWhenRoleGrantsGloballyThenOneResolvedRowPerKind) {
@@ -727,14 +732,14 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWeakGlobalDenyWhenRoleGrantsGloballyThe
     rows.push_back(
         {std::string{row[0].ValueString()}, std::string{row[1].ValueString()}, std::string{row[2].ValueString()}});
   }
-  EXPECT_EQ(
-      rows,
-      (std::vector<Row>{{"READ ON ALL LABELS",
-                         "GRANT",
-                         "GLOBAL LABEL PERMISSION DENIED TO USER, GLOBAL LABEL PERMISSION GRANTED TO ROLE"},
-                        {"READ {salary} ON ALL LABELS",
-                         "GRANT",
-                         "GLOBAL PROPERTY PERMISSION DENIED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE"}}));
+  EXPECT_EQ(rows,
+            (std::vector<Row>{
+                {"READ ON ALL LABELS",
+                 "GRANT",
+                 "GLOBAL LABEL PERMISSION WEAKLY DENIED TO USER, GLOBAL LABEL PERMISSION GRANTED TO ROLE"},
+                {"READ {salary} ON ALL LABELS",
+                 "GRANT",
+                 "GLOBAL PROPERTY PERMISSION WEAKLY DENIED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE"}}));
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesOverrideWeakPropertyDenyThenOneResolvedRowPerDatabase) {
@@ -774,7 +779,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesOverrideWeakPropertyDenyThenOn
   EXPECT_EQ(rows("db2"),
             (std::vector<Row>{{"READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY",
                                "WEAK DENY",
-                               "PROPERTY PERMISSION DENIED TO ROLE"}}));
+                               "PROPERTY PERMISSION WEAKLY DENIED TO ROLE"}}));
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWeakPropertyDenyWhenRoleGrantsThenRowNamesBothSources) {
@@ -797,7 +802,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWeakPropertyDenyWhenRoleGrantsThenRowNa
   ASSERT_EQ(privileges.size(), 1);
   EXPECT_EQ(privileges[0][0].ValueString(), "READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
   EXPECT_EQ(privileges[0][1].ValueString(), "GRANT");
-  EXPECT_EQ(privileges[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER, PROPERTY PERMISSION GRANTED TO ROLE");
+  EXPECT_EQ(privileges[0][2].ValueString(),
+            "PROPERTY PERMISSION WEAKLY DENIED TO USER, PROPERTY PERMISSION GRANTED TO ROLE");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenBothAreDisplayed) {
