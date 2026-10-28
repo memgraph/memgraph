@@ -11,7 +11,9 @@
 
 #include "glue/auth_handler.hpp"
 #include <algorithm>
+#include <array>
 #include <exception>
+#include <functional>
 #include <map>
 #include <range/v3/all.hpp>
 
@@ -53,9 +55,9 @@ struct PermissionForPrivilegeResult {
 struct FineGrainedPermissionForPrivilegeResult {
   std::string permission;
 #ifdef MG_ENTERPRISE
-  uint64_t permission_bitmask;
-  memgraph::auth::PermissionLevel grant_or_deny;
-  bool is_label;
+  uint64_t permission_bitmask{0};
+  memgraph::auth::PermissionLevel grant_or_deny{memgraph::auth::PermissionLevel::NEUTRAL};
+  bool is_label{false};
   bool weak_deny{false};
 #endif
   std::string description;
@@ -223,8 +225,19 @@ struct FineGrainedMasks {
 using FineGrainedSources =
     std::vector<std::pair<memgraph::auth::FineGrainedAccessPermissions const *, std::string_view>>;
 
-// Returns one entry per resolved level of `merged`, whose description names what each source resolves to for the
-// same bits.
+using FGP = memgraph::auth::FineGrainedPermission;
+constexpr std::array kFineGrainedPermissions{FGP::READ,
+                                             FGP::SET_PROPERTY,
+                                             FGP::CREATE,
+                                             FGP::DELETE,
+                                             FGP::SET_LABEL,
+                                             FGP::REMOVE_LABEL,
+                                             FGP::DELETE_EDGE,
+                                             FGP::CREATE_EDGE};
+static_assert(r::fold_left(kFineGrainedPermissions, FGP::NONE, std::bit_or{}) ==
+              (memgraph::auth::kAllLabelPermissions | memgraph::auth::kAllEdgeTypePermissions));
+
+// Returns one entry per resolved level of `merged`, whose description names the sources holding those bits.
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilege(
     memgraph::auth::FineGrainedAccessPermissions const &merged, FineGrainedSources const &sources,
     std::string const &permission_type) {
@@ -256,7 +269,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     // Keyed by (rank, description) so entries come out as GRANT, then STRONG DENY, then WEAK DENY.
     std::map<std::pair<int, std::string>, FineGrainedPermissionForPrivilegeResult> groups;
     auto const all_bits = masks.grants | masks.strong_denies | masks.weak_denies;
-    for (uint64_t bit = 1; bit != 0 && bit <= all_bits; bit <<= 1) {
+    for (auto const permission : kFineGrainedPermissions) {
+      auto const bit = std::to_underlying(permission);
       if ((all_bits & bit) == 0) continue;
       auto const level = memgraph::auth::Resolve(masks.grants, masks.strong_denies, masks.weak_denies, bit);
       if (level == PermissionLevel::NEUTRAL) continue;
@@ -355,11 +369,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
   auto const role_edge_types = user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name);
 
   auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilege(
-      user->GetFineGrainedAccessLabelPermissions(db_name), {{&user_labels, "USER"}, {&role_labels, "ROLE"}}, "LABEL");
-  all_fine_grained_permissions.append_range(
-      GetFineGrainedPermissionForPrivilege(user->GetFineGrainedAccessEdgeTypePermissions(db_name),
-                                           {{&user_edge_types, "USER"}, {&role_edge_types, "ROLE"}},
-                                           "EDGE_TYPE"));
+      Merge(user_labels, role_labels), {{&user_labels, "USER"}, {&role_labels, "ROLE"}}, "LABEL");
+  all_fine_grained_permissions.append_range(GetFineGrainedPermissionForPrivilege(
+      Merge(user_edge_types, role_edge_types), {{&user_edge_types, "USER"}, {&role_edge_types, "ROLE"}}, "EDGE_TYPE"));
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
@@ -495,16 +507,17 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePropertyPermission
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPropertyPermissions(
     memgraph::auth::User const &user, std::optional<std::string_view> db_name) {
-  auto const &own = user.property_access_handler();
+  auto const user_labels = user.GetUserPropertyLabelPermissions(db_name);
   auto const role_labels = user.GetRolePropertyLabelPermissions(db_name);
+  auto const user_edge_types = user.GetUserPropertyEdgeTypePermissions(db_name);
   auto const role_edge_types = user.GetRolePropertyEdgeTypePermissions(db_name);
   std::vector<std::vector<memgraph::query::TypedValue>> result;
-  EmitPropertyPermissions(user.GetPropertyLabelPermissions(db_name),
-                          {{&own.label_properties(), "USER"}, {&role_labels, "ROLE"}},
+  EmitPropertyPermissions(Merge(user_labels, role_labels),
+                          {{&user_labels, "USER"}, {&role_labels, "ROLE"}},
                           memgraph::auth::PropertyEntityKind::NODE,
                           result);
-  EmitPropertyPermissions(user.GetPropertyEdgeTypePermissions(db_name),
-                          {{&own.edge_type_properties(), "USER"}, {&role_edge_types, "ROLE"}},
+  EmitPropertyPermissions(Merge(user_edge_types, role_edge_types),
+                          {{&user_edge_types, "USER"}, {&role_edge_types, "ROLE"}},
                           memgraph::auth::PropertyEntityKind::EDGE,
                           result);
   return result;

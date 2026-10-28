@@ -1029,6 +1029,10 @@ class User final {
   PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
   PropertyAccessPermissions GetPropertyEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetUserPropertyLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetUserPropertyEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
   PropertyAccessPermissions GetRolePropertyLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
   PropertyAccessPermissions GetRolePropertyEdgeTypePermissions(
