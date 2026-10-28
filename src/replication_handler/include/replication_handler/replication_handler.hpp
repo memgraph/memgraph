@@ -214,6 +214,11 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #endif
 
  private:
+  // Demotion drops every database's branches first (they were forked from a MAIN-only history); false leaves all
+  // stores unfrozen. Does blocking file I/O, so it must run before the replication state lock is taken.
+  bool DropBranchesForDemotion();
+  void UnfreezeBranches();
+
   void ClientsShutdown(auto &locked_repl_state) const {
     spdlog::info("Shutting down instance level clients.");
 

@@ -12,11 +12,14 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "metrics/prometheus_metrics.hpp"
+#include "utils/uuid.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
 
 using memgraph::versioning::BranchInfo;
@@ -280,6 +283,28 @@ TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   EXPECT_EQ(a_builds, 2);
 }
 
+TEST_F(VersionStoreTest, GetOrBuildCoreRefusesADroppedBranchNumber) {
+  auto store = MakeStore();
+  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  ASSERT_TRUE(created.has_value());
+  EXPECT_TRUE(store->IsLive("feature", created->number));
+  EXPECT_FALSE(store->IsLive("feature", created->number + 1));
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+  EXPECT_FALSE(store->IsLive("feature", created->number));
+
+  int builds = 0;
+  std::weak_ptr<int> observer;
+  auto build = [&]() -> CoreResult {
+    ++builds;
+    return MakeSentinelCore(observer);
+  };
+  auto refused = store->GetOrBuildCore(created->number, build);
+  EXPECT_FALSE(refused.has_value());
+  EXPECT_EQ(builds, 0) << "a dropped branch must not be built";
+  EXPECT_TRUE(observer.expired());
+}
+
 TEST_F(VersionStoreTest, ActiveGaugesSumAcrossStores) {
   auto &global = memgraph::metrics::Metrics().global;
   const auto branches0 = global.versioning_active_branches->Value();
@@ -304,4 +329,129 @@ TEST_F(VersionStoreTest, ActiveGaugesSumAcrossStores) {
   b.reset();
   EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
   EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0);
+}
+
+TEST_F(VersionStoreTest, FreezeAndDropAllDropsEverythingIncludingAttachedBranches) {
+  auto &global = memgraph::metrics::Metrics().global;
+  const auto branches0 = global.versioning_active_branches->Value();
+  const auto checkouts0 = global.versioning_active_checkouts->Value();
+
+  auto store = MakeStore();
+  auto a = store->CreateBranch("a", "main", std::nullopt);
+  auto b = store->CreateBranch("b", "a", std::nullopt);
+  ASSERT_TRUE(a.has_value());
+  ASSERT_TRUE(b.has_value());
+  ASSERT_TRUE(store->TryAcquireCheckout("a").has_value());
+  ASSERT_EQ(global.versioning_active_branches->Value(), branches0 + 2);
+  ASSERT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 1);
+
+  std::vector<std::optional<uint64_t>> floors;
+  store->SetRetentionFloorCallback([&](std::optional<uint64_t> floor) { floors.push_back(floor); });
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+  EXPECT_TRUE(store->Frozen());
+  EXPECT_TRUE(store->Empty());
+  EXPECT_TRUE(pins_.live_.empty());
+  EXPECT_EQ(pins_.released_.size(), 2U);
+  ASSERT_FALSE(floors.empty());
+  EXPECT_EQ(floors.back(), std::nullopt);
+  EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
+  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 1) << "the checkout gauge follows checked_out_";
+
+  store->ReleaseCheckout("a");
+  EXPECT_EQ(store->CheckoutCount("a"), 0U);
+  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0);
+
+  EXPECT_TRUE(store->FreezeAndDropAll().has_value()) << "idempotent";
+  EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
+
+  store->Unfreeze();
+  auto c = store->CreateBranch("c", "main", std::nullopt);
+  ASSERT_TRUE(c.has_value());
+  EXPECT_EQ(c->number, 4) << "numbers are never reused";
+}
+
+TEST_F(VersionStoreTest, FrozenStoreRefusesCreateAndCheckoutUntilUnfrozen) {
+  auto store = MakeStore();
+  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+
+  constexpr auto kMessage = "Graph Versioning branches are not available on a REPLICA.";
+  auto created = store->CreateBranch("b", "main", std::nullopt);
+  ASSERT_FALSE(created.has_value());
+  EXPECT_EQ(created.error(), kMessage);
+  auto checkout = store->TryAcquireCheckout("a");
+  ASSERT_FALSE(checkout.has_value());
+  EXPECT_EQ(checkout.error(), kMessage);
+  EXPECT_TRUE(pins_.live_.empty());
+
+  store->Unfreeze();
+  EXPECT_FALSE(store->Frozen());
+  ASSERT_TRUE(store->CreateBranch("b", "main", std::nullopt).has_value());
+  EXPECT_TRUE(store->TryAcquireCheckout("b").has_value());
+}
+
+class VersionStoreLedgerTest : public VersionStoreTest {
+ protected:
+  void SetUp() override {
+    dir_ = std::filesystem::temp_directory_path() / ("mg_version_store_freeze_" + memgraph::utils::GenerateUUID());
+    file_ = dir_ / "branches" / "ledger";
+  }
+
+  void TearDown() override {
+    std::error_code ec;
+    std::filesystem::remove_all(dir_, ec);
+  }
+
+  std::unique_ptr<VersionStore> MakeLedgerStore() {
+    auto store = MakeStore();
+    store->AttachLedger(file_);
+    return store;
+  }
+
+  std::filesystem::path dir_;
+  std::filesystem::path file_;
+};
+
+TEST_F(VersionStoreLedgerTest, FreezeAndDropAllPersistsEmptyRegistryAndRemovesDirectories) {
+  auto store = MakeLedgerStore();
+  auto a = store->CreateBranch("a", "main", std::nullopt);
+  auto b = store->CreateBranch("b", "main", std::nullopt);
+  ASSERT_TRUE(a.has_value());
+  ASSERT_TRUE(b.has_value());
+  const auto root = file_.parent_path();
+  std::filesystem::create_directories(root / std::to_string(a->number));
+  std::filesystem::create_directories(root / std::to_string(b->number));
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+
+  auto read = memgraph::versioning::BranchLedger{file_}.Read();
+  ASSERT_TRUE(read.has_value() && read->has_value());
+  EXPECT_TRUE((*read)->branches.empty());
+  EXPECT_EQ((*read)->next_number, 4);
+  EXPECT_FALSE(std::filesystem::exists(root / std::to_string(a->number)));
+  EXPECT_FALSE(std::filesystem::exists(root / std::to_string(b->number)));
+}
+
+TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureChangesNothingAndDoesNotFreeze) {
+  auto store = MakeLedgerStore();
+  auto a = store->CreateBranch("a", "main", std::nullopt);
+  ASSERT_TRUE(a.has_value());
+  const auto live_before = pins_.live_;
+
+  auto tmp = file_;
+  tmp += ".tmp";
+  std::filesystem::create_directory(tmp);
+
+  EXPECT_FALSE(store->FreezeAndDropAll().has_value());
+  EXPECT_FALSE(store->Frozen());
+  EXPECT_TRUE(store->Exists("a"));
+  EXPECT_EQ(pins_.live_, live_before);
+  EXPECT_TRUE(pins_.released_.empty());
+  EXPECT_TRUE(store->TryAcquireCheckout("a").has_value());
+  store->ReleaseCheckout("a");
+
+  std::filesystem::remove(tmp);
+  EXPECT_TRUE(store->FreezeAndDropAll().has_value());
+  EXPECT_TRUE(store->Empty());
 }

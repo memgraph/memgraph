@@ -29,6 +29,7 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/general.hpp"
 #include "memory/db_arena.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
@@ -46,6 +47,8 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "versioning/version_store.hpp"
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -2574,4 +2577,56 @@ TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
     ASSERT_EQ(out_edges->edges.size(), 1U);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+}
+
+TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
+  FLAGS_versioning_enabled = true;
+  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
+  MinMemgraph instance(main_conf);
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  auto const first = store->CreateBranch("before", "main", std::nullopt);
+  ASSERT_TRUE(first.has_value());
+
+  ASSERT_TRUE(instance.repl_handler.SetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+  EXPECT_TRUE(store->List().empty());
+  EXPECT_TRUE(store->Frozen());
+  EXPECT_FALSE(store->CreateBranch("while_replica", "main", std::nullopt).has_value());
+
+  ASSERT_TRUE(instance.repl_handler.SetReplicationRoleMain());
+  EXPECT_FALSE(store->Frozen());
+  auto const second = store->CreateBranch("after", "main", std::nullopt);
+  ASSERT_TRUE(second.has_value());
+  EXPECT_GT(second->number, first->number);
+}
+
+TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
+  FLAGS_versioning_enabled = true;
+  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
+  auto conf = main_conf;
+  conf.durability.recover_on_startup = true;
+  conf.durability.restore_replication_state_on_startup = true;
+
+  {
+    MinMemgraph main(conf);
+    {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+      auto acc = main.db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    }
+    ASSERT_TRUE(main.db.version_store()->CreateBranch("recorded", "main", std::nullopt).has_value());
+    // Persist the REPLICA role without going through the demotion, which would drop the branch itself.
+    ASSERT_TRUE(main.repl_state.Lock()->SetReplicationRoleReplica(
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+  }
+
+  MinMemgraph restarted(conf);
+  ASSERT_TRUE(restarted.repl_state.ReadLock()->IsReplica());
+  auto *store = restarted.db.version_store();
+  ASSERT_NE(store, nullptr);
+  EXPECT_TRUE(store->List().empty());
+  EXPECT_TRUE(store->Frozen());
 }

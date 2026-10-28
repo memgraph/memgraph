@@ -82,6 +82,16 @@ class VersionStore {
   // branch it could not restore). A ledger write failure is reported as an error (nothing is dropped).
   std::expected<bool, std::string> DropBranch(std::string_view name, bool remove_files = true);
 
+  // Replica demotion: refuses new branches and checkouts from here on (until Unfreeze), then durably drops every
+  // branch, including those with attached sessions (their ReleaseCheckout stays valid and keeps the gauges balanced).
+  // Branch numbering is kept. Idempotent. A ledger write failure is returned, leaving the store unfrozen and unchanged.
+  std::expected<void, std::string> FreezeAndDropAll();
+
+  // Allows branches again after FreezeAndDropAll.
+  void Unfreeze();
+
+  bool Frozen() const;
+
   // Persists the branch's gid floors the first time they are known; later calls and unknown `number` are no-ops.
   // Fails only on a ledger write failure.
   std::expected<void, std::string> RecordGidFloors(uint64_t number, uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
@@ -92,6 +102,9 @@ class VersionStore {
   std::vector<std::pair<std::string, BranchInfo>> List() const;
 
   bool Exists(std::string_view name) const;
+
+  // True iff `name` is a live branch with this `number` (false after a drop, even if the name was re-created).
+  bool IsLive(std::string_view name, uint64_t number) const;
 
   // True iff no branches exist (`main` is not counted). Storage-global destructive ops (STORAGE MODE, RECOVER
   // SNAPSHOT, DROP GRAPH) are rejected while any branch exists.
@@ -112,7 +125,8 @@ class VersionStore {
   using CoreBuilder = std::function<std::expected<std::shared_ptr<BranchCore>, std::string>()>;
 
   // Returns the live core of `number`, building it on first use; racing first checkouts wait for one build. Caller must
-  // hold an attach, which keeps DropBranch from retiring the core mid-build.
+  // hold an attach, which keeps DropBranch from retiring the core mid-build. Fails, keeping no core, if `number` is not
+  // a live branch (dropped, e.g. by FreezeAndDropAll, which does not wait for attached sessions).
   std::expected<std::shared_ptr<BranchCore>, std::string> GetOrBuildCore(uint64_t number, const CoreBuilder &build);
 
  private:
@@ -134,6 +148,8 @@ class VersionStore {
   std::filesystem::path branches_root_;
   // Branches whose DROP is writing the ledger; TryAcquireCheckout refuses them. Guarded by lock_.
   std::set<std::string, std::less<>> dropping_;
+  // Set by FreezeAndDropAll under ledger_mutex_; CreateBranch and TryAcquireCheckout refuse. Guarded by lock_.
+  bool frozen_{false};
 
   // Call with ledger_mutex_ held and lock_ NOT held. No-op if no ledger is attached.
   std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
@@ -145,6 +161,9 @@ class VersionStore {
   // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
   // Returns false if another holder still keeps the core (and its directory) alive.
   bool RetireCore(uint64_t number);
+
+  // Takes lock_; call without it.
+  bool IsLiveNumber(uint64_t number) const;
 
   // Serializes builds so one branch directory is never built twice; order: build_mutex_ -> cores_mutex_.
   std::mutex build_mutex_;

@@ -19,7 +19,9 @@
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
+#include "versioning/version_store.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -30,6 +32,28 @@ namespace memgraph::replication {
 using namespace std::chrono_literals;
 
 namespace {
+// Databases are recovered before the role is known, so a REPLICA restart has rebuilt its branches. Startup must not
+// fail on a drop error: the store stays unfrozen only if its ledger write failed.
+void DropBranchesOnReplicaStartup(dbms::DbmsHandler &dbms_handler) {
+  dbms_handler.ForEach([](dbms::DatabaseAccess db_acc) {
+    auto *const store = db_acc->version_store();
+    if (!store) return;
+    auto const listed = store->List();
+    if (!listed.empty()) {
+      std::string names;
+      for (auto const &[name, _] : listed) names += (names.empty() ? "" : ", ") + name;
+      spdlog::warn("Instance is a REPLICA; dropping its {} Graph Versioning branches [{}] in database {}.",
+                   listed.size(),
+                   names,
+                   db_acc->name());
+    }
+    if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
+      spdlog::error(
+          "Failed to drop the branches of database {} on REPLICA startup: {}", db_acc->name(), dropped.error());
+    }
+  });
+}
+
 #ifdef MG_ENTERPRISE
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
                         dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth, parameters::Parameters &parameters) {
@@ -39,6 +63,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 
   // Startup replication state (if recovered at startup)
   auto replica = [&dbms_handler, &repl_state, &auth, &system, &parameters](RoleReplicaData &data) {
+    DropBranchesOnReplicaStartup(dbms_handler);
     return StartRpcServer(dbms_handler, repl_state, data, auth, system, parameters);
   };
 
@@ -93,6 +118,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
                         dbms::DbmsHandler &dbms_handler, parameters::Parameters &parameters) {
   // Startup replication state (if recovered at startup)
   auto replica = [&dbms_handler, &repl_state, &system, &parameters](replication::RoleReplicaData &data) {
+    DropBranchesOnReplicaStartup(dbms_handler);
     return replication::StartRpcServer(dbms_handler, repl_state, data, system, parameters);
   };
 
@@ -217,6 +243,33 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
+bool ReplicationHandler::DropBranchesForDemotion() {
+  std::vector<versioning::VersionStore *> frozen;
+  bool ok = true;
+  dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
+    if (!ok) return;
+    auto *const store = db_acc->version_store();
+    if (!store) return;
+    if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
+      spdlog::error(
+          "Failed to drop the branches of database {} while demoting to REPLICA: {}", db_acc->name(), dropped.error());
+      ok = false;
+      return;
+    }
+    frozen.push_back(store);
+  });
+  if (!ok) {
+    for (auto *const store : frozen) store->Unfreeze();
+  }
+  return ok;
+}
+
+void ReplicationHandler::UnfreezeBranches() {
+  dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    if (auto *const store = db_acc->version_store()) store->Unfreeze();
+  });
+}
+
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
@@ -239,6 +292,17 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       return false;
     }
 
+    // Only a MAIN has branches to drop; an already-REPLICA re-config keeps its frozen stores.
+    bool const was_main = repl_state_.ReadLock()->IsMain();
+    if (was_main && !DropBranchesForDemotion()) {
+      return false;
+    }
+
+    // A failed demotion stays MAIN, so the stores must accept branches again.
+    utils::OnScopeExit const refreeze_on_failure{[&] {
+      if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
+    }};
+
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
@@ -254,6 +318,13 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
+    bool const was_main = repl_state_.ReadLock()->IsMain();
+    if (was_main && !DropBranchesForDemotion()) {
+      return false;
+    }
+    utils::OnScopeExit const refreeze_on_failure{[&] {
+      if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
+    }};
     auto locked_repl_state = repl_state_.TryLock();
     return SetReplicationRoleReplica_<false>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
@@ -319,6 +390,8 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       }
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
+
+    UnfreezeBranches();
 
     // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {

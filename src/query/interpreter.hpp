@@ -369,10 +369,11 @@ struct CurrentDB {
 
   // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was already released.
   void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
-                        std::string name) {
+                        std::string name, uint64_t number) {
     branch_context_ = std::move(context);
     branch_context_version_store_ = version_store;
     branch_context_name_ = std::move(name);
+    branch_context_number_ = number;
     // Fresh per-checkout cache, never shared with main's.
     branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
   }
@@ -419,6 +420,8 @@ struct CurrentDB {
   // granted the attach even if db_acc_ was reassigned.
   versioning::VersionStore *branch_context_version_store_{nullptr};
   std::string branch_context_name_;
+  // Number of the branch attached as branch_context_name_; tells a dropped (or dropped and re-created) branch apart.
+  uint64_t branch_context_number_{0};
 
   // Detaches from the branch (ReleaseCheckout) and tears down the context. No-op when none is held.
   // Every path that changes the branch pointer routes through here so a checkout is never leaked.

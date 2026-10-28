@@ -218,6 +218,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
 
   if (on_branch) {
+    if (!branch_context_version_store_->IsLive(branch_context_name_, branch_context_number_)) {
+      // Dropped under this session (e.g. demotion to REPLICA): release the attach and fall back to main.
+      auto name = branch_context_name_;
+      SetCurrentVersion(std::nullopt);
+      throw QueryRuntimeException(
+          "Branch '{}' no longer exists (it was dropped, or this instance became a REPLICA); the session is back on "
+          "main.",
+          name);
+    }
     if (auto opened = branch_context_->OpenHistorical(); !opened) {
       throw QueryRuntimeException(opened.error().message);
     }
@@ -276,11 +285,13 @@ void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *versio
                                                 versioning::BranchContext const &outer) {
   MG_ASSERT(!branch_context_, "AttachBranchOf: session is already attached to a branch.");
   auto const &name = outer.name();
-  if (auto info = version_store->TryAcquireCheckout(name); !info) {
+  auto info = version_store->TryAcquireCheckout(name);
+  if (!info) {
     throw QueryRuntimeException(info.error());
   }
   try {
-    SetBranchContext(std::make_unique<versioning::BranchContext>(outer.core(), name), version_store, name);
+    SetBranchContext(
+        std::make_unique<versioning::BranchContext>(outer.core(), name), version_store, name, info->number);
   } catch (...) {
     // Fields may or may not be installed yet: ClearBranchContext releases iff they are.
     if (branch_context_) {
@@ -9099,7 +9110,8 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
     throw QueryRuntimeException(recorded.error());
   }
 
-  current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name);
+  current_db.SetBranchContext(
+      std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name, info->number);
 }
 
 // A branch is durable only when main keeps a WAL (the predicate BranchCore::Build applies); otherwise it is dropped

@@ -3168,3 +3168,26 @@ TEST_F(VersioningGatedTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingInd
     faker.Interpret("DROP BRANCH 'd'");
   }
 }
+
+TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsCleanlyAndFallsBackToMain) {
+  auto &checkouts = memgraph::metrics::Metrics().global.versioning_active_checkouts;
+  faker.Interpret("CREATE (:A {x:1})");
+  Fork();
+  ASSERT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+  const double checkouts0 = checkouts->Value();
+
+  ASSERT_TRUE(db->version_store()->FreezeAndDropAll().has_value());
+
+  try {
+    faker.Interpret("MATCH (n:A) RETURN n.x");
+    FAIL() << "a query on a dropped branch must throw";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("Branch 'b' no longer exists"));
+  }
+  EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_DOUBLE_EQ(checkouts->Value(), checkouts0 - 1.0) << "the detach must release the checkout exactly once";
+
+  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}})) << "the next query runs on main";
+}
