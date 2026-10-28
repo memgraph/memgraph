@@ -243,12 +243,18 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
-   * @param name_id_mapper Resolves a path ending in the name of a field once here rather
-   *                   than for every record read. An id it does not know names no field. May
-   *                   be null only when no path has more than one property, since no field
-   *                   can then apply.
+   * @param name_id_mapper Resolves a path ending in the name of a field once here rather than
+   *                   for every record read. An id it does not know names no field.
    */
-  PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper *name_id_mapper);
+  PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper);
+
+  /// Says that a caller has no names to resolve against, which it may only say when every one
+  /// of `properties` is a whole property: telling a key inside a value from a field of it
+  /// takes the name behind the id, so a path of more than one is refused here rather than read
+  /// as naming no field.
+  struct WithoutNames {};
+
+  PropertiesPermutationHelper(std::span<PropertyPath const> properties, WithoutNames);
 
   /** Rearranges monotonically ordered properties (as returned by `Extract` /
    * written by `ExtractInto`) into the index order, in place.
@@ -319,6 +325,10 @@ struct PropertiesPermutationHelper {
   }
 
  private:
+  /// Puts the paths into the order a single pass over a record requires, and works out the
+  /// bookkeeping that follows from that order.
+  void OrderPaths(std::span<PropertyPath const> properties);
+
   /// Re-reads the paths that could end in a field. Leaves every other position as it was.
   void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
