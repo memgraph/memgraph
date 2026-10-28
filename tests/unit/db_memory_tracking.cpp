@@ -29,6 +29,7 @@
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/delta_container.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -36,6 +37,7 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/db_aware_allocator.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/small_vector.hpp"
 
 namespace {
 
@@ -1316,6 +1318,35 @@ TEST_F(DbMemoryTrackingTest, TenantLimitRefusesArenaAllocation) {
   EXPECT_THROW(memgraph::memory::DbAllocateBytes(
                    kOverLimit, memgraph::memory::tls_db_arena_state.arena, alignof(std::max_align_t)),
                memgraph::utils::OutOfMemoryException);
+}
+
+// A SET_PROPERTY before-image vector must be allocated in the tenant arena, not the default one.
+TEST(DeltaVectorBeforeImage, CoordinatesLiveInThePinnedDbArena) {
+  using namespace memgraph::storage;
+
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+  const memgraph::memory::DbArenaScope scope{&pool};
+
+  delta_container container;
+  container.emplace(Delta::SetPropertyTag{},
+                    PropertyId::FromUint(1),
+                    PropertyValue(PropertyValue::VectorIndexIdData{
+                        .ids = memgraph::utils::small_vector<uint64_t>{1},
+                        .vector = memgraph::utils::small_vector<float>{1.0F, 2.0F, 3.0F, 4.0F}}),
+                    static_cast<CommitInfo *>(nullptr),
+                    0);
+
+  auto const &delta = *container.begin();
+  ASSERT_EQ(delta.action, Delta::Action::SET_PROPERTY);
+  auto const &coordinates = delta.property.value->ValueVectorIndexList();
+  ASSERT_EQ(coordinates.size(), 4U);
+
+  const void *ptr = coordinates.data();
+  unsigned ptr_arena = 0;
+  size_t sz = sizeof(ptr_arena);
+  ASSERT_EQ(je_mallctl("arenas.lookup", &ptr_arena, &sz, &ptr, sizeof(ptr)), 0);
+  EXPECT_TRUE(pool.Owns(ptr_arena));
 }
 
 #endif  // USE_JEMALLOC
