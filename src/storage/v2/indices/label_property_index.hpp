@@ -306,13 +306,11 @@ struct PropertiesPermutationHelper {
   }
 
  private:
-  /// Reads `path` out of `value`, the record's own property the path starts at. Walks the maps
-  /// the path names, then reads the last segment as a key of a map or as a field of whatever
-  /// else it lands on. Nothing when the path names nothing.
+  /// `ReadPropertyPath` for the path at `pos`, with the field this index resolved for it.
   ///
-  /// Only the value in hand settles which of the two the last segment is, so reading a
-  /// record's bytes answers the key and nothing else. A path that could end in a field is read
-  /// this way instead.
+  /// Only the value in hand settles whether that path's last segment is a key or a field, so
+  /// reading a record's bytes answers the key and nothing else. A path that could end in a
+  /// field is read this way instead.
   auto ReadPath(std::size_t pos, PropertyValue const &value) const -> std::optional<PropertyValue>;
 
   /// Re-reads the paths that could end in a field. Leaves every other position as it was.

@@ -16,6 +16,7 @@
 
 #include "storage/v2/point.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::storage {
@@ -165,6 +166,32 @@ auto FieldNamed(std::string_view name) -> std::optional<ValueField> {
     if (known == name) return field;
   }
   return std::nullopt;
+}
+
+auto ReadPropertyPath(PropertyValue const &value, std::span<PropertyId const> path, std::optional<ValueField> field)
+    -> std::optional<PropertyValue> {
+  DMG_ASSERT(!path.empty(), "A path names at least the record's own property");
+  // A path of one property is that property, which is the value in hand.
+  if (path.size() == 1) return value;
+
+  // Every segment but the last names a key, so those are walked as maps.
+  auto const *current = &value;
+  for (auto const segment : path.subspan(1, path.size() - 2)) {
+    if (!current->IsMap()) return std::nullopt;
+    auto const &map = current->ValueMap();
+    auto const at = map.find(segment);
+    if (at == map.end()) return std::nullopt;
+    current = &at->second;
+  }
+
+  if (current->IsMap()) {
+    auto const &map = current->ValueMap();
+    auto const at = map.find(path.back());
+    if (at == map.end()) return std::nullopt;
+    return PropertyValue{at->second};
+  }
+  if (!field) return std::nullopt;
+  return ReadField(*current, *field);
 }
 
 auto ReadField(PropertyValue const &value, ValueField field) -> std::optional<PropertyValue> {

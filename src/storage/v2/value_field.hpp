@@ -16,6 +16,7 @@
 #include <string_view>
 #include <utility>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::storage {
@@ -59,5 +60,15 @@ auto FieldNames() -> std::span<std::pair<std::string_view, ValueField> const>;
 /// in coordinates has no longitude, so asking for one reads as nothing rather than as an
 /// answer of its own.
 auto ReadField(PropertyValue const &value, ValueField field) -> std::optional<PropertyValue>;
+
+/// Reads what `path` names out of `value`, which is the record's own property the path starts
+/// at. Walks the maps the path names, then reads the last segment as a key of a map or, on
+/// anything else, as `field`. Nothing when the path names nothing.
+///
+/// `field` is which field the last segment names, where it names one. Only the value in hand
+/// settles whether the segment is a key or a field, so both have to be on offer here. Work out
+/// `field` once for a path rather than per record: it takes the name behind a property id.
+auto ReadPropertyPath(PropertyValue const &value, std::span<PropertyId const> path, std::optional<ValueField> field)
+    -> std::optional<PropertyValue>;
 
 }  // namespace memgraph::storage

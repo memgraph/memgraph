@@ -101,28 +101,7 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
 
 auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const &value) const
     -> std::optional<PropertyValue> {
-  auto const &path = sorted_properties_[pos];
-  // A path of one property is the record's own property, which is the value in hand.
-  if (path.size() == 1) return PropertyValue{value};
-
-  // Every segment but the last names a key, so those are walked as maps.
-  auto const *current = &value;
-  for (auto const segment : path.as_span().subspan(1, path.size() - 2)) {
-    if (!current->IsMap()) return std::nullopt;
-    auto const &map = current->ValueMap();
-    auto const at = map.find(segment);
-    if (at == map.end()) return std::nullopt;
-    current = &at->second;
-  }
-
-  if (current->IsMap()) {
-    auto const &map = current->ValueMap();
-    auto const at = map.find(path.back());
-    if (at == map.end()) return std::nullopt;
-    return PropertyValue{at->second};
-  }
-  if (!fields_[pos]) return std::nullopt;
-  return ReadField(*current, *fields_[pos]);
+  return ReadPropertyPath(value, sorted_properties_[pos].as_span(), fields_[pos]);
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
