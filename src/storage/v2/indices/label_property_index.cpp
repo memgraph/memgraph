@@ -59,7 +59,7 @@ namespace {
 /// this name" rather than the other way about: asking for the name behind an id the mapper
 /// does not know is fatal, and asking for the id behind an unused name would mint one.
 auto FieldsOfPaths(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper)
-    -> std::vector<std::optional<ValueField>> {
+    -> std::vector<std::pair<std::size_t, ValueField>> {
   auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
   for (auto const &[name, field] : FieldNames()) {
     if (auto const id = name_id_mapper.NameToIdIfExists(name)) {
@@ -67,19 +67,15 @@ auto FieldsOfPaths(std::span<PropertyPath const> properties, NameIdMapper &name_
     }
   }
 
-  auto fields = std::vector<std::optional<ValueField>>{};
-  fields.reserve(properties.size());
-  for (auto const &path : properties) {
-    auto found = std::optional<ValueField>{};
-    if (path.size() > 1) {
-      for (auto const &[id, field] : field_ids) {
-        if (id == path.back()) {
-          found = field;
-          break;
-        }
+  auto fields = std::vector<std::pair<std::size_t, ValueField>>{};
+  for (auto const &[pos, path] : ranges::views::enumerate(properties)) {
+    if (path.size() == 1) continue;
+    for (auto const &[id, field] : field_ids) {
+      if (id == path.back()) {
+        fields.emplace_back(pos, field);
+        break;
       }
     }
-    fields.push_back(found);
   }
   return fields;
 }
@@ -114,12 +110,20 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
   // otherwise have that path read as naming no field, silently.
   MG_ASSERT(r::none_of(sorted_properties_, [](auto const &path) { return path.size() > 1; }),
             "Reading a key inside a value takes the names behind the ids");
-  fields_.assign(sorted_properties_.size(), std::nullopt);
+}
+
+auto PropertiesPermutationHelper::FieldAt(std::size_t pos) const -> std::optional<ValueField> {
+  // Searched rather than indexed because only the paths that name a field are held, which is
+  // usually none of them.
+  for (auto const &[at, field] : fields_) {
+    if (at == pos) return field;
+  }
+  return std::nullopt;
 }
 
 auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const &value) const
     -> std::optional<PropertyValue> {
-  return ReadPropertyPath(value, sorted_properties_[pos].as_span(), fields_[pos]);
+  return ReadPropertyPath(value, sorted_properties_[pos].as_span(), FieldAt(pos));
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
@@ -134,9 +138,9 @@ void PropertiesPermutationHelper::ExtractInto(PropertyStore const &properties, s
 }
 
 void PropertiesPermutationHelper::ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
-  for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
-    if (!field) continue;
-    auto read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
+  for (auto const &[pos, field] : fields_) {
+    auto read =
+        ReadPropertyPath(properties.GetProperty(sorted_properties_[pos][0]), sorted_properties_[pos].as_span(), field);
     out[pos] = read ? *std::move(read) : PropertyValue{};
   }
 }
@@ -190,9 +194,9 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
                                                 std::vector<bool> &out) const {
   properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
-  for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
-    if (!field) continue;
-    auto const read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
+  for (auto const &[pos, field] : fields_) {
+    auto const read =
+        ReadPropertyPath(properties.GetProperty(sorted_properties_[pos][0]), sorted_properties_[pos].as_span(), field);
     auto const &cmp_value = values[position_lookup_[pos]];
     out[pos] = read ? *read == cmp_value : cmp_value.IsNull();
   }
