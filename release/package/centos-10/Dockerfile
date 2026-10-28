@@ -20,24 +20,21 @@ RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && ./environment/os/centos-10.sh install MEMGRAPH_BUILD_DEPS \
     && ./environment/os/centos-10.sh install MEMGRAPH_TEST_DEPS \
     && ./environment/os/centos-10.sh install MEMGRAPH_RUN_DEPS \
+    && cp environment/util.sh /tmp/util.sh \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default
-RUN useradd -m -s /bin/bash mg
+RUN useradd -m -s /bin/bash mg \
+    && chown mg: /tmp/util.sh
 USER mg
 
-# Install rust
+# Install rust and node for mg.
 ARG RUST_VERSION
-RUN curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && . "$HOME/.cargo/env" \
-    && rustup default ${RUST_VERSION}
-
-# Fix node
 ARG NODE_VERSION
-RUN curl --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
-    && . ~/.nvm/nvm.sh \
-    && nvm install ${NODE_VERSION} \
-    && nvm use ${NODE_VERSION}
+RUN source /tmp/util.sh \
+    && retry_install install_rust "${RUST_VERSION:-$MG_RUST_VERSION}" \
+    && retry_install install_node "${NODE_VERSION:-$MG_NODE_VERSION}" \
+    && rm /tmp/util.sh
 
 # Install PyYAML (only for amzn-2, centos-7, cento-9 and rocky-9)
 RUN pip3 install --user PyYAML
