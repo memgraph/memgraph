@@ -44,8 +44,10 @@ bool EdgeImportModeCache::CreateIndex(
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
   auto updater = in_memory_indices_.MakeUpdater();
+  // No names to resolve against: every path here is one property, so none of them can end in
+  // the name of a field a value carries.
   bool const res = mem_label_property_index->CreateIndexOnePass(
-      label, {{property}}, vertices_.access(), parallel_exec_info, updater);
+      label, {{property}}, vertices_.access(), parallel_exec_info, updater, nullptr);
   if (!res) return false;
   scanned_label_properties_.insert({label, property});
   return true;

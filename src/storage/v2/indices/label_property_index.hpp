@@ -16,6 +16,8 @@
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/value_field.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/bound.hpp"
@@ -237,8 +239,12 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
+   * @param name_id_mapper Says which name each id stands for, so that a path ending in the
+   *                   name of a field a value carries is recognised once here rather than per
+   *                   record read. An id the mapper does not know names no field. May be null
+   *                   only when no path has more than one property, where no field can apply.
    */
-  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
+  PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper *name_id_mapper);
 
   /** Rearranges monotonically ordered properties (as returned by `Extract` /
    * written by `ExtractInto`) into the index order, in place.
@@ -300,10 +306,22 @@ struct PropertiesPermutationHelper {
   }
 
  private:
+  /// Reads `path` out of `value`, where `value` is the record's own property that the path
+  /// starts at. Walks the maps the path names and then reads the last segment as a key or as a
+  /// field of the value it lands on.
+  auto ReadPath(std::size_t pos, PropertyValue const &value) const -> std::optional<PropertyValue>;
+
+  /// Re-reads the paths that could end in a field, which the record's bytes alone cannot
+  /// answer. Leaves every other position as it was read.
+  void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
+
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
+  /// Parallel to `sorted_properties_`: which field the path's last segment names, for the
+  /// paths whose last segment names one at all.
+  std::vector<std::optional<ValueField>> fields_;
 };
 
 using LabelPropertyIndexAbortableInfo =

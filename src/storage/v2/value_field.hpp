@@ -12,7 +12,9 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string_view>
+#include <utility>
 
 #include "storage/v2/property_value.hpp"
 
@@ -48,6 +50,10 @@ enum class ValueField : uint8_t {
 /// Which field `name` asks for, or nothing when no value carries a field of that name. Says
 /// nothing about whether the value in hand has one.
 auto FieldNamed(std::string_view name) -> std::optional<ValueField>;
+
+/// Every name that denotes a field, for a caller holding property ids rather than names: it
+/// can ask what each of these names is the id of and so learn which id denotes which field.
+auto FieldNames() -> std::span<std::pair<std::string_view, ValueField> const>;
 
 /// Reads `field` off `value`, or nothing when that value carries no such field. A point given
 /// in coordinates has no longitude, so asking for one reads as nothing rather than as an

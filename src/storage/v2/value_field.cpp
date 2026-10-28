@@ -11,6 +11,7 @@
 
 #include "storage/v2/value_field.hpp"
 
+#include <array>
 #include <chrono>
 
 #include "storage/v2/point.hpp"
@@ -135,25 +136,35 @@ auto PointField(CoordinateReferenceSystem crs, double x, double y, std::optional
 
 }  // namespace
 
+auto FieldNames() -> std::span<std::pair<std::string_view, ValueField> const> {
+  using namespace std::string_view_literals;
+  static constexpr auto kNames = std::array{
+      std::pair{"year"sv, ValueField::Year},
+      std::pair{"month"sv, ValueField::Month},
+      std::pair{"day"sv, ValueField::Day},
+      std::pair{"hour"sv, ValueField::Hour},
+      std::pair{"minute"sv, ValueField::Minute},
+      std::pair{"second"sv, ValueField::Second},
+      std::pair{"millisecond"sv, ValueField::Millisecond},
+      std::pair{"microsecond"sv, ValueField::Microsecond},
+      std::pair{"nanosecond"sv, ValueField::Nanosecond},
+      std::pair{"timezone"sv, ValueField::Timezone},
+      std::pair{"x"sv, ValueField::X},
+      std::pair{"y"sv, ValueField::Y},
+      std::pair{"z"sv, ValueField::Z},
+      std::pair{"longitude"sv, ValueField::Longitude},
+      std::pair{"latitude"sv, ValueField::Latitude},
+      std::pair{"height"sv, ValueField::Height},
+      std::pair{"crs"sv, ValueField::Crs},
+      std::pair{"srid"sv, ValueField::Srid},
+  };
+  return kNames;
+}
+
 auto FieldNamed(std::string_view name) -> std::optional<ValueField> {
-  if (name == "year") return ValueField::Year;
-  if (name == "month") return ValueField::Month;
-  if (name == "day") return ValueField::Day;
-  if (name == "hour") return ValueField::Hour;
-  if (name == "minute") return ValueField::Minute;
-  if (name == "second") return ValueField::Second;
-  if (name == "millisecond") return ValueField::Millisecond;
-  if (name == "microsecond") return ValueField::Microsecond;
-  if (name == "nanosecond") return ValueField::Nanosecond;
-  if (name == "timezone") return ValueField::Timezone;
-  if (name == "x") return ValueField::X;
-  if (name == "y") return ValueField::Y;
-  if (name == "z") return ValueField::Z;
-  if (name == "longitude") return ValueField::Longitude;
-  if (name == "latitude") return ValueField::Latitude;
-  if (name == "height") return ValueField::Height;
-  if (name == "crs") return ValueField::Crs;
-  if (name == "srid") return ValueField::Srid;
+  for (auto const &[known, field] : FieldNames()) {
+    if (known == name) return field;
+  }
   return std::nullopt;
 }
 

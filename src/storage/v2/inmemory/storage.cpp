@@ -2007,7 +2007,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
-  if (!mem_label_property_index->RegisterIndex(label, properties, updater, order)) {
+  if (!mem_label_property_index->RegisterIndex(label, properties, updater, storage_->name_id_mapper_.get(), order)) {
     return std::unexpected{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();

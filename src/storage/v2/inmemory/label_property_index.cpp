@@ -514,8 +514,9 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
     LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress, IndexOrder order) {
-  auto res = RegisterIndex(label, properties, updater, order);
+    ActiveIndicesUpdater const &updater, NameIdMapper *name_id_mapper, ProgressCallback const &on_progress,
+    IndexOrder order) {
+  auto res = RegisterIndex(label, properties, updater, name_id_mapper, order);
   if (!res) return false;
   auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, updater, on_progress, order);
   if (!res2) {
@@ -570,13 +571,13 @@ auto MakeIndexVariant(std::size_t arity, PropertiesPermutationHelper helper)
 // Caller must hold the all_indices_ lock when passing all_indexes.
 template <IndexOrder Order, typename IndicesMap, typename AllIndicesVec, typename ReverseLookup>
 bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesVec &all_indexes, ReverseLookup &reverse_lookup,
-                            LabelId label, PropertiesPaths const &properties) {
+                            LabelId label, PropertiesPaths const &properties, NameIdMapper *name_id_mapper) {
   auto [it1, _] = indices_map.try_emplace(label);
   auto &properties_map = it1->second;
   if (properties_map.find(properties) != properties_map.end()) {
     return false;
   }
-  auto helper = PropertiesPermutationHelper{properties};
+  auto helper = PropertiesPermutationHelper{properties, name_id_mapper};
   auto [it3, _2] = properties_map.emplace(properties, MakeIndexVariant<Order>(properties.size(), std::move(helper)));
   auto new_all_indexes = *all_indexes;
   new_all_indexes.emplace_back(it3->second, label, properties);
@@ -592,14 +593,19 @@ bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesVec &all_indexes,
 }  // namespace
 
 bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths const &properties,
-                                               ActiveIndicesUpdater const &updater, IndexOrder order) {
+                                               ActiveIndicesUpdater const &updater, NameIdMapper *name_id_mapper,
+                                               IndexOrder order) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
 
     const bool registered = all_indices_.WithLock([&](AllIndicesData &data) {
       return DispatchByOrder(order, [&]<IndexOrder Order>() {
-        return RegisterIntoIndicesMap<Order>(
-            new_index->Indices<Order>(), data.Entries<Order>(), new_index->ReverseLookup<Order>(), label, properties);
+        return RegisterIntoIndicesMap<Order>(new_index->Indices<Order>(),
+                                             data.Entries<Order>(),
+                                             new_index->ReverseLookup<Order>(),
+                                             label,
+                                             properties,
+                                             name_id_mapper);
       });
     });
     if (!registered) return false;

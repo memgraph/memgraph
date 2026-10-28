@@ -267,11 +267,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties,
                           utils::SkipListDb<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
-                          IndexOrder order = IndexOrder::ASC);
+                          ActiveIndicesUpdater const &updater, NameIdMapper *name_id_mapper,
+                          ProgressCallback const &on_progress = {}, IndexOrder order = IndexOrder::ASC);
 
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties, ActiveIndicesUpdater const &updater,
-                     IndexOrder order = IndexOrder::ASC);
+                     NameIdMapper *name_id_mapper, IndexOrder order = IndexOrder::ASC);
 
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipListDb<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
