@@ -89,20 +89,21 @@ void ExpectAgreesWithPropertyStore(std::vector<PropertyValue> const &values) {
   ASSERT_TRUE(current.Properties().empty());
 }
 
-// A constraint and an index ask whether a stored property equals a value, and do it per
-// record, so the answer must come without building the stored value up again.
-TEST(ManifestPropertyStore, AnIntegerComparesEqualWithoutBeingRead) {
+// A constraint and an index ask whether a stored property is equivalent to a value, and do it
+// per record, so the answer must come without building the stored value up again.
+TEST(ManifestPropertyStore, AnIntegerIsPlacedUnderEquivalenceWithoutBeingRead) {
   ManifestRegistry registry;
   ManifestPropertyStore store;
   store.SetProperty(registry, Prop(1), PropertyValue{int64_t{300}});
 
   EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{int64_t{300}}));
   EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{int64_t{301}}));
-  // A stored integer and a double of the same number are equal, as the decoded values are.
+  // A stored integer and a double of the same number are equivalent.
   EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{300.0}));
   EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{300.5}));
   EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{"300"}));
-  // A property the record does not hold reads as Null, so it equals Null and nothing else.
+  // A property the record does not hold reads as Null, so it is equivalent to Null and to
+  // nothing else.
   EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(2), PropertyValue{}));
   EXPECT_FALSE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{}));
 }
