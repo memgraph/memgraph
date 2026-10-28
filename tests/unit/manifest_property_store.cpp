@@ -432,6 +432,38 @@ TEST(ManifestPropertyStore, AnswersAsThePropertyStoreDoesForSeveralPropertiesAtO
 // One path's answer must not depend on another's in the same ask, which a shape giving each
 // property's place on its own is what secures. Stated as the answers themselves rather than
 // against the old store, whose reader only goes forwards and so cannot answer these.
+// A path's segments name keys, and a store answers for keys alone. A moment carries fields of
+// its own that are spelled the way a key is, and whether a name means one is settled by the
+// names behind the ids, which a record cannot see. So a path into a value that is not a map
+// arrives at nothing here, and reading a field of one is answered above a store, by whatever
+// holds the path and can resolve its names.
+//
+// Pinned because a store that answered fields itself would answer them twice over once it is
+// read through an index, and one that stopped answering keys would answer them not at all.
+TEST(ManifestPropertyStore, APathIntoAValueWithFieldsOfItsOwnArrivesAtNothing) {
+  using memgraph::storage::PropertyPath;
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+  // 2024-03-05, whose year is 2024 and whose `year` is no key of its.
+  auto const moment = PropertyValue{TemporalData{TemporalType::Date, 1'709'596'800'000'000}};
+  store.SetProperty(registry, Prop(1), moment);
+
+  auto const asked = std::vector<PropertyPath>{PropertyPath{Prop(1), Prop(2)}};
+  auto const values = std::vector<PropertyValue>{PropertyValue{int64_t{2024}}, PropertyValue{}};
+  auto result = std::vector<bool>{};
+
+  store.ArePropertiesEqual(registry, asked, values, std::vector<std::size_t>{0}, result);
+  EXPECT_EQ(result, (std::vector<bool>{false}));
+  store.ArePropertiesEqual(registry, asked, values, std::vector<std::size_t>{1}, result);
+  EXPECT_EQ(result, (std::vector<bool>{true}));
+
+  // And the moment itself is still read as the moment it is.
+  EXPECT_EQ(store.GetProperty(registry, Prop(1)), moment);
+}
+
 TEST(ManifestPropertyStore, OnePathsAnswerDoesNotDependOnAnothers) {
   using memgraph::storage::PropertyPath;
 
