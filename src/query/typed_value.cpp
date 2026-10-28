@@ -233,6 +233,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vec = value.ValueVectorIndexList();
+      DMG_ASSERT(!vec.empty(), "compact VectorIndexId must go through MakePropertyValue");
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
@@ -378,6 +379,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vec = other.ValueVectorIndexList();
+      DMG_ASSERT(!vec.empty(), "compact VectorIndexId must go through MakePropertyValue");
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
@@ -697,11 +699,10 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case TypedValue::Type::Point3d:
       return storage::ExternalPropertyValue(held_inline_.point_3d_v);
     case Type::VectorRef: {
-      std::vector<float> tmp;
-      MaterializeVectorRefInto(tmp);
+      const auto floats = ReadVectorRef();
       std::vector<storage::ExternalPropertyValue> list;
-      list.reserve(tmp.size());
-      for (const float f : tmp) list.emplace_back(static_cast<double>(f));
+      list.reserve(floats.size());
+      for (const float f : floats) list.emplace_back(static_cast<double>(f));
       return storage::ExternalPropertyValue(std::move(list));
     }
     case Type::Vertex:
@@ -981,11 +982,10 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(held_inline_.point_3d_v);
     case Type::VectorRef: {
       // Same DoubleList a literal list of doubles stores, so a persisted copy is re-indexed like any other.
-      std::vector<float> tmp;
-      MaterializeVectorRefInto(tmp);
+      const auto floats = ReadVectorRef();
       storage::PropertyValue::list_t list;
-      list.reserve(tmp.size());
-      for (const float f : tmp) list.emplace_back(static_cast<double>(f));
+      list.reserve(floats.size());
+      for (const float f : floats) list.emplace_back(static_cast<double>(f));
       return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
     }
     case Type::Vertex:
@@ -1004,28 +1004,37 @@ __attribute__((cold, noinline)) void TypedValue::ThrowTypeMismatch(Type expected
   throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, expected);
 }
 
-// Mutates through const_cast: a genuinely const TypedValue (const object / const static) must never
-// still be a VectorRef here, or this is UB. Engine values live in mutable storage (frames, pmr containers).
-void TypedValue::EnsureListMaterialized() const {
+std::vector<float> TypedValue::ReadVectorRef() const {
+  std::vector<float> floats;
+  MaterializeVectorRefInto(floats);
+  return floats;
+}
+
+__attribute__((cold, noinline)) void TypedValue::MaterializeInPlace() const {
   if (type_ != Type::VectorRef) return;
-  std::vector<float> tmp;
-  MaterializeVectorRefInto(tmp);
-  auto *self = const_cast<TypedValue *>(this);
+  const auto floats = ReadVectorRef();
   TVector list(alloc_);
-  list.reserve(tmp.size());
-  for (const float f : tmp) list.emplace_back(static_cast<double>(f));
-  std::destroy_at(&self->vector_ref_v);
-  std::construct_at(&self->list_v, std::move(list));
-  self->type_ = Type::List;
+  list.reserve(floats.size());
+  for (const float f : floats) list.emplace_back(static_cast<double>(f));
+  std::destroy_at(&vector_ref_v);
+  std::construct_at(&list_v, std::move(list));
+  type_ = Type::List;
+}
+
+const TypedValue::TVector &TypedValue::SlowValueList() const {
+  if (type_ == Type::VectorRef) {
+    MaterializeInPlace();
+    return list_v;
+  }
+  ThrowTypeMismatch(Type::List);
 }
 
 TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
-  thread_local std::vector<float> tmp;
-  MaterializeVectorRefInto(tmp);
+  const auto floats = ReadVectorRef();
   TVector list(alloc);
-  list.reserve(tmp.size());
-  for (const float f : tmp) {
+  list.reserve(floats.size());
+  for (const float f : floats) {
     list.emplace_back(static_cast<double>(f));
   }
   return {std::move(list), alloc};
@@ -1035,7 +1044,7 @@ void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
   const bool ok =
       vector_ref_v.Visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, out); });
-  // Callers reuse `out` as scratch; clear on a miss so a stale prior entity's floats are never compared/hashed.
+  // Callers may reuse `out`; clear on a miss so a stale prior entity's floats are never compared/hashed.
   if (!ok) out.clear();
 }
 

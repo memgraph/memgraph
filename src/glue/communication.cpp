@@ -268,10 +268,12 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
 
     case query::TypedValue::Type::VectorRef: {
-      // Materialize the lazy embedding into a transient List of Doubles, then
-      // encode using the same path as a regular TypedValue::List.
-      const query::TypedValue materialized = value.MaterializeVectorRef(value.get_allocator());
-      return ToBoltValue(materialized, db, view, auth_checker);
+      // Same wire shape as a List of Doubles, without materializing in the query arena.
+      const auto floats = value.ReadVectorRef();
+      std::vector<Value> values;
+      values.reserve(floats.size());
+      for (const float f : floats) values.emplace_back(static_cast<double>(f));
+      return storage::Result<Value>{std::in_place, std::move(values)};
     }
 
     // Unsupported conversions

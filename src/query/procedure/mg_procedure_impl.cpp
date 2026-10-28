@@ -365,7 +365,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::String:
       return MGP_VALUE_TYPE_STRING;
     case memgraph::query::TypedValue::Type::List:
-    case memgraph::query::TypedValue::Type::VectorRef:  // materializes to a list of floats
+    case memgraph::query::TypedValue::Type::VectorRef:
       return MGP_VALUE_TYPE_LIST;
     case memgraph::query::TypedValue::Type::Map:
       return MGP_VALUE_TYPE_MAP;
@@ -653,15 +653,16 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      // A lazy vector-index embedding maps to LIST; materialize a copy so ValueList() does not mutate the
-      // caller's value through the const_cast.
-      const memgraph::query::TypedValue materialized =
-          tv.IsVectorRef() ? tv.MaterializeVectorRef(tv.get_allocator()) : memgraph::query::TypedValue{};
-      const memgraph::query::TypedValue &list_tv = tv.IsVectorRef() ? materialized : tv;
       memgraph::utils::pmr::vector<mgp_value> elems(alloc);
-      elems.reserve(list_tv.ValueList().size());
-      for (const auto &elem : list_tv.ValueList()) {
-        elems.emplace_back(elem, graph);
+      if (tv.IsVectorRef()) {
+        const auto vec = tv.ReadVectorRef();
+        elems.reserve(vec.size());
+        for (const float x : vec) elems.emplace_back(static_cast<double>(x));
+      } else {
+        elems.reserve(tv.ValueList().size());
+        for (const auto &elem : tv.ValueList()) {
+          elems.emplace_back(elem, graph);
+        }
       }
       memgraph::utils::Allocator<mgp_list> allocator(alloc);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
@@ -5557,8 +5558,13 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       memgraph::utils::PrintIterable(
           *stream, value.ValueList(), ", ", [](auto &stream, const auto &elem) { PrintValue(elem, &stream); });
       return (*stream) << "]";
-    case TypedValue::Type::VectorRef:  // lazy embedding: materialize transiently and print as a list
-      return PrintValue(value.MaterializeVectorRef(value.get_allocator()), stream);
+    case TypedValue::Type::VectorRef: {
+      (*stream) << "[";
+      const auto floats = value.ReadVectorRef();
+      memgraph::utils::PrintIterable(
+          *stream, floats, ", ", [](auto &stream, const float x) { stream << static_cast<double>(x); });
+      return (*stream) << "]";
+    }
     case TypedValue::Type::Map:
       (*stream) << "{";
       memgraph::utils::PrintIterable(*stream, value.ValueMap(), ", ", [](auto &stream, const auto &item) {
