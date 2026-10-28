@@ -17,7 +17,9 @@
 #include <utility>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage {
 
@@ -52,9 +54,26 @@ enum class ValueField : uint8_t {
 /// nothing about whether the value in hand has one.
 auto FieldNamed(std::string_view name) -> std::optional<ValueField>;
 
-/// Every name that denotes a field, for a caller holding property ids rather than names: it
-/// can ask what each of these names is the id of and so learn which id denotes which field.
+/// Every name that denotes a field of any value, for a caller holding property ids rather than
+/// names: it can ask what each of these names is the id of and so learn which id denotes which
+/// field. The union of what each kind of value carries.
 auto FieldNames() -> std::span<std::pair<std::string_view, ValueField> const>;
+
+/// Reads the field `name` denotes off a value, or nothing when a value of that kind carries no
+/// field of that name.
+///
+/// For a reader that has the value in hand, which is most of them. Naming a field this way
+/// costs what reading it costs, because only the names that kind of value carries are
+/// considered; naming it against every name any value carries costs several times more.
+/// @{
+auto ReadFieldNamed(utils::Date const &date, std::string_view name) -> std::optional<PropertyValue>;
+auto ReadFieldNamed(utils::LocalTime const &time, std::string_view name) -> std::optional<PropertyValue>;
+auto ReadFieldNamed(utils::LocalDateTime const &moment, std::string_view name) -> std::optional<PropertyValue>;
+auto ReadFieldNamed(utils::Duration const &duration, std::string_view name) -> std::optional<PropertyValue>;
+auto ReadFieldNamed(utils::ZonedDateTime const &zoned, std::string_view name) -> std::optional<PropertyValue>;
+auto ReadFieldNamed(Point2d const &point, std::string_view name) -> std::optional<PropertyValue>;
+auto ReadFieldNamed(Point3d const &point, std::string_view name) -> std::optional<PropertyValue>;
+/// @}
 
 /// Reads `field` off `value`, or nothing when that value carries no such field. A point given
 /// in coordinates has no longitude, so asking for one reads as nothing rather than as an
