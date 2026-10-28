@@ -87,17 +87,11 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
   // A streamless replica got no fused task; its bookkeeping is quick and RPC-free, so run it inline.
   // Queueing it would make the commit thread await this replica's worker, whose queue may hold a task
   // that blocks on the engine_lock_ this thread holds — a deadlock.
-  // Membership in ship_futures_ is the test, not an empty stream: a fused task that already finished
-  // has reset its stream, and finalizing that replica a second time would flip it from READY to
-  // MAYBE_BEHIND and drop it out of the next commit.
-  auto const has_fused_task = [&](ReplicationStorageClient const *client) {
-    return std::ranges::any_of(ship_futures_, [client](auto const &entry) { return entry.first == client; });
-  };
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-    auto *raw_client = client.get();
-    if (replica_stream || has_fused_task(raw_client)) {
+    if (replica_stream) {
       continue;
     }
+    auto *raw_client = client.get();
     if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       continue;
     }
