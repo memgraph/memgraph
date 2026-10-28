@@ -1525,6 +1525,11 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeWildcardKeepsNamedRecord
   EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   EXPECT_EQ(perms.Has(emp, "age", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
+
+  perms.Revoke({"Employee"}, "name", PropertyPermissionType::READ);
+  perms.Revoke({"Employee"}, "ssn", PropertyPermissionType::READ);
+  perms.Revoke({"Employee"}, "*", PropertyPermissionType::WRITE);
+  EXPECT_TRUE(perms.GetRules().empty());
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardKeepsNamedRecords) {
