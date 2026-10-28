@@ -826,7 +826,7 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "WEAK DENY DELETE TO user4")
     check(
         partial(show_privileges_func, user_or_role="user4"),
-        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "WEAK DENY", "DENIED TO USER")},
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "WEAK DENY", "WEAKLY DENIED TO USER")},
     )
 
     # GRANT/REVOKE/DENY privileges TO role
