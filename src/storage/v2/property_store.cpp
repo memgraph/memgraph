@@ -2224,22 +2224,22 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(
     // See `MatchSpecificProperty` for what `limit` is for.
     if (property_begin >= limit) {
       reader->SetPosition(property_begin);
-      return {ExpectedPropertyStatus::GREATER, 0, 0};
+      return {.status = ExpectedPropertyStatus::GREATER, .property_begin = 0, .property_end = 0};
     }
     auto status = HasExpectedProperty(reader, property);
     switch (status) {
       case ExpectedPropertyStatus::MISSING_DATA: {
-        return {status, 0, 0};
+        return {.status = status, .property_begin = 0, .property_end = 0};
       }
       case ExpectedPropertyStatus::GREATER: {
         // Restore the reader position so that the next property isn't skipped.
         // This allows `FindSpecificPropertyAndBufferInfoMinimal` to be
         // additional properties to be read from the same reader.
         reader->SetPosition(property_begin);
-        return {status, 0, 0};
+        return {.status = status, .property_begin = 0, .property_end = 0};
       }
       case ExpectedPropertyStatus::EQUAL: {
-        return {status, property_begin, reader->GetPosition()};
+        return {.status = status, .property_begin = property_begin, .property_end = reader->GetPosition()};
       }
       case ExpectedPropertyStatus::SMALLER: {
         property_begin = reader->GetPosition();
