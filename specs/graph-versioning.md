@@ -110,7 +110,7 @@ In addition:
   requires **`MULTI_DATABASE_EDIT`**. This is the privilege that governs `CREATE`/`DROP
   DATABASE`. v1 has no per-branch privilege or ownership (§7 D4).
 - **MAIN instance only.** Every versioning query, including `SHOW`, is rejected on a
-  REPLICA.
+  REPLICA. A REPLICA holds no branches (§8).
 - **Autocommit only.** Branch management queries cannot run inside an explicit
   `BEGIN … COMMIT` transaction, in the same way as multi-database management queries.
 
@@ -140,8 +140,13 @@ a branch's changes. To compare a branch with main, run the same query on both (`
 - When the session ends, its checkout is released.
 - A branch's in-memory structures are built on the **first checkout**, not at `CREATE`.
   Creating a branch is cheap. The first checkout costs more.
-- If a session's branch is dropped by another path, `SHOW BRANCH` on that session reports it.
-  Running `CHECKOUT BRANCH` selects a new version.
+- If a session's branch is dropped by another path (for example, when the instance is demoted to
+  REPLICA, §8), the next Cypher query on that session fails once with an error and moves the session
+  back to `main` (§4.6). Running `CHECKOUT BRANCH` selects a new version. Until then, `SHOW BRANCH` on
+  that session returns `Branch management operations forbidden on REPLICA! This operation must be
+  executed on the MAIN instance.` while the instance is a REPLICA. After the instance is promoted
+  back to MAIN, it fails with `The checked-out version '<name>' no longer exists. Use CHECKOUT
+  BRANCH to select another version.`
 
 ### 4.4 What works on a branch
 
@@ -152,7 +157,7 @@ a branch's changes. To compare a branch with main, run the same query on both (`
 | Add/remove labels, set/remove properties, map replace (on pre-existing and branch-created objects) | Yes |
 | Create edges (including between pre-existing vertices), delete edges, set/remove edge properties | Yes |
 | Index-backed scans: label, label+property (composite, nested, range), edge-type, edge-type+property, global vertex/edge property | Yes. Scans use main's indexes as of the fork point, combined with the branch's changes. |
-| Point-index scans | **No.** Not yet implemented. |
+| Point queries (`point.distance`, `point.withinbbox`) | Yes, with correct results, but without the point index. The planner falls back to a full scan plus filter. |
 | Text search, vector search | **No.** Rejected. |
 | Parallel execution | **No.** Not yet implemented. |
 | Existence and type constraints | Enforced when a branch transaction commits, against main's **current** constraint set |
@@ -205,10 +210,12 @@ The errors for each query are listed in §5. The errors below are shared by many
 | No valid license | `Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required.` |
 | Wrong storage mode | `Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL.` |
 | On a REPLICA | `Branch management operations forbidden on REPLICA! This operation must be executed on the MAIN instance.` |
+| `CREATE` / `CHECKOUT` while the instance is being demoted to REPLICA | `Graph Versioning branches are not available on a REPLICA.` |
+| A Cypher query on a session whose branch was dropped under it | `Branch '<name>' no longer exists (it was dropped, or this instance became a REPLICA); the session is back on main.` The session is now on `main`. |
 | Inside `BEGIN` | the standard multicommand-transaction error for "Managing graph versioning branches" |
 | DDL / storage-global op on a branch | `Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP GRAPH, STORAGE MODE, RECOVER SNAPSHOT, TRIGGER, STREAM, DESCRIPTION) are not allowed while a versioning branch is checked out. Run CHECKOUT BRANCH 'main' first.` |
-| Text / vector search on a branch | `Text search is not supported on a checked-out branch.` / `Vector search is not supported on a checked-out branch.` |
-| Point-index or parallel scan on a branch | `Not yet implemented: …` |
+| Text / vector search on a branch | The message is prefixed with the procedure name, for example `text_search.search: Text search is not supported on a checked-out branch.` / `vector_search.search: Vector search is not supported on a checked-out branch.` |
+| Parallel scan on a branch | `Parallel (chunked) vertex scans on a versioned branch is not implemented yet.` (`edge scans` for edges) |
 | `SHOW SCHEMA INFO` on a branch | `SHOW SCHEMA INFO is not supported on a versioning branch: … Run CHECKOUT BRANCH 'main' first.` |
 | Blocked op on main | for example, `Cannot switch storage mode while versioning branches exist: it would strand their fork-point history. Drop all branches first.` |
 
@@ -238,6 +245,8 @@ branch's name can be used again, and the new branch gets a new number. Numbers a
 
 - `Branch name must not be empty.`
 - `'main' is a reserved branch name and cannot be created, checked out, or dropped explicitly.`
+  (`DROP BRANCH main` does not return this message. It returns `Version 'main' does not exist.`,
+  §5.5.)
 - `Branch name must not start with '.'.`
 - `Branch name must not contain '/' or '\'.`
 - `Branch 'b' already exists.`
@@ -252,12 +261,17 @@ CREATE BRANCH <name> [WITH DESCRIPTION <text>] FROM <name>
   session does **not** switch to it.
 - **Gate / privilege / where.** As in the common rules above. Issued from a branch, it still
   forks from main.
-- **Result.** One row with the columns `version, number, description, parent`.
+- **Result.** One row with the columns `version, number, description, parent`. When main has no
+  WAL, the result also carries a warning notification with the code `BranchNotDurable`:
+  `Branch '<name>' is not durable: the WAL is disabled, so it will be dropped when Memgraph
+  restarts.` The branch is still created (§7 D6).
 - **Errors.**
   - Name errors (above).
   - A parent other than `main`: `CREATE BRANCH FROM a non-main branch (nested branches) is not
     supported in this version; branch only from 'main'.`
   - A failed registry write: `Cannot persist the branch registry: …`. Nothing is created.
+  - While the instance is being demoted to REPLICA: `Graph Versioning branches are not available
+    on a REPLICA.`
 
 ### 5.2 `CHECKOUT BRANCH`
 
@@ -271,14 +285,22 @@ CHECKOUT BRANCH <name> [WITH DESCRIPTION <text>] FROM <name>
     main`.
   - With `FROM`: creates the branch exactly as in `CREATE BRANCH` and switches to it.
 - **Gate / privilege / where.** As in the common rules above. The checkout lasts until the next
-  `CHECKOUT`, a `USE DATABASE` to another database, or the end of the session.
+  `CHECKOUT`, a `USE DATABASE` to another database, the end of the session, or until the branch is
+  dropped under the session. The last case happens when the instance is demoted to REPLICA (§8).
+  The session's next Cypher query then fails with `Branch '<name>' no longer exists (it was
+  dropped, or this instance became a REPLICA); the session is back on main.` and the session is on
+  `main` from then on.
 - **Result.**
   - Without `FROM`: `STATUS` = `Switched to version '<name>'.`
-  - With `FROM`: the same row as `CREATE BRANCH`.
+  - With `FROM`: the same row as `CREATE BRANCH`, including the `BranchNotDurable` notification
+    when main has no WAL.
 - **Errors.**
   - Unknown target: `Version '<name>' does not exist.` The session stays where it was.
   - If the branch is dropped concurrently, or its in-memory state cannot be built, the session
-    ends up on `main` and the error is returned.
+    ends up on `main` and the error is returned (for a concurrent drop, for example, `Branch was
+    dropped.`).
+  - While the instance is being demoted to REPLICA: `Graph Versioning branches are not available
+    on a REPLICA.`
   - With `FROM`: the `CREATE BRANCH` errors.
 
 ### 5.3 `SHOW BRANCH`
@@ -289,8 +311,11 @@ SHOW BRANCH
 
 - **Meaning.** Shows this session's current version.
 - **Gate / privilege / where.** As in the common rules above.
-- **Result.** One row with the columns `version, number, description`. `main` is number 1 and
-  has no description.
+- **Result.** One row with the columns `version, number, description, created_at`. `main` is
+  number 1, and its `description` and `created_at` are null. `created_at` is the branch's creation
+  time as a string, formatted like `creation_time` in `SHOW SNAPSHOTS` (ISO 8601 with microseconds
+  and the UTC offset, in the instance's timezone). It is null for a branch recorded before
+  Memgraph stored the creation time.
 - **Errors.** If the session's branch was dropped: `The checked-out version '<name>' no longer
   exists. Use CHECKOUT BRANCH to select another version.`
 
@@ -306,7 +331,9 @@ SHOW BRANCHES FOR DATABASE <database>
 - **Gate / privilege / where.** As in the common rules above. With `FOR DATABASE`, the storage
   mode check applies to the **target** database. `FOR DATABASE` also requires a multi-tenant
   enterprise build.
-- **Result.** One row per version, with the columns `number, version, description`.
+- **Result.** One row per version, with the columns `number, version, description, created_at`.
+  The columns mean the same as in `SHOW BRANCH`. The `main` row has null `description` and
+  `created_at`.
 - **Errors.**
   - Community build with `FOR DATABASE`: `SHOW BRANCHES FOR DATABASE requires an enterprise
     multi-tenant build.`
@@ -323,7 +350,7 @@ DROP BRANCH <name>
 - **Gate / privilege / where.** As in the common rules above.
 - **Result.** No rows.
 - **Errors.**
-  - Unknown: `Version '<name>' does not exist.`
+  - Unknown, including `main`: `Version '<name>' does not exist.`
   - Another session is on it: `Cannot drop '<name>': it is checked out by another session. Check
     out 'main' there first.`
   - Concurrent race: `Version '<name>' could not be dropped (it no longer exists or is checked out
@@ -375,12 +402,14 @@ connection throughout.
 CREATE BRANCH supplier_fail WITH DESCRIPTION 'Supplier S1 stops shipping' FROM main;
 //   version: "supplier_fail", number: 2, description: "Supplier S1 stops shipping", parent: "main"
 //   (2 if this is the first branch ever created in this database)
+//   Without a WAL, the result also carries the BranchNotDurable notification (§5.1).
 
 // 2. Switch this session to the branch.
 CHECKOUT BRANCH supplier_fail;
 //   STATUS: "Switched to version 'supplier_fail'."
 SHOW BRANCH;
-//   version: "supplier_fail", number: 2, description: "Supplier S1 stops shipping"
+//   version: "supplier_fail", number: 2, description: "Supplier S1 stops shipping",
+//   created_at: "2026-10-28T09:15:02.418305+0000"
 
 // 3. Apply the scenario. These writes go to the branch only.
 MATCH (:Supplier {id: 'S1'})-[r:SHIPS_TO]->() DELETE r;
@@ -393,8 +422,8 @@ USING VERSION 'main' MATCH (p:Plant {at_risk: true}) RETURN count(p) AS at_risk;
 // 5. Main is untouched and still writable. Another session's writes on main stay invisible here.
 CHECKOUT BRANCH main;
 SHOW BRANCHES;
-//   number: 1, version: "main",          description: null
-//   number: 2, version: "supplier_fail", description: "Supplier S1 stops shipping"
+//   number: 1, version: "main",          description: null,                         created_at: null
+//   number: 2, version: "supplier_fail", description: "Supplier S1 stops shipping", created_at: "2026-10-28T09:15:02.418305+0000"
 
 // 6. Discard the scenario.
 DROP BRANCH supplier_fail;
@@ -420,14 +449,18 @@ DROP BRANCH supplier_fail;
   until it is first checked out. It does start holding back main's garbage collection and file
   retention immediately (§4.5).
 - **Use.** Any number of sessions can check out, read and write the branch. Branch changes are
-  durable when main runs with a WAL (§7 D6).
+  durable when main runs with a WAL (§7 D6). Without a WAL, `CREATE` warns with the
+  `BranchNotDurable` notification.
 - **Restart.** The branch comes back with the same fork point and contents (§7 D6). Sessions have
-  to check it out again.
+  to check it out again. If Memgraph restarts with `--versioning-enabled=false`, every recorded
+  branch is dropped durably at startup instead, and branch numbering is kept.
 - **Drop** removes the branch's in-memory state and its directory on disk, releases its fork
-  pin, and lets main's retention catch up.
+  pin, and lets main's retention catch up. If a session still holds the branch when it is dropped
+  (a drop by demotion, §8), its directory is removed when that session lets go of it.
 
-There is no merge transition. A branch ends only by being dropped, or by being dropped
-automatically at startup when it cannot be rebuilt correctly (§7 D6).
+There is no merge transition. A branch ends only by being dropped, by being dropped automatically
+at startup (feature disabled, or the branch cannot be rebuilt correctly, §7 D6), or by being dropped
+when the instance becomes a REPLICA (§7 D7, §8).
 
 ---
 
@@ -488,14 +521,18 @@ policy to the operator. This is listed as a limitation (§11).
 When main runs with a write-ahead log (`PERIODIC_SNAPSHOT_WITH_WAL`), every branch writes its own WAL
 and survives clean restarts and crashes. Its fork point and contents are restored exactly. Without a
 WAL, branches can still be created and used, but they are **in-memory only** and are dropped at the
-next startup.
+next startup. `CREATE BRANCH` and `CHECKOUT BRANCH … FROM` then return a warning notification with
+the code `BranchNotDurable`: `Branch '<name>' is not durable: the WAL is disabled, so it will be
+dropped when Memgraph restarts.`
 
 At startup, nothing versioning-specific can stop main from starting. A branch that cannot be rebuilt
-correctly is **dropped** instead, and a `Graph Versioning:` warning is logged:
+correctly is **dropped** instead, and a warning is logged. The conditions are checked in the order
+of the table:
 
 | Condition at startup | Result |
 |---|---|
 | Branch registry file unreadable or corrupt | All branches dropped. Numbering continues past existing branch directories, so numbers are not reused. |
+| Started with `--versioning-enabled=false` | All branches dropped durably, numbering kept. Warning: `Graph Versioning is disabled (--versioning-enabled=false); the <n> existing branches [<names>] are dropped.` |
 | WAL off, or recovery-on-startup off | All branches dropped, numbering kept |
 | Database starts in a non-transactional mode | The registry is durably emptied |
 | Main cannot be replayed to the fork points | All branches dropped. Main is recovered normally, as if no branches existed. |
@@ -508,13 +545,17 @@ branch is a derived, discardable artifact, so failing to rebuild one must never 
 down. Showing a branch on a wrong base would be worse than losing it, so the policy is to drop it
 loudly and keep its files.
 
-### D7 — Single instance; branches are not replicated.
+### D7 — Single instance; branches are not replicated, and a replica has none.
 
-Branches exist only on the MAIN instance where they were created. See §8.
+Branches exist only on the MAIN instance where they were created. A REPLICA never holds branches.
+Every path that makes an instance a REPLICA, or that replaces a replica's data, drops the branches
+durably first: demotion, a replica resync, and a restart as REPLICA. See §8.
 
 *Rationale.* Branch replication would need the system-replication path used by `CREATE`/`DROP
 DATABASE`, plus replica-side fork pins and recovery. That is a separate body of work. The product
-framing is "many versions within one instance".
+framing is "many versions within one instance". A branch is forked from MAIN's own history. On a
+replica that history is replaced by the new MAIN's, so a kept branch would sit on a base that no
+longer exists. A replica's branch registry would also silently diverge from MAIN's.
 
 ### D8 — `IN_MEMORY_TRANSACTIONAL` only.
 
@@ -582,15 +623,34 @@ For what-if analysis, a temporary duplicate is acceptable if it is clearly signa
   enter the replication stream. Main's writes replicate as usual while branches exist.
 - **Replicas have no branches.** Every versioning query, including `SHOW BRANCHES`, is rejected on a
   REPLICA. Branches are never created there, so a replica promoted to MAIN starts with no branches.
+- **Demotion drops branches.** When a MAIN is demoted to REPLICA (by `SET REPLICATION ROLE TO
+  REPLICA` or by the coordinator), every database's branches are dropped durably **before** the role
+  changes, including branches that sessions still have checked out. `CREATE BRANCH` and `CHECKOUT
+  BRANCH` are refused from that moment (`Graph Versioning branches are not available on a
+  REPLICA.`). If a drop fails (the branch registry cannot be written), the demotion fails, the
+  instance stays MAIN, and its branches stay usable. Branch numbering is kept. A dropped branch's
+  directory is removed with the drop, or, for a branch a session still has checked out, when that
+  session lets go of it.
+- **Sessions on a dropped branch.** A session still checked out on a branch dropped this way gets,
+  on its next Cypher query, `Branch '<name>' no longer exists (it was dropped, or this instance
+  became a REPLICA); the session is back on main.` The session is on `main` from then on.
+- **Promotion allows branches again.** After a promotion to MAIN, branches can be created again. The
+  new MAIN starts with no branches.
+- **A replica resync drops branches.** Before a replica wipes its storage to load a snapshot or WAL
+  files from MAIN, it drops any branches of that database. A failed drop is logged as an error and
+  does not block the resync.
+- **A restart as REPLICA drops branches.** Databases are recovered before the replication role is
+  known, so a REPLICA restart first rebuilds its branches and then drops them durably. The warning is
+  `Instance is a REPLICA; dropping its <n> Graph Versioning branches [<names>] in database <db>.` A
+  failed drop is logged as an error and does not block startup.
 - **Failover loses branches.** After a failover, the branches that existed on the old MAIN are not
-  available on the new one. Treat branches as instance-local scratch state.
+  available on the new one, and the old MAIN drops them when it rejoins as a REPLICA. Treat branches
+  as instance-local scratch state.
 - **Main's replication history is preserved.** When an instance with branches restarts, main's
   epoch history is restored as usual.
 - **Upgrade order.** This feature bumps the durable file format version shared by WAL and snapshot
   files (§13). Replicas must be upgraded before the MAIN. A replica on an older version cannot read
   the new files.
-- **Demoting an instance that holds branches** (it becomes a replica, then receives a snapshot or has
-  its storage cleared) has not been specified or verified (§11).
 
 ---
 
@@ -605,15 +665,20 @@ For what-if analysis, a temporary duplicate is acceptable if it is clearly signa
 | `memgraph_versioning_active_branches` | `VersioningActiveBranches` | gauge | Existing branches |
 | `memgraph_versioning_active_checkouts` | `VersioningActiveCheckouts` | gauge | Sessions currently checked out on a branch |
 
-With several databases, the two gauges show the count of whichever database changed last, not
-a total (§11).
+With several databases, the two gauges are totals across all databases. The metrics have no
+per-database label.
 
 **Queries.** `SHOW BRANCHES [FOR DATABASE db]` lists branches. `SHOW BRANCH` shows the session's
 version. On a branch, `SHOW STORAGE INFO` names the branch. Branch memory is accounted to the owning
 database's memory usage.
 
 **Logs.** Every automatic branch drop at startup, and every branch directory that cannot be removed,
-is logged as a warning with the prefix `Graph Versioning:`.
+is logged as a warning that names `Graph Versioning` (§7 D6, §8). A failed drop during a demotion, a
+replica resync or a REPLICA startup is logged as an error that starts with `Failed to drop the
+branches of database <db>`.
+
+**Notifications.** `CREATE BRANCH` and `CHECKOUT BRANCH … FROM` return the `BranchNotDurable`
+warning when main has no WAL (§5.1).
 
 **Not exposed:** fork point or branch age, per-branch memory/disk, and the amount of main history
 retained because of branches. No telemetry is sent.
@@ -634,6 +699,7 @@ retained because of branches. No telemetry is sent.
 - With a WAL, a branch's contents survive clean restarts and crashes.
 - A branch that cannot be rebuilt correctly is dropped loudly. It is never served on a wrong base,
   and it never prevents main from starting.
+- A REPLICA holds no branches (§8).
 
 **Non-goals for v1**
 
@@ -651,32 +717,34 @@ retained because of branches. No telemetry is sent.
 
 - **Unique constraints are not enforced on a branch** (D13). A branch can contain duplicates that
   main would reject.
-- **Without a WAL, branches are lost at restart.** `CREATE BRANCH` succeeds without a WAL and gives no
-  warning, but such branches are dropped at the next startup.
-- **Pooled clients can write to main by mistake** (D10). Checkout is per connection, and there is no
-  rail that rejects untargeted writes.
+- **Without a WAL, branches are lost at restart.** `CREATE BRANCH` succeeds without a WAL. It returns
+  the `BranchNotDurable` notification (§5.1), but such branches are dropped at the next startup.
+- **Pooled clients can send a query to main by mistake** (D10). Checkout is per connection. A pooled
+  driver can check out a branch on one connection and run the next query on another connection that
+  is still on `main`. There is no rail that rejects untargeted writes. Pin one connection per branch
+  session.
 - **The fork point is not shown.** Users cannot see how old or stale a branch's base is.
 - **No cap, and costs grow with main's churn.** Main's retained memory grows with main's writes since
   the oldest fork point, and main's snapshot/WAL files are kept back to that point. Dropping an older
   branch frees little while a newer overlapping branch exists.
-- **Branch WALs are never compacted.** A branch is never snapshotted, so its disk use grows with its
-  full write history until it is dropped, and restart time grows with it.
-- **Branches survive disabling the feature.** Startup recovery does not consult
-  `--versioning-enabled` or the license. If Memgraph restarts with the flag off (or without a
-  license), existing branches are still rebuilt and keep pinning main's history, but no query can
-  drop them. Drop branches before disabling the feature.
-- **Metrics with multi-tenancy.** The `active_branches` and `active_checkouts` gauges reflect one
-  database, not the sum.
+- **Branch WALs are never compacted.** A branch is never snapshotted, so a long-lived branch's WAL
+  grows with every write until the branch is dropped, and restart time grows with it. Compaction
+  needs snapshots of the branch's diff engine (§12).
+- **Disabling the feature drops all branches.** Restarting with `--versioning-enabled=false` drops
+  every recorded branch durably at startup. Turning the flag back on does not bring them back.
+- **Branches survive a lost license.** Startup recovery does not consult the license. If Memgraph
+  restarts without a valid license, existing branches are still rebuilt and keep pinning main's
+  history, but no query can drop them. Drop branches before the license lapses.
 - **Main-side operations blocked** while any branch exists: `STORAGE MODE`, `DROP GRAPH`,
   `RECOVER SNAPSHOT`, `CREATE`/`ALTER ENUM`.
-- **Unsupported on a branch:** text, vector and point-index search, parallel execution, `SHOW SCHEMA
-  INFO`, all schema DDL. `USING VERSION` reaches only `main` or the current branch.
+- **Unsupported on a branch:** text and vector search, parallel execution, `SHOW SCHEMA INFO`, all
+  schema DDL. Point queries work but do not use the point index (full scan plus filter).
+  `USING VERSION` reaches only `main` or the current branch.
 - **Read performance on heavily changed branches.** Scans over data the branch did not touch stream
   main's data directly. When about 90% of the scanned data was changed on the branch, reads have been
   measured at roughly 2.6–7× slower than the same read on main.
-- **Demote-to-replica is unverified.** The behaviour when an instance that holds branches is demoted
-  to REPLICA and then has its storage replaced by the new MAIN has not been specified or tested.
-  Drop branches before demoting an instance.
+- **Demotion to REPLICA drops all branches** (§8). This includes branches that sessions still have
+  checked out. They are not restored when the instance is promoted again.
 - **No downgrade.** Once this version has written WAL or snapshot files, older Memgraph versions cannot
   read them (§13).
 
@@ -768,8 +836,9 @@ sets are lock-free per-kind bloom filters, monotonic "may have touched" gates, a
 per-label/per-property gid sets with versioned snapshot caches. A scan on an untouched branch is a pure
 fork stream. Touched sets never shrink while the branch lives, and rolled-back writes stay recorded.
 This is a conservative over-approximation and is correct. Point, text, vector and chunked (parallel)
-scans have no branch path. Edge-property scans on a branch stay ordered even if main drops the index
-after the fork.
+scans have no branch path. Point indexes are not mirrored into the diff engine, so on a branch the
+planner sees no point index and plans a full scan plus filter. Edge-property scans on a branch stay
+ordered even if main drops the index after the fork.
 
 ### A.5 Memory model
 
@@ -788,6 +857,9 @@ Branch memory goes to the tenant's arena and trackers. There is no cap.
   branch's WAL. A legacy `versioning/` directory from earlier builds is deleted at startup.
 - **Ledger.** A single file, replaced atomically (temp file, fsync, rename, directory fsync), with the
   header `MGBL <ver> <size> <crc32>` and a JSON body. A file with bad magic, size or CRC is rejected.
+  Each branch entry has an optional `created_at_us` (wall-clock creation time, microseconds since the
+  Unix epoch). Ledgers written before the field existed still read, and those branches show a null
+  `created_at`.
   The ledger is written on `CREATE`, `DROP` and the first floor record. If the write fails, the query
   fails and in-memory state is unchanged. If only the directory fsync after the rename fails, this is
   logged and the operation counts as written.
@@ -802,8 +874,10 @@ Branch memory goes to the tenant's arena and trackers. There is no cap.
 
 ### A.7 Startup recovery
 
-1. Read the ledger before main's storage exists and sort branches by `fork_ts`. Replay is possible
-   only with `IN_MEMORY_TRANSACTIONAL` + `recover_on_startup` + WAL. Otherwise, drop all branches.
+1. Read the ledger before main's storage exists and sort branches by `fork_ts`. With
+   `--versioning-enabled=false`, drop all branches (the ledger is rewritten empty, numbering kept).
+   Replay is possible only with `IN_MEMORY_TRANSACTIONAL` + `recover_on_startup` + WAL. Otherwise,
+   drop all branches.
 2. **Bounded recovery.** Recover main only up to `min(fork_ts) − 1`. The remaining WAL files form the
    recovery tail.
 3. **Tail replay.** Replay the tail as real MVCC transactions with WAL appends suppressed. Re-register
@@ -821,6 +895,9 @@ Branch memory goes to the tenant's arena and trackers. There is no cap.
 7. Failure policy: see the table in §7 D6. If bounded recovery or tail replay fails, pins are released,
    the partial storage is discarded without an exit snapshot, main is recovered unbounded, and all
    branches are dropped.
+8. **REPLICA role.** Databases are recovered before the replication role is known. If the instance
+   starts as a REPLICA, the replication handler then calls `VersionStore::FreezeAndDropAll` on every
+   database, which drops the restored branches durably (§8).
 
 ### A.8 Retention floor
 
@@ -832,6 +909,15 @@ proceed.
 ### A.9 Registry and locking
 
 `VersionStore` (one per IN_MEMORY_TRANSACTIONAL database) maps names to
-`BranchInfo{number, parent, fork_ts, recorded_fork_ts, description, gid floors}`. Lock order:
-`ledger_mutex_` → `lock_`, and separately `build_mutex_` → `cores_mutex_`. Checkout does not take the
-ledger lock, except for the one-time floor write.
+`BranchInfo{number, parent, fork_ts, recorded_fork_ts, description, gid floors, created_at_us}`. Lock
+order: `ledger_mutex_` → `lock_`, and separately `build_mutex_` → `cores_mutex_`. Checkout does not
+take the ledger lock, except for the one-time floor write.
+
+**Replica freeze.** `FreezeAndDropAll` sets a `frozen_` flag (so `CreateBranch` and
+`TryAcquireCheckout` refuse), then writes an empty ledger and drops every branch, including attached
+ones. If the ledger write fails, the store is left unchanged, including its previous frozen state.
+Demotion calls it on every database before taking the replication state lock, and unfreezes the
+stores again if any drop fails or the instance is still MAIN afterwards. Promotion unfreezes all
+stores. A session attached to a dropped branch is detected on its next transaction by
+`VersionStore::IsLive(name, number)`, and a dropped branch's core is never rebuilt
+(`GetOrBuildCore` checks liveness before and after the build).
