@@ -838,6 +838,53 @@ TEST(ManifestPropertyStore, ARecordsZoneIsUnaffectedByWhatIsNamedAfterIt) {
   EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), value));
 }
 
+// A vector index takes a list of numbers out of the record and leaves a handle behind: the ids
+// the list was given. The numbers live in the index, so the record holds the ids and nothing
+// else, and reading the property gives them back with no numbers beside them. Whatever reads a
+// record for a user puts those back from the index.
+TEST(ManifestPropertyStore, ARecordHoldsTheHandleAVectorIndexLeftIt) {
+  auto const handle = [](std::initializer_list<PropertyValue::vector_index_id_t::value_type> ids) {
+    return PropertyValue{PropertyValue::VectorIndexIdData{.ids = PropertyValue::vector_index_id_t(ids),
+                                                          .vector = memgraph::utils::small_vector<float>{}}};
+  };
+
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+
+  for (auto const &value : {handle({7}), handle({7, 11, 13}), handle({13, 11, 7})}) {
+    ASSERT_EQ(manifest.SetProperty(registry, Prop(1), value), current.SetProperty(Prop(1), value));
+
+    auto const read = manifest.GetProperty(registry, Prop(1));
+    ASSERT_TRUE(read.IsVectorIndexId());
+    EXPECT_EQ(read, current.GetProperty(Prop(1)));
+    EXPECT_EQ(read.ValueVectorIndexIds(), value.ValueVectorIndexIds());
+    EXPECT_TRUE(read.ValueVectorIndexList().empty()) << "the numbers live in the index, not the record";
+
+    // A handle is the set of ids rather than a list of them, so the same ids in another order
+    // are the same handle. Both stores place it that way.
+    EXPECT_EQ(manifest.IsPropertyEqual(registry, Prop(1), value), current.IsPropertyEqual(Prop(1), value));
+    EXPECT_TRUE(manifest.IsPropertyEqual(registry, Prop(1), value));
+    EXPECT_EQ(manifest.IsPropertyEqual(registry, Prop(1), handle({11})),
+              current.IsPropertyEqual(Prop(1), handle({11})));
+  }
+
+  // Two ids in either order are one handle, and a handle of two is not a handle of three.
+  // Replacing rather than inserting, the record already carrying the property.
+  ASSERT_FALSE(manifest.SetProperty(registry, Prop(1), handle({7, 11})));
+  EXPECT_TRUE(manifest.IsPropertyEqual(registry, Prop(1), handle({11, 7})));
+  EXPECT_FALSE(manifest.IsPropertyEqual(registry, Prop(1), handle({7, 11, 13})));
+  EXPECT_FALSE(manifest.IsPropertyEqual(registry, Prop(1), handle({7})));
+  // And a handle is not a list of the numbers that happen to be those ids.
+  EXPECT_FALSE(manifest.IsPropertyEqual(
+      registry, Prop(1), PropertyValue{PropertyValue::list_t{PropertyValue{int64_t{7}}, PropertyValue{int64_t{11}}}}));
+
+  // It sits in a record beside other properties without disturbing them.
+  ASSERT_TRUE(manifest.SetProperty(registry, Prop(2), PropertyValue{"beside it"}));
+  EXPECT_EQ(manifest.GetProperty(registry, Prop(1)).ValueVectorIndexIds(), handle({7, 11}).ValueVectorIndexIds());
+  EXPECT_EQ(manifest.GetProperty(registry, Prop(2)), PropertyValue{"beside it"});
+}
+
 // A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a
 // number within a known range, and one taken from the database is named, so naming it by an
 // interned id makes the whole value one of a known width. Nothing about it then needs the

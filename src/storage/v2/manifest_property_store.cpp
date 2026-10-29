@@ -367,11 +367,32 @@ auto NestedReader::Value() -> PropertyValue {
 
 /// The bytes a variable-width value occupies. A string is its own bytes, since the span the
 /// record's table gives already says how many there are. Anything else describes itself.
+/// The ids a stored vector handle is made of. Their count is the payload's length, since a
+/// handle is nothing but ids.
+auto IdsIn(std::span<uint8_t const> payload) -> PropertyValue::vector_index_id_t {
+  using id_t = PropertyValue::vector_index_id_t::value_type;
+  DMG_ASSERT(payload.size() % sizeof(id_t) == 0, "A vector handle is a whole number of ids");
+
+  auto ids = PropertyValue::vector_index_id_t{};
+  ids.reserve(payload.size() / sizeof(id_t));
+  for (std::size_t at = 0; at != payload.size(); at += sizeof(id_t)) {
+    ids.push_back(ReadObject<id_t>(payload.data() + at));
+  }
+  return ids;
+}
+
 auto EncodePayload(PropertyValue const &value) -> std::vector<uint8_t> {
   if (value.IsString()) {
     auto const &text = value.ValueString();
     auto payload = std::vector<uint8_t>{};
     AppendBytes(payload, text.data(), text.size());
+    return payload;
+  }
+  if (value.IsVectorIndexId()) {
+    // The ids and nothing else. The numbers they stand for live in the vector index, and
+    // whatever reads a record for a user puts them back from there.
+    auto payload = std::vector<uint8_t>{};
+    for (auto const id : value.ValueVectorIndexIds()) AppendObject(payload, id);
     return payload;
   }
   auto payload = std::vector<uint8_t>{};
@@ -390,6 +411,10 @@ auto StoredTypeFor(PropertyValue const &value) -> StoredType {
     return StoredType::Variable(PropertyStoreType::LIST);
   }
   if (value.IsMap()) return StoredType::Variable(PropertyStoreType::MAP);
+  // A vector index takes the numbers out of the record and leaves the ids it gave them, of
+  // which there may be any number, so the ids are what is stored and their count is the
+  // payload's length.
+  if (value.IsVectorIndexId()) return StoredType::Variable(PropertyStoreType::VECTOR);
   if (value.IsEnum()) return StoredType::Fixed(PropertyStoreType::ENUM, sizeof(Enum));
   if (value.IsTemporalData()) return StoredType::Fixed(PropertyStoreType::TEMPORAL_DATA, sizeof(TemporalData));
   if (value.IsZonedTemporalData()) {
@@ -565,6 +590,10 @@ auto ManifestPropertyStore::ValueAt(PropertyManifest const &layout, PropertyMani
   if (location.stored_type.type == PropertyStoreType::STRING) {
     return PropertyValue{std::string{reinterpret_cast<char const *>(payload.data()), payload.size()}};
   }
+  if (location.stored_type.type == PropertyStoreType::VECTOR) {
+    return PropertyValue{
+        PropertyValue::VectorIndexIdData{.ids = IdsIn(payload), .vector = utils::small_vector<float>{}}};
+  }
   return NestedReader{payload.data()}.Value();
 }
 
@@ -595,6 +624,19 @@ auto ManifestPropertyStore::CompareAt(PropertyManifest const &layout, PropertyMa
     // The record holds the characters, so they are compared where they lie rather than copied
     // into a string first.
     return text.size() == payload.size() && std::memcmp(text.data(), payload.data(), payload.size()) == 0;
+  }
+  if (location.stored_type.type == PropertyStoreType::VECTOR) {
+    if (!value.IsVectorIndexId()) return false;
+    // A handle is which indexes hold the numbers, so the same ids in another order are the
+    // same handle. The numbers beside them are no part of it, being the index's answer rather
+    // than the record's.
+    auto const &asked = value.ValueVectorIndexIds();
+    auto stored = IdsIn(payload);
+    if (stored.size() != asked.size()) return false;
+    auto wanted = PropertyValue::vector_index_id_t{asked.begin(), asked.end()};
+    std::ranges::sort(stored);
+    std::ranges::sort(wanted);
+    return std::ranges::equal(stored, wanted);
   }
   // A list or a map is still built up to be compared, because the nested encoding describes
   // itself and walking it against a value means decoding it as it goes.
