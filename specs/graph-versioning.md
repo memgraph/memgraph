@@ -45,14 +45,15 @@ Every branch query checks these, in this order, and reports the first failure:
 
 | # | Requirement | Error when not met |
 |---|---|---|
-| 1 | Started with `--experimental-enabled=versioning` (startup-only) | `Graph versioning is disabled. Start Memgraph with --experimental-enabled=versioning to use branch queries.` |
-| 2 | Valid Memgraph Enterprise license (runtime check; code is in every build) | `Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required.` (see §10 for what still works) |
-| 3 | The database runs in `IN_MEMORY_TRANSACTIONAL` | `Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode.` |
-| 4 | Durability: WAL on (`--storage-wal-enabled=true`, i.e. `PERIODIC_SNAPSHOT_WITH_WAL`) **and** `--data-recovery-on-startup=true` | `CREATE BRANCH` fails: `Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.` |
-| 5 | Not started with `--experimental-enabled=commit-lock-narrowing` | `Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing.` |
-| 6 | The instance is MAIN | `Branch operations are forbidden on a REPLICA. Run them on the MAIN instance.` |
+| 1 | Enterprise build (versioning is compiled only under `MG_ENTERPRISE`) | `Query is part of the Enterprise feature. In order to run it, you need an Enterprise license.` |
+| 2 | Started with `--experimental-enabled=versioning` (startup-only) | `Graph versioning is disabled. Start Memgraph with --experimental-enabled=versioning to use branch queries.` |
+| 3 | Valid Memgraph Enterprise license (runtime check) | Without it branches are read-only and droppable (§10); `CREATE BRANCH` and branch writes fail with `Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required.` |
+| 4 | The database runs in `IN_MEMORY_TRANSACTIONAL` | `Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode.` |
+| 5 | Durability: WAL on (`--storage-wal-enabled=true`, i.e. `PERIODIC_SNAPSHOT_WITH_WAL`) **and** `--data-recovery-on-startup=true` | `CREATE BRANCH` fails: `Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.` |
+| 6 | Not started with `--experimental-enabled=commit-lock-narrowing` | `Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing.` |
+| 7 | The instance is MAIN | `Branch operations are forbidden on a REPLICA. Run them on the MAIN instance.` |
 
-Requirement 4 exists because a branch must survive a restart; otherwise it is no better than an
+Requirement 5 exists because a branch must survive a restart; otherwise it is no better than an
 open transaction. Without WAL or recovery it would be silently lost at the next startup.
 
 ## 4. Queries
@@ -68,10 +69,10 @@ queries do.
 |---|---|---|---|
 | `CREATE BRANCH <b>` | Forks the current database's `main` at its latest commit. The session does not switch. Issued from a branch, it still forks from `main`. Result: no rows. | `BRANCH_EDIT` | `Branch '<b>' already exists.`; `Cannot persist the branch registry: …` (nothing created) |
 | `DROP BRANCH <b>` | Discards the branch: its changes, files and fork pin. If **this** session is on `<b>`, it moves to `main` first. | `BRANCH_EDIT` | `Branch '<b>' does not exist.` (also for `main`); `Cannot drop branch '<b>': it is in use by another session. Use DROP BRANCH <b> FORCE.`; `Cannot persist the branch registry: …` (branch kept) |
-| `DROP BRANCH <b> FORCE` | As above, but first terminates the transactions of every other session on `<b>`; those sessions then get the dead-branch error (§5.3). Mirrors `DROP DATABASE … FORCE`. | `BRANCH_EDIT` | `Branch '<b>' does not exist.` |
+| `DROP BRANCH <b> FORCE` | As above, but first terminates the transactions of every other session on `<b>`; those sessions then get the dead-branch error (§5.3). Mirrors `DROP DATABASE … FORCE`. | `BRANCH_EDIT` and `TRANSACTION_MANAGEMENT` | `Branch '<b>' does not exist.` |
 | `USE BRANCH <b>` | Switches this session to `<b>` (or back with `USE BRANCH main`) until the next `USE BRANCH`, a `USE DATABASE` to another database, or disconnect. | `BRANCH_USE` | `Branch '<b>' does not exist.` (session stays where it was); `Branch switching is prohibited if the session explicitly defines the database.` (Bolt `db` pin, §4.3) |
 | `USING BRANCH <b> <query>` | Runs one autocommit query on `<b>` (any branch or `main`). The session's current branch is unchanged. Combinable with other `USING` directives. Honoured under `EXPLAIN`/`PROFILE`. | `BRANCH_USE`, plus the query's own privileges | `Branch '<b>' does not exist.`; inside `BEGIN`: `USING BRANCH is not allowed inside an explicit transaction.` |
-| `SHOW BRANCHES [FOR DATABASE <db>]` | Lists `main` and every branch of the current database (or `<db>`). Columns below. | `BRANCH_USE`, authorised against the **listed** database | `FOR DATABASE` on a community build: `requires an enterprise multi-tenant build`; unknown `<db>`: standard error |
+| `SHOW BRANCHES [FOR DATABASE <db>]` | Lists `main` and every branch of the current database (or `<db>`). Columns below. | `BRANCH_USE`, authorised against the **listed** database | Unknown `<db>`: standard error |
 | `SHOW BRANCH [<b>]` | One row: the session's current branch, or `<b>`. Same columns. | `BRANCH_USE` | `Branch '<b>' does not exist.`; session on a dropped branch: dead-branch error (§5.3) |
 | Bolt `db="<database>@<b>"` | Runs the transaction on `<b>` of `<database>` (§4.3). `db="<database>"` means `main`. | `BRANCH_USE` when `@<b>` is present | `Branch '<b>' does not exist.` on BEGIN/RUN |
 
@@ -100,7 +101,8 @@ keyword list (`symbolicName`) and stay usable as labels, properties and variable
 `BRANCH_USE` and `BRANCH_EDIT` are new privileges, shaped like `MULTI_DATABASE_USE` /
 `MULTI_DATABASE_EDIT` but independent of them: a user can work with branches without access to
 other databases. They are granted with the usual `GRANT`/`REVOKE`/`DENY` and are part of the
-replicated auth data. In addition:
+replicated auth data. `DROP BRANCH … FORCE` also needs `TRANSACTION_MANAGEMENT`, because it
+terminates other users' transactions (as `DROP DATABASE … FORCE` does). In addition:
 
 - The user needs normal access to the database the branch belongs to (`GRANT DATABASE`).
 - Queries run on a branch need their usual privileges (`MATCH` → READ, `CREATE` → WRITE, …).
@@ -159,7 +161,7 @@ A branch can disappear under a session: `DROP BRANCH … FORCE`, demotion to REP
 fails with
 `Branch '<b>' no longer exists. Run USE BRANCH or USE DATABASE to continue.`
 until the session switches. With `db="x@b"` every new transaction fails with
-`Branch '<b>' does not exist.`.
+`Branch '<b>' no longer exists.` until the client changes `db`; the session is not terminated.
 
 ## 6. Behaviour on a branch
 
@@ -196,7 +198,7 @@ unique across `main` and all branches of the database.
 |---|---|---|
 | Reads and writes on `main` | Allowed | Invisible to branches |
 | Index, constraint, TTL, trigger DDL on `main` | Allowed | Branches keep reading main@fork. A branch uses an index only if it was visible at the fork; an index created, or dropped and re-created, on `main` after the fork is not used and the branch falls back to a scan. An index dropped on `main` falls back to a scan. |
-| `CREATE ENUM`, `ALTER ENUM … ADD/UPDATE` | Refused | The branch's enum set is fixed when the branch is first used |
+| `CREATE ENUM`, `ALTER ENUM … ADD/UPDATE` | Refused | Each branch has its own copy of the enum store, taken when the branch is first used (§12) |
 | `STORAGE MODE`, `DROP GRAPH`, `RECOVER SNAPSHOT` | Refused: `… while branches exist … Drop all branches first.` | They replace the data every branch reads |
 | Durability settings (WAL mode, recovery on startup) | Startup-only | Changing them across a restart drops branches (§8) |
 | `RENAME DATABASE` | Allowed | Branches follow the database |
@@ -230,13 +232,19 @@ inspection where noted. Conditions, checked in order:
 | Condition at startup | Result |
 |---|---|
 | Branch registry unreadable or corrupt | All branches dropped |
-| Started without `--experimental-enabled=versioning` | All branches dropped durably; turning it back on does not restore them |
+| Started without `--experimental-enabled=versioning` | Branches are dropped **logically** only: not visible or usable, branch queries fail with the disabled-flag error. All durable state stays (ledger, each branch's directory and WAL). Restarting with the flag on restores every branch with its data. |
 | Started with `--experimental-enabled=commit-lock-narrowing` | All branches dropped durably |
 | WAL off, or recovery on startup off | All branches dropped |
 | Database starts in a non-transactional mode | All branches dropped |
 | Main cannot be replayed to the fork points | All branches dropped; main recovers normally |
 | A branch's WAL is damaged | Main's WAL rules apply (unreadable or empty file skipped, unfinished file used up to its last complete transaction). Where main would refuse to start (e.g. a gap in the sequence), only that branch is dropped and its files are kept. |
 | Main itself cannot be recovered | Standard Memgraph behaviour |
+
+**Flag off while branches exist.** The ledger's fork points still bound main's snapshot and WAL
+retention, so main keeps a snapshot and its WAL files back to the oldest fork point even with the
+flag off; otherwise the branches could not be rebuilt when the flag is turned back on. Runtime GC
+fork pins are not held while the flag is off (nothing reads the branches), so main's memory is not
+retained. The main-side refusals of §7 still apply while the ledger holds branches.
 
 Branch WALs are never compacted, so a long-lived branch's restart time grows with its write
 history.
@@ -265,10 +273,14 @@ point**. Replicas would then serve `SHOW BRANCHES`, `USE BRANCH` and `USING BRAN
 
 ## 10. Licensing and flag
 
-| Situation | Today (code) | Target |
-|---|---|---|
-| License expires | All branch management queries refused, including `DROP BRANCH` and switching back to `main`. Queries of a session already on a branch keep running. Startup restores branches regardless of the license. | `CREATE BRANCH` refused. Existing branches stay usable and droppable: `SHOW`, `USE BRANCH`, `USING BRANCH`, `DROP BRANCH [FORCE]` and queries on them work, so main's retention can be released. Startup restores branches. |
-| Restart without `--experimental-enabled=versioning` | n/a (code uses `--versioning-enabled`) | All branches dropped durably at startup. They cannot stay: main's retention would delete their base files. |
+| Build / license | Branch behaviour |
+|---|---|
+| Community build | No versioning logic is compiled in (all versioning code is under `#ifdef MG_ENTERPRISE`). Every branch query fails with `Query is part of the Enterprise feature. In order to run it, you need an Enterprise license.` |
+| Enterprise build, no valid license | Read-only and droppable. `CREATE BRANCH` and writes on a branch are refused. `SHOW BRANCH[ES]`, `USE BRANCH` / `USING BRANCH` for reads, switching back to `main`, and `DROP BRANCH [FORCE]` work, so a session is never stuck on a branch and main's retention can be released. Startup restores branches. |
+| Enterprise build, valid license | Everything in this spec |
+
+**Flag.** `--experimental-enabled=versioning` is startup-only. Restarting without it hides all
+branches but keeps their durable state; restarting with it restores them (§8).
 
 ## 11. Observability
 
@@ -308,6 +320,7 @@ much of main's history is retained because of branches.
 | Caps on branch count, size, age | No | Scheduling: needs operating experience to pick bounds |
 | Per-branch memory/disk reporting | No | Architecture: branch memory shares the database allocator |
 | Per-branch ACLs / ownership | No | Scheduling |
+| `CREATE` / `ALTER ENUM` on `main` while branches exist | No | Architecture: each branch has its own copy of the enum store, so a change on `main` would not reach it. Sharing main's enum store with branches is follow-up work. |
 
 ## 13. Worked example
 
@@ -377,13 +390,3 @@ bumped to `max(last durable ts + 1, newest fork_ts)` so no future main commit ca
 fork point. Each branch core is rebuilt with its recorded floors, its WAL is replayed with main's
 WAL rules, and main's gid counters are raised above every recovered native gid. If bounded recovery
 fails, pins are released, main is recovered unbounded, and all branches are dropped (§8).
-
----
-
-## Open decisions
-
-1. Bolt `db="x@b"` session whose branch is dropped: per-transaction error (this spec) or terminate the session like a dropped `db` pin.
-2. Does `DROP BRANCH … FORCE` also require `TRANSACTION_MANAGEMENT`, as `DROP DATABASE … FORCE` does?
-3. ENUM DDL on `main` while branches exist: keep refused (this spec) or unblock by sharing main's enum store.
-4. License expiry: existing branches fully usable (this spec) or read-only.
-5. Flag off at restart: drop branches (this spec) or refuse to start while branches exist.
