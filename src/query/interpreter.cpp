@@ -6924,7 +6924,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
           throw RetryBasicException("Failed to create snapshot. {}.",
                                     storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
-        // A full disk persists until an operator frees space, so retrying cannot succeed.
+        // NoSpaceLeft: a full disk persists until an operator frees space, so retrying cannot succeed.
         case storage::InMemoryStorage::CreateSnapshotError::NoSpaceLeft:
           throw utils::BasicException("Failed to create snapshot. {}.",
                                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
