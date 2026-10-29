@@ -2099,6 +2099,37 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
 // and keeps it. This holds the two to each other, for every value that carries fields against
 // every name that denotes one, so an index and a lookup cannot come to disagree about what a
 // path answers. A lookup raises exactly where naming the field finds nothing.
+// Naming the coordinate to use instead of the geographic one asked for is only help if the
+// point has that coordinate. A point in two dimensions has no third one, so it cannot be told
+// to use it: following that advice would only earn another refusal.
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, APointIsOnlyToldToUseACoordinateItHas) {
+  auto const message_for = [this](TypedValue const &point, std::string const &name) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(this->symbol, TypedValue(point));
+    try {
+      this->Value(std::make_pair(name, this->dba.NameToProperty(name)));
+      return std::string{"no error at all"};
+    } catch (const QueryRuntimeException &e) {
+      return std::string{e.what()};
+    }
+  };
+
+  using memgraph::storage::CoordinateReferenceSystem;
+  auto const flat = TypedValue(memgraph::storage::Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.5, 2.5});
+  auto const solid = TypedValue(memgraph::storage::Point3d{CoordinateReferenceSystem::Cartesian_3d, 1.5, 2.5, 3.5});
+
+  // Both carry an x and a y, so both can be sent to them.
+  EXPECT_NE(message_for(flat, "longitude").find("Use x instead"), std::string::npos) << message_for(flat, "longitude");
+  EXPECT_NE(message_for(flat, "latitude").find("Use y instead"), std::string::npos) << message_for(flat, "latitude");
+  EXPECT_NE(message_for(solid, "height").find("Use z instead"), std::string::npos) << message_for(solid, "height");
+
+  // The flat one carries no z, so it is told the name means nothing to it rather than being
+  // sent to a coordinate it does not have.
+  auto const flat_height = message_for(flat, "height");
+  EXPECT_EQ(flat_height.find("Use z instead"), std::string::npos) << flat_height;
+  EXPECT_NE(flat_height.find("height"), std::string::npos) << flat_height;
+}
+
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, ReadingAFieldAgreesWithLookingItUp) {
   auto const values = std::vector<TypedValue>{
       TypedValue(memgraph::utils::Date({1996, 11, 22})),
