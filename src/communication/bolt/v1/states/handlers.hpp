@@ -61,9 +61,8 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const utils::BasicException *>(&e)) {
-    // Allow-list of retryable BasicExceptions: only genuinely transient conditions (serialization
-    // conflict, storage access timeout, RPC failure, OOM). Everything else is non-retryable, so it
-    // gets a ClientError and the driver won't retry a query that can never succeed.
+    // Allow-list of genuinely transient BasicExceptions (serialization conflict, storage access
+    // timeouts, RPC failure, OOM); anything else is non-retryable and gets a ClientError.
     const bool retryable = dynamic_cast<const query::RetryBasicException *>(&e) != nullptr ||
                            dynamic_cast<const storage::SharedAccessTimeout *>(&e) != nullptr ||
                            dynamic_cast<const storage::UniqueAccessTimeout *>(&e) != nullptr ||
