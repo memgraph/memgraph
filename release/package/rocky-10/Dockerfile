@@ -42,7 +42,6 @@ RUN export MG_RUST_VERSION="${RUST_VERSION}" MG_NODE_VERSION="${NODE_VERSION}" \
     && source /tmp/util.sh \
     && retry_install install_rust "$MG_RUST_VERSION" \
     && retry_install install_node "$MG_NODE_VERSION" \
-    && rm /tmp/util.sh \
-    && pip3 install --user PyYAML # only for amzn-2, centos-7, cento-9 and rocky-9
+    && rm /tmp/util.sh
 
 ENTRYPOINT ["sleep", "infinity"]
