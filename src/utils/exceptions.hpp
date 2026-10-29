@@ -102,6 +102,21 @@ class BasicException : public std::exception {
 };
 
 /**
+ * @brief Marker base for exceptions whose operation may succeed if retried.
+ *
+ * A retryable exception is thrown for a transient condition (serialization
+ * conflict, storage access timeout, RPC failure, out of memory) where executing
+ * the same query again may succeed. The Bolt failure classifier maps only the
+ * types deriving from this base to `TransientError`; every other
+ * @c BasicException is non-retryable and reported as `ClientError`.
+ */
+class RetryableException : public BasicException {
+ public:
+  using BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(RetryableException)
+};
+
+/**
  * @brief Base class for all exceptions which need to store the stack trace.
  *
  * When you need to store the stack trace from the place this exception is

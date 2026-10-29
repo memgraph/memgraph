@@ -27,10 +27,7 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
-#include "query/exceptions.hpp"
-#include "rpc/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -60,19 +57,11 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // semantics of that error.
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
-  if (dynamic_cast<const utils::BasicException *>(&e)) {
-    // Allow-list of genuinely transient BasicExceptions (serialization conflict, storage access
-    // timeouts, RPC failure, OOM); anything else is non-retryable and gets a ClientError.
-    const bool retryable = dynamic_cast<const query::RetryBasicException *>(&e) != nullptr ||
-                           dynamic_cast<const storage::SharedAccessTimeout *>(&e) != nullptr ||
-                           dynamic_cast<const storage::UniqueAccessTimeout *>(&e) != nullptr ||
-                           dynamic_cast<const storage::ReadOnlyAccessTimeout *>(&e) != nullptr ||
-                           dynamic_cast<const utils::OutOfMemoryException *>(&e) != nullptr ||
-                           dynamic_cast<const rpc::RpcFailedException *>(&e) != nullptr;
-    if (!retryable) {
-      return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
-    }
-
+  if (dynamic_cast<const utils::RetryableException *>(&e)) {
+    // Only exceptions that declare themselves retryable (serialization conflicts, storage access
+    // timeouts, RPC failures, out of memory) yield TransientError; the metric counts exactly those.
+    // Every other BasicException is non-retryable and gets a ClientError below.
+    //
     // If this is in the context of a database (i.e., we have database
     // `metric_handles`), then log count failure in the db metrics;
     // otherwise, count in the global metrics.
@@ -81,6 +70,10 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     else
       metrics::Metrics().global.transient_errors->Increment();
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
+  }
+  if (dynamic_cast<const utils::BasicException *>(&e)) {
+    // A BasicException that did not declare itself retryable is a permanent failure for the client.
+    return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
     {

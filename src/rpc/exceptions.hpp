@@ -22,9 +22,9 @@ namespace memgraph::rpc {
 /// `utils::BasicException` is used for transient errors that should be reported
 /// to the user and `utils::StacktraceException` is used for fatal errors.
 /// This exception always requires explicit handling.
-class RpcFailedException : public utils::BasicException {
+class RpcFailedException : public utils::RetryableException {
  public:
-  explicit RpcFailedException(std::string_view const msg) : utils::BasicException(msg) {}
+  explicit RpcFailedException(std::string_view const msg) : utils::RetryableException(msg) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
