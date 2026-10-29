@@ -72,7 +72,6 @@ std::string Serialize(const LedgerContents &contents) {
   nlohmann::json branches = nlohmann::json::array();
   for (const auto &[name, info] : contents.branches) {
     nlohmann::json b{{"name", name}, {"number", info.number}, {"parent", info.parent}, {"fork_ts", info.fork_ts}};
-    if (info.description) b["description"] = *info.description;
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
     if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
     if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
@@ -94,7 +93,6 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
       lb.info.parent = b.at("parent").get<std::string>();
       lb.info.fork_ts = b.at("fork_ts").get<uint64_t>();
       lb.info.recorded_fork_ts = lb.info.fork_ts;
-      if (auto it = b.find("description"); it != b.end()) lb.info.description = it->get<std::string>();
       if (auto it = b.find("vertex_gid_floor"); it != b.end()) lb.info.vertex_gid_floor = it->get<uint64_t>();
       if (auto it = b.find("edge_gid_floor"); it != b.end()) lb.info.edge_gid_floor = it->get<uint64_t>();
       if (auto it = b.find("created_at_us"); it != b.end()) lb.info.created_at_us = it->get<uint64_t>();

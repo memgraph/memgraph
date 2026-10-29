@@ -272,12 +272,13 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   // Must detach on destruction, or the branch's attach count leaks and the branch can never be dropped.
-  ~CurrentDB() { ClearBranchContext(); }
+  ~CurrentDB() {
+    RestoreSessionBranch();
+    ClearBranchContext();
+  }
 
-  // force_main_override: route THIS transaction at main although the session is checked out on a branch.
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
-                                bool force_main_override = false);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -294,6 +295,7 @@ struct CurrentDB {
     }
     // Must run before old_db destructs: ClearBranchContext dereferences a raw pointer into the old Database.
     if (!same_db) {
+      RestoreSessionBranch();
       ClearBranchContext();
       current_version_.reset();
     }
@@ -309,6 +311,7 @@ struct CurrentDB {
       old_db.swap(db_acc_);
     }
     // old_db still pins the Database here: a background reaper could otherwise destroy it under ClearBranchContext.
+    RestoreSessionBranch();
     ClearBranchContext();
     current_version_.reset();
     // Release the storage-side accessors FIRST, while old_db still pins the Database/Storage alive.
@@ -367,11 +370,11 @@ struct CurrentDB {
     return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
   }
 
-  // The session's active branch; std::nullopt means `main`. Last CHECKOUT wins.
+  // The session's active branch; std::nullopt means `main`. Without a branch context it names a branch that is gone
+  // (see ThrowIfBranchGone).
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
 
-  // Clearing the version releases any held branch context. A branch-to-branch CHECKOUT must clear first, then
-  // SetBranchContext, or the new context would be torn down by this call.
+  // Clearing the version releases any held branch context.
   void SetCurrentVersion(std::optional<std::string> version) {
     if (!version) {
       ClearBranchContext();
@@ -379,16 +382,34 @@ struct CurrentDB {
     current_version_ = std::move(version);
   }
 
-  // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was already released.
+  // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was already released or
+  // parked. Makes `name` the session's branch.
   void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
                         std::string name, uint64_t number) {
     branch_context_ = std::move(context);
     branch_context_version_store_ = version_store;
+    current_version_ = name;
     branch_context_name_ = std::move(name);
     branch_context_number_ = number;
+    foreign_branch_number_.store(number, std::memory_order_release);
     // Fresh per-checkout cache, never shared with main's.
     branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
   }
+
+  // A branch dropped under the session (DROP BRANCH ... FORCE, replica demotion) is never replaced by `main`: every
+  // query fails here until the session switches. The attach on the dead branch is released as soon as no transaction
+  // still uses its context.
+  void ThrowIfBranchGone();
+
+  // Parks the session's branch state so another branch (or main) can be attached; RestoreSessionBranch puts it back
+  // and releases whatever was attached meanwhile, DiscardParkedBranch drops it for good. Used by USE BRANCH (switch
+  // keeps the old branch on failure) and USING BRANCH (one transaction on another branch).
+  void ParkSessionBranch();
+  void RestoreSessionBranch();
+  void DiscardParkedBranch();
+
+  // Branch the session's transactions run on, by number; 0 for main. Readable from any thread.
+  uint64_t foreign_branch_number() const { return foreign_branch_number_.load(std::memory_order_acquire); }
 
   // Attaches this fresh nested session (mgp_execute_query) to the branch `outer` is on, with its own counted
   // checkout. Throws QueryRuntimeException (nothing held) if the checkout is refused.
@@ -428,6 +449,18 @@ struct CurrentDB {
   std::unique_ptr<query::PlanCacheLRU> branch_plan_cache_;
 
  private:
+  struct ParkedBranch {
+    std::optional<std::string> version;
+    std::unique_ptr<versioning::BranchContext> context;
+    std::unique_ptr<query::PlanCacheLRU> plan_cache;
+    versioning::VersionStore *version_store{nullptr};
+    std::string name;
+    uint64_t number{0};
+  };
+
+  std::optional<ParkedBranch> parked_branch_;
+  std::atomic<uint64_t> foreign_branch_number_{0};
+
   // Not owned; non-null only while branch_context_ is held, so ReleaseCheckout hits the VersionStore that
   // granted the attach even if db_acc_ was reassigned.
   versioning::VersionStore *branch_context_version_store_{nullptr};
@@ -889,8 +922,7 @@ class Interpreter final {
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
-                                bool force_main_override = false);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 };
 
 template <typename TStream>

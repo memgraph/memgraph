@@ -121,8 +121,8 @@ TEST_F(VersioningDumpTest, DumpOnBranchReflectsBranchDataAndMainSchema) {
       "CREATE (:Person {name: 'a', id: 1, age: 10}), (:Person {name: 'b', id: 2}), (:Person {name: 'c', id: 3})");
   faker.Interpret("MATCH (a {name: 'a'}), (b {name: 'b'}) CREATE (a)-[:KNOWS {w: 1}]->(b)");
 
-  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'feature'");
+  faker.Interpret("CREATE BRANCH 'feature'");
+  faker.Interpret("USE BRANCH 'feature'");
   faker.Interpret("MATCH (a {name: 'a'}) SET a.age = 99, a:Extra");
   faker.Interpret("MATCH (b {name: 'b'}) REMOVE b.id, b:Person SET b:Other");
   faker.Interpret("MATCH (c {name: 'c'}) DETACH DELETE c");
@@ -162,8 +162,8 @@ TEST_F(VersioningDumpTest, DumpOnBranchWithVectorIndexedVertex) {
   faker.Interpret("CREATE VECTOR INDEX vi ON :Emb(vec) WITH CONFIG {\"dimension\": 2, \"capacity\": 10}");
   faker.Interpret("CREATE (:Emb {vec: [1.0, 2.0], name: 'fork'})");
 
-  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'feature'");
+  faker.Interpret("CREATE BRANCH 'feature'");
+  faker.Interpret("USE BRANCH 'feature'");
   // Touching the fork vertex turns it into a stub.
   faker.Interpret("MATCH (e:Emb) SET e.tag = 1");
   faker.Interpret("CREATE (:Emb {vec: [3.0, 4.0], name: 'native'})");

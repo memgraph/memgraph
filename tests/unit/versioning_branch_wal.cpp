@@ -189,7 +189,7 @@ TEST_F(VersioningBranchWalTest, MixedTransactionIsOneWalTransactionWithNativeDel
     memgraph::dbms::Database db{MakeConfig()};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);
@@ -227,7 +227,7 @@ TEST_F(VersioningBranchWalTest, OverlayOnlyTransactionWritesItsOwnWalTransaction
     memgraph::dbms::Database db{MakeConfig()};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);
@@ -276,7 +276,7 @@ TEST_F(VersioningBranchWalTest, ForkEdgePropertyWriteCarriesTheEdgeBitAndEndpoin
     memgraph::dbms::Database db{MakeConfig()};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);
@@ -312,7 +312,7 @@ TEST_F(VersioningBranchWalTest, ForkVertexDeleteWritesADeletedOverlayPut) {
     memgraph::dbms::Database db{MakeConfig()};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);
@@ -337,7 +337,7 @@ TEST_F(VersioningBranchWalTest, RolledBackTransactionWritesNothing) {
     memgraph::dbms::Database db{MakeConfig()};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto const base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);

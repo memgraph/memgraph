@@ -85,10 +85,10 @@ class VersioningMgpTest : public ::testing::Test {
 
   void ExpectForkVertexNotDeletedAfterMainDeletes(bool branch_changes_vertex) {
     faker.Interpret("CREATE (:V {id: 1})");
-    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret("CREATE BRANCH 'b'");
+    faker.Interpret("USE BRANCH 'main'");
     faker.Interpret("MATCH (n:V) DELETE n");
-    faker.Interpret("CHECKOUT BRANCH 'b'");
+    faker.Interpret("USE BRANCH 'b'");
 
     faker.Interpret("BEGIN");
     if (branch_changes_vertex) faker.Interpret("MATCH (n:V) SET n.x = 2");
@@ -135,8 +135,8 @@ class VersioningMgpTest : public ::testing::Test {
 // A nested session sees and writes the caller's branch; the counted attach is released when it dies.
 TEST_F(VersioningMgpTest, NestedSessionAttachedToBranchSeesAndWritesBranch) {
   faker.Interpret("CREATE (:V {id: 1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   faker.Interpret("CREATE (:OnlyOnBranch)");
 
   auto *vs = db->version_store();
@@ -158,7 +158,7 @@ TEST_F(VersioningMgpTest, NestedSessionAttachedToBranchSeesAndWritesBranch) {
   EXPECT_EQ(vs->CheckoutCount("b"), 1U);
 
   EXPECT_EQ(CountOf(faker, "MATCH (n:FromNested) RETURN count(n)"), 1);
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(CountOf(faker, "MATCH (n:FromNested) RETURN count(n)"), 0);
   EXPECT_EQ(CountOf(faker, "MATCH (n:OnlyOnBranch) RETURN count(n)"), 0);
 }
@@ -167,8 +167,8 @@ TEST_F(VersioningMgpTest, NestedSessionAttachedToBranchSeesAndWritesBranch) {
 // interpreter loads no query modules (e2e: tests/e2e/query_modules/versioning_mgp_test.py).
 TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
   faker.Interpret("CREATE (:V {id: 1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
 
   faker.Interpret("BEGIN");
   auto &dba_opt = faker.interpreter.current_db_.execution_db_accessor_;
@@ -211,7 +211,7 @@ TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
   EXPECT_EQ(CountOf(faker, "MATCH (n:V) RETURN count(n)"), 1);
 
   // Control: on main, through an accessor with the READ_ONLY access CreateIndex requires, the same call succeeds.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   faker.Interpret("BEGIN");
   ASSERT_TRUE(faker.interpreter.current_db_.execution_db_accessor_.has_value());
   EXPECT_EQ(faker.interpreter.current_db_.execution_db_accessor_->branch_context(), nullptr);
@@ -230,8 +230,8 @@ TEST_F(VersioningMgpTest, MgpSchemaDdlRejectedOnBranch) {
 
 TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkVertex) {
   faker.Interpret("CREATE (:V {id: 1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
 
   faker.Interpret("BEGIN");
   int64_t gid = 0;
@@ -273,8 +273,8 @@ TEST_F(VersioningMgpTest, IsDeletedIgnoresMainDeletingUnchangedForkVertexAfterFo
 
 TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkEdge) {
   faker.Interpret("CREATE (:A {id: 1})-[:E]->(:B {id: 2})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
 
   faker.Interpret("BEGIN");
   int64_t gid = 0;
@@ -312,8 +312,8 @@ TEST_F(VersioningMgpTest, IsDeletedReportsBranchDeletedForkEdge) {
 TEST_F(VersioningMgpTest, ApproximateCountsOnBranchReportMainAtFork) {
   faker.Interpret("CREATE (a:V {id: 1}), (b:V {id: 2}), (c:V {id: 3})");
   faker.Interpret("MATCH (a:V {id: 1}), (b:V {id: 2}), (c:V {id: 3}) CREATE (a)-[:E]->(b), (b)-[:E]->(c)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
 
   faker.Interpret("BEGIN");
   faker.Interpret("CREATE (:OnlyOnBranch)");

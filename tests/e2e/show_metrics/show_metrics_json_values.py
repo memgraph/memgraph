@@ -281,7 +281,7 @@ EXPECTED_JSON_METRICS = {
         "VersioningBranchesCreated",
         "VersioningBranchesDropped",
         "VersioningActiveBranches",
-        "VersioningActiveCheckouts",
+        "VersioningActiveSessions",
     },
 }
 

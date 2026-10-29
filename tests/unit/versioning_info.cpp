@@ -102,8 +102,8 @@ class VersioningInfoTest : public ::testing::Test {
 
   // Touches every marker kind: native vertex/edge/labels, added label, removed label, deleted fork vertex.
   void ChangeBranch() {
-    faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-    faker.Interpret("CHECKOUT BRANCH 'b'");
+    faker.Interpret("CREATE BRANCH 'b'");
+    faker.Interpret("USE BRANCH 'b'");
     faker.Interpret("CREATE (:BranchOnly)-[:BR]->(:BranchOnly2)");
     faker.Interpret("MATCH (a:A {p: 1}) SET a:Added REMOVE a:A");
     faker.Interpret("MATCH (a:A {p: 2}) DETACH DELETE a");
@@ -170,7 +170,7 @@ TEST_F(VersioningInfoTest, IndexInfoOnBranchListsMainDefinitionsOnly) {
   // No synthetic overlay indexes (global property / extra label indexes), and no branch-only labels.
   EXPECT_EQ(IndexDefinitions(), main_definitions);
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IndexDefinitions(), main_definitions);
 }
 
@@ -193,7 +193,7 @@ TEST_F(VersioningInfoTest, ConstraintInfoMarksUniqueAsNotEnforcedOnBranch) {
   std::ranges::sort(branch_rows);
   EXPECT_EQ(branch_rows, sorted_main);
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_THAT(Column("SHOW CONSTRAINT INFO"), ::testing::UnorderedElementsAre("exists", "data_type", "unique"));
 }
 
@@ -208,7 +208,7 @@ TEST_F(VersioningInfoTest, NodeLabelsAndEdgeTypesAreMainPlusBranchWithoutMarkers
   EXPECT_THAT(Column("SHOW EDGE_TYPES INFO"), ::testing::UnorderedElementsAre("R", "BR"));
   EXPECT_EQ(Show("SHOW EDGE_TYPES INFO").size(), 2U);
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   auto const main_labels = Column("SHOW NODE_LABELS INFO");
   EXPECT_FALSE(main_labels.contains("BranchOnly"));
   EXPECT_FALSE(main_labels.contains("Added"));
@@ -227,17 +227,16 @@ TEST_F(VersioningInfoTest, StorageInfoHidesCountsOnBranch) {
   EXPECT_EQ(StorageInfoValue("edge_count"), "<null>");
   EXPECT_EQ(StorageInfoValue("average_degree"), "<null>");
   EXPECT_EQ(StorageInfoValue("branch"), "b");
-  EXPECT_THAT(
-      StorageInfoValue("branch_note"),
-      ::testing::HasSubstr("are not available on a versioning branch; CHECKOUT BRANCH 'main' for main's counts"));
+  EXPECT_THAT(StorageInfoValue("branch_note"),
+              ::testing::HasSubstr("are not available on a versioning branch; USE BRANCH main for main's counts"));
   EXPECT_NE(StorageInfoValue("graph_memory_tracked"), "<missing>");
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(StorageInfoValue("vertex_count"), "4");
   EXPECT_EQ(StorageInfoValue("branch"), "<missing>");
 
   // Instance-level SHOW STORAGE INFO carries no per-database counts and is unaffected.
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   auto const instance_rows = Show("SHOW STORAGE INFO");
   EXPECT_FALSE(instance_rows.empty());
   for (auto const &row : instance_rows) {
@@ -260,6 +259,6 @@ TEST_F(VersioningInfoTest, SchemaInfoRejectedOnBranch) {
                 ::testing::HasSubstr("SHOW SCHEMA INFO is not supported on a versioning branch"));
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_NO_THROW(Show("SHOW SCHEMA INFO"));
 }

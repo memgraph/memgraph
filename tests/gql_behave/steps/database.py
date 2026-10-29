@@ -13,7 +13,7 @@
 
 import re
 
-# CHECKOUT BRANCH is per-Bolt-connection state, but the default path opens a fresh session per
+# USE BRANCH is per-Bolt-connection state, but the default path opens a fresh session per
 # query, so under --versioned-branch one session is held open for the whole scenario instead.
 
 
@@ -25,14 +25,14 @@ def get_vbranch_session(context):
 
 
 def close_vbranch_session(context):
-    """Best-effort cleanup: checkout main, drop the branch, close the session. Safe if never opened."""
+    """Best-effort cleanup: switch to main, drop the branch, close the session. Safe if never opened."""
     session = getattr(context, "vbranch_session", None)
     if session is None:
         return
 
     if getattr(context, "vbranch_forked", False):
         try:
-            list(session.run("CHECKOUT BRANCH main"))
+            list(session.run("USE BRANCH main"))
         except Exception:
             pass
         try:
@@ -57,8 +57,8 @@ def maybe_fork_to_branch(context):
 
     session = get_vbranch_session(context)
     branch_name = context.vbranch_name
-    list(session.run(f"CREATE BRANCH {branch_name} FROM main"))
-    list(session.run(f"CHECKOUT BRANCH {branch_name}"))
+    list(session.run(f"CREATE BRANCH {branch_name}"))
+    list(session.run(f"USE BRANCH {branch_name}"))
     context.vbranch_forked = True
 
 
@@ -103,7 +103,7 @@ def query(q, context, params={}):
     context.last_executed_query = q
 
     if versioned_branch:
-        # CHECKOUT state lives on the connection; closed once in after_scenario, not per query.
+        # USE BRANCH state lives on the connection; closed once in after_scenario, not per query.
         session = get_vbranch_session(context)
         try:
             results = session.run(q, params)

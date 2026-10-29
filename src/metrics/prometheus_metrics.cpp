@@ -562,10 +562,10 @@ PrometheusMetrics::PrometheusMetrics()
                                              .Name("memgraph_versioning_active_branches")
                                              .Help("Current number of existing versioning branches")
                                              .Register(registry_)},
-      versioning_active_checkouts_family_{prometheus::BuildGauge()
-                                              .Name("memgraph_versioning_active_checkouts")
-                                              .Help("Current number of checked-out versioning branches")
-                                              .Register(registry_)},
+      versioning_active_sessions_family_{prometheus::BuildGauge()
+                                             .Name("memgraph_versioning_active_sessions")
+                                             .Help("Current number of sessions attached to versioning branches")
+                                             .Register(registry_)},
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -852,7 +852,7 @@ PrometheusMetrics::PrometheusMetrics()
   global.versioning_branches_created = &versioning_branches_created_family_.Add(no_labels);
   global.versioning_branches_dropped = &versioning_branches_dropped_family_.Add(no_labels);
   global.versioning_active_branches = &versioning_active_branches_family_.Add(no_labels);
-  global.versioning_active_checkouts = &versioning_active_checkouts_family_.Add(no_labels);
+  global.versioning_active_sessions = &versioning_active_sessions_family_.Add(no_labels);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -2144,10 +2144,10 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  "Versioning",
                  "Gauge",
                  static_cast<int64_t>(global.versioning_active_branches->Value())});
-  out.push_back({"VersioningActiveCheckouts",
+  out.push_back({"VersioningActiveSessions",
                  "Versioning",
                  "Gauge",
-                 static_cast<int64_t>(global.versioning_active_checkouts->Value())});
+                 static_cast<int64_t>(global.versioning_active_sessions->Value())});
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});

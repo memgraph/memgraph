@@ -35,7 +35,7 @@ VersionStore::VersionStore(std::function<uint64_t()> acquire_pin, std::function<
 VersionStore::~VersionStore() {
   auto &global = memgraph::metrics::Metrics().global;
   global.versioning_active_branches->Decrement(static_cast<double>(branches_.size()));
-  global.versioning_active_checkouts->Decrement(static_cast<double>(total_checkouts_));
+  global.versioning_active_sessions->Decrement(static_cast<double>(total_checkouts_));
 }
 
 void VersionStore::SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback) {
@@ -108,8 +108,7 @@ void VersionStore::ResetLedger(uint64_t next_number) {
   (void)WriteLedger(LedgerContents{.next_number = next_number, .branches = {}});
 }
 
-std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent,
-                                                                  std::optional<std::string> description) {
+std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent) {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
@@ -132,7 +131,6 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
       .parent = std::move(parent),
       .fork_ts = fork_ts,
       .recorded_fork_ts = fork_ts,
-      .description = std::move(description),
       .created_at_us = static_cast<uint64_t>(
           std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
               .count()),
@@ -158,6 +156,14 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
 }
 
 std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name, bool remove_files) {
+  return DropBranchImpl(name, remove_files, /*force=*/false);
+}
+
+std::expected<bool, std::string> VersionStore::ForceDropBranch(std::string_view name) {
+  return DropBranchImpl(name, /*remove_files=*/true, /*force=*/true);
+}
+
+std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view name, bool remove_files, bool force) {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
@@ -167,7 +173,7 @@ std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name,
     if (it == branches_.end()) {
       return false;
     }
-    if (checked_out_.contains(name)) {
+    if (!force && checked_out_.contains(it->second.number)) {
       return false;
     }
     next = SnapshotLocked();
@@ -196,7 +202,7 @@ std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name,
   PublishRetentionFloor();
   auto remaining = RetireCore(number);
   if (remove_files && !branches_root_.empty()) {
-    RemoveOrDefer(name, number, std::move(remaining));
+    RemoveOrDefer(number, std::move(remaining));
   }
   return true;
 }
@@ -220,13 +226,13 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
     return std::unexpected(std::move(written.error()));
   }
 
-  std::vector<std::pair<std::string, uint64_t>> dropped_branches;
+  std::vector<uint64_t> dropped_numbers;
   {
     std::lock_guard guard{lock_};
-    dropped_branches.reserve(branches_.size());
+    dropped_numbers.reserve(branches_.size());
     for (const auto &[branch_name, info] : branches_) {
       release_pin_(info.fork_ts);
-      dropped_branches.emplace_back(branch_name, info.number);
+      dropped_numbers.push_back(info.number);
     }
     const auto dropped = static_cast<double>(branches_.size());
     branches_.clear();
@@ -237,8 +243,8 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
   }
   PublishRetentionFloor();
   if (!branches_root_.empty()) {
-    for (auto &[branch_name, number] : dropped_branches) {
-      RemoveOrDefer(branch_name, number, RetireCore(number));
+    for (const auto number : dropped_numbers) {
+      RemoveOrDefer(number, RetireCore(number));
     }
   }
   return {};
@@ -337,21 +343,21 @@ std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::str
   if (frozen_) return std::unexpected(std::string{kFrozenMessage});
   auto it = branches_.find(name);
   if (it == branches_.end() || dropping_.contains(name)) {
-    return std::unexpected(fmt::format("Version '{}' does not exist.", name));
+    return std::unexpected(fmt::format("Branch '{}' does not exist.", name));
   }
-  ++checked_out_[std::string{name}];
+  ++checked_out_[it->second.number];
   ++total_checkouts_;
 
-  memgraph::metrics::Metrics().global.versioning_active_checkouts->Increment();
+  memgraph::metrics::Metrics().global.versioning_active_sessions->Increment();
   return it->second;
 }
 
-void VersionStore::ReleaseCheckout(std::string_view name) {
+void VersionStore::ReleaseCheckout(uint64_t number) {
   std::unique_lock guard{lock_};
-  if (auto it = checked_out_.find(name); it != checked_out_.end()) {
+  if (auto it = checked_out_.find(number); it != checked_out_.end()) {
     --total_checkouts_;
     if (--it->second == 0) checked_out_.erase(it);
-    memgraph::metrics::Metrics().global.versioning_active_checkouts->Decrement();
+    memgraph::metrics::Metrics().global.versioning_active_sessions->Decrement();
   }
   guard.unlock();
   SweepPendingRemovals();
@@ -359,7 +365,9 @@ void VersionStore::ReleaseCheckout(std::string_view name) {
 
 size_t VersionStore::CheckoutCount(std::string_view name) const {
   std::lock_guard guard{lock_};
-  auto it = checked_out_.find(name);
+  const auto branch = branches_.find(name);
+  if (branch == branches_.end()) return 0;
+  const auto it = checked_out_.find(branch->second.number);
   return it == checked_out_.end() ? 0 : it->second;
 }
 
@@ -407,13 +415,17 @@ std::weak_ptr<BranchCore> VersionStore::RetireCore(uint64_t number) {
   return remaining;
 }
 
-void VersionStore::RemoveOrDefer(std::string_view name, uint64_t number, std::weak_ptr<BranchCore> remaining) {
+void VersionStore::RemoveOrDefer(uint64_t number, std::weak_ptr<BranchCore> remaining) {
   auto directory = branches_root_ / std::to_string(number);
-  if (!remaining.expired() || CheckoutCount(name) != 0) {
+  const auto attached = [&] {
+    std::lock_guard guard{lock_};
+    return checked_out_.contains(number);
+  }();
+  if (!remaining.expired() || attached) {
     spdlog::info("Graph Versioning: branch directory {} will be removed once its engine is released.",
                  directory.string());
     std::lock_guard guard{pending_mutex_};
-    pending_removals_.push_back({std::move(remaining), std::string{name}, std::move(directory)});
+    pending_removals_.push_back({std::move(remaining), number, std::move(directory)});
   } else {
     RemoveDirectory(directory);
   }
@@ -428,11 +440,10 @@ void VersionStore::SweepPendingRemovals() {
   std::vector<std::filesystem::path> ready;
   {
     // A holder's checkout stays counted while its core is destroyed, so a removable entry has no holder mid-teardown.
-    // A re-created same-name branch with checkouts only delays removal.
     std::lock_guard guard{lock_};
     std::lock_guard pending_guard{pending_mutex_};
     for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {
-      if (it->core.expired() && !checked_out_.contains(it->name)) {
+      if (it->core.expired() && !checked_out_.contains(it->number)) {
         ready.push_back(std::move(it->directory));
         it = pending_removals_.erase(it);
       } else {

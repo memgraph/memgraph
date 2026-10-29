@@ -473,7 +473,7 @@ class VerticesChunkCollection final {
 
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
-  // Non-null iff this belongs to a checked-out branch's transaction, where `accessor_` is the branch's diff-engine
+  // Non-null iff this belongs to a branch's transaction, where `accessor_` is the branch's diff-engine
   // accessor. Non-const: BranchContext's resolve/COW methods mutate it.
   versioning::BranchContext *branch_ctx_{nullptr};
 
@@ -1040,8 +1040,7 @@ class DbAccessor final {
   explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
       : accessor_(accessor), branch_ctx_(branch_ctx) {}
 
-  // Non-null iff this accessor serves a checked-out branch's transaction (never on main or a USING VERSION 'main'
-  // query).
+  // Non-null iff this accessor serves a branch's transaction (never on main).
   versioning::BranchContext *branch_context() const { return branch_ctx_; }
 
   void EnableDeltaChainCache() { accessor_->GetTransaction()->EnableDeltaChainCache(); }

@@ -163,8 +163,8 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
 
   faker.Interpret("CREATE (a:A {name:'a'})-[:R1]->(b:B {name:'b'}), (a)-[:R2]->(c:C {name:'c'})");
   faker.Interpret("CREATE (d:D {name:'d'})-[:R4]->(e:E {name:'e'})");
-  faker.Interpret("CREATE BRANCH 'br' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'br'");
+  faker.Interpret("CREATE BRANCH 'br'");
+  faker.Interpret("USE BRANCH 'br'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "br");
 
   faker.Interpret("MATCH (b:B), (c:C) CREATE (b)-[:R3]->(c)");

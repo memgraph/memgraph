@@ -155,8 +155,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   auto hist_exp = main.HistoricalAccess(fork_ts);
   if (!hist_exp.has_value()) {
     return std::unexpected(
-        BuildError{.message = fmt::format("Cannot check out a version: fork timestamp {} is not (or no longer) pinned.",
-                                          fork_ts)});
+        BuildError{.message = fmt::format(
+                       "Cannot open the branch: its fork point (timestamp {}) is no longer retained.", fork_ts)});
   }
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
@@ -265,9 +265,10 @@ std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical() {
   EndTransaction();
   auto hist_exp = core_->main().HistoricalAccess(core_->fork_ts());
   if (!hist_exp.has_value()) {
-    return std::unexpected(BuildError{
-        .message = fmt::format("Version is no longer available: fork timestamp {} is not pinned (branch dropped).",
-                               core_->fork_ts())});
+    return std::unexpected(
+        BuildError{.message = fmt::format(
+                       "The branch is no longer available: its fork point (timestamp {}) is no longer retained.",
+                       core_->fork_ts())});
   }
   historical_ = std::move(*hist_exp);
   snapshot_pin_ = core_->PinSnapshot();

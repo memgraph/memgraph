@@ -62,11 +62,10 @@ TEST_F(VersionStoreTest, CreateGetExistsList) {
   EXPECT_EQ(store->Get("feature"), std::nullopt);
   EXPECT_TRUE(store->List().empty());
 
-  auto created = store->CreateBranch("feature", "main", "my feature branch");
+  auto created = store->CreateBranch("feature", "main");
   ASSERT_TRUE(created.has_value());
   EXPECT_EQ(created->number, 2);
   EXPECT_EQ(created->parent, "main");
-  EXPECT_EQ(created->description, "my feature branch");
 
   EXPECT_TRUE(store->Exists("feature"));
   auto fetched = store->Get("feature");
@@ -81,8 +80,8 @@ TEST_F(VersionStoreTest, CreateGetExistsList) {
 
 TEST_F(VersionStoreTest, ListIsOrderedByCreationNotName) {
   auto store = MakeStore();
-  ASSERT_TRUE(store->CreateBranch("b", "main", std::nullopt).has_value());
-  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("b", "main").has_value());
+  ASSERT_TRUE(store->CreateBranch("a", "main").has_value());
 
   auto listed = store->List();
   ASSERT_EQ(listed.size(), 2);
@@ -93,8 +92,8 @@ TEST_F(VersionStoreTest, ListIsOrderedByCreationNotName) {
 
 TEST_F(VersionStoreTest, BranchOfBranchRecordsParent) {
   auto store = MakeStore();
-  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
-  auto b = store->CreateBranch("b", "a", std::nullopt);
+  ASSERT_TRUE(store->CreateBranch("a", "main").has_value());
+  auto b = store->CreateBranch("b", "a");
   ASSERT_TRUE(b.has_value());
   EXPECT_EQ(b->parent, "a");
   EXPECT_EQ(store->Get("b")->parent, "a");
@@ -103,13 +102,13 @@ TEST_F(VersionStoreTest, BranchOfBranchRecordsParent) {
 TEST_F(VersionStoreTest, MonotonicNumberingNeverReusedAcrossDrop) {
   auto store = MakeStore();
 
-  auto a = store->CreateBranch("a", "main", std::nullopt);
+  auto a = store->CreateBranch("a", "main");
   ASSERT_TRUE(a.has_value());
   EXPECT_EQ(a->number, 2);
 
   ASSERT_TRUE(store->DropBranch("a").value_or(false));
 
-  auto b = store->CreateBranch("b", "main", std::nullopt);
+  auto b = store->CreateBranch("b", "main");
   ASSERT_TRUE(b.has_value());
   EXPECT_EQ(b->number, 3);
 }
@@ -117,8 +116,8 @@ TEST_F(VersionStoreTest, MonotonicNumberingNeverReusedAcrossDrop) {
 TEST_F(VersionStoreTest, DuplicateNameRejected) {
   auto store = MakeStore();
 
-  ASSERT_TRUE(store->CreateBranch("feature", "main", std::nullopt).has_value());
-  auto duplicate = store->CreateBranch("feature", "main", std::nullopt);
+  ASSERT_TRUE(store->CreateBranch("feature", "main").has_value());
+  auto duplicate = store->CreateBranch("feature", "main");
   EXPECT_FALSE(duplicate.has_value());
 
   EXPECT_EQ(pins_.live_.size(), 1);
@@ -127,14 +126,14 @@ TEST_F(VersionStoreTest, DuplicateNameRejected) {
 TEST_F(VersionStoreTest, UnknownParentRejected) {
   auto store = MakeStore();
 
-  auto result = store->CreateBranch("feature", "does-not-exist", std::nullopt);
+  auto result = store->CreateBranch("feature", "does-not-exist");
   EXPECT_FALSE(result.has_value());
   EXPECT_TRUE(pins_.live_.empty());
 }
 
 TEST_F(VersionStoreTest, DropUnknownBranchReturnsFalse) {
   auto store = MakeStore();
-  auto live = store->CreateBranch("live", "main", std::nullopt);
+  auto live = store->CreateBranch("live", "main");
   ASSERT_TRUE(live.has_value());
 
   EXPECT_FALSE(store->DropBranch("nope").value_or(false));
@@ -146,7 +145,7 @@ TEST_F(VersionStoreTest, DropUnknownBranchReturnsFalse) {
 TEST_F(VersionStoreTest, PinAcquiredOnCreateAndReleasedOnDrop) {
   auto store = MakeStore();
 
-  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  auto created = store->CreateBranch("feature", "main");
   ASSERT_TRUE(created.has_value());
 
   ASSERT_EQ(pins_.live_.size(), 1);
@@ -161,7 +160,7 @@ TEST_F(VersionStoreTest, PinAcquiredOnCreateAndReleasedOnDrop) {
 
 TEST_F(VersionStoreTest, CheckoutIsCountedAndBlocksDropUntilEverySessionDetached) {
   auto store = MakeStore();
-  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  auto created = store->CreateBranch("feature", "main");
   ASSERT_TRUE(created.has_value());
 
   auto first = store->TryAcquireCheckout("feature");
@@ -172,11 +171,11 @@ TEST_F(VersionStoreTest, CheckoutIsCountedAndBlocksDropUntilEverySessionDetached
 
   EXPECT_FALSE(store->DropBranch("feature").value_or(false));
 
-  store->ReleaseCheckout("feature");
+  store->ReleaseCheckout(created->number);
   EXPECT_EQ(store->CheckoutCount("feature"), 1U);
   EXPECT_FALSE(store->DropBranch("feature").value_or(false)) << "one session is still attached";
 
-  store->ReleaseCheckout("feature");
+  store->ReleaseCheckout(created->number);
   EXPECT_EQ(store->CheckoutCount("feature"), 0U);
   EXPECT_TRUE(store->DropBranch("feature").value_or(false));
   EXPECT_TRUE(pins_.live_.empty()) << "the fork pin is released exactly once, by the drop";
@@ -190,9 +189,40 @@ TEST_F(VersionStoreTest, CheckoutOfUnknownBranchIsRefused) {
 
 TEST_F(VersionStoreTest, ReleaseCheckoutWithoutAttachIsANoOp) {
   auto store = MakeStore();
-  ASSERT_TRUE(store->CreateBranch("feature", "main", std::nullopt).has_value());
-  store->ReleaseCheckout("feature");
+  auto created = store->CreateBranch("feature", "main");
+  ASSERT_TRUE(created.has_value());
+  store->ReleaseCheckout(created->number);
   EXPECT_EQ(store->CheckoutCount("feature"), 0U);
+}
+
+TEST_F(VersionStoreTest, ForceDropDropsAnAttachedBranchAndItsStaleAttachIsHarmless) {
+  auto &global = memgraph::metrics::Metrics().global;
+  const auto sessions0 = global.versioning_active_sessions->Value();
+
+  auto store = MakeStore();
+  auto old_branch = store->CreateBranch("feature", "main");
+  ASSERT_TRUE(old_branch.has_value());
+  ASSERT_TRUE(store->TryAcquireCheckout("feature").has_value());
+
+  EXPECT_FALSE(store->DropBranch("feature").value_or(false));
+  ASSERT_TRUE(store->ForceDropBranch("feature").value_or(false));
+  EXPECT_FALSE(store->Exists("feature"));
+  EXPECT_TRUE(pins_.live_.empty());
+  EXPECT_EQ(global.versioning_active_sessions->Value(), sessions0 + 1) << "the attach outlives the drop";
+
+  auto new_branch = store->CreateBranch("feature", "main");
+  ASSERT_TRUE(new_branch.has_value());
+  EXPECT_NE(new_branch->number, old_branch->number);
+  EXPECT_EQ(store->CheckoutCount("feature"), 0U) << "the stale attach belongs to the dropped branch";
+  EXPECT_TRUE(store->DropBranch("feature").value_or(false));
+
+  store->ReleaseCheckout(old_branch->number);
+  EXPECT_EQ(global.versioning_active_sessions->Value(), sessions0);
+}
+
+TEST_F(VersionStoreTest, ForceDropOfUnknownBranchReportsNotDropped) {
+  auto store = MakeStore();
+  EXPECT_FALSE(store->ForceDropBranch("nope").value_or(true));
 }
 
 namespace {
@@ -210,7 +240,7 @@ CoreResult MakeSentinelCore(std::weak_ptr<int> &observer) {
 
 TEST_F(VersionStoreTest, CoreIsBuiltOncePerBranch) {
   auto store = MakeStore();
-  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  auto created = store->CreateBranch("feature", "main");
   ASSERT_TRUE(created.has_value());
 
   int builds = 0;
@@ -230,7 +260,7 @@ TEST_F(VersionStoreTest, CoreIsBuiltOncePerBranch) {
 
 TEST_F(VersionStoreTest, FailedCoreBuildIsNotCached) {
   auto store = MakeStore();
-  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  auto created = store->CreateBranch("feature", "main");
   ASSERT_TRUE(created.has_value());
 
   auto failing = []() -> CoreResult { return std::unexpected(std::string{"boom"}); };
@@ -252,8 +282,8 @@ TEST_F(VersionStoreTest, FailedCoreBuildIsNotCached) {
 
 TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   auto store = MakeStore();
-  auto a = store->CreateBranch("a", "main", std::nullopt);
-  auto b = store->CreateBranch("b", "main", std::nullopt);
+  auto a = store->CreateBranch("a", "main");
+  auto b = store->CreateBranch("b", "main");
   ASSERT_TRUE(a.has_value());
   ASSERT_TRUE(b.has_value());
 
@@ -277,7 +307,7 @@ TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
   ASSERT_TRUE(store->DropBranch("a").value_or(false));
   EXPECT_TRUE(a_core.expired());
 
-  auto a2 = store->CreateBranch("a", "main", std::nullopt);
+  auto a2 = store->CreateBranch("a", "main");
   ASSERT_TRUE(a2.has_value());
   ASSERT_TRUE(store->GetOrBuildCore(a2->number, build_a).has_value());
   EXPECT_EQ(a_builds, 2);
@@ -285,7 +315,7 @@ TEST_F(VersionStoreTest, DropRetiresOnlyTheDroppedBranchCore) {
 
 TEST_F(VersionStoreTest, GetOrBuildCoreRefusesADroppedBranchNumber) {
   auto store = MakeStore();
-  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  auto created = store->CreateBranch("feature", "main");
   ASSERT_TRUE(created.has_value());
   EXPECT_TRUE(store->IsLive("feature", created->number));
   EXPECT_FALSE(store->IsLive("feature", created->number + 1));
@@ -306,42 +336,43 @@ TEST_F(VersionStoreTest, GetOrBuildCoreRefusesADroppedBranchNumber) {
 TEST_F(VersionStoreTest, ActiveGaugesSumAcrossStores) {
   auto &global = memgraph::metrics::Metrics().global;
   const auto branches0 = global.versioning_active_branches->Value();
-  const auto checkouts0 = global.versioning_active_checkouts->Value();
+  const auto checkouts0 = global.versioning_active_sessions->Value();
 
   auto a = MakeStore();
   auto b = MakeStore();
-  ASSERT_TRUE(a->CreateBranch("x", "main", std::nullopt));
-  ASSERT_TRUE(b->CreateBranch("y", "main", std::nullopt));
+  ASSERT_TRUE(a->CreateBranch("x", "main"));
+  ASSERT_TRUE(b->CreateBranch("y", "main"));
   EXPECT_EQ(global.versioning_active_branches->Value(), branches0 + 2);
 
-  ASSERT_TRUE(a->TryAcquireCheckout("x"));
+  auto x_attach = a->TryAcquireCheckout("x");
+  ASSERT_TRUE(x_attach);
   ASSERT_TRUE(b->TryAcquireCheckout("y"));
-  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 2);
+  EXPECT_EQ(global.versioning_active_sessions->Value(), checkouts0 + 2);
 
-  a->ReleaseCheckout("x");
-  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 1);
+  a->ReleaseCheckout(x_attach->number);
+  EXPECT_EQ(global.versioning_active_sessions->Value(), checkouts0 + 1);
   ASSERT_TRUE(a->DropBranch("x", /*remove_files=*/false).value());
   EXPECT_EQ(global.versioning_active_branches->Value(), branches0 + 1);
 
   // Destroying a store that still holds a branch and a checkout withdraws exactly its share.
   b.reset();
   EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
-  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0);
+  EXPECT_EQ(global.versioning_active_sessions->Value(), checkouts0);
 }
 
 TEST_F(VersionStoreTest, FreezeAndDropAllDropsEverythingIncludingAttachedBranches) {
   auto &global = memgraph::metrics::Metrics().global;
   const auto branches0 = global.versioning_active_branches->Value();
-  const auto checkouts0 = global.versioning_active_checkouts->Value();
+  const auto checkouts0 = global.versioning_active_sessions->Value();
 
   auto store = MakeStore();
-  auto a = store->CreateBranch("a", "main", std::nullopt);
-  auto b = store->CreateBranch("b", "a", std::nullopt);
+  auto a = store->CreateBranch("a", "main");
+  auto b = store->CreateBranch("b", "a");
   ASSERT_TRUE(a.has_value());
   ASSERT_TRUE(b.has_value());
   ASSERT_TRUE(store->TryAcquireCheckout("a").has_value());
   ASSERT_EQ(global.versioning_active_branches->Value(), branches0 + 2);
-  ASSERT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 1);
+  ASSERT_EQ(global.versioning_active_sessions->Value(), checkouts0 + 1);
 
   std::vector<std::optional<uint64_t>> floors;
   store->SetRetentionFloorCallback([&](std::optional<uint64_t> floor) { floors.push_back(floor); });
@@ -354,28 +385,28 @@ TEST_F(VersionStoreTest, FreezeAndDropAllDropsEverythingIncludingAttachedBranche
   ASSERT_FALSE(floors.empty());
   EXPECT_EQ(floors.back(), std::nullopt);
   EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
-  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0 + 1) << "the checkout gauge follows checked_out_";
+  EXPECT_EQ(global.versioning_active_sessions->Value(), checkouts0 + 1) << "the checkout gauge follows checked_out_";
 
-  store->ReleaseCheckout("a");
+  store->ReleaseCheckout(a->number);
   EXPECT_EQ(store->CheckoutCount("a"), 0U);
-  EXPECT_EQ(global.versioning_active_checkouts->Value(), checkouts0);
+  EXPECT_EQ(global.versioning_active_sessions->Value(), checkouts0);
 
   EXPECT_TRUE(store->FreezeAndDropAll().has_value()) << "idempotent";
   EXPECT_EQ(global.versioning_active_branches->Value(), branches0);
 
   store->Unfreeze();
-  auto c = store->CreateBranch("c", "main", std::nullopt);
+  auto c = store->CreateBranch("c", "main");
   ASSERT_TRUE(c.has_value());
   EXPECT_EQ(c->number, 4) << "numbers are never reused";
 }
 
 TEST_F(VersionStoreTest, FrozenStoreRefusesCreateAndCheckoutUntilUnfrozen) {
   auto store = MakeStore();
-  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("a", "main").has_value());
   ASSERT_TRUE(store->FreezeAndDropAll().has_value());
 
   constexpr auto kMessage = "Graph Versioning branches are not available on a REPLICA.";
-  auto created = store->CreateBranch("b", "main", std::nullopt);
+  auto created = store->CreateBranch("b", "main");
   ASSERT_FALSE(created.has_value());
   EXPECT_EQ(created.error(), kMessage);
   auto checkout = store->TryAcquireCheckout("a");
@@ -385,7 +416,7 @@ TEST_F(VersionStoreTest, FrozenStoreRefusesCreateAndCheckoutUntilUnfrozen) {
 
   store->Unfreeze();
   EXPECT_FALSE(store->Frozen());
-  ASSERT_TRUE(store->CreateBranch("b", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("b", "main").has_value());
   EXPECT_TRUE(store->TryAcquireCheckout("b").has_value());
 }
 
@@ -413,8 +444,8 @@ class VersionStoreLedgerTest : public VersionStoreTest {
 
 TEST_F(VersionStoreLedgerTest, FreezeAndDropAllPersistsEmptyRegistryAndRemovesDirectories) {
   auto store = MakeLedgerStore();
-  auto a = store->CreateBranch("a", "main", std::nullopt);
-  auto b = store->CreateBranch("b", "main", std::nullopt);
+  auto a = store->CreateBranch("a", "main");
+  auto b = store->CreateBranch("b", "main");
   ASSERT_TRUE(a.has_value());
   ASSERT_TRUE(b.has_value());
   const auto root = file_.parent_path();
@@ -433,7 +464,7 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllPersistsEmptyRegistryAndRemovesDi
 
 TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchSurvivesUntilLastNestedHolderReleases) {
   auto store = MakeLedgerStore();
-  auto b = store->CreateBranch("b", "main", std::nullopt);
+  auto b = store->CreateBranch("b", "main");
   ASSERT_TRUE(b.has_value());
   const auto directory = file_.parent_path() / std::to_string(b->number);
   std::filesystem::create_directories(directory);
@@ -449,17 +480,17 @@ TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchSurvivesUntilLastNestedHo
   EXPECT_TRUE(std::filesystem::exists(directory));
 
   nested.reset();
-  store->ReleaseCheckout("b");
+  store->ReleaseCheckout(b->number);
   EXPECT_TRUE(std::filesystem::exists(directory));
 
   outer->reset();
-  store->ReleaseCheckout("b");
+  store->ReleaseCheckout(b->number);
   EXPECT_FALSE(std::filesystem::exists(directory));
 }
 
 TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchIsKeptWhileACheckoutIsHeldEvenIfCoreIsGone) {
   auto store = MakeLedgerStore();
-  auto b = store->CreateBranch("b", "main", std::nullopt);
+  auto b = store->CreateBranch("b", "main");
   ASSERT_TRUE(b.has_value());
   const auto directory = file_.parent_path() / std::to_string(b->number);
   std::filesystem::create_directories(directory);
@@ -474,16 +505,16 @@ TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchIsKeptWhileACheckoutIsHel
 
   core->reset();
   EXPECT_TRUE(observer.expired());
-  store->ReleaseCheckout("b");
+  store->ReleaseCheckout(b->number);
   EXPECT_TRUE(std::filesystem::exists(directory));
 
-  store->ReleaseCheckout("b");
+  store->ReleaseCheckout(b->number);
   EXPECT_FALSE(std::filesystem::exists(directory));
 }
 
 TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureChangesNothingAndDoesNotFreeze) {
   auto store = MakeLedgerStore();
-  auto a = store->CreateBranch("a", "main", std::nullopt);
+  auto a = store->CreateBranch("a", "main");
   ASSERT_TRUE(a.has_value());
   const auto live_before = pins_.live_;
 
@@ -497,7 +528,7 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureChangesNothingAndDoe
   EXPECT_EQ(pins_.live_, live_before);
   EXPECT_TRUE(pins_.released_.empty());
   EXPECT_TRUE(store->TryAcquireCheckout("a").has_value());
-  store->ReleaseCheckout("a");
+  store->ReleaseCheckout(a->number);
 
   std::filesystem::remove(tmp);
   EXPECT_TRUE(store->FreezeAndDropAll().has_value());
@@ -506,7 +537,7 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureChangesNothingAndDoe
 
 TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureOnFrozenStoreKeepsItFrozen) {
   auto store = MakeLedgerStore();
-  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("a", "main").has_value());
   ASSERT_TRUE(store->FreezeAndDropAll().has_value());
   ASSERT_TRUE(store->Frozen());
 
@@ -516,7 +547,7 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureOnFrozenStoreKeepsIt
 
   EXPECT_FALSE(store->FreezeAndDropAll().has_value());
   EXPECT_TRUE(store->Frozen());
-  EXPECT_FALSE(store->CreateBranch("b", "main", std::nullopt).has_value());
+  EXPECT_FALSE(store->CreateBranch("b", "main").has_value());
   EXPECT_FALSE(store->TryAcquireCheckout("a").has_value());
 
   std::filesystem::remove(tmp);

@@ -609,7 +609,7 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
         } catch (const std::exception &e) {
           core = std::unexpected(std::string{e.what()});
         }
-        store.ReleaseCheckout(name);
+        store.ReleaseCheckout(attached->number);
 
         if (!core) {
           drop_unrecoverable(name, core.error(), branch_dir.string());

@@ -9842,102 +9842,57 @@ TEST_P(CypherMainVisitorTest, CreateBranch) {
   auto &ast_generator = *GetParam();
 
   {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH 'feature' FROM 'main'"));
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH 'feature'"));
     ASSERT_NE(query, nullptr);
     EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
     ASSERT_NE(query->name_, nullptr);
     EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
-    ASSERT_NE(query->parent_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
-    EXPECT_EQ(query->description_, nullptr);
   }
 
   {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH feature FROM main"));
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH feature"));
     ASSERT_NE(query, nullptr);
     EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
     ASSERT_NE(query->name_, nullptr);
     EXPECT_EQ(ResolveBareBranchName(ast_generator, query->name_), "feature");
-    ASSERT_NE(query->parent_, nullptr);
-    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->parent_), "main");
-  }
-
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(
-        ast_generator.ParseQuery("CREATE BRANCH 'feature' WITH DESCRIPTION 'a test branch' FROM 'main'"));
-    ASSERT_NE(query, nullptr);
-    EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
-    ASSERT_NE(query->name_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
-    ASSERT_NE(query->description_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->description_), "a test branch");
-    ASSERT_NE(query->parent_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
-  }
-
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH 'child' FROM 'feature'"));
-    ASSERT_NE(query, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "child");
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "feature");
   }
 }
 
-TEST_P(CypherMainVisitorTest, CheckoutBranch) {
+TEST_P(CypherMainVisitorTest, UseBranch) {
   auto &ast_generator = *GetParam();
 
   {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'feature'"));
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("USE BRANCH 'feature'"));
     ASSERT_NE(query, nullptr);
-    EXPECT_EQ(query->action_, VersioningQuery::Action::CHECKOUT_BRANCH);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::USE_BRANCH);
     ASSERT_NE(query->name_, nullptr);
     EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
-    EXPECT_FALSE(query->checkout_);
-    EXPECT_EQ(query->parent_, nullptr);
-    EXPECT_EQ(query->description_, nullptr);
   }
 
   {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'main'"));
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("USE BRANCH main"));
     ASSERT_NE(query, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "main");
-    EXPECT_FALSE(query->checkout_);
-  }
-
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'feature' FROM 'main'"));
-    ASSERT_NE(query, nullptr);
-    EXPECT_EQ(query->action_, VersioningQuery::Action::CHECKOUT_BRANCH);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
-    EXPECT_TRUE(query->checkout_);
-    ASSERT_NE(query->parent_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
-  }
-
-  {
-    auto *query = dynamic_cast<VersioningQuery *>(
-        ast_generator.ParseQuery("CHECKOUT BRANCH 'feature' WITH DESCRIPTION 'desc' FROM 'main'"));
-    ASSERT_NE(query, nullptr);
-    EXPECT_TRUE(query->checkout_);
-    ASSERT_NE(query->description_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->description_), "desc");
-    ASSERT_NE(query->parent_, nullptr);
-    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
+    EXPECT_EQ(query->action_, VersioningQuery::Action::USE_BRANCH);
+    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->name_), "main");
   }
 }
 
-TEST_P(CypherMainVisitorTest, MergeBranch) {
+TEST_P(CypherMainVisitorTest, UseBranchDoesNotShadowUseDatabase) {
   auto &ast_generator = *GetParam();
 
-  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("MERGE BRANCH 'feature'"));
+  auto *query = dynamic_cast<UseDatabaseQuery *>(ast_generator.ParseQuery("USE DATABASE branch"));
   ASSERT_NE(query, nullptr);
-  EXPECT_EQ(query->action_, VersioningQuery::Action::MERGE_BRANCH);
-  ASSERT_NE(query->name_, nullptr);
-  EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+  EXPECT_EQ(query->db_name_, "branch");
 }
 
-TEST_P(CypherMainVisitorTest, MergeBranchDoesNotShadowOrdinaryMergeClause) {
-  // `MERGE BRANCH` must not shadow the ordinary Cypher MERGE clause.
+TEST_P(CypherMainVisitorTest, BranchIsAnOrdinaryIdentifier) {
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (branch:branches) RETURN branch.branches"));
+  ASSERT_NE(query, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, MergeClauseIsNotABranchQuery) {
   auto &ast_generator = *GetParam();
 
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MERGE (n:Node {id: 1}) RETURN n"));
@@ -9950,19 +9905,53 @@ TEST_P(CypherMainVisitorTest, MergeBranchDoesNotShadowOrdinaryMergeClause) {
 TEST_P(CypherMainVisitorTest, DropBranch) {
   auto &ast_generator = *GetParam();
 
-  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH 'feature'"));
-  ASSERT_NE(query, nullptr);
-  EXPECT_EQ(query->action_, VersioningQuery::Action::DROP_BRANCH);
-  ASSERT_NE(query->name_, nullptr);
-  EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::DROP_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    EXPECT_FALSE(query->force_);
+  }
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH feature FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::DROP_BRANCH);
+    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->name_), "feature");
+    EXPECT_TRUE(query->force_);
+  }
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH 'feature' FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_TRUE(query->force_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, ShowBranch) {
   auto &ast_generator = *GetParam();
 
-  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH"));
-  ASSERT_NE(query, nullptr);
-  EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+    EXPECT_EQ(query->name_, nullptr);
+  }
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+  }
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH feature"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->name_), "feature");
+  }
 }
 
 TEST_P(CypherMainVisitorTest, ShowBranches) {
@@ -9984,40 +9973,60 @@ TEST_P(CypherMainVisitorTest, ShowBranches) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, UsingVersionDirective) {
+TEST_P(CypherMainVisitorTest, UsingBranchDirective) {
   auto &ast_generator = *GetParam();
 
   {
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING VERSION 'feature' MATCH (n) RETURN n"));
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING BRANCH 'feature' MATCH (n) RETURN n"));
     ASSERT_NE(query, nullptr);
-    ASSERT_NE(query->pre_query_directives_.version_target_, nullptr);
-    ast_generator.CheckLiteral(query->pre_query_directives_.version_target_, "feature");
+    ASSERT_NE(query->pre_query_directives_.branch_target_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.branch_target_, "feature");
     CheckRWType(query, kRead);
   }
 
   {
-    auto *query = dynamic_cast<CypherQuery *>(
-        ast_generator.ParseQuery("USING VERSION 'feature', HOPS LIMIT 5 MATCH (n) RETURN n"));
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING BRANCH feature MATCH (n) RETURN n"));
     ASSERT_NE(query, nullptr);
-    ASSERT_NE(query->pre_query_directives_.version_target_, nullptr);
-    ast_generator.CheckLiteral(query->pre_query_directives_.version_target_, "feature");
+    ASSERT_NE(query->pre_query_directives_.branch_target_, nullptr);
+    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->pre_query_directives_.branch_target_), "feature");
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING BRANCH 'feature', HOPS LIMIT 5 MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->pre_query_directives_.branch_target_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.branch_target_, "feature");
     ASSERT_NE(query->pre_query_directives_.hops_limit_, nullptr);
     ast_generator.CheckLiteral(query->pre_query_directives_.hops_limit_, 5);
   }
 
   {
-    ASSERT_THROW(ast_generator.ParseQuery("USING VERSION 'a', VERSION 'b' MATCH (n) RETURN n"), SyntaxException);
+    auto *query =
+        dynamic_cast<ExplainQuery *>(ast_generator.ParseQuery("EXPLAIN USING BRANCH 'feature' MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->cypher_query_, nullptr);
+    ASSERT_NE(query->cypher_query_->pre_query_directives_.branch_target_, nullptr);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING BRANCH 'a', BRANCH 'b' MATCH (n) RETURN n"), SyntaxException);
   }
 }
 
 TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
   auto &ast_generator = *GetParam();
 
-  TestInvalidQuery("CREATE BRANCH 'feature'", ast_generator);
-  TestInvalidQuery("CREATE BRANCH FROM 'main'", ast_generator);
-  TestInvalidQuery("MERGE BRANCH", ast_generator);
+  TestInvalidQuery("CREATE BRANCH", ast_generator);
+  TestInvalidQuery("CREATE BRANCH 'feature' FROM 'main'", ast_generator);
+  TestInvalidQuery("CREATE BRANCH 'feature' WITH DESCRIPTION 'd'", ast_generator);
+  TestInvalidQuery("CHECKOUT BRANCH 'feature'", ast_generator);
+  TestInvalidQuery("MERGE BRANCH 'feature'", ast_generator);
+  TestInvalidQuery("USE BRANCH", ast_generator);
   TestInvalidQuery("DROP BRANCH", ast_generator);
   TestInvalidQuery("SHOW BRANCHES FOR 'testdb'", ast_generator);
+  TestInvalidQuery("USING VERSION 'feature' MATCH (n) RETURN n", ast_generator);
+  TestInvalidQuery("USING BRANCH MATCH (n) RETURN n", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {

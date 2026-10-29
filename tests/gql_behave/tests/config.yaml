@@ -44,7 +44,7 @@
 # Points at the existing memgraph_V1 suite/graphs directory but restricts
 # execution to a hand-picked, branch-safe subset of its feature files:
 # read/write scenarios whose test queries contain no schema DDL, DESCRIPTION
-# queries, or parallel execution (rejected on a BRANCH checkout). Setup
+# queries, or parallel execution (rejected on a branch). Setup
 # queries run on main before the branch is forked. Grow this list as more
 # feature files are verified branch-safe.
 - name: memgraph_V1_versioned

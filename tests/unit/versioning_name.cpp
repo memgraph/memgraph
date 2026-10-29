@@ -19,13 +19,13 @@
 
 using memgraph::versioning::ValidateBranchName;
 
-// A branch name must be non-empty, not `main`, not start with `.`, and contain no `/` or `\`.
+// A branch name must be non-empty, not `main`, not start with `.`, and contain no `/`, `\` or `@`.
 
 namespace {
 constexpr std::string_view kEmptyMsg = "must not be empty";
 constexpr std::string_view kReservedMsg = "reserved branch name";
 constexpr std::string_view kDotMsg = "must not start with '.'";
-constexpr std::string_view kSeparatorMsg = "must not contain '/' or '\\'";
+constexpr std::string_view kSeparatorMsg = "must not contain '/', '\\' or '@'";
 
 struct Rejection {
   std::string_view input;
@@ -34,7 +34,7 @@ struct Rejection {
 }  // namespace
 
 TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
-  constexpr std::array<Rejection, 14> kRejections{{
+  constexpr std::array<Rejection, 17> kRejections{{
       {"", kEmptyMsg},
       {"main", kReservedMsg},
       {".hidden", kDotMsg},
@@ -48,6 +48,9 @@ TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
       {"a/b/c", kSeparatorMsg},
       {"release/1.2", kSeparatorMsg},
       {"release\\1.2", kSeparatorMsg},
+      {"@", kSeparatorMsg},
+      {"a@b", kSeparatorMsg},
+      {"shop@branch", kSeparatorMsg},
       {".a/b", kDotMsg},  // leading dot is checked before separators
   }};
   for (const auto &[input, message_part] : kRejections) {

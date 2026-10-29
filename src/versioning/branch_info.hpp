@@ -27,7 +27,6 @@ struct BranchInfo {
   // fork_ts as persisted in the ledger. Differs from fork_ts only after startup restore, where fork_ts is the pin
   // taken on the rebuilt history. Ledger writes and the retention floor use this one.
   uint64_t recorded_fork_ts;
-  std::optional<std::string> description;
   std::optional<uint64_t> vertex_gid_floor;
   std::optional<uint64_t> edge_gid_floor;
   // Wall-clock creation time, microseconds since the Unix epoch. Absent in ledgers written before it was recorded.

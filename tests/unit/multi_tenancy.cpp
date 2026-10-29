@@ -792,6 +792,20 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
       interpreter1, "rename_error_db2", "new_name2", "Successfully renamed database rename_error_db2 to new_name2"));
 }
 
+TEST_F(MultiTenantTest, DatabaseNameWithAtIsReserved) {
+  CleanupDatabases();
+  auto interpreter = this->NewInterpreter();
+
+  ASSERT_THROW(RunMtQuery(interpreter, "CREATE DATABASE `a@b`"), memgraph::query::QueryException);
+
+  RunMtQuery(interpreter, "CREATE DATABASE at_rename_db", "Successfully created database at_rename_db");
+  ASSERT_THROW(RenameDatabase(interpreter, "at_rename_db", "`x@y`"), memgraph::query::QueryException);
+
+  // Simulates a database created before the restriction (or recovered from disk).
+  ASSERT_TRUE(DBMS().New("legacy@db").has_value());
+  UseDatabase(interpreter, "`legacy@db`", "Using legacy@db");
+}
+
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
   // Clean up any existing test databases
   CleanupDatabases();

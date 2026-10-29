@@ -212,29 +212,20 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-    storage::StorageAccessType acc_type, bool force_main_override) {
+    storage::StorageAccessType acc_type) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
+  ThrowIfBranchGone();
   auto &db_acc = *db_acc_;
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
-  // Branch transactions run against the branch's shared diff engine instead of the database's storage;
-  // USING VERSION 'main' (force_main_override) opts a single transaction out of that routing.
-  const bool on_branch = current_version_.has_value() && branch_context_ != nullptr && !force_main_override;
+  // Branch transactions run against the branch's shared diff engine instead of the database's storage.
+  const bool on_branch = branch_context_ != nullptr;
   storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
 
   if (on_branch) {
-    if (!branch_context_version_store_->IsLive(branch_context_name_, branch_context_number_)) {
-      // Dropped under this session (e.g. demotion to REPLICA): release the attach and fall back to main.
-      auto name = branch_context_name_;
-      SetCurrentVersion(std::nullopt);
-      throw QueryRuntimeException(
-          "Branch '{}' no longer exists (it was dropped, or this instance became a REPLICA); the session is back on "
-          "main.",
-          name);
-    }
     if (auto opened = branch_context_->OpenHistorical(); !opened) {
       throw QueryRuntimeException(opened.error().message);
     }
@@ -268,7 +259,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
   // No trigger collection for branch writes: AFTER-commit triggers would adapt branch-native gids onto main's gid
-  // space. Keyed on `on_branch`, not current_version_, so a USING VERSION 'main' write still collects main's triggers.
+  // space.
   if (db_acc->trigger_store()->HasTriggers() && could_commit && !on_branch) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
   }
@@ -287,6 +278,8 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+  // A USING BRANCH query was the only user of the branch attached for it.
+  RestoreSessionBranch();
 }
 
 void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *version_store,
@@ -305,11 +298,10 @@ void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *versio
     if (branch_context_) {
       ClearBranchContext();
     } else {
-      version_store->ReleaseCheckout(name);
+      version_store->ReleaseCheckout(info->number);
     }
     throw;
   }
-  current_version_ = name;
 }
 
 void memgraph::query::CurrentDB::ClearBranchContext() {
@@ -319,9 +311,59 @@ void memgraph::query::CurrentDB::ClearBranchContext() {
   // Drop the context before detaching so this session no longer touches the shared core once the attach count drops.
   branch_context_.reset();
   branch_plan_cache_.reset();
-  branch_context_version_store_->ReleaseCheckout(branch_context_name_);
+  foreign_branch_number_.store(0, std::memory_order_release);
+  branch_context_version_store_->ReleaseCheckout(branch_context_number_);
   branch_context_version_store_ = nullptr;
   branch_context_name_.clear();
+  branch_context_number_ = 0;
+}
+
+void memgraph::query::CurrentDB::ThrowIfBranchGone() {
+  if (!current_version_) return;
+  if (branch_context_ && branch_context_version_store_->IsLive(branch_context_name_, branch_context_number_)) return;
+  // Open transaction: it still reads through the context, which is released once the transaction ends.
+  if (branch_context_ && !db_transactional_accessor_) {
+    ClearBranchContext();
+  }
+  throw QueryRuntimeException("Branch '{}' no longer exists. Run USE BRANCH or USE DATABASE to continue.",
+                              *current_version_);
+}
+
+void memgraph::query::CurrentDB::ParkSessionBranch() {
+  RestoreSessionBranch();
+  parked_branch_.emplace(ParkedBranch{.version = std::move(current_version_),
+                                      .context = std::move(branch_context_),
+                                      .plan_cache = std::move(branch_plan_cache_),
+                                      .version_store = std::exchange(branch_context_version_store_, nullptr),
+                                      .name = std::move(branch_context_name_),
+                                      .number = std::exchange(branch_context_number_, 0)});
+  current_version_.reset();
+  branch_context_name_.clear();
+  foreign_branch_number_.store(0, std::memory_order_release);
+}
+
+void memgraph::query::CurrentDB::RestoreSessionBranch() {
+  if (!parked_branch_) return;
+  ClearBranchContext();
+  current_version_.reset();
+  auto parked = std::move(*parked_branch_);
+  parked_branch_.reset();
+  current_version_ = std::move(parked.version);
+  branch_context_ = std::move(parked.context);
+  branch_plan_cache_ = std::move(parked.plan_cache);
+  branch_context_version_store_ = parked.version_store;
+  branch_context_name_ = std::move(parked.name);
+  branch_context_number_ = parked.number;
+  foreign_branch_number_.store(parked.number, std::memory_order_release);
+}
+
+void memgraph::query::CurrentDB::DiscardParkedBranch() {
+  if (!parked_branch_) return;
+  auto parked = std::move(*parked_branch_);
+  parked_branch_.reset();
+  parked.context.reset();
+  parked.plan_cache.reset();
+  if (parked.version_store != nullptr) parked.version_store->ReleaseCheckout(parked.number);
 }
 
 struct QueryLogWrapper {
@@ -377,6 +419,9 @@ constexpr std::string_view kBrokenDatabaseError =
     "using the RECOVER SNAPSHOT query. If you have a "
     "backup of the whole data directory, please replace the current data directory with the backup one and "
     "restart the process.";
+
+constexpr std::string_view kSchemaOnBranchError =
+    "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.";
 
 // Not MG_ENTERPRISE-gated: PrepareVersioningQuery also needs it and compiles in community builds.
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
@@ -4177,8 +4222,7 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 #endif
 
 // Plans are shaped by the accessor they were built against: branch transactions use the session's branch-local cache.
-// Keyed on current_diff_txn() (per transaction), not branch_context(), so USING VERSION 'main' queries use main's
-// cache.
+// Keyed on current_diff_txn() (per transaction), so a query without an open branch transaction uses main's cache.
 query::PlanCacheLRU *SelectPlanCache(CurrentDB &current_db, bool is_cacheable) {
   if (!is_cacheable) return nullptr;
   auto *bctx = current_db.branch_context();
@@ -7965,8 +8009,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
   auto *database = current_db.db_acc_->get();
-  // Non-null iff the session is checked out on a branch. These info queries open no transaction and cannot carry
-  // USING VERSION (Cypher-only), so the session's checkout is the only signal.
+  // Non-null iff the session is on a branch. These info queries open no transaction and cannot carry USING BRANCH
+  // (Cypher-only), so the session's branch is the only signal.
   auto const branch_core = current_db.branch_context() != nullptr ? current_db.branch_context()->core()
                                                                   : std::shared_ptr<versioning::BranchCore>{};
   switch (info_query->info_type_) {
@@ -8437,7 +8481,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       auto database = resolve_database();
 
       if (database) {
-        // The session's branch applies when the target database is the one the session is checked out on.
+        // The session's branch applies when the target database is the one the session is on.
         std::optional<std::string> branch_name;
         if (current_db.branch_context() != nullptr && current_db.db_acc_ &&
             database->get() == current_db.db_acc_->get()) {
@@ -8487,7 +8531,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             results.push_back(
                 {TypedValue("branch_note"),
                  TypedValue("vertex_count, edge_count and average_degree are not available on a versioning branch; "
-                            "CHECKOUT BRANCH 'main' for main's counts. Memory, disk and isolation figures are "
+                            "USE BRANCH main for main's counts. Memory, disk and isolation figures are "
                             "main's.")});
           }
           return std::pair{results, QueryHandlerResult::NOTHING};
@@ -8961,6 +9005,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       .rw_type = RWType::NONE};
 }
 
+void ThrowIfDatabaseNameReserved(std::string_view name) {
+  if (name.contains('@')) {
+    throw QueryException("Database name '{}' is invalid: '@' is reserved for branch addressing (database@branch).",
+                         name);
+  }
+}
+
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
@@ -8979,6 +9030,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
+      ThrowIfDatabaseNameReserved(query->db_name_);
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
@@ -9110,6 +9162,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       if (!query->new_db_name_) {
         throw QueryException("New database name is required for RENAME DATABASE query.");
       }
+      ThrowIfDatabaseNameReserved(*query->new_db_name_);
 
       return PreparedQuery{
           .header = {"STATUS"},
@@ -9262,27 +9315,16 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 }
 
 namespace {
-// `main` is the implicit version 1 and never appears in VersionStore::Get/List.
-constexpr uint64_t kMainVersionNumber{1};
-
 // Same rendering as SHOW SNAPSHOTS' creation_time; null for branches recorded before the time was kept.
 TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
   if (!info.created_at_us) return TypedValue();
   return TypedValue(utils::LocalDateTime(static_cast<int64_t>(*info.created_at_us)).ToStringWTZ());
 }
 
-// CREATE BRANCH / CHECKOUT ... FROM return row: {version, number, description, parent}.
-std::vector<TypedValue> VersioningDetailRow(std::string_view name, const versioning::BranchInfo &info) {
-  return {TypedValue(std::string(name)),
-          TypedValue(static_cast<int64_t>(info.number)),
-          info.description ? TypedValue(*info.description) : TypedValue(),
-          TypedValue(info.parent)};
-}
-
-// Attaches this session to branch `name`, building the branch's shared BranchCore on its first checkout. On failure
-// the acquired attach is released and current_db's branch state is untouched.
-void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store,
-                          memgraph::dbms::DatabaseAccess db_acc, const std::string &name) {
+// Attaches this session to branch `name`, building the branch's shared BranchCore on its first use. On failure the
+// acquired attach is released and current_db's branch state is untouched.
+void AttachBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store,
+                        memgraph::dbms::DatabaseAccess db_acc, const std::string &name) {
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
 
   auto info = version_store->TryAcquireCheckout(name);
@@ -9299,22 +9341,91 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
           return std::move(*built);
         });
   } catch (...) {
-    version_store->ReleaseCheckout(name);
+    version_store->ReleaseCheckout(info->number);
     throw;
   }
   if (!core) {
-    version_store->ReleaseCheckout(name);
+    version_store->ReleaseCheckout(info->number);
     throw QueryRuntimeException(core.error());
   }
   if (auto recorded =
           version_store->RecordGidFloors(info->number, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
       !recorded) {
-    version_store->ReleaseCheckout(name);
+    version_store->ReleaseCheckout(info->number);
     throw QueryRuntimeException(recorded.error());
   }
 
   current_db.SetBranchContext(
       std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name, info->number);
+}
+
+// Moves the session to `target` ("main" or a branch). A failure leaves it where it was.
+void SwitchSessionBranch(CurrentDB &current_db, versioning::VersionStore *version_store,
+                         memgraph::dbms::DatabaseAccess db_acc, const std::string &target) {
+  current_db.ParkSessionBranch();
+  try {
+    if (target != "main") AttachBranchEngine(current_db, version_store, std::move(db_acc), target);
+  } catch (...) {
+    current_db.RestoreSessionBranch();
+    throw;
+  }
+  current_db.DiscardParkedBranch();
+}
+
+// Runs the next transaction on `target` while the session keeps its branch; CurrentDB::CleanupDBTransaction puts the
+// session's branch back when that transaction ends.
+void EnterUsingBranch(CurrentDB &current_db, versioning::VersionStore *version_store,
+                      memgraph::dbms::DatabaseAccess db_acc, const std::string &target) {
+  if (target == "main") {
+    if (!current_db.CurrentVersion()) return;
+  } else if (current_db.branch_context() != nullptr && current_db.CurrentVersion() == target) {
+    return;
+  }
+  current_db.ParkSessionBranch();
+  try {
+    if (target != "main") AttachBranchEngine(current_db, version_store, std::move(db_acc), target);
+  } catch (...) {
+    current_db.RestoreSessionBranch();
+    throw;
+  }
+}
+
+// The replica refusal and the prerequisite gate, for every branch query; returns `db_acc`'s registry.
+versioning::VersionStore *CheckedVersionStore(InterpreterContext *interpreter_context,
+                                              memgraph::dbms::DatabaseAccess db_acc) {
+  // VersionStore is a local, unreplicated registry that would silently diverge from MAIN's on a REPLICA, so every
+  // action (including SHOW) is rejected there, ahead of the storage-mode gate.
+  EnsureMainInstance(interpreter_context, "Branch management operations");
+
+  storage::Storage *storage = db_acc->storage();
+  if (const auto gate_err =
+          versioning::CheckVersioningGate(FLAGS_versioning_enabled,
+                                          license::global_license_checker.IsEnterpriseValidFast(),
+                                          storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                          db_acc->config().experimental_commit_lock_narrowing)) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
+  }
+
+  auto *version_store = db_acc->version_store();
+  // Defensive: the gate guarantees IN_MEMORY_TRANSACTIONAL, the only mode that constructs version_store_.
+  if (version_store == nullptr) [[unlikely]] {
+    throw QueryRuntimeException("Graph versioning registry is unavailable for this database.");
+  }
+  return version_store;
+}
+
+// The branch a USING BRANCH directive names, if the query (or the Cypher query EXPLAIN/PROFILE wraps) has one.
+std::optional<std::string> UsingBranchTarget(const ParsedQuery &parsed_query) {
+  CypherQuery *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  if (auto *explain = utils::Downcast<ExplainQuery>(parsed_query.query)) cypher_query = explain->cypher_query_;
+  if (auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) cypher_query = profile->cypher_query_;
+  if (cypher_query == nullptr || cypher_query->pre_query_directives_.branch_target_ == nullptr) return std::nullopt;
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  return GetOptionalStringValue(cypher_query->pre_query_directives_.branch_target_, evaluator);
 }
 
 // A branch is durable only when main keeps a WAL (same predicate BranchCore::Build applies).
@@ -9327,22 +9438,28 @@ void NotifyIfBranchNotDurable(storage::Storage *storage, std::string_view name,
       fmt::format("Branch '{}' is not durable: the WAL is disabled, so it will be dropped when Memgraph restarts.",
                   name));
 }
+
+std::vector<std::string> BranchColumns() { return {"name", "created_at", "sessions", "current"}; }
+
+std::vector<TypedValue> BranchRow(std::string name, TypedValue created_at, size_t sessions, bool current) {
+  return {TypedValue(std::move(name)),
+          std::move(created_at),
+          TypedValue(static_cast<int64_t>(sessions)),
+          TypedValue(current)};
+}
 }  // namespace
 
-// Management-query dispatch for CREATE/CHECKOUT/DROP/SHOW BRANCH*. Opens no storage accessor (VersionStore has its
-// own locking); CHECKOUT only attaches the session to a branch, ordinary Cypher routing lives in CurrentDB.
+// Management-query dispatch for CREATE/DROP/USE/SHOW BRANCH*. Opens no storage accessor (VersionStore has its own
+// locking); USE BRANCH only attaches the session to a branch, ordinary Cypher routing lives in CurrentDB.
 PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                     CurrentDB &current_db, std::vector<Notification> *notifications) {
+                                     CurrentDB &current_db, std::vector<Notification> *notifications,
+                                     Interpreter &interpreter) {
   auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
   MG_ASSERT(query);
 
   MG_ASSERT(current_db.db_acc_, "Versioning query expects a current DB");
   auto db_acc = *current_db.db_acc_;
   storage::Storage *storage = db_acc->storage();
-
-  // VersionStore is a local, unreplicated registry that would silently diverge from MAIN's on a REPLICA, so every
-  // action (including SHOW) is rejected there, ahead of the storage-mode gate.
-  EnsureMainInstance(interpreter_context, "Branch management operations");
 
   // SHOW BRANCHES FOR DATABASE reports on another database, so its storage-mode gate is deferred to the resolved
   // target below; the process-global flag/license checks still apply immediately.
@@ -9351,23 +9468,15 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
 
   versioning::VersionStore *version_store = nullptr;
   if (!cross_tenant_show_branches) {
-    if (const auto gate_err =
-            versioning::CheckVersioningGate(FLAGS_versioning_enabled,
-                                            license::global_license_checker.IsEnterpriseValidFast(),
-                                            storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                                            db_acc->config().experimental_commit_lock_narrowing)) {
-      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
+    version_store = CheckedVersionStore(interpreter_context, db_acc);
+  } else {
+    EnsureMainInstance(interpreter_context, "Branch management operations");
+    if (!FLAGS_versioning_enabled) {
+      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kDisabled)));
     }
-
-    version_store = db_acc->version_store();
-    // Defensive: the gate guarantees IN_MEMORY_TRANSACTIONAL, the only mode that constructs version_store_.
-    if (version_store == nullptr) [[unlikely]] {
-      throw QueryRuntimeException("Graph versioning registry is unavailable for this database.");
+    if (!license::global_license_checker.IsEnterpriseValidFast()) {
+      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
     }
-  } else if (!FLAGS_versioning_enabled) {
-    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kDisabled)));
-  } else if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
   }
 
   EvaluationContext evaluation_context;
@@ -9376,94 +9485,37 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   const auto name = GetOptionalStringValue(query->name_, evaluator);
-  const auto description = GetOptionalStringValue(query->description_, evaluator);
-  const auto parent = GetOptionalStringValue(query->parent_, evaluator);
 
   switch (query->action_) {
     case VersioningQuery::Action::CREATE_BRANCH: {
-      MG_ASSERT(name && parent, "CREATE BRANCH: grammar guarantees a name and a FROM parent");
+      MG_ASSERT(name, "CREATE BRANCH: grammar guarantees a name");
       if (auto err = versioning::ValidateBranchName(*name)) {
         throw QueryRuntimeException(*err);
       }
-      if (*parent != "main") {
-        throw QueryRuntimeException(
-            "CREATE BRANCH FROM a non-main branch (nested branches) is not supported in this "
-            "version; branch only from 'main'.");
-      }
 
       return PreparedQuery{
-          .header = {"version", "number", "description", "parent"},
+          .header = {},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [version_store,
-                            storage,
-                            notifications,
-                            name = *name,
-                            parent = *parent,
-                            description,
-                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-            if (!pull_plan) {
-              auto created = version_store->CreateBranch(name, parent, description);
-              if (!created) {
-                throw QueryRuntimeException(created.error());
-              }
-              NotifyIfBranchNotDurable(storage, name, notifications);
-              std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
-              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+          .query_handler = [version_store, storage, notifications, name = *name](
+                               AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+            auto created = version_store->CreateBranch(name, "main");
+            if (!created) {
+              throw QueryRuntimeException(created.error());
             }
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
-            }
-            return std::nullopt;
+            NotifyIfBranchNotDurable(storage, name, notifications);
+            return QueryHandlerResult::COMMIT;
           },
           .rw_type = RWType::W};
     }
-    case VersioningQuery::Action::CHECKOUT_BRANCH: {
-      MG_ASSERT(name, "CHECKOUT BRANCH: grammar guarantees a name");
-
-      if (query->checkout_) {
-        MG_ASSERT(parent, "CHECKOUT BRANCH ... FROM: grammar guarantees a parent");
-        if (auto err = versioning::ValidateBranchName(*name)) {
-          throw QueryRuntimeException(*err);
-        }
-
-        return PreparedQuery{
-            .header = {"version", "number", "description", "parent"},
-            .privileges = std::move(parsed_query.required_privileges),
-            .query_handler = [version_store,
-                              &current_db,
-                              db_acc,
-                              storage,
-                              notifications,
-                              name = *name,
-                              parent = *parent,
-                              description,
-                              pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                                 AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-              if (!pull_plan) {
-                auto created = version_store->CreateBranch(name, parent, description);
-                if (!created) {
-                  throw QueryRuntimeException(created.error());
-                }
-                if (current_db.CurrentVersion()) {
-                  current_db.SetCurrentVersion(std::nullopt);
-                }
-                NotifyIfBranchNotDurable(storage, name, notifications);
-                CheckoutBranchEngine(current_db, version_store, db_acc, name);
-                current_db.SetCurrentVersion(name);
-                std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
-                pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
-              }
-              if (pull_plan->Pull(stream, n)) {
-                return QueryHandlerResult::COMMIT;
-              }
-              return std::nullopt;
-            },
-            .rw_type = RWType::W};
+    case VersioningQuery::Action::USE_BRANCH: {
+      MG_ASSERT(name, "USE BRANCH: grammar guarantees a name");
+      if (current_db.in_explicit_db_) {
+        throw QueryException("Branch switching is prohibited if the session explicitly defines the database.");
+      }
+      if (*name != "main" && !version_store->Exists(*name)) {
+        throw QueryRuntimeException("Branch '{}' does not exist.", *name);
       }
 
-      // Existence is checked in the Pull-time handler together with the switch, so a concurrent DROP cannot leave
-      // the session on a branch that no longer exists.
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
@@ -9474,21 +9526,15 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                             pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              // Validate the target before detaching, so a failed CHECKOUT leaves the session on its previous branch.
-              if (target != "main" && !version_store->Exists(target)) {
-                throw QueryRuntimeException("Version '{}' does not exist.", target);
+              const auto info = target == "main" ? std::nullopt : version_store->Get(target);
+              const bool already_there = target == "main" ? !current_db.CurrentVersion().has_value()
+                                                          : info && current_db.branch_context() != nullptr &&
+                                                                current_db.foreign_branch_number() == info->number;
+              if (!already_there) {
+                SwitchSessionBranch(current_db, version_store, db_acc, target);
               }
-
-              // If CheckoutBranchEngine fails below (target dropped meanwhile, or the core could not be built), the
-              // session lands on 'main', not on its old branch.
-              if (current_db.CurrentVersion()) {
-                current_db.SetCurrentVersion(std::nullopt);
-              }
-              if (target != "main") {
-                CheckoutBranchEngine(current_db, version_store, db_acc, target);
-                current_db.SetCurrentVersion(target);
-              }
-              std::vector<std::vector<TypedValue>> rows{{TypedValue("Switched to version '" + target + "'.")}};
+              std::vector<std::vector<TypedValue>> rows{
+                  {TypedValue(fmt::format("{} branch {}", already_there ? "Already using" : "Using", target))}};
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
             if (pull_plan->Pull(stream, n)) {
@@ -9498,82 +9544,104 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           },
           .rw_type = RWType::NONE};
     }
-    case VersioningQuery::Action::MERGE_BRANCH: {
-      MG_ASSERT(name, "MERGE BRANCH: grammar guarantees a name");
-
-      // Branches are discard-only: their writes live in an in-memory diff engine, so there is nothing to merge.
-      throw QueryRuntimeException("MERGE BRANCH is not supported: branches are discard-only.");
-    }
     case VersioningQuery::Action::DROP_BRANCH: {
       MG_ASSERT(name, "DROP BRANCH: grammar guarantees a name");
       if (!version_store->Exists(*name)) {
-        throw QueryRuntimeException("Version '{}' does not exist.", *name);
+        throw QueryRuntimeException("Branch '{}' does not exist.", *name);
       }
 
       return PreparedQuery{
           .header = {},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler =
-              [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-            if (!pull_plan) {
-              // DropBranch refuses a branch with any attached session; this session detaches itself first, but only
-              // after confirming no OTHER session is attached, so a refused DROP leaves it where it was.
-              const size_t own_attachments = current_db.CurrentVersion() == name ? 1 : 0;
-              if (version_store->CheckoutCount(name) > own_attachments) {
-                throw QueryRuntimeException(
-                    "Cannot drop '{}': it is checked out by another session. Check out 'main' there first.", name);
-              }
-              if (own_attachments != 0) {
-                current_db.SetCurrentVersion(std::nullopt);
-              }
-              auto dropped = version_store->DropBranch(name);
-              if (!dropped) {
-                throw QueryRuntimeException(dropped.error());
-              }
-              if (!*dropped) {
-                // Raced with another connection's DropBranch or checkout of `name` after the pre-checks above.
-                throw QueryRuntimeException(
-                    "Version '{}' could not be dropped (it no longer exists or is checked out by another "
-                    "session). Retry DROP BRANCH.",
-                    name);
-              }
-              pull_plan = std::make_shared<PullPlanVector>(std::vector<std::vector<TypedValue>>{});
+          .query_handler = [version_store,
+                            &current_db,
+                            interpreter_context,
+                            interpreter = &interpreter,
+                            db_name = db_acc->name(),
+                            force = query->force_,
+                            name = *name](AnyStream * /*stream*/,
+                                          std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+            const auto info = version_store->Get(name);
+            if (!info) {
+              throw QueryRuntimeException("Branch '{}' does not exist.", name);
             }
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
+            // The session on `name` moves to main first, but only after confirming no OTHER session is attached,
+            // so a refused DROP leaves it where it was.
+            const size_t own_attachments =
+                current_db.branch_context() != nullptr && current_db.foreign_branch_number() == info->number ? 1 : 0;
+            const auto in_use = [&name] {
+              return QueryRuntimeException(
+                  "Cannot drop branch '{}': it is in use by another session. Use DROP BRANCH {} FORCE.", name, name);
+            };
+            if (!force && version_store->CheckoutCount(name) > own_attachments) {
+              throw in_use();
             }
-            return std::nullopt;
+            if (own_attachments != 0) {
+              current_db.SetCurrentVersion(std::nullopt);
+            }
+            auto dropped = force ? version_store->ForceDropBranch(name) : version_store->DropBranch(name);
+            if (!dropped) {
+              throw QueryRuntimeException(dropped.error());
+            }
+            if (!*dropped) {
+              // Raced with another connection's DropBranch, or (without FORCE) with an attach after the check above.
+              if (!version_store->Exists(name)) {
+                throw QueryRuntimeException("Branch '{}' does not exist.", name);
+              }
+              throw in_use();
+            }
+            if (force) {
+              // Best effort, like DROP DATABASE ... FORCE: a session that cannot be terminated here keeps its
+              // transaction, but every query after it fails with the dead-branch error.
+              interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+                auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &target_db) {
+                  return user_or_role &&
+                         user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                    target_db,
+                                                    &query::up_to_date_policy);
+                };
+                interpreter_context->TerminateTransactions(
+                    interpreters,
+                    InterpreterContext::ShowTransactionsUsingBranch(interpreters, db_name, info->number),
+                    interpreter->user_or_role_.get(),
+                    privilege_checker);
+              });
+            }
+            return QueryHandlerResult::COMMIT;
           },
           .rw_type = RWType::W};
     }
     case VersioningQuery::Action::SHOW_BRANCH: {
       return PreparedQuery{
-          .header = {"version", "number", "description", "created_at"},
+          .header = BranchColumns(),
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [version_store, &current_db, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          .query_handler = [version_store,
+                            &current_db,
+                            interpreter_context,
+                            db_name = db_acc->name(),
+                            requested = name,
+                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                                AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              std::vector<std::vector<TypedValue>> rows;
-              if (const auto &current = current_db.CurrentVersion(); current) {
-                auto info = version_store->Get(*current);
+              const std::string branch = requested ? *requested : current_db.CurrentVersion().value_or("main");
+              std::optional<versioning::BranchInfo> info;
+              if (branch != "main") {
+                info = version_store->Get(branch);
                 if (!info) {
-                  // Dropped since CHECKOUT; reported rather than silently showing 'main'.
-                  throw QueryRuntimeException(
-                      "The checked-out version '{}' no longer exists. Use CHECKOUT BRANCH to select another "
-                      "version.",
-                      *current);
+                  throw QueryRuntimeException("Branch '{}' does not exist.", branch);
                 }
-                rows.push_back({TypedValue(*current),
-                                TypedValue(static_cast<int64_t>(info->number)),
-                                info->description ? TypedValue(*info->description) : TypedValue(),
-                                CreatedAtValue(*info)});
-              } else {
-                rows.push_back({TypedValue(std::string("main")),
-                                TypedValue(static_cast<int64_t>(kMainVersionNumber)),
-                                TypedValue(),
-                                TypedValue()});
               }
+              const auto counts = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+                return InterpreterContext::CountSessionsPerBranch(interpreters, db_name);
+              });
+              const uint64_t number = info ? info->number : 0;
+              const auto sessions = counts.find(number);
+              const bool current = branch == current_db.CurrentVersion().value_or("main");
+              std::vector<std::vector<TypedValue>> rows;
+              rows.push_back(BranchRow(branch,
+                                       info ? CreatedAtValue(*info) : TypedValue(),
+                                       sessions == counts.end() ? 0 : sessions->second,
+                                       current));
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
             if (pull_plan->Pull(stream, n)) {
@@ -9595,7 +9663,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
         }
       }
 #else
-      (void)interpreter_context;
       if (query->for_database_) {
         throw QueryRuntimeException("SHOW BRANCHES FOR DATABASE requires an enterprise multi-tenant build.");
       }
@@ -9614,21 +9681,31 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       }
 
       return PreparedQuery{
-          .header = {"number", "version", "description", "created_at"},
+          .header = BranchColumns(),
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [target_db_acc, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+          .query_handler =
+              [target_db_acc, &current_db, interpreter_context, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
+              const auto db_name = target_db_acc->name();
+              const auto counts = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+                return InterpreterContext::CountSessionsPerBranch(interpreters, db_name);
+              });
+              const auto sessions_on = [&counts](uint64_t number) -> size_t {
+                const auto it = counts.find(number);
+                return it == counts.end() ? 0 : it->second;
+              };
+              // `current` marks the caller's own branch, which lives in the caller's database only.
+              const bool same_database = current_db.db_acc_ && *current_db.db_acc_ == target_db_acc;
+              const auto &session_branch = current_db.CurrentVersion();
+
               std::vector<std::vector<TypedValue>> rows;
-              rows.push_back({TypedValue(static_cast<int64_t>(kMainVersionNumber)),
-                              TypedValue(std::string("main")),
-                              TypedValue(),
-                              TypedValue()});
+              rows.push_back(BranchRow("main", TypedValue(), sessions_on(0), same_database && !session_branch));
               for (const auto &[branch_name, info] : target_db_acc->version_store()->List()) {
-                rows.push_back({TypedValue(static_cast<int64_t>(info.number)),
-                                TypedValue(branch_name),
-                                info.description ? TypedValue(*info.description) : TypedValue(),
-                                CreatedAtValue(info)});
+                rows.push_back(BranchRow(branch_name,
+                                         CreatedAtValue(info),
+                                         sessions_on(info.number),
+                                         same_database && session_branch == branch_name));
               }
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -10143,7 +10220,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   if (current_db.branch_context() != nullptr) {
     throw QueryRuntimeException(
         "SHOW SCHEMA INFO is not supported on a versioning branch: the schema is tracked per storage engine, and "
-        "merging the branch's changes with the fork would need a full graph scan. Run CHECKOUT BRANCH 'main' "
+        "merging the branch's changes with the fork would need a full graph scan. Run USE BRANCH main "
         "first.");
   }
 
@@ -11283,35 +11360,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
   }
 
-  // Resolved before parsed_query is moved into a Prepare*Query helper that frees its AST. Only a top-level CypherQuery
-  // is read: a wrapped (EXPLAIN/PROFILE) USING VERSION is ignored and falls through to session routing.
-  std::optional<std::string> using_version;
-  if (cypher_query != nullptr && cypher_query->pre_query_directives_.version_target_ != nullptr) {
-    EvaluationContext version_eval_ctx;
-    version_eval_ctx.timestamp = QueryTimestamp();
-    version_eval_ctx.parameters = parsed_query.parameters;
-    auto version_evaluator = PrimitiveLiteralExpressionEvaluator{version_eval_ctx};
-    using_version = GetOptionalStringValue(cypher_query->pre_query_directives_.version_target_, version_evaluator);
-  }
-  const bool has_explicit_version = using_version.has_value();
-  bool force_main_this_query = false;
-  if (has_explicit_version) {
-    // SetupDatabaseTransaction runs once, at BEGIN, so a per-query override cannot re-route an open explicit
-    // transaction.
-    if (in_explicit_transaction_) {
-      throw utils::NotYetImplemented("USING VERSION inside an explicit (BEGIN) transaction is not yet supported");
-    }
-    if (*using_version == "main") {
-      // Route THIS query to main even when the session is checked out on a branch; session state is untouched.
-      force_main_this_query = true;
-    } else if (current_db_.CurrentVersion().has_value() && *using_version == *current_db_.CurrentVersion()) {
-      // Same as the session's current checkout: ordinary routing already applies.
-    } else {
-      throw utils::NotYetImplemented(
-          "USING VERSION for a branch other than 'main' or the currently checked-out branch is not yet supported");
-    }
-  }
-
   if (parallel_execution) {
 #ifdef MG_ENTERPRISE
     if (!license::global_license_checker.IsEnterpriseValidFast())
@@ -11349,6 +11397,30 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
     query_execution->query_string = parse_info.parsed_query.query_string;
+
+    // USE BRANCH and USE DATABASE are how a session leaves a branch that is gone.
+    const auto *versioning_query = utils::Downcast<VersioningQuery>(parsed_query.query);
+    if (!utils::Downcast<UseDatabaseQuery>(parsed_query.query) &&
+        !(versioning_query != nullptr && versioning_query->action_ == VersioningQuery::Action::USE_BRANCH)) {
+      current_db_.ThrowIfBranchGone();
+    }
+
+    // Resolved before parsed_query is moved into a Prepare*Query helper that frees its AST.
+    const auto using_branch = UsingBranchTarget(parsed_query);
+    versioning::VersionStore *using_branch_store = nullptr;
+    if (using_branch) {
+      // The accessor opens once, at BEGIN, so a per-query branch cannot re-route an open explicit transaction.
+      if (in_explicit_transaction_) {
+        throw QueryRuntimeException("USING BRANCH is not allowed inside an explicit transaction.");
+      }
+      if (!current_db_.db_acc_) {
+        throw QueryRuntimeException("USING BRANCH requires a database.");
+      }
+      using_branch_store = CheckedVersionStore(interpreter_context_, *current_db_.db_acc_);
+      if (*using_branch != "main" && !using_branch_store->Exists(*using_branch)) {
+        throw QueryRuntimeException("Branch '{}' does not exist.", *using_branch);
+      }
+    }
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
     // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
@@ -11481,19 +11553,20 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
 
       // schema.assert takes UNIQUE access and rewrites indexes/constraints; on a branch that would hit the diff engine.
-      if (parse_info.parsed_query.using_schema_assert && current_db_.branch_context() != nullptr) {
-        throw QueryRuntimeException(
-            "Schema-plane and storage-global operations (indexes, constraints, schema.assert, ...) are not allowed "
-            "while a versioning branch is checked out. Run CHECKOUT BRANCH 'main' first.");
+      const bool query_on_branch = using_branch ? *using_branch != "main" : current_db_.branch_context() != nullptr;
+      if (parse_info.parsed_query.using_schema_assert && query_on_branch) {
+        throw QueryRuntimeException(std::string{kSchemaOnBranchError});
       }
 
       if (transaction_requirements.access) {
         if (transaction_requirements.isolation_override) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
+        if (using_branch) {
+          EnterUsingBranch(current_db_, using_branch_store, *current_db_.db_acc_, *using_branch);
+        }
         SetupDatabaseTransaction(transaction_requirements.could_commit,
-                                 ToStorageAccessType(*transaction_requirements.access),
-                                 force_main_this_query);
+                                 ToStorageAccessType(*transaction_requirements.access));
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
@@ -11563,11 +11636,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
            // Descriptions live in main's storage; a branch write would be lost and a read would see nothing.
            utils::Downcast<DescriptionQuery>(q) != nullptr);
       if (is_schema_or_storage_global_ddl) {
-        throw QueryRuntimeException(
-            "Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP "
-            "GRAPH, STORAGE MODE, RECOVER SNAPSHOT, TRIGGER, STREAM, DESCRIPTION) are not allowed while a versioning "
-            "branch is "
-            "checked out. Run CHECKOUT BRANCH 'main' first.");
+        throw QueryRuntimeException(std::string{kSchemaOnBranchError});
       }
     }
 
@@ -11790,7 +11859,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw VersioningQueryInMulticommandTxException();
       }
       prepared_query = PrepareVersioningQuery(
-          std::move(parsed_query), interpreter_context_, current_db_, &query_execution->notifications);
+          std::move(parsed_query), interpreter_context_, current_db_, &query_execution->notifications, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();
@@ -11965,9 +12034,8 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
   }
 }
 
-void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type,
-                                           bool force_main_override) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type, force_main_override);
+void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
+  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {

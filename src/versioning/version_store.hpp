@@ -74,13 +74,16 @@ class VersionStore {
 
   // `name` must be new and `parent` must be "main" or an existing branch. On success acquires the fork pin; on
   // failure (including a ledger write failure) returns a user-facing message and changes no state (no pin held).
-  std::expected<BranchInfo, std::string> CreateBranch(std::string name, std::string parent,
-                                                      std::optional<std::string> description);
+  std::expected<BranchInfo, std::string> CreateBranch(std::string name, std::string parent);
 
   // Returns false, changing nothing, if `name` doesn't exist or has an attached session. Otherwise releases the fork
   // pin, retires the branch's core and, with `remove_files`, deletes its directory (recovery keeps the files of a
   // branch it could not restore). A ledger write failure is reported as an error (nothing is dropped).
   std::expected<bool, std::string> DropBranch(std::string_view name, bool remove_files = true);
+
+  // As DropBranch, but drops although sessions are attached. Their attaches stay valid until released (keyed by branch
+  // number, so a branch re-created under the same name is unaffected) and their cores live until they let go.
+  std::expected<bool, std::string> ForceDropBranch(std::string_view name);
 
   // Replica demotion: refuses new branches and checkouts from here on (until Unfreeze), then durably drops every
   // branch, including those with attached sessions (their ReleaseCheckout stays valid and keeps the gauges balanced).
@@ -112,12 +115,14 @@ class VersionStore {
 
   // Attaches a session to `name`; any number may attach, all sharing the branch's BranchCore. Returns the BranchInfo
   // captured atomically with the attach (no race with drop + same-name re-create). A branch with an attached session
-  // cannot be dropped. Every successful attach MUST be paired with exactly one ReleaseCheckout.
+  // cannot be dropped without ForceDropBranch. Every successful attach MUST be paired with exactly one
+  // ReleaseCheckout(info.number).
   std::expected<BranchInfo, std::string> TryAcquireCheckout(std::string_view name);
 
-  // No-op if `name` has no attached session.
-  void ReleaseCheckout(std::string_view name);
+  // Releases one attach of the branch `number`, also after that branch was dropped. No-op without an attach.
+  void ReleaseCheckout(uint64_t number);
 
+  // Attaches of the live branch `name`; 0 if there is none.
   size_t CheckoutCount(std::string_view name) const;
 
   // One live BranchCore per branch number. Held here, not in dbms::Database, so cores are destroyed with the
@@ -132,8 +137,8 @@ class VersionStore {
  private:
   mutable utils::SpinLock lock_;
   std::map<std::string, BranchInfo, std::less<>> branches_;
-  // Attached sessions per branch; entries are erased at zero.
-  std::map<std::string, size_t, std::less<>> checked_out_;
+  // Attached sessions per branch number; entries are erased at zero.
+  std::map<uint64_t, size_t> checked_out_;
   size_t total_checkouts_{0};
   uint64_t next_number_{2};
   std::function<uint64_t()> acquire_pin_;
@@ -153,6 +158,8 @@ class VersionStore {
 
   // Call with ledger_mutex_ held and lock_ NOT held. No-op if no ledger is attached.
   std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
+
+  std::expected<bool, std::string> DropBranchImpl(std::string_view name, bool remove_files, bool force);
   LedgerContents SnapshotLocked() const;
 
   // Call WITHOUT lock_ held (it takes lock_ itself).
@@ -162,10 +169,10 @@ class VersionStore {
   // Returns a weak reference that is non-expired iff another holder still keeps the core (and its directory) alive.
   std::weak_ptr<BranchCore> RetireCore(uint64_t number);
 
-  // Removes the branch directory now, or queues it until the core is gone and no session of `name` is attached.
+  // Removes the branch directory now, or queues it until the core is gone and no session of `number` is attached.
   // Call without lock_, cores_mutex_ or pending_mutex_ held; the caller holds ledger_mutex_ (reads branches_root_).
-  void RemoveOrDefer(std::string_view name, uint64_t number, std::weak_ptr<BranchCore> remaining);
-  // Removes queued directories whose core is gone and whose branch name has no attached session. Call without lock_;
+  void RemoveOrDefer(uint64_t number, std::weak_ptr<BranchCore> remaining);
+  // Removes queued directories whose core is gone and whose branch has no attached session. Call without lock_;
   // file removal runs unlocked.
   void SweepPendingRemovals();
   static void RemoveDirectory(const std::filesystem::path &directory);
@@ -181,7 +188,7 @@ class VersionStore {
 
   struct PendingRemoval {
     std::weak_ptr<BranchCore> core;
-    std::string name;
+    uint64_t number;
     std::filesystem::path directory;
   };
 

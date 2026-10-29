@@ -13,6 +13,7 @@
 
 #include <unistd.h>
 
+#include <fmt/format.h>
 #include <algorithm>
 #include <chrono>
 #include <expected>
@@ -29,6 +30,7 @@
 #include "memory/db_arena.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 #include "versioning/branch_engine.hpp"
@@ -92,11 +94,11 @@ TEST_F(BranchLedgerTest, MissingFileReadsAsNullopt) {
 TEST_F(BranchLedgerTest, RoundTrip) {
   LedgerContents in;
   in.next_number = 5;
-  in.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 10, .description = "d \"q\"\n"}});
+  in.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 10}});
   in.branches[0].info.vertex_gid_floor = 11;
   in.branches[0].info.edge_gid_floor = 13;
   in.branches[0].info.created_at_us = 1'700'000'000'123'456;
-  in.branches.push_back({"b", {.number = 4, .parent = "a", .fork_ts = 20, .description = std::nullopt}});
+  in.branches.push_back({"b", {.number = 4, .parent = "a", .fork_ts = 20}});
 
   BranchLedger ledger{file_};
   ASSERT_TRUE(ledger.Write(in).has_value());
@@ -107,20 +109,33 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   EXPECT_EQ(out.next_number, 5);
   ASSERT_EQ(out.branches.size(), 2);
   EXPECT_EQ(out.branches[0].name, "a");
-  EXPECT_EQ(out.branches[0].info.description, "d \"q\"\n");
   EXPECT_EQ(out.branches[0].info.vertex_gid_floor, 11);
   EXPECT_EQ(out.branches[0].info.edge_gid_floor, 13);
   EXPECT_EQ(out.branches[0].info.created_at_us, 1'700'000'000'123'456);
   EXPECT_EQ(out.branches[1].info.created_at_us, std::nullopt);
   EXPECT_EQ(out.branches[1].info.parent, "a");
-  EXPECT_EQ(out.branches[1].info.description, std::nullopt);
   EXPECT_EQ(out.branches[1].info.vertex_gid_floor, std::nullopt);
+}
+
+TEST_F(BranchLedgerTest, ReadsALedgerWrittenWithADescription) {
+  const std::string payload =
+      R"({"next_number":3,"branches":[{"name":"a","number":2,"parent":"main","fork_ts":10,"description":"old"}]})";
+  memgraph::utils::CrcAccumulator crc;
+  crc.Update(reinterpret_cast<const unsigned char *>(payload.data()), static_cast<uint32_t>(payload.size()));
+  fs::create_directories(file_.parent_path());
+  Spit(file_, fmt::format("MGBL 1 {} {:08x}\n{}", payload.size(), crc.Value(), payload));
+
+  auto res = BranchLedger{file_}.Read();
+  ASSERT_TRUE(res.has_value() && res->has_value());
+  ASSERT_EQ((*res)->branches.size(), 1);
+  EXPECT_EQ((*res)->branches[0].name, "a");
+  EXPECT_EQ((*res)->branches[0].info.fork_ts, 10);
 }
 
 TEST_F(BranchLedgerTest, DetectsTruncationAndCorruption) {
   LedgerContents in;
   in.next_number = 3;
-  in.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 10, .description = std::nullopt}});
+  in.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 10}});
   BranchLedger ledger{file_};
   ASSERT_TRUE(ledger.Write(in).has_value());
   const auto good = Slurp(file_);
@@ -147,7 +162,7 @@ TEST_F(BranchLedgerTest, WriteReplacesAtomicallyAndLeavesNoTempFile) {
   BranchLedger ledger{file_};
   LedgerContents v1;
   v1.next_number = 3;
-  v1.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 1, .description = std::nullopt}});
+  v1.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 1}});
   ASSERT_TRUE(ledger.Write(v1).has_value());
 
   LedgerContents v2;
@@ -171,7 +186,7 @@ TEST_F(BranchLedgerTest, FailedWriteKeepsPreviousLedger) {
   BranchLedger ledger{file_};
   LedgerContents v1;
   v1.next_number = 3;
-  v1.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 1, .description = std::nullopt}});
+  v1.branches.push_back({"a", {.number = 2, .parent = "main", .fork_ts = 1}});
   ASSERT_TRUE(ledger.Write(v1).has_value());
 
   // A directory squatting on the temp path makes the next write fail before the rename.
@@ -191,9 +206,9 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   auto store = MakeStore();
   BranchLedger reader{file_};
 
-  auto a = store->CreateBranch("a", "main", "first");
+  auto a = store->CreateBranch("a", "main");
   ASSERT_TRUE(a.has_value());
-  auto b = store->CreateBranch("b", "a", std::nullopt);
+  auto b = store->CreateBranch("b", "a");
   ASSERT_TRUE(b.has_value());
 
   auto loaded = reader.Read();
@@ -227,14 +242,14 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
 
 TEST_F(BranchLedgerTest, LedgerWriteFailureLeavesNoPinOrBranch) {
   auto store = MakeStore();
-  ASSERT_TRUE(store->CreateBranch("a", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("a", "main").has_value());
   const auto live_before = live_.size();
 
   auto tmp = file_;
   tmp += ".tmp";
   fs::create_directory(tmp);
 
-  EXPECT_FALSE(store->CreateBranch("b", "main", std::nullopt).has_value());
+  EXPECT_FALSE(store->CreateBranch("b", "main").has_value());
   EXPECT_FALSE(store->Exists("b"));
   EXPECT_EQ(live_.size(), live_before);
 
@@ -245,7 +260,7 @@ TEST_F(BranchLedgerTest, LedgerWriteFailureLeavesNoPinOrBranch) {
   EXPECT_TRUE(store->TryAcquireCheckout("a").has_value()) << "a failed drop must not leave the branch unattachable";
 
   fs::remove(tmp);
-  auto b = store->CreateBranch("b", "main", std::nullopt);
+  auto b = store->CreateBranch("b", "main");
   ASSERT_TRUE(b.has_value());
   EXPECT_EQ(b->number, 3) << "a failed create must not consume a number";
 }
@@ -333,7 +348,7 @@ TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {
       acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     b_number = info->number;
     auto ctx = CheckoutBranch(db, "b");
@@ -361,7 +376,7 @@ TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {
     memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     ASSERT_FALSE(db.version_store()->Exists("b")) << "an unreadable ledger drops every branch";
-    auto info = db.version_store()->CreateBranch("c", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("c", "main");
     ASSERT_TRUE(info.has_value());
     c_number = info->number;
     const auto numbers = BranchDirectoryNumbers();

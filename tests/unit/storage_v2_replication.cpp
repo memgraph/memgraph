@@ -2815,18 +2815,18 @@ TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
 
   auto *store = instance.db.version_store();
   ASSERT_NE(store, nullptr);
-  auto const first = store->CreateBranch("before", "main", std::nullopt);
+  auto const first = store->CreateBranch("before", "main");
   ASSERT_TRUE(first.has_value());
 
   ASSERT_TRUE(instance.repl_handler.SetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
   EXPECT_TRUE(store->List().empty());
   EXPECT_TRUE(store->Frozen());
-  EXPECT_FALSE(store->CreateBranch("while_replica", "main", std::nullopt).has_value());
+  EXPECT_FALSE(store->CreateBranch("while_replica", "main").has_value());
 
   ASSERT_TRUE(instance.repl_handler.SetReplicationRoleMain());
   EXPECT_FALSE(store->Frozen());
-  auto const second = store->CreateBranch("after", "main", std::nullopt);
+  auto const second = store->CreateBranch("after", "main");
   ASSERT_TRUE(second.has_value());
   EXPECT_GT(second->number, first->number);
 }
@@ -2838,7 +2838,7 @@ TEST_F(ReplicationTest, TryDemoteToReplicaDropsBranches) {
 
   auto *store = instance.db.version_store();
   ASSERT_NE(store, nullptr);
-  ASSERT_TRUE(store->CreateBranch("before", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("before", "main").has_value());
 
   ASSERT_TRUE(instance.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
@@ -2853,7 +2853,7 @@ TEST_F(ReplicationTest, DemoteFailingToDropBranchesStaysMain) {
 
   auto *store = instance.db.version_store();
   ASSERT_NE(store, nullptr);
-  ASSERT_TRUE(store->CreateBranch("kept", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("kept", "main").has_value());
 
   // A directory in place of the ledger's temp file makes every ledger write fail (also when running as root).
   auto const ledger_tmp = instance.db.config().durability.storage_directory / "branches" / "ledger.tmp";
@@ -2903,7 +2903,7 @@ TEST_F(ReplicationTest, ReplicaResyncDropsBranchesAndKeepsStoreFrozen) {
   ASSERT_NE(replica_store, nullptr);
   ASSERT_TRUE(replica_store->Frozen());
   replica_store->Unfreeze();
-  ASSERT_TRUE(replica_store->CreateBranch("stale", "main", std::nullopt).has_value());
+  ASSERT_TRUE(replica_store->CreateBranch("stale", "main").has_value());
 
   {
     auto *const mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(main.db.storage());
@@ -2932,7 +2932,7 @@ TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
       acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
     }
-    ASSERT_TRUE(main.db.version_store()->CreateBranch("recorded", "main", std::nullopt).has_value());
+    ASSERT_TRUE(main.db.version_store()->CreateBranch("recorded", "main").has_value());
     // Persist the REPLICA role without going through the demotion, which would drop the branch itself.
     ASSERT_TRUE(main.repl_state.Lock()->SetReplicationRoleReplica(
         ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));

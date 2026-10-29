@@ -18,13 +18,13 @@ std::optional<std::string> ValidateBranchName(std::string_view name) {
     return "Branch name must not be empty.";
   }
   if (name == "main") {
-    return "'main' is a reserved branch name and cannot be created, checked out, or dropped explicitly.";
+    return "'main' is a reserved branch name.";
   }
   if (name.front() == '.') {
     return "Branch name must not start with '.'.";
   }
-  if (name.find('/') != std::string_view::npos || name.find('\\') != std::string_view::npos) {
-    return "Branch name must not contain '/' or '\\'.";
+  if (name.find_first_of("/\\@") != std::string_view::npos) {
+    return "Branch name must not contain '/', '\\' or '@'.";
   }
   return std::nullopt;
 }

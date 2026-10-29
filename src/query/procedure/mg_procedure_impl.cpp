@@ -3333,8 +3333,7 @@ void RejectSchemaDdlOnBranch(const mgp_graph &graph) {
   auto *impl = graph.TryGetImpl();
   if (impl != nullptr && impl->branch_context() != nullptr) {
     throw ImmutableObjectException{
-        "Schema-plane operations (indexes, constraints) are not allowed while a versioning branch is checked out. "
-        "Run CHECKOUT BRANCH 'main' first."};
+        "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first."};
   }
 }
 }  // namespace
@@ -5979,10 +5978,10 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type allo
   );
   auto *version_store = db_acc->version_store();
   pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, std::move(db_acc));
-  // A nested query must see exactly what the caller sees: on a checked-out branch it runs on that same branch (same
-  // shared diff engine, own counted checkout, released when the interpreter is destroyed -- also if this throws).
-  // The caller's DbAccessor carries a branch context only when its query really runs on the branch, so a
-  // `USING VERSION 'main'` caller nests onto main.
+  // A nested query must see exactly what the caller sees: on a branch it runs on that same branch (same shared diff
+  // engine, own counted attach, released when the interpreter is destroyed -- also if this throws). The caller's
+  // DbAccessor carries a branch context only when its query really runs on the branch, so a `USING BRANCH main`
+  // caller nests onto main.
   if (auto *branch_ctx = outer_dba->branch_context(); branch_ctx != nullptr) {
     pImpl->interpreter->current_db_.AttachBranchOf(version_store, *branch_ctx);
   }

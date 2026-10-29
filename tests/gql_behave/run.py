@@ -87,7 +87,7 @@ def main():
     add_argument(
         "--versioned-branch",
         action="store_true",
-        help="run scenarios against a Graph Versioning BRANCH checkout (partly-versioned graph)",
+        help="run scenarios against a Graph Versioning branch (partly-versioned graph)",
     )
 
     # Parse arguments

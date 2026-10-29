@@ -220,7 +220,7 @@ const VertexDump *FindVertex(const std::vector<VertexDump> &dump, ms::Gid gid) {
   return it == dump.end() ? nullptr : &*it;
 }
 
-// Attaches to `name` the way CHECKOUT does: the registry's core, built on first use, with its floors recorded.
+// Attaches to `name` the way USE BRANCH does: the registry's core, built on first use, with its floors recorded.
 std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db, std::string_view name,
                                             bool *built = nullptr) {
   auto *store = db.version_store();
@@ -369,7 +369,7 @@ TEST_F(VersioningBranchRecoveryTest, RestartReproducesTheBranchAndRebuildsItsDer
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = Checkout(db, "b");
@@ -451,7 +451,7 @@ TEST_F(VersioningBranchRecoveryTest, WritesAfterARestartSurviveTheNextOne) {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = Checkout(db, "b");
@@ -508,8 +508,8 @@ TEST_F(VersioningBranchRecoveryTest, TwoBranchesRecoverIndependently) {
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto n = ResolveNames(db);
     base = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
-    ASSERT_TRUE(db.version_store()->CreateBranch("c", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("c", "main").has_value());
     auto b = Checkout(db, "b");
     auto c = Checkout(db, "c");
     ASSERT_NE(b, nullptr);
@@ -549,7 +549,7 @@ TEST_F(VersioningBranchRecoveryTest, ABranchWithoutWritesIsStillBuiltOnFirstChec
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
     auto acc = db.Access(ms::WRITE);
     auto v1 = acc->FindVertex(base.v1, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
@@ -579,10 +579,10 @@ TEST_F(VersioningBranchRecoveryTest, ACorruptBranchWalDropsThatBranchOnly) {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto b_info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto b_info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(b_info.has_value());
     b_number = b_info->number;
-    ASSERT_TRUE(db.version_store()->CreateBranch("c", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("c", "main").has_value());
     auto b = Checkout(db, "b");
     auto c = Checkout(db, "c");
     ASSERT_NE(b, nullptr);
@@ -626,7 +626,7 @@ TEST_F(VersioningBranchRecoveryTest, ConcurrentFirstCheckoutsBuildTheBranchOnce)
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     auto *store = db.version_store();
 

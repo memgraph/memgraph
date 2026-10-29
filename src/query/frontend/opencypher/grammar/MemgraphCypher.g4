@@ -45,7 +45,6 @@ memgraphCypherKeyword : cypherKeyword
                       | CALL
                       | CALLABLE
                       | CHECK
-                      | CHECKOUT
                       | CLEAR
                       | CLUSTER
                       | COMMIT
@@ -415,11 +414,11 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | versionDirective ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | branchDirective ;
 
 hopsLimit: HOPS LIMIT literal ;
 
-versionDirective : VERSION literal ;
+branchDirective : BRANCH branchName ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
@@ -855,9 +854,8 @@ resumeDatabase : RESUME DATABASE databaseName ;
 
 /* Graph Versioning (branches). */
 versioningQuery : createBranch
-                 | checkoutBranch
-                 | mergeBranch
                  | dropBranch
+                 | useBranch
                  | showBranch
                  | showBranches
                  ;
@@ -868,17 +866,13 @@ branchName : symbolicName
            | StringLiteral
            ;
 
-createBranch : CREATE BRANCH branchName ( WITH DESCRIPTION StringLiteral )? FROM branchName ;
+createBranch : CREATE BRANCH branchName ;
 
-// FROM is optional: CHECKOUT BRANCH alone switches the session to an existing branch;
-// CHECKOUT BRANCH ... FROM ... combines create-if-absent with switch.
-checkoutBranch : CHECKOUT BRANCH branchName ( ( WITH DESCRIPTION StringLiteral )? FROM branchName )? ;
+dropBranch : DROP BRANCH branchName ( FORCE )? ;
 
-mergeBranch : MERGE BRANCH branchName ;
+useBranch : USE BRANCH branchName ;
 
-dropBranch : DROP BRANCH branchName ;
-
-showBranch : SHOW BRANCH ;
+showBranch : SHOW BRANCH ( branchName )? ;
 
 showBranches : SHOW BRANCHES ( FOR DATABASE databaseName )? ;
 

@@ -596,11 +596,11 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         }
         pre_query_directives.num_threads_ = std::any_cast<Expression *>(num_threads->accept(this));
       }
-    } else if (auto *version_directive = pre_query_directive->versionDirective()) {
-      if (pre_query_directives.version_target_) {
-        throw SyntaxException("Version can be set only once in the USING statement.");
+    } else if (auto *branch_directive = pre_query_directive->branchDirective()) {
+      if (pre_query_directives.branch_target_) {
+        throw SyntaxException("Branch can be set only once in the USING statement.");
       }
-      pre_query_directives.version_target_ = std::any_cast<Expression *>(version_directive->accept(this));
+      pre_query_directives.branch_target_ = std::any_cast<Expression *>(branch_directive->branchName()->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
@@ -4913,34 +4913,6 @@ antlrcpp::Any CypherMainVisitor::visitBranchName(MemgraphCypher::BranchNameConte
 antlrcpp::Any CypherMainVisitor::visitCreateBranch(MemgraphCypher::CreateBranchContext *ctx) {
   auto *versioning_query = storage_->Create<VersioningQuery>();
   versioning_query->action_ = VersioningQuery::Action::CREATE_BRANCH;
-  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName(0)->accept(this));
-  if (ctx->DESCRIPTION()) {
-    versioning_query->description_ = MakeStringLiteralExpression(ctx->StringLiteral());
-  }
-  // The parent is an existing branch (possibly 'main'), so only the minted name is validated at execution.
-  versioning_query->parent_ = std::any_cast<Expression *>(ctx->branchName(1)->accept(this));
-  query_ = versioning_query;
-  return versioning_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitCheckoutBranch(MemgraphCypher::CheckoutBranchContext *ctx) {
-  auto *versioning_query = storage_->Create<VersioningQuery>();
-  versioning_query->action_ = VersioningQuery::Action::CHECKOUT_BRANCH;
-  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName(0)->accept(this));
-  if (ctx->FROM()) {
-    versioning_query->checkout_ = true;
-    if (ctx->DESCRIPTION()) {
-      versioning_query->description_ = MakeStringLiteralExpression(ctx->StringLiteral());
-    }
-    versioning_query->parent_ = std::any_cast<Expression *>(ctx->branchName(1)->accept(this));
-  }
-  query_ = versioning_query;
-  return versioning_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitMergeBranch(MemgraphCypher::MergeBranchContext *ctx) {
-  auto *versioning_query = storage_->Create<VersioningQuery>();
-  versioning_query->action_ = VersioningQuery::Action::MERGE_BRANCH;
   versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
   query_ = versioning_query;
   return versioning_query;
@@ -4950,13 +4922,25 @@ antlrcpp::Any CypherMainVisitor::visitDropBranch(MemgraphCypher::DropBranchConte
   auto *versioning_query = storage_->Create<VersioningQuery>();
   versioning_query->action_ = VersioningQuery::Action::DROP_BRANCH;
   versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  versioning_query->force_ = ctx->FORCE() != nullptr;
   query_ = versioning_query;
   return versioning_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowBranch(MemgraphCypher::ShowBranchContext * /*ctx*/) {
+antlrcpp::Any CypherMainVisitor::visitUseBranch(MemgraphCypher::UseBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::USE_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  query_ = versioning_query;
+  return versioning_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) {
   auto *versioning_query = storage_->Create<VersioningQuery>();
   versioning_query->action_ = VersioningQuery::Action::SHOW_BRANCH;
+  if (ctx->branchName()) {
+    versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  }
   query_ = versioning_query;
   return versioning_query;
 }

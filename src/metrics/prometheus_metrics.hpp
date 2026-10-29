@@ -110,7 +110,7 @@ struct GlobalMetricHandles {
   prometheus::Counter *versioning_branches_created;
   prometheus::Counter *versioning_branches_dropped;
   prometheus::Gauge *versioning_active_branches;
-  prometheus::Gauge *versioning_active_checkouts;
+  prometheus::Gauge *versioning_active_sessions;
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
@@ -464,7 +464,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &versioning_branches_created_family_;
   prometheus::Family<prometheus::Counter> &versioning_branches_dropped_family_;
   prometheus::Family<prometheus::Gauge> &versioning_active_branches_family_;
-  prometheus::Family<prometheus::Gauge> &versioning_active_checkouts_family_;
+  prometheus::Family<prometheus::Gauge> &versioning_active_sessions_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 

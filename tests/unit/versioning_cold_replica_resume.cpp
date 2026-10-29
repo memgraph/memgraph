@@ -85,7 +85,7 @@ class ColdReplicaResume : public ::testing::Test {
   void CreateTenantWithBranch(const std::string &name) {
     ASSERT_TRUE(dbms_->New(name).has_value());
     auto db_acc = dbms_->Get(name);
-    ASSERT_TRUE(db_acc->version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db_acc->version_store()->CreateBranch("b", "main").has_value());
   }
 
   static constexpr auto kWait = std::chrono::seconds(30);
@@ -190,8 +190,7 @@ TEST_F(ColdReplicaResume, PromotionDuringResume) {
   ASSERT_TRUE(resumed.has_value());
   auto *store = (*resumed)->version_store();
   ASSERT_NE(store, nullptr);
-  EXPECT_TRUE(store->CreateBranch("x", "main", std::nullopt).has_value())
-      << "resumed store left frozen after promotion";
+  EXPECT_TRUE(store->CreateBranch("x", "main").has_value()) << "resumed store left frozen after promotion";
 }
 
 #else

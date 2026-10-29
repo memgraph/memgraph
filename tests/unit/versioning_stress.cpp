@@ -507,16 +507,16 @@ void MainWriter(InterpreterFaker &s, int w, int ops, Clock::time_point deadline,
   }
 }
 
-// CREATE BRANCH tmp; CHECKOUT; write; CHECKOUT main; DROP BRANCH tmp. This session is the only one attached to tmp, so
-// every step must succeed.
+// CREATE BRANCH tmp; USE BRANCH tmp; write; USE BRANCH main; DROP BRANCH tmp. This session is the only one attached to
+// tmp, so every step must succeed.
 void Lifecycle(InterpreterFaker &s, int iters, Clock::time_point deadline, FailureLog &log, Counters &c) {
   std::mt19937_64 rng{kSeed + 400};
   const std::string who = "lifecycle";
   auto step = [&](const std::string &q) { return Exec(s, q, log, c, who) == Outcome::kOk; };
   for (int i = 0; i < iters && Clock::now() < deadline; ++i) {
     const std::string name = "tmp" + std::to_string(i);
-    if (!step("CREATE BRANCH '" + name + "' FROM 'main'")) return;
-    if (!step("CHECKOUT BRANCH '" + name + "'")) return;
+    if (!step("CREATE BRANCH '" + name + "'")) return;
+    if (!step("USE BRANCH '" + name + "'")) return;
     const int writes = 2 + static_cast<int>(rng() % 6);
     for (int j = 0; j < writes; ++j) {
       const auto x = static_cast<int64_t>(rng() % kSeedVertices);
@@ -539,7 +539,7 @@ void Lifecycle(InterpreterFaker &s, int iters, Clock::time_point deadline, Failu
         (rows.size() != 1 || rows[0][0].ValueInt() != 0)) {
       log.Add(who + ": branch b's native vertices leaked into tmp");
     }
-    if (!step("CHECKOUT BRANCH 'main'")) return;
+    if (!step("USE BRANCH 'main'")) return;
     if (!step("DROP BRANCH '" + name + "'")) return;
   }
 }
@@ -562,7 +562,7 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   ASSERT_NO_THROW(setup.Interpret("CREATE EDGE INDEX ON :R(w)")) << "edge-property index must be supported";
   ASSERT_EQ(Scalar(setup, "MATCH (n:P) RETURN count(*)"), kSeedVertices);
   ASSERT_EQ(Scalar(setup, "MATCH ()-[r:R]->() RETURN count(r)"), kSeedEdges);
-  setup.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  setup.Interpret("CREATE BRANCH 'b'");
 
   constexpr int kBranchWriters = 4;
   constexpr int kBranchReaders = 2;
@@ -570,16 +570,16 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   std::vector<InterpreterFaker *> bw, br, mw;
   for (int i = 0; i < kBranchWriters; ++i) {
     bw.push_back(&NewSession());
-    bw.back()->Interpret("CHECKOUT BRANCH 'b'");
+    bw.back()->Interpret("USE BRANCH 'b'");
   }
   for (int i = 0; i < kBranchReaders; ++i) {
     br.push_back(&NewSession());
-    br.back()->Interpret("CHECKOUT BRANCH 'b'");
+    br.back()->Interpret("USE BRANCH 'b'");
   }
   for (int i = 0; i < kMainWriters; ++i) mw.push_back(&NewSession());
   auto &life = NewSession();
   auto &prep = NewSession();
-  prep.Interpret("CHECKOUT BRANCH 'b'");
+  prep.Interpret("USE BRANCH 'b'");
 
   FailureLog log;
   CommittedBranchState committed;
@@ -681,7 +681,7 @@ TEST_F(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   }
 
   auto &chk = NewSession();
-  chk.Interpret("CHECKOUT BRANCH 'b'");
+  chk.Interpret("USE BRANCH 'b'");
   ASSERT_EQ(chk.interpreter.current_db_.CurrentVersion(), "b");
 
   const int64_t deleted = static_cast<int64_t>(committed.deleted.size());
@@ -800,12 +800,12 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
   setup.Interpret("CREATE INDEX ON :K");
   setup.Interpret("CREATE INDEX ON :K(id)");
   setup.Interpret("UNWIND range(0," + std::to_string(kHot - 1) + ") AS i CREATE (:K {id:i, v:0, w:0})");
-  setup.Interpret("CREATE BRANCH 'hot' FROM 'main'");
+  setup.Interpret("CREATE BRANCH 'hot'");
 
   std::vector<InterpreterFaker *> ss;
   for (int i = 0; i < kSessions; ++i) {
     ss.push_back(&NewSession());
-    ss.back()->Interpret("CHECKOUT BRANCH 'hot'");
+    ss.back()->Interpret("USE BRANCH 'hot'");
   }
 
   FailureLog log;
@@ -895,7 +895,7 @@ TEST_F(VersioningStressTest, EightSessionsHammerTheSameFiftyForkVertices) {
   // committed by some session (never a rolled-back write) and that the two properties written by one statement are
   // equal.
   auto &chk = NewSession();
-  chk.Interpret("CHECKOUT BRANCH 'hot'");
+  chk.Interpret("USE BRANCH 'hot'");
   auto stream = chk.Interpret("MATCH (n:K) RETURN n.id, n.v, n.w ORDER BY n.id");
   ASSERT_EQ(stream.GetResults().size(), static_cast<size_t>(kHot)) << "fork vertices lost/duplicated on the branch";
   int64_t expected_id = 0;

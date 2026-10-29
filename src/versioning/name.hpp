@@ -18,7 +18,7 @@
 namespace memgraph::versioning {
 
 // Returns a user-facing error if `name` is empty, exactly "main" (case-sensitive), starts with '.',
-// or contains '/' or '\\'; std::nullopt when valid. No length limit or charset whitelist.
+// or contains '/', '\\' or '@'; std::nullopt when valid. No length limit or charset whitelist.
 std::optional<std::string> ValidateBranchName(std::string_view name);
 
 }  // namespace memgraph::versioning

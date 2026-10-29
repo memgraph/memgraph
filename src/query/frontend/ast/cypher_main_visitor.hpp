@@ -1375,19 +1375,14 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreateBranch(MemgraphCypher::CreateBranchContext *ctx) override;
 
   /**
-   * @return VersioningQuery* (action=CHECKOUT_BRANCH)
-   */
-  antlrcpp::Any visitCheckoutBranch(MemgraphCypher::CheckoutBranchContext *ctx) override;
-
-  /**
-   * @return VersioningQuery* (action=MERGE_BRANCH)
-   */
-  antlrcpp::Any visitMergeBranch(MemgraphCypher::MergeBranchContext *ctx) override;
-
-  /**
    * @return VersioningQuery* (action=DROP_BRANCH)
    */
   antlrcpp::Any visitDropBranch(MemgraphCypher::DropBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=USE_BRANCH)
+   */
+  antlrcpp::Any visitUseBranch(MemgraphCypher::UseBranchContext *ctx) override;
 
   /**
    * @return VersioningQuery* (action=SHOW_BRANCH)

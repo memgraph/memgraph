@@ -174,8 +174,8 @@ class VersioningFixture : public ::testing::Test {
   }
 
   static void Fork(InterpreterFaker &session, const std::string &name = "b") {
-    session.Interpret("CREATE BRANCH '" + name + "' FROM 'main'");
-    session.Interpret("CHECKOUT BRANCH '" + name + "'");
+    session.Interpret("CREATE BRANCH '" + name + "'");
+    session.Interpret("USE BRANCH '" + name + "'");
     ASSERT_EQ(session.interpreter.current_db_.CurrentVersion(), name);
     ASSERT_NE(session.interpreter.current_db_.branch_context(), nullptr);
   }
@@ -210,14 +210,12 @@ bool HasBranchNotDurableNotification(const ResultStreamFaker &stream) {
   return false;
 }
 
-TEST_F(VersioningNoWalTest, CreateAndCheckoutFromNotifyBranchNotDurable) {
-  EXPECT_TRUE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a' FROM 'main'")));
-  EXPECT_TRUE(HasBranchNotDurableNotification(faker.Interpret("CHECKOUT BRANCH 'b' FROM 'main'")));
+TEST_F(VersioningNoWalTest, CreateNotifiesBranchNotDurable) {
+  EXPECT_TRUE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a'")));
 }
 
 TEST_F(VersioningGatedTest, DurableBranchHasNoNotDurableNotification) {
-  EXPECT_FALSE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a' FROM 'main'")));
-  EXPECT_FALSE(HasBranchNotDurableNotification(faker.Interpret("CHECKOUT BRANCH 'b' FROM 'main'")));
+  EXPECT_FALSE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a'")));
 }
 
 // One satisfied precondition (feature flag or license) is not sufficient on its own.
@@ -237,7 +235,7 @@ TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {
     FLAGS_versioning_enabled = c.enable_flag;
     if (c.enable_license) memgraph::license::global_license_checker.EnableTesting();
     try {
-      faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
+      faker.Interpret("CREATE BRANCH 'feature'");
       ADD_FAILURE() << "expected QueryRuntimeException: " << c.label;
     } catch (const memgraph::query::QueryRuntimeException &e) {
       EXPECT_EQ(std::string{e.what()}, std::string{memgraph::versioning::GateErrorMessage(c.expected)}) << c.label;
@@ -258,7 +256,7 @@ TEST_F(VersioningGatedTest, BranchCreationRefusedWithCommitLockNarrowing) {
   ASSERT_TRUE(narrowing_acc);
   InterpreterFaker narrowing_faker{&interpreter_context, *narrowing_acc};
 
-  for (const auto *q : {"CREATE BRANCH 'a' FROM 'main'", "CHECKOUT BRANCH 'a' FROM 'main'"}) {
+  for (const auto *q : {"CREATE BRANCH 'a'", "USE BRANCH 'a'"}) {
     try {
       narrowing_faker.Interpret(q);
       ADD_FAILURE() << "expected QueryRuntimeException: " << q;
@@ -274,14 +272,14 @@ TEST_F(VersioningGatedTest, BranchCreationRefusedWithCommitLockNarrowing) {
 // A replica must not mutate its local VersionStore: EnsureMainInstance rejects management queries. Uses the real
 // SetReplicationRoleReplica so IsReplica() is genuine.
 TEST_F(VersioningGatedTest, ManagementQueryRejectedOnReplica) {
-  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'feature'");
   ASSERT_TRUE(repl_state.Lock()->SetReplicationRoleReplica(
       memgraph::replication::ReplicationServerConfig{.repl_server =
                                                          memgraph::io::network::Endpoint("127.0.0.1", 30246)},
       /*maybe_main_uuid=*/std::nullopt));
   ASSERT_TRUE(repl_state.ReadLock()->IsReplica());
 
-  for (const auto *q : {"CREATE BRANCH 'other' FROM 'main'", "CHECKOUT BRANCH 'feature'", "DROP BRANCH 'feature'"}) {
+  for (const auto *q : {"CREATE BRANCH 'other'", "USE BRANCH 'feature'", "DROP BRANCH 'feature'"}) {
     try {
       faker.Interpret(q);
       FAIL() << "expected the replica guard to reject: " << q;
@@ -294,75 +292,95 @@ TEST_F(VersioningGatedTest, ManagementQueryRejectedOnReplica) {
 
 TEST_F(VersioningGatedTest, ManagementQueryRejectedInExplicitTransaction) {
   faker.Interpret("BEGIN");
-  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'feature' FROM 'main'"), memgraph::query::MulticommandTxException);
+  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'feature'"), memgraph::query::MulticommandTxException);
   faker.Interpret("ROLLBACK");
 }
 
 TEST_F(VersioningGatedTest, InvalidBranchNameRejected) {
   // 'main' is reserved (versioning::ValidateBranchName).
-  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'main' FROM 'main'"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("CREATE BRANCH '.hidden' FROM 'main'"), memgraph::query::QueryRuntimeException);
-  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'a/b' FROM 'main'"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'main'"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("CREATE BRANCH '.hidden'"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'a/b'"), memgraph::query::QueryRuntimeException);
 }
 
-TEST_F(VersioningGatedTest, CreateShowCheckoutDropHappyPath) {
-  // A connection that never checked out a branch writes main exactly as if versioning did not exist.
+TEST_F(VersioningGatedTest, CreateShowUseDropHappyPath) {
+  // A connection that never switched branches writes main exactly as if versioning did not exist.
   faker.Interpret("CREATE (:A {v:1})");
   faker.Interpret("MATCH (n:A) SET n.v = 2");
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.v"), (Rows{{2}}));
 
   {
-    auto stream = faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
-    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "parent"}));
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
-    EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
-    EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
-    EXPECT_EQ(stream.GetResults()[0][3].ValueString(), "main");
+    auto stream = faker.Interpret("CREATE BRANCH 'feature'");
+    EXPECT_TRUE(stream.GetHeader().empty());
+    EXPECT_TRUE(stream.GetResults().empty());
   }
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value()) << "CREATE BRANCH does not switch";
 
   faker.Interpret("CREATE (:B)");
   EXPECT_EQ(IntRows(faker, "MATCH (n:B) RETURN count(n)"), (Rows{{1}}))
       << "CREATE BRANCH alone must not engage the write-routing rail";
 
-  {
-    ASSERT_THROW(faker.Interpret("CREATE BRANCH 'feature' FROM 'main'"), memgraph::query::QueryRuntimeException);
-  }
+  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'feature'"), memgraph::query::QueryRuntimeException);
 
+  const auto branch_columns = std::vector<std::string>{"name", "created_at", "sessions", "current"};
   {
     auto stream = faker.Interpret("SHOW BRANCHES");
-    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"number", "version", "description", "created_at"}));
+    ASSERT_EQ(stream.GetHeader(), branch_columns);
     ASSERT_EQ(stream.GetResults().size(), 2U);
-    EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "main");
-    EXPECT_EQ(stream.GetResults()[0][3].type(), memgraph::communication::bolt::Value::Type::Null);
-    EXPECT_EQ(stream.GetResults()[1][1].ValueString(), "feature");
-    EXPECT_EQ(stream.GetResults()[1][3].type(), memgraph::communication::bolt::Value::Type::String);
-    EXPECT_FALSE(stream.GetResults()[1][3].ValueString().empty());
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
+    EXPECT_EQ(stream.GetResults()[0][1].type(), memgraph::communication::bolt::Value::Type::Null);
+    EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 1);
+    EXPECT_TRUE(stream.GetResults()[0][3].ValueBool());
+    EXPECT_EQ(stream.GetResults()[1][0].ValueString(), "feature");
+    EXPECT_EQ(stream.GetResults()[1][1].type(), memgraph::communication::bolt::Value::Type::String);
+    EXPECT_FALSE(stream.GetResults()[1][1].ValueString().empty());
+    EXPECT_EQ(stream.GetResults()[1][2].ValueInt(), 0);
+    EXPECT_FALSE(stream.GetResults()[1][3].ValueBool());
   }
 
   {
     auto stream = faker.Interpret("SHOW BRANCH");
-    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "created_at"}));
+    ASSERT_EQ(stream.GetHeader(), branch_columns);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
-    EXPECT_EQ(stream.GetResults()[0][3].type(), memgraph::communication::bolt::Value::Type::Null);
+    EXPECT_EQ(stream.GetResults()[0][1].type(), memgraph::communication::bolt::Value::Type::Null);
+    EXPECT_TRUE(stream.GetResults()[0][3].ValueBool());
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'feature'");
+  {
+    auto stream = faker.Interpret("SHOW BRANCH 'feature'");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
+    EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+    EXPECT_FALSE(stream.GetResults()[0][3].ValueBool());
+  }
+  ASSERT_THROW(faker.Interpret("SHOW BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
+
+  faker.Interpret("USE BRANCH 'feature'");
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "feature");
 
   {
     auto stream = faker.Interpret("SHOW BRANCH");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
-    EXPECT_EQ(stream.GetResults()[0][3].type(), memgraph::communication::bolt::Value::Type::String);
+    EXPECT_EQ(stream.GetResults()[0][1].type(), memgraph::communication::bolt::Value::Type::String);
+    EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 1);
+    EXPECT_TRUE(stream.GetResults()[0][3].ValueBool());
+  }
+  {
+    auto stream = faker.Interpret("SHOW BRANCHES");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+    EXPECT_FALSE(stream.GetResults()[0][3].ValueBool());
+    EXPECT_EQ(stream.GetResults()[1][2].ValueInt(), 1);
+    EXPECT_TRUE(stream.GetResults()[1][3].ValueBool());
   }
 
   // Switching to a non-existent branch fails and does not move the session.
-  ASSERT_THROW(faker.Interpret("CHECKOUT BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("USE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "feature");
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 
   {
@@ -373,35 +391,56 @@ TEST_F(VersioningGatedTest, CreateShowCheckoutDropHappyPath) {
   {
     auto stream = faker.Interpret("SHOW BRANCHES");
     ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "main");
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
   }
 
   ASSERT_THROW(faker.Interpret("DROP BRANCH 'feature'"), memgraph::query::QueryRuntimeException);
 
-  // CHECKOUT ... WITH DESCRIPTION ... FROM creates and switches in one statement.
-  {
-    auto stream = faker.Interpret("CHECKOUT BRANCH 'feature' WITH DESCRIPTION 'desc' FROM 'main'");
-    ASSERT_EQ(stream.GetHeader(), (std::vector<std::string>{"version", "number", "description", "parent"}));
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][2].ValueString(), "desc");
-  }
+  // The name of a dropped branch can be used again.
+  faker.Interpret("CREATE BRANCH 'feature'");
+  faker.Interpret("USE BRANCH 'feature'");
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "feature");
-  {
-    auto stream = faker.Interpret("SHOW BRANCHES");
-    ASSERT_EQ(stream.GetResults().size(), 2U);
-    EXPECT_EQ(stream.GetResults()[1][2].ValueString(), "desc");
-  }
 
-  // Dropping the branch the session is checked out on clears the session pointer.
+  // Dropping the branch the session is on moves it to main.
   faker.Interpret("DROP BRANCH 'feature'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
 }
 
-// PROFILE wraps an inner query; a PROFILE'd write on main after CHECKOUT 'main' must succeed like a bare write.
-TEST_F(VersioningGatedTest, ProfileWriteOnMainAfterCheckoutMainSucceeds) {
+TEST_F(VersioningGatedTest, UseBranchReportsWhetherTheSessionMoved) {
+  faker.Interpret("CREATE BRANCH 'feature'");
+
+  const auto status = [&](const char *query) {
+    auto stream = faker.Interpret(query);
+    EXPECT_EQ(stream.GetHeader(), std::vector<std::string>{"STATUS"});
+    EXPECT_EQ(stream.GetResults().size(), 1U);
+    return stream.GetResults().at(0).at(0).ValueString();
+  };
+  EXPECT_EQ(status("USE BRANCH main"), "Already using branch main");
+  EXPECT_EQ(status("USE BRANCH feature"), "Using branch feature");
+  EXPECT_EQ(status("USE BRANCH feature"), "Already using branch feature");
+  EXPECT_EQ(status("USE BRANCH main"), "Using branch main");
+}
+
+TEST_F(VersioningGatedTest, SwitchingBranchesKeepsOneAttachPerSession) {
+  faker.Interpret("CREATE BRANCH 'x'");
+  faker.Interpret("CREATE BRANCH 'y'");
+  auto *store = db->version_store();
+
+  faker.Interpret("USE BRANCH x");
+  EXPECT_EQ(store->CheckoutCount("x"), 1U);
+  faker.Interpret("USE BRANCH y");
+  EXPECT_EQ(store->CheckoutCount("x"), 0U);
+  EXPECT_EQ(store->CheckoutCount("y"), 1U);
+  faker.Interpret("USE BRANCH main");
+  EXPECT_EQ(store->CheckoutCount("y"), 0U);
+}
+
+// PROFILE wraps an inner query; a PROFILE'd write on main after USE BRANCH main must succeed like a bare write.
+TEST_F(VersioningGatedTest, ProfileWriteOnMainAfterUseMainSucceeds) {
   faker.Interpret("CREATE (:Seed)");
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 
   auto profile = faker.Interpret("PROFILE CREATE (:NoLongerBlockedProfiledWrite)");
@@ -415,9 +454,9 @@ TEST_F(VersioningGatedTest, ProfileWriteOnMainAfterCheckoutMainSucceeds) {
   EXPECT_FALSE(faker.Interpret("PROFILE MATCH (n:Seed) RETURN n").GetResults().empty());
 }
 
-// The session target is the last CHECKOUT, like USE DATABASE: x -> y -> main on one connection, and main stays
+// The session target is the last USE BRANCH, like USE DATABASE: x -> y -> main on one connection, and main stays
 // writable.
-TEST_F(VersioningGatedTest, CheckoutSwitchesBetweenBranchesThenBackToMainLikeUseDatabase) {
+TEST_F(VersioningGatedTest, UseBranchSwitchesBetweenBranchesThenBackToMainLikeUseDatabase) {
   faker.Interpret("CREATE (:Base {v:0})");
 
   Fork("x");
@@ -440,7 +479,7 @@ TEST_F(VersioningGatedTest, CheckoutSwitchesBetweenBranchesThenBackToMainLikeUse
     EXPECT_EQ(IntRows(faker, "MATCH (n:OnY) RETURN n.v"), (Rows{{2}}));
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   faker.Interpret("CREATE (:OnMain {v:3})");
 
@@ -451,7 +490,7 @@ TEST_F(VersioningGatedTest, CheckoutSwitchesBetweenBranchesThenBackToMainLikeUse
   }
   {
     auto stream = faker.Interpret("MATCH (n:OnMain) RETURN n.v");
-    ASSERT_EQ(stream.GetResults().size(), 1U) << "the post-CHECKOUT-main write must have landed on main";
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "the post-USE-BRANCH-main write must have landed on main";
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
   }
   {
@@ -459,16 +498,16 @@ TEST_F(VersioningGatedTest, CheckoutSwitchesBetweenBranchesThenBackToMainLikeUse
     EXPECT_EQ(stream.GetResults().size(), 0U) << "neither branch's native write may leak onto main";
   }
 
-  // USING VERSION 'main' reads main independently of the CHECKOUT-based read-back above.
-  faker.Interpret("CHECKOUT BRANCH 'x'");
+  // USING BRANCH 'main' reads main independently of the USE BRANCH-based read-back above.
+  faker.Interpret("USE BRANCH 'x'");
   {
-    EXPECT_EQ(IntRows(faker, "USING VERSION 'main' MATCH (n:OnMain) RETURN n.v"), (Rows{{3}}));
+    EXPECT_EQ(IntRows(faker, "USING BRANCH 'main' MATCH (n:OnMain) RETURN n.v"), (Rows{{3}}));
   }
 
   // Back on a branch after main writes, writes route to the branch again and stay off main.
   faker.Interpret("CREATE (:AnotherBranchWrite)");
   EXPECT_EQ(IntRows(faker, "MATCH (n:AnotherBranchWrite) RETURN count(n)"), (Rows{{1}}));
-  EXPECT_EQ(IntRows(faker, "USING VERSION 'main' MATCH (n:AnotherBranchWrite) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'main' MATCH (n:AnotherBranchWrite) RETURN count(n)"), (Rows{{0}}));
 }
 
 // Per-kind independence of the branch change filters: a property SET must not disturb label reads, and a label ADD must
@@ -509,14 +548,14 @@ TEST_F(VersioningGatedTest, BranchCrossBranchIsolationReadsOwnFork) {
   faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 999");
   EXPECT_EQ(IntRows(faker, "MATCH (n {id: 1}) RETURN n.age"), (Rows{{111}})) << "b1 must read its own write";
   EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E]->(:A) RETURN e.w"), (Rows{{999}})) << "b1 must read its own edge write";
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
 
   // b2 forks AFTER b1's changes (main itself is untouched), then main changes id=2: b2 must stay pinned.
-  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'b2'");
   faker.Interpret("MATCH (n {id: 2}) SET n.age = 222");
   EXPECT_EQ(IntRows(faker, "MATCH (n {id: 2}) RETURN n.age"), (Rows{{222}}))
       << "main must read its own post-fork write";
-  faker.Interpret("CHECKOUT BRANCH 'b2'");
+  faker.Interpret("USE BRANCH 'b2'");
 
   {
     auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN n.age AS age, ('Changed' IN labels(n)) AS c");
@@ -536,10 +575,10 @@ TEST_F(VersioningGatedTest, BranchCrossBranchIsolationReadsOwnFork) {
 TEST_F(VersioningGatedTest, BranchDeleteAndLabelRemovalOnOneBranchDoNotAffectUntouchedSibling) {
   faker.Interpret("CREATE (:K {i:1})-[:R]->(:K {i:2})-[:R]->(:K {i:3}), (:K:Z {i:4})");
   Fork("b1");
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
+  faker.Interpret("USE BRANCH 'main'");
+  faker.Interpret("CREATE BRANCH 'b2'");
 
-  faker.Interpret("CHECKOUT BRANCH 'b1'");
+  faker.Interpret("USE BRANCH 'b1'");
   faker.Interpret("MATCH (:K {i:1})-[r:R]->() DELETE r");
   faker.Interpret("MATCH (n:K {i:2}) DETACH DELETE n");
   faker.Interpret("MATCH (n:K {i:4}) REMOVE n:Z");
@@ -547,7 +586,7 @@ TEST_F(VersioningGatedTest, BranchDeleteAndLabelRemovalOnOneBranchDoNotAffectUnt
   EXPECT_EQ(IntRows(faker, "MATCH (n:Z) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{0}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'b2'");
+  faker.Interpret("USE BRANCH 'b2'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN count(n)"), (Rows{{4}})) << "b2 must still see the deleted vertex";
   EXPECT_EQ(IntRows(faker, "MATCH (n:Z) RETURN n.i"), (Rows{{4}})) << "b2 must still see the removed label";
   EXPECT_EQ(IntRows(faker, "MATCH (:K {i:1})-[r:R]->(m) RETURN m.i"), (Rows{{2}}));
@@ -570,22 +609,11 @@ TEST_F(VersioningGatedTest, BranchFinePropertyChangeReadViaTraversal) {
         << "an UNCHANGED property on the same vertex must read fork-state via the fine fast path";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     EXPECT_EQ(IntRows(faker, "MATCH (v {id: 2}) RETURN v.age AS age"), (Rows{{40}}))
         << "main must not see the branch's property change";
   }
-}
-
-// CREATE BRANCH FROM a non-main parent is rejected before any VersionStore mutation.
-TEST_F(VersioningGatedTest, CreateBranchFromNonMainParentIsRejected) {
-  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
-  ASSERT_TRUE(db->version_store()->Exists("feature"));
-
-  ASSERT_THROW(faker.Interpret("CREATE BRANCH 'child' FROM 'feature'"), memgraph::query::QueryRuntimeException);
-
-  EXPECT_FALSE(db->version_store()->Exists("child"))
-      << "a rejected CREATE BRANCH must leave the VersionStore unchanged";
 }
 
 // Counters are process-global, so assert deltas; the two gauges are asserted as absolute values.
@@ -595,18 +623,18 @@ TEST_F(VersioningGatedTest, VersioningMetricsIncrementOnLifecycle) {
   const double dropped0 = g.versioning_branches_dropped->Value();
 
   faker.Interpret("CREATE (:A {x:1})");
-  faker.Interpret("CREATE BRANCH 'b1' FROM 'main'");
-  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'b1'");
+  faker.Interpret("CREATE BRANCH 'b2'");
   EXPECT_DOUBLE_EQ(g.versioning_branches_created->Value() - created0, 2.0)
       << "two CREATE BRANCH statements must increment the created counter by exactly 2";
   EXPECT_DOUBLE_EQ(g.versioning_active_branches->Value(), 2.0);
 
-  faker.Interpret("CHECKOUT BRANCH 'b1'");
+  faker.Interpret("USE BRANCH 'b1'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b1");
-  EXPECT_DOUBLE_EQ(g.versioning_active_checkouts->Value(), 1.0);
+  EXPECT_DOUBLE_EQ(g.versioning_active_sessions->Value(), 1.0);
   faker.Interpret("CREATE (:OnBranch {y:1})");
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  EXPECT_DOUBLE_EQ(g.versioning_active_checkouts->Value(), 0.0) << "ReleaseCheckout must Set() the gauge back to 0";
+  faker.Interpret("USE BRANCH 'main'");
+  EXPECT_DOUBLE_EQ(g.versioning_active_sessions->Value(), 0.0) << "ReleaseCheckout must Set() the gauge back to 0";
 
   faker.Interpret("DROP BRANCH 'b1'");
   EXPECT_DOUBLE_EQ(g.versioning_branches_dropped->Value() - dropped0, 1.0);
@@ -656,9 +684,9 @@ TEST_F(VersioningGatedTest, BranchSessionReportsRenamedDatabaseName) {
 
   EXPECT_EQ(live_engine.name(), "renamed_db") << "core built before the rename kept the old name";
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CREATE BRANCH 'later' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'later'");
+  faker.Interpret("USE BRANCH 'main'");
+  faker.Interpret("CREATE BRANCH 'later'");
+  faker.Interpret("USE BRANCH 'later'");
   ASSERT_NE(faker.interpreter.current_db_.branch_context(), nullptr);
   EXPECT_EQ(faker.interpreter.current_db_.branch_context()->diff_engine().name(), "renamed_db");
 }
@@ -721,7 +749,7 @@ TEST_F(VersioningGatedTest, BranchWriteOverlaysOnlyTheTouchedVertex) {
     EXPECT_TRUE(found_b);
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   {
     EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE 'A' IN labels(n) RETURN n.x"), (Rows{{1}}));
@@ -748,7 +776,7 @@ TEST_F(VersioningGatedTest, BranchWholeMapPropertyWriteOnForkVertex) {
     EXPECT_TRUE(row[3].ValueBool());
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.y"), (Rows{{kNullInt}})) << "main must not see the branch's SET +=";
   EXPECT_EQ(IntRows(faker, "MATCH (n:P) RETURN n.id, n.p, n.q, n.x"), (Rows{{1, 7, 8, kNullInt}}))
       << "main must not see the branch's SET =";
@@ -792,7 +820,7 @@ TEST_F(VersioningGatedTest, BranchEdgeCreateAndEndpointShadowingIsUnionAware) {
     EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a2_mod") << "endpoint must be re-Resolved, not stale";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     auto stream = faker.Interpret("MATCH (x:A {name:'a'})-[:R]->(y) RETURN y.name");
     EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch-native edge must be invisible on main";
@@ -874,7 +902,7 @@ TEST_F(VersioningGatedTest, StatementsRejectedOnBranch) {
 
   Fork();
 
-  const std::string kGuardMessage = "not allowed while a versioning branch is checked out";
+  const std::string kGuardMessage = "are not allowed on a branch";
   static constexpr const char *rejected[] = {
       "CREATE INDEX ON :L(p)",
       "CREATE EDGE INDEX ON :R(p)",
@@ -918,7 +946,7 @@ TEST_F(VersioningGatedTest, StatementsRejectedOnBranch) {
   EXPECT_TRUE(
       PlanHasOperator(ExplainText(faker, "MATCH (n:Person) WHERE n.age > 0 RETURN n"), "ScanAllByLabelProperties"));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(index_rows(), main_rows);
   faker.Interpret("CREATE INDEX ON :L(p)");
   EXPECT_EQ(index_rows().size(), main_rows.size() + 1);
@@ -956,7 +984,7 @@ TEST_F(VersioningGatedTest, BranchEdgeBitFastPathSkipsResolveForUnchangedEdges) 
         << "a completely untouched edge must read fork-state";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E1]->(:A) RETURN e.w"), (Rows{{1}}))
         << "main must be untouched by the branch's SET";
@@ -989,7 +1017,7 @@ TEST_F(VersioningGatedTest, BranchEdgeBitFastPathSelfLoopAndParallelEdgesPerEdge
            "per-vertex, even though P2 shares BOTH endpoints with the now-branched P1";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:SELF]->(:S) RETURN e.w"), (Rows{{1}}));
   }
@@ -1013,7 +1041,7 @@ TEST_F(VersioningGatedTest, BranchDeleteBranchNativeVertexHiddenAndMainNeverSawI
     EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch-native vertex must be hidden after its own DELETE";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
 
   auto stream = faker.Interpret("MATCH (n:X) RETURN n");
   EXPECT_EQ(stream.GetResults().size(), 0U) << "main must never have seen the created-then-deleted vertex";
@@ -1065,12 +1093,12 @@ TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
 
   check_branch();
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'b'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
   check_branch();
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   auto stream = faker.Interpret("MATCH (n:M1) RETURN count(n)");
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
@@ -1109,10 +1137,10 @@ TEST_F(VersioningGatedTest, BranchPeriodicCommitWritesToBranch) {
     faker.Interpret(c.query);
     EXPECT_EQ(IntRows(faker, count), (Rows{{c.rows}})) << "all periodically committed rows must be visible in-session";
 
-    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret("USE BRANCH 'main'");
     EXPECT_EQ(IntRows(faker, count), (Rows{{0}})) << "main never sees the branch's batches";
 
-    faker.Interpret("CHECKOUT BRANCH 'b'");
+    faker.Interpret("USE BRANCH 'b'");
     EXPECT_EQ(IntRows(faker, count), (Rows{{c.rows}})) << "the batches must survive CHECKOUT away and back";
   }
 }
@@ -1121,7 +1149,7 @@ TEST_F(VersioningGatedTest, BranchPeriodicCommitWritesToBranch) {
 // from a session on main (CREATE BRANCH does not check out); the guard clears once the last branch is dropped.
 TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
   faker.Interpret("CREATE (:A {x:1})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'b'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 
   for (const auto &[query, message] :
@@ -1152,9 +1180,9 @@ TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
       << "DROP GRAPH must actually run once no branch exists";
 }
 
-// `USING VERSION 'main'` routes that one query to main's own storage while the session stays checked out: the branch
-// sees MainOnly (fork-era) plus BranchOnly, `USING VERSION 'main'` sees MainOnly only.
-TEST_F(VersioningGatedTest, UsingVersionMainReadsMainWhileOnBranch) {
+// `USING BRANCH 'main'` routes that one query to main's own storage while the session stays checked out: the branch
+// sees MainOnly (fork-era) plus BranchOnly, `USING BRANCH 'main'` sees MainOnly only.
+TEST_F(VersioningGatedTest, UsingBranchMainReadsMainWhileOnBranch) {
   faker.Interpret("CREATE (:MainOnly {v:1})");
   Fork();
   faker.Interpret("CREATE (:BranchOnly {v:2})");
@@ -1164,7 +1192,7 @@ TEST_F(VersioningGatedTest, UsingVersionMainReadsMainWhileOnBranch) {
   }
 
   {
-    EXPECT_EQ(IntRows(faker, "USING VERSION 'main' MATCH (n) RETURN count(n) AS c"), (Rows{{1}}));
+    EXPECT_EQ(IntRows(faker, "USING BRANCH 'main' MATCH (n) RETURN count(n) AS c"), (Rows{{1}}));
   }
 
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
@@ -1173,45 +1201,130 @@ TEST_F(VersioningGatedTest, UsingVersionMainReadsMainWhileOnBranch) {
   }
 }
 
-// `USING VERSION` naming the session's own branch, or 'main' on a session on main, is a harmless no-op. The
-// 'main'-while- on-a-branch escape hatch is UsingVersionMainWriteWhileOnBranchLandsOnMainOnly.
-TEST_F(VersioningGatedTest, UsingVersionTargetsSessionOrMain) {
+// `USING BRANCH` naming the session's own branch, or 'main' on a session on main, is a harmless no-op. The
+// 'main'-while-on-a-branch escape hatch is UsingBranchMainWriteWhileOnBranchLandsOnMainOnly.
+TEST_F(VersioningGatedTest, UsingBranchTargetsSessionOrMain) {
   Fork();
 
-  faker.Interpret("USING VERSION 'b' CREATE (:OnB {v:5})");
+  faker.Interpret("USING BRANCH 'b' CREATE (:OnB {v:5})");
   EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN n.v"), (Rows{{5}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}))
-      << "USING VERSION naming the session's own branch must not leak to main";
+      << "USING BRANCH naming the session's own branch must not leak to main";
 
   faker.Interpret("CREATE (:PlainWrite {v:6})");
-  faker.Interpret("USING VERSION 'main' CREATE (:Allowed {v:7})");
+  faker.Interpret("USING BRANCH 'main' CREATE (:Allowed {v:7})");
   EXPECT_EQ(IntRows(faker, "MATCH (n:Allowed) RETURN n.v"), (Rows{{7}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:PlainWrite) RETURN n.v"), (Rows{{6}}));
 }
 
-// Naming a branch other than 'main' or the session's own throws utils::NotYetImplemented and leaves the session usable.
-TEST_F(VersioningGatedTest, UsingVersionOtherBranchNotYetImplemented) {
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CREATE BRANCH 'c' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+// USING BRANCH runs one autocommit query on any branch while the session stays where it is.
+TEST_F(VersioningGatedTest, UsingBranchRunsOneQueryOnAnotherBranchAndLeavesTheSessionAlone) {
+  faker.Interpret("CREATE (:Base {v:0})");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'c'");
+  faker.Interpret("USE BRANCH 'c'");
+  faker.Interpret("CREATE (:OnC {v:3})");
+  faker.Interpret("USE BRANCH 'b'");
+  faker.Interpret("CREATE (:OnB {v:2})");
+  auto *store = db->version_store();
 
-  ASSERT_THROW(faker.Interpret("USING VERSION 'c' MATCH (n) RETURN n"), memgraph::utils::NotYetImplemented);
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'c' MATCH (n:OnC) RETURN n.v"), (Rows{{3}}));
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'c' MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  EXPECT_NE(faker.interpreter.current_db_.branch_context(), nullptr);
+  EXPECT_EQ(store->CheckoutCount("b"), 1U);
+  EXPECT_EQ(store->CheckoutCount("c"), 0U) << "the query's attach is released with its transaction";
 
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN n.v"), (Rows{{2}})) << "the session still reads its own branch";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnC) RETURN count(n)"), (Rows{{0}}));
+
+  faker.Interpret("USING BRANCH 'c' CREATE (:AlsoOnC {v:4})");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:AlsoOnC) RETURN count(n)"), (Rows{{0}})) << "the write went to c, not b";
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'c' MATCH (n:AlsoOnC) RETURN n.v"), (Rows{{4}}));
+}
+
+TEST_F(VersioningGatedTest, UsingBranchFromMainAttachesOnlyForTheQuery) {
+  faker.Interpret("CREATE (:Base {v:0})");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
+  faker.Interpret("CREATE (:OnB {v:2})");
+  faker.Interpret("USE BRANCH 'main'");
+  auto *store = db->version_store();
+
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'b' MATCH (n:OnB) RETURN n.v"), (Rows{{2}}));
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
+  EXPECT_EQ(store->CheckoutCount("b"), 0U) << "the query's attach is released with its transaction";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
+
+  EXPECT_TRUE(store->DropBranch("b").value_or(false)) << "a finished USING BRANCH must not pin the branch";
+}
+
+TEST_F(VersioningGatedTest, UsingBranchHonouredByExplainAndProfile) {
+  faker.Interpret("CREATE (:Base {v:0})");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
+  faker.Interpret("CREATE (:OnB {v:2})");
+  faker.Interpret("USE BRANCH 'main'");
+  auto *store = db->version_store();
+
+  EXPECT_FALSE(faker.Interpret("EXPLAIN USING BRANCH 'b' MATCH (n:OnB) RETURN n").GetResults().empty());
+  EXPECT_EQ(store->CheckoutCount("b"), 0U);
+  EXPECT_FALSE(faker.Interpret("PROFILE USING BRANCH 'b' MATCH (n:OnB) RETURN n").GetResults().empty());
+  EXPECT_EQ(store->CheckoutCount("b"), 0U);
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+}
+
+TEST_F(VersioningGatedTest, UsingBranchCombinesWithOtherDirectives) {
+  faker.Interpret("CREATE (:Base {v:1})");
+  faker.Interpret("CREATE BRANCH 'b'");
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'b', HOPS LIMIT 5 MATCH (n:Base) RETURN n.v"), (Rows{{1}}));
+}
+
+TEST_F(VersioningGatedTest, UsingBranchOfAnUnknownBranchFailsAndLeavesTheSessionUsable) {
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
+
+  try {
+    faker.Interpret("USING BRANCH 'nope' MATCH (n) RETURN n");
+    FAIL() << "expected the unknown branch to be rejected";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()}, "Branch 'nope' does not exist.");
+  }
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
   faker.Interpret("MATCH (n) RETURN n");
 }
 
-// A `USING VERSION 'main'` write while on 'b' lands on main only; a plain write lands on the branch only.
-TEST_F(VersioningGatedTest, UsingVersionMainWriteWhileOnBranchLandsOnMainOnly) {
+TEST_F(VersioningGatedTest, UsingBranchInsideAnExplicitTransactionIsRefused) {
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("BEGIN");
+  try {
+    faker.Interpret("USING BRANCH 'b' MATCH (n) RETURN n");
+    FAIL() << "expected USING BRANCH to be refused inside BEGIN";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()}, "USING BRANCH is not allowed inside an explicit transaction.");
+  }
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'b' MATCH (n) RETURN count(n)"), (Rows{{0}}));
+}
+
+TEST_F(VersioningGatedTest, UsingBranchRespectsTheGate) {
+  faker.Interpret("CREATE BRANCH 'b'");
+  FLAGS_versioning_enabled = false;
+  EXPECT_THROW(faker.Interpret("USING BRANCH 'b' MATCH (n) RETURN n"), memgraph::query::QueryRuntimeException);
+}
+
+// A `USING BRANCH 'main'` write while on 'b' lands on main only; a plain write lands on the branch only.
+TEST_F(VersioningGatedTest, UsingBranchMainWriteWhileOnBranchLandsOnMainOnly) {
   Fork();
 
-  faker.Interpret("USING VERSION 'main' CREATE (:M {v:1})");
+  faker.Interpret("USING BRANCH 'main' CREATE (:M {v:1})");
   faker.Interpret("CREATE (:BranchNode {v:2})");
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     auto stream = faker.Interpret("MATCH (n:M) RETURN n.v");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -1222,7 +1335,7 @@ TEST_F(VersioningGatedTest, UsingVersionMainWriteWhileOnBranchLandsOnMainOnly) {
     EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch write must not be visible on main";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   {
     auto stream = faker.Interpret("MATCH (n:M) RETURN n");
     EXPECT_EQ(stream.GetResults().size(), 0U) << "a force-main write must not appear on the branch";
@@ -1243,11 +1356,11 @@ TEST_F(VersioningGatedTest, BranchQueryPlanCacheServesCorrectResultsAcrossRepeat
 
   // The index is created on main AFTER the fork, so the branch has no such index: main's cached plan for the query
   // below is a property-index scan, which -- reused on the branch -- would scan the diff engine's empty index.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   faker.Interpret("CREATE INDEX ON :User(id)");
   ASSERT_EQ(IntRows(faker, "MATCH (n:User {id: 1}) RETURN n.id"), (Rows{{1}}));
   ASSERT_TRUE(PlanHasOperator(ExplainText(faker, "MATCH (n:User {id: 1}) RETURN n.tag"), "ScanAllByLabelProperties"));
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   EXPECT_FALSE(PlanHasOperator(ExplainText(faker, "MATCH (n:User {id: 1}) RETURN n.tag"), "ScanAllByLabelProperties"))
       << "the branch must plan against its own (index-less) view, not reuse main's cached index-scan plan";
 
@@ -1287,22 +1400,22 @@ TEST_F(VersioningGatedTest, BranchQueryPlanCacheServesCorrectResultsAcrossRepeat
 
 // A force-main query on a checked-out session must not populate or read the branch's plan-cache slot (selection keys
 // off the per-transaction current_diff_txn(), not session-level branch_context()).
-TEST_F(VersioningGatedTest, UsingVersionMainDoesNotPolluteBranchPlanCache) {
+TEST_F(VersioningGatedTest, UsingBranchMainDoesNotPolluteBranchPlanCache) {
   faker.Interpret("CREATE (:User {id: 1, tag: 'main'})");
 
   Fork();
 
   // Main gains an index after the fork that the branch does not have, so a main-shaped plan is a property-index scan
   // and a branch-shaped one is not: the two plans are distinguishable if one is served from the other's cache.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   faker.Interpret("CREATE INDEX ON :User(id)");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
 
   faker.Interpret("CREATE (:User {id: 100, tag: 'branch'})");
 
   // Force-main query routes at main, which has no id=100 row; it must not prime the branch's cache slot.
   {
-    auto stream = faker.Interpret("USING VERSION 'main' MATCH (n:User {id: 100}) RETURN n.tag");
+    auto stream = faker.Interpret("USING BRANCH 'main' MATCH (n:User {id: 100}) RETURN n.tag");
     EXPECT_EQ(stream.GetResults().size(), 0U) << "main has no id=100 row";
   }
 
@@ -1316,7 +1429,7 @@ TEST_F(VersioningGatedTest, UsingVersionMainDoesNotPolluteBranchPlanCache) {
       << "the branch plan must not be main's index-scan plan";
 
   {
-    auto stream = faker.Interpret("USING VERSION 'main' MATCH (n:User {id: 100}) RETURN n.tag");
+    auto stream = faker.Interpret("USING BRANCH 'main' MATCH (n:User {id: 100}) RETURN n.tag");
     EXPECT_EQ(stream.GetResults().size(), 0U)
         << "force-main path must not be polluted by the branch-cached plan either";
   }
@@ -1402,7 +1515,7 @@ TEST_F(VersioningGatedTest, BranchCommitValidatesExistenceConstraints) {
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 8);
 
   // (f) Main is unaffected throughout.
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(count("MATCH (n:P) RETURN count(n)"), 2);
   EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
   EXPECT_EQ(count("MATCH (n:Q) RETURN count(n)"), 1);
@@ -1414,7 +1527,7 @@ TEST_F(VersioningGatedTest, BranchCommitValidatesExistenceConstraints) {
 TEST_F(VersioningGatedTest, BranchTypeConstraintViolationsRaiseAtTheStatement) {
   faker.Interpret("CREATE CONSTRAINT ON (n:P) ASSERT n.age IS TYPED INTEGER");
   faker.Interpret("CREATE (:P {id: 1, age: 10}), (:Q {id: 2, age: 'x'})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'b'");
 
   auto const outcome = [&](std::string const &query) -> std::string {
     try {
@@ -1447,7 +1560,7 @@ TEST_F(VersioningGatedTest, BranchTypeConstraintViolationsRaiseAtTheStatement) {
     EXPECT_THAT(main_messages.back(), ::testing::HasSubstr(kMessage)) << statement;
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   for (size_t i = 0; i < statements.size(); ++i) {
     EXPECT_EQ(outcome(statements[i]), main_messages[i]) << statements[i];
   }
@@ -1477,12 +1590,12 @@ TEST_F(VersioningGatedTest, BranchTypeConstraintViolationsRaiseAtTheStatement) {
     return trace;
   };
   auto const branch_trace = explicit_txn_trace();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   auto const main_trace = explicit_txn_trace();
   EXPECT_EQ(branch_trace, main_trace);
   EXPECT_THAT(branch_trace.at(1), ::testing::HasSubstr(kMessage)) << "the SET must fail inside the txn, not at COMMIT";
   EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   EXPECT_EQ(count("MATCH (n:P {id: 1}) RETURN n.age"), 10);
 }
 
@@ -1495,12 +1608,12 @@ TEST_F(VersioningGatedTest, BranchFullScanUntouchedBranchIsForkStreamOnly) {
 
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n) AS c"), (Rows{{2}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   faker.Interpret("CREATE (:K {i:3})");
   Fork("c2");
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   faker.Interpret("CREATE (:K {i:4})");
-  faker.Interpret("CHECKOUT BRANCH 'c2'");
+  faker.Interpret("USE BRANCH 'c2'");
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n) AS c"), (Rows{{3}})) << "post-fork main vertex must not leak";
 
   faker.Interpret("CREATE (:K {i:5})");
@@ -1529,7 +1642,7 @@ TEST_F(VersioningGatedTest, BranchDeleteForkVertexIsGoneOnBranchAndPresentOnMain
     EXPECT_EQ(stream.GetResults().size(), 0U) << "the deleted vertex must not be found by a property scan";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN count(n) AS c"), (Rows{{3}})) << "main must be untouched";
   }
@@ -1562,7 +1675,7 @@ TEST_F(VersioningGatedTest, BranchDetachDeleteForkVertexHidesIncidentEdgesFromNe
         << "the edge scan must not see edges of a deleted vertex";
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   {
     auto stream = faker.Interpret("MATCH (n:N) OPTIONAL MATCH (n)-[r]-() RETURN n.n AS n, count(r) AS d ORDER BY n");
     ASSERT_EQ(stream.GetResults().size(), 2U);
@@ -1615,7 +1728,7 @@ TEST_F(VersioningGatedTest, BranchDeleteSingleForkEdgeIsGoneInBothDirectionsAndS
     EXPECT_EQ(IntRows(faker, "MATCH (a:A) OPTIONAL MATCH (a)-[r]->() RETURN count(r) AS c"), (Rows{{1}}));
   }
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r) AS c"), (Rows{{2}})) << "main must be untouched";
 }
 
@@ -1669,7 +1782,7 @@ TEST_F(VersioningGatedTest, BranchLabelScanExactTouchedRecordMatchesMembership) 
   EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN n.i ORDER BY n.i"), (Rows{{1}, {2}, {5}, {6}, {7}}))
       << "a rolled-back removal must not hide the vertex";
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN n.i ORDER BY n.i"), (Rows{{1}, {2}, {3}, {4}, {5}}))
       << "main must be untouched";
 }
@@ -1695,7 +1808,7 @@ TEST_F(VersioningGatedTest, BranchHasLabelExactMembershipAcrossManyChanges) {
   faker.Interpret("COMMIT");
 
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{10}}));
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:L RETURN count(n)"), (Rows{{0}}));
 }
 
@@ -1709,7 +1822,7 @@ TEST_F(VersioningGatedTest, BranchLabelFilterWithPropertyAndLabelWritesInOneQuer
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M RETURN count(n)"), (Rows{{20}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M AND NOT n:L RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n.x = 1 RETURN count(n)"), (Rows{{20}}));
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE n:M RETURN count(n)"), (Rows{{0}}));
 }
 
@@ -1735,7 +1848,7 @@ TEST_F(VersioningGatedTest, BranchReadAndWriteSameLabelPerRowOverBranchedVertice
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen RETURN count(n)"), (Rows{{100}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:Probe) WHERE NOT n:Seen AND n.i > 100 RETURN count(n)"), (Rows{{0}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:Seen) RETURN count(n)"), (Rows{{0}})) << "main must be untouched";
 }
 
@@ -1781,7 +1894,7 @@ TEST_F(VersioningGatedTest, BranchScanSeesSameQueryDeleteLikeMain) {
   const std::string label_scan = "MATCH (z:A {i: 4}) MERGE (n:A) FOREACH (x IN [1] | DELETE z) RETURN count(n)";
 
   const auto branch_full = IntRows(faker, full_scan);
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   const auto main_full = IntRows(faker, full_scan);
   EXPECT_EQ(branch_full, main_full) << "full-scan MERGE must see the same-query delete as main does";
 
@@ -1789,7 +1902,7 @@ TEST_F(VersioningGatedTest, BranchScanSeesSameQueryDeleteLikeMain) {
   faker.Interpret("CREATE (:A {i:4})");
   Fork("c2");
   const auto branch_label = IntRows(faker, label_scan);
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   const auto main_label = IntRows(faker, label_scan);
   EXPECT_EQ(branch_label, main_label) << "label-scan MERGE must see the same-query delete as main does";
 }
@@ -1803,7 +1916,7 @@ TEST_F(VersioningGatedTest, BranchIndexHitMergesUntouchedForkAndNativeVertices) 
 
   EXPECT_EQ(IntRows(faker, "MATCH (n:P) WHERE n.v > 0 RETURN n.v ORDER BY n.v"), (Rows{{1}, {2}, {3}, {5}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:P) WHERE n.v > 0 RETURN n.v ORDER BY n.v"), (Rows{{1}, {2}, {3}}));
 }
 
@@ -1952,7 +2065,7 @@ TEST_F(VersioningGatedTest, BranchDeleteThenWritePropertyIsNoOpNotError) {
     SCOPED_TRACE(c.name);
     if (iter++ > 0) {
       // SET iteration left us on branch 'b' with :P deleted; return to main and clean up.
-      faker.Interpret("CHECKOUT BRANCH 'main'");
+      faker.Interpret("USE BRANCH 'main'");
       faker.Interpret("MATCH (n) DETACH DELETE n");
       faker.Interpret("DROP BRANCH 'b'");
     }
@@ -2240,7 +2353,7 @@ TEST_F(VersioningGatedTest, BranchRemovePropertyOnForkVertexIsVisible) {
   };
   check_branch();
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:P) RETURN n.p, n.q"), (Rows{{7, 8}}));
 }
 
@@ -2258,7 +2371,7 @@ TEST_F(VersioningGatedTest, BranchStubPropertyReadsFollowFineFilterNotJustStubPr
   faker.Interpret("MATCH (n:R) SET n = {id: 3}");
   EXPECT_EQ(IntRows(faker, "MATCH (n:R) RETURN n.id, n.p, n.q"), (Rows{{3, kNullInt, kNullInt}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH (n:R) RETURN n.p, n.q"), (Rows{{9, 10}}));
 }
 
@@ -2317,7 +2430,7 @@ TEST_F(VersioningGatedTest, BranchRemovalsLeaveNoTraceAndMgPrefixedNamesAreOrdin
   EXPECT_EQ(SortedNames(after.GetResults()[0][0]), (std::vector<std::string>{"P", "__mg_x"}));
   EXPECT_EQ(SortedNames(after.GetResults()[0][1]), (std::vector<std::string>{"__mg_y", "id"}));
 
-  auto on_main = faker.Interpret("USING VERSION 'main' MATCH (n:P) RETURN labels(n), keys(n)");
+  auto on_main = faker.Interpret("USING BRANCH 'main' MATCH (n:P) RETURN labels(n), keys(n)");
   ASSERT_EQ(on_main.GetResults().size(), 1U);
   EXPECT_EQ(SortedNames(on_main.GetResults()[0][0]), (std::vector<std::string>{"L", "P"}));
   EXPECT_EQ(SortedNames(on_main.GetResults()[0][1]), (std::vector<std::string>{"id", "p"}));
@@ -2500,7 +2613,7 @@ TEST_F(VersioningGatedTest, BranchEnumMirroredFromMainSupportsNativeCreateAndSet
       << "a branch-native CREATE with an inline enum literal must read back the exact enum value, "
          "not crash or garble it";
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   auto main_stream = faker.Interpret("MATCH (n:X {tag: 'forkenum'}) RETURN n.status, n.other");
   ASSERT_EQ(main_stream.GetResults().size(), 1U);
   EXPECT_EQ(get_enum_value_str(main_stream.GetResults()[0][0]), "Status::Good") << "main keeps the enum exactly";
@@ -2717,7 +2830,7 @@ class VersioningMultiSessionTest : public VersioningGatedTest {
   void SetUpTwoSessionsOnBranch() {
     faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
     Fork();
-    faker2.Interpret("CHECKOUT BRANCH 'b'");
+    faker2.Interpret("USE BRANCH 'b'");
     ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
     ASSERT_EQ(faker2.interpreter.current_db_.CurrentVersion(), "b");
   }
@@ -2725,19 +2838,7 @@ class VersioningMultiSessionTest : public VersioningGatedTest {
   static constexpr const char *kReadAll = "MATCH (n:K) RETURN n.id, n.v ORDER BY n.id";
 };
 
-TEST_F(VersioningGatedTest, MergeBranchIsRejectedAsUnsupported) {
-  ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
-  faker.Interpret("CREATE BRANCH 'feature' FROM 'main'");
-  try {
-    faker.Interpret("MERGE BRANCH 'feature'");
-    FAIL() << "MERGE BRANCH must be rejected";
-  } catch (const memgraph::query::QueryRuntimeException &e) {
-    EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("MERGE BRANCH is not supported"));
-  }
-  EXPECT_TRUE(db->version_store()->Exists("feature")) << "a rejected MERGE must leave the branch untouched";
-}
-
-// A's committed writes (SET, DELETE, CREATE) are what B sees on checkout; main is unchanged.
+// A's committed writes (SET, DELETE, CREATE) are what B sees when it uses the branch; main is unchanged.
 TEST_F(VersioningMultiSessionTest, SecondSessionSeesFirstSessionsCommittedWrites) {
   faker.Interpret("CREATE (:K {id:1, v:10}), (:K {id:2, v:20})");
   Fork();
@@ -2746,10 +2847,10 @@ TEST_F(VersioningMultiSessionTest, SecondSessionSeesFirstSessionsCommittedWrites
   faker.Interpret("MATCH (n:K {id:2}) DELETE n");
   faker.Interpret("CREATE (:K {id:3, v:30})");
 
-  faker2.Interpret("CHECKOUT BRANCH 'b'");
+  faker2.Interpret("USE BRANCH 'b'");
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 11}, {3, 30}}));
 
-  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  faker2.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}})) << "main must not see any branch write";
 }
 
@@ -2773,7 +2874,7 @@ TEST_F(VersioningMultiSessionTest, OpenTransactionKeepsItsSnapshotWhileAnotherSe
 TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
   faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
   faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:2}]->(:B {id:2})");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'b'");
 
   struct Case {
     const char *name;
@@ -2812,8 +2913,8 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
   };
 
   auto const checkout_both = [&](const char *version) {
-    faker.Interpret(std::string{"CHECKOUT BRANCH '"} + version + "'");
-    faker2.Interpret(std::string{"CHECKOUT BRANCH '"} + version + "'");
+    faker.Interpret(std::string{"USE BRANCH '"} + version + "'");
+    faker2.Interpret(std::string{"USE BRANCH '"} + version + "'");
   };
 
   for (const auto &c : cases) {
@@ -2866,9 +2967,9 @@ TEST_F(VersioningMultiSessionTest, ForkVertexDeleteAndEdgeCreateConflictAcrossCo
   for (const auto &c : cases) {
     SCOPED_TRACE(index);
     auto const name = fmt::format("c{}", index++);
-    faker.Interpret(fmt::format("CREATE BRANCH '{}' FROM 'main'", name));
-    faker.Interpret(fmt::format("CHECKOUT BRANCH '{}'", name));
-    faker2.Interpret(fmt::format("CHECKOUT BRANCH '{}'", name));
+    faker.Interpret(fmt::format("CREATE BRANCH '{}'", name));
+    faker.Interpret(fmt::format("USE BRANCH '{}'", name));
+    faker2.Interpret(fmt::format("USE BRANCH '{}'", name));
 
     faker2.Interpret("BEGIN");
     faker2.Interpret("MATCH (n:K) RETURN count(n)");  // B's snapshot predates A's commit
@@ -2924,21 +3025,27 @@ TEST_F(VersioningMultiSessionTest, MainWritesNeverConflictWithBranchWrites) {
 
 // DROP BRANCH is refused while another session is attached, and succeeds once every session has detached.
 TEST_F(VersioningMultiSessionTest, DropBranchIsRefusedWhileAnotherSessionIsAttached) {
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker2.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE BRANCH 'b'");
+  faker2.Interpret("USE BRANCH 'b'");
   EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
 
-  ASSERT_THROW(faker.Interpret("DROP BRANCH 'b'"), memgraph::query::QueryRuntimeException);
+  try {
+    faker.Interpret("DROP BRANCH 'b'");
+    FAIL() << "expected DROP BRANCH to be refused";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()},
+              "Cannot drop branch 'b': it is in use by another session. Use DROP BRANCH b FORCE.");
+  }
   EXPECT_TRUE(db->version_store()->Exists("b"));
 
   // A attaches too, then drops: still refused (B is attached), and A stays on the branch.
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   EXPECT_EQ(db->version_store()->CheckoutCount("b"), 2U);
   ASSERT_THROW(faker.Interpret("DROP BRANCH 'b'"), memgraph::query::QueryRuntimeException);
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
   EXPECT_EQ(db->version_store()->CheckoutCount("b"), 2U);
 
-  faker2.Interpret("CHECKOUT BRANCH 'main'");
+  faker2.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
 
   faker.Interpret("DROP BRANCH 'b'");
@@ -2947,12 +3054,78 @@ TEST_F(VersioningMultiSessionTest, DropBranchIsRefusedWhileAnotherSessionIsAttac
   EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
 }
 
+// DROP BRANCH ... FORCE drops a branch other sessions are on and terminates their transactions; those sessions then
+// get the dead-branch error until they switch.
+TEST_F(VersioningMultiSessionTest, DropBranchForceTerminatesOtherSessionsAndLeavesThemOnADeadBranch) {
+  faker.Interpret("CREATE (:K {id:1, v:10})");
+  Fork();
+  faker2.Interpret("USE BRANCH 'b'");
+  faker2.Interpret("BEGIN");
+  faker2.Interpret("MATCH (n:K) SET n.v = 11");
+
+  faker.Interpret("DROP BRANCH 'b' FORCE");
+  EXPECT_FALSE(db->version_store()->Exists("b"));
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value()) << "the dropping session moves to main";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
+
+  EXPECT_ANY_THROW(faker2.Interpret("MATCH (n:K) RETURN n.v")) << "the transaction was terminated";
+  faker2.Interpret("ROLLBACK");
+
+  try {
+    faker2.Interpret("MATCH (n:K) RETURN n.v");
+    FAIL() << "the second session must get the dead-branch error";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()}, "Branch 'b' no longer exists. Run USE BRANCH or USE DATABASE to continue.");
+  }
+  EXPECT_EQ(faker2.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker2.Interpret("USE BRANCH main");
+  EXPECT_EQ(IntRows(faker2, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+}
+
+TEST_F(VersioningMultiSessionTest, DropBranchForceByTheOnlySessionOnTheBranch) {
+  Fork();
+  faker.Interpret("DROP BRANCH 'b' FORCE");
+  EXPECT_FALSE(db->version_store()->Exists("b"));
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
+  ASSERT_THROW(faker.Interpret("DROP BRANCH 'b' FORCE"), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(VersioningMultiSessionTest, ShowBranchesCountsSessionsPerBranch) {
+  SetUpTwoSessionsOnBranch();
+  faker.Interpret("CREATE BRANCH 'other'");
+
+  auto stream = faker2.Interpret("SHOW BRANCHES");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  const auto &rows = stream.GetResults();
+  EXPECT_EQ(rows[0][0].ValueString(), "main");
+  EXPECT_EQ(rows[0][2].ValueInt(), 0);
+  EXPECT_FALSE(rows[0][3].ValueBool());
+  EXPECT_EQ(rows[1][0].ValueString(), "b");
+  EXPECT_EQ(rows[1][2].ValueInt(), 2);
+  EXPECT_TRUE(rows[1][3].ValueBool());
+  EXPECT_EQ(rows[2][0].ValueString(), "other");
+  EXPECT_EQ(rows[2][2].ValueInt(), 0);
+  EXPECT_FALSE(rows[2][3].ValueBool());
+
+  faker2.Interpret("USE BRANCH main");
+  const auto b_row = faker.Interpret("SHOW BRANCH 'b'");
+  ASSERT_EQ(b_row.GetResults().size(), 1U);
+  EXPECT_EQ(b_row.GetResults()[0][2].ValueInt(), 1);
+  EXPECT_TRUE(b_row.GetResults()[0][3].ValueBool());
+  const auto main_row = faker.Interpret("SHOW BRANCH main");
+  EXPECT_EQ(main_row.GetResults()[0][2].ValueInt(), 1);
+  EXPECT_FALSE(main_row.GetResults()[0][3].ValueBool());
+}
+
 // An idle session with the branch checked out and no open transaction holds none of main's locks: main DDL is not
 // blocked.
 TEST_F(VersioningMultiSessionTest, IdleBranchSessionDoesNotBlockMainDdl) {
   SetUpTwoSessionsOnBranch();
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");  // B stays attached to 'b', idle.
+  faker.Interpret("USE BRANCH 'main'");  // B stays attached to 'b', idle.
   faker.Interpret("CREATE INDEX ON :K(id)");
   EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:1}) RETURN n.v"), (Rows{{10}}));
 
@@ -2986,7 +3159,7 @@ TEST_F(VersioningGatedTest, BranchForkEdgeSetPropertyIsVisibleBothWaysAndIsolate
   EXPECT_EQ(IntRows(faker, "MATCH (:A)-[r]->() RETURN count(r)"), (Rows{{1}}));
   EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R]->() RETURN properties(r)"), (std::set<std::string>{"w", "x"}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 7}})) << "main must be untouched";
 }
 
@@ -3014,7 +3187,7 @@ TEST_F(VersioningGatedTest, BranchForkEdgeRemoveAndReplacePropertiesOverlayCorre
   EXPECT_EQ(EdgePropertyKeys(faker, "MATCH ()-[r:R3]->() RETURN properties(r)"),
             (std::set<std::string>{"w", "x", "y"}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() RETURN r.w, r.x ORDER BY type(r)"), (Rows{{1, 7}, {1, 7}, {1, 7}}));
 }
 
@@ -3059,7 +3232,7 @@ TEST_F(VersioningGatedTest, BranchDeleteStubBackedForkEdgeIsGoneEverywhere) {
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 8 RETURN count(r)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B {id:4})<-[r]-() RETURN count(r)"), (Rows{{0}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w ORDER BY r.w"), (Rows{{1}, {4}, {5}, {6}}));
 }
 
@@ -3174,7 +3347,7 @@ TEST_F(VersioningGatedTest, BranchEdgePropertyIndexScanFollowsGainedPropertyThro
   EXPECT_EQ(all_global(), (Rows{{4}, {6}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{1}}));
 
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w"), (Rows{{4}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{2}}));
 }
@@ -3201,13 +3374,13 @@ TEST_F(VersioningGatedTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingInd
     faker.Interpret("CREATE (:V)-[:T {p: 3}]->(:V)");
     faker.Interpret("CREATE (:V)-[:T {p: 1}]->(:V)");
     faker.Interpret("CREATE (:V)-[:T {p: 2}]->(:V)");
-    faker.Interpret("CREATE BRANCH 'd' FROM 'main'");
-    faker.Interpret("CHECKOUT BRANCH 'd'");
+    faker.Interpret("CREATE BRANCH 'd'");
+    faker.Interpret("USE BRANCH 'd'");
     ASSERT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{6}}));
 
-    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret("USE BRANCH 'main'");
     faker.Interpret(c.drop);
-    faker.Interpret("CHECKOUT BRANCH 'd'");
+    faker.Interpret("USE BRANCH 'd'");
 
     const std::string presence = std::string{"MATCH "} + c.match + " WHERE r.p IS NOT NULL RETURN r.p ORDER BY r.p";
     const std::string range = std::string{"MATCH "} + c.match + " WHERE r.p > 0 RETURN r.p ORDER BY r.p";
@@ -3215,32 +3388,76 @@ TEST_F(VersioningGatedTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingInd
     EXPECT_EQ(IntRows(faker, range), (Rows{{1}, {2}, {3}})) << "range scan on branch";
     EXPECT_TRUE(PlanHasOperator(ExplainText(faker, range), c.op)) << ExplainText(faker, range);
 
-    faker.Interpret("CHECKOUT BRANCH 'main'");
+    faker.Interpret("USE BRANCH 'main'");
     faker.Interpret("DROP BRANCH 'd'");
   }
 }
 
-TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsCleanlyAndFallsBackToMain) {
-  auto &checkouts = memgraph::metrics::Metrics().global.versioning_active_checkouts;
+// A dropped branch is never replaced by main: every query fails until the session switches.
+TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsEveryQueryUntilItSwitches) {
+  auto &sessions = memgraph::metrics::Metrics().global.versioning_active_sessions;
   faker.Interpret("CREATE (:A {x:1})");
   Fork();
   ASSERT_EQ(db->version_store()->CheckoutCount("b"), 1U);
-  const double checkouts0 = checkouts->Value();
+  const double sessions0 = sessions->Value();
 
   ASSERT_TRUE(db->version_store()->FreezeAndDropAll().has_value());
 
-  try {
-    faker.Interpret("MATCH (n:A) RETURN n.x");
-    FAIL() << "a query on a dropped branch must throw";
-  } catch (const memgraph::query::QueryRuntimeException &e) {
-    EXPECT_THAT(e.what(), ::testing::HasSubstr("Branch 'b' no longer exists"));
-  }
+  const auto expect_dead_branch = [&](const char *query) {
+    try {
+      faker.Interpret(query);
+      FAIL() << "a query on a dropped branch must throw: " << query;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(std::string{e.what()}, "Branch 'b' no longer exists. Run USE BRANCH or USE DATABASE to continue.")
+          << query;
+    }
+  };
+  expect_dead_branch("MATCH (n:A) RETURN n.x");
   EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
-  EXPECT_DOUBLE_EQ(checkouts->Value(), checkouts0 - 1.0) << "the detach must release the checkout exactly once";
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b") << "the session is not silently moved to main";
+  EXPECT_DOUBLE_EQ(sessions->Value(), sessions0 - 1.0) << "the detach must release the attach exactly once";
 
-  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}})) << "the next query runs on main";
+  expect_dead_branch("MATCH (n:A) RETURN n.x");
+  expect_dead_branch("RETURN 1");
+  expect_dead_branch("SHOW BRANCH");
+  expect_dead_branch("SHOW BRANCHES");
+  expect_dead_branch("SHOW INDEX INFO");
+  expect_dead_branch("CREATE (:B)");
+  EXPECT_DOUBLE_EQ(sessions->Value(), sessions0 - 1.0);
+
+  expect_dead_branch("BEGIN");
+  faker.Interpret("ROLLBACK");
+
+  db->version_store()->Unfreeze();
+  faker.Interpret("USE BRANCH main");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}})) << "the session runs on main once it switched";
+}
+
+// USE BRANCH to a live branch also gets a session out of the dead-branch state.
+TEST_F(VersioningGatedTest, SessionOnDroppedBranchCanUseAnotherBranch) {
+  faker.Interpret("CREATE (:A {x:1})");
+  Fork("b");
+  faker.Interpret("CREATE BRANCH 'c'");
+  ASSERT_TRUE(db->version_store()->ForceDropBranch("b").value_or(false));
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:A) RETURN n.x"), memgraph::query::QueryRuntimeException);
+  faker.Interpret("USE BRANCH c");
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "c");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}}));
+}
+
+// A branch re-created under a dropped branch's name is not the branch the session was on.
+TEST_F(VersioningGatedTest, SessionOnDroppedBranchStaysDeadWhenTheNameIsReused) {
+  Fork("b");
+  ASSERT_TRUE(db->version_store()->ForceDropBranch("b").value_or(false));
+  ASSERT_TRUE(db->version_store()->CreateBranch("b", "main").has_value());
+
+  ASSERT_THROW(faker.Interpret("MATCH (n) RETURN n"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  faker.Interpret("USE BRANCH b");
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+  EXPECT_NO_THROW(faker.Interpret("MATCH (n) RETURN n"));
 }
 
 // Indexes created on main after a branch's fork point: the branch must read fork-state (plus its own writes), not
@@ -3268,7 +3485,7 @@ void SeedLateIndexVertices(InterpreterFaker &s) {
 }
 
 void CreateLateVertexIndexes(InterpreterFaker &s) {
-  s.Interpret("CHECKOUT BRANCH 'main'");
+  s.Interpret("USE BRANCH 'main'");
   s.Interpret("CREATE INDEX ON :L");
   s.Interpret("CREATE INDEX ON :L(p)");
 }
@@ -3315,10 +3532,10 @@ void RunStatements(InterpreterFaker &s, std::string_view script) {
 TEST_F(VersioningGatedTest, BranchLateIndexMainDriftBeforeIndexBuild) {
   SeedLateIndexVertices(faker);
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kMainDrift);
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 9, 50, 2});
 }
 
@@ -3328,7 +3545,7 @@ TEST_F(VersioningGatedTest, BranchLateIndexBranchWritesBeforeIndexBuild) {
   RunStatements(faker, kBranchWrites);
   faker.Interpret("MATCH (n {t:'b'}) SET n:L");
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 10}, {"b", 2}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 2, 3, 5, 6, 7, 10});
 }
 
@@ -3336,10 +3553,10 @@ TEST_F(VersioningGatedTest, BranchLateIndexMainDriftAndBranchWritesBeforeIndexBu
   SeedLateIndexVertices(faker);
   Fork();
   RunStatements(faker, kBranchWrites);
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kMainDrift);
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2});
 }
 
@@ -3347,10 +3564,10 @@ TEST_F(VersioningGatedTest, BranchLateIndexMainDriftAndBranchWritesBeforeIndexBu
 TEST_F(VersioningGatedTest, BranchLateIndexBranchWritesAfterIndexBuild) {
   SeedLateIndexVertices(faker);
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kMainDrift);
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   RunStatements(faker, kBranchWrites);
   ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2});
 }
@@ -3390,7 +3607,7 @@ void ExpectBranchEdgeIndexes(InterpreterFaker &s, const TagP &expected_r, const 
 }
 
 void CreateLateEdgeIndexes(InterpreterFaker &s) {
-  s.Interpret("CHECKOUT BRANCH 'main'");
+  s.Interpret("USE BRANCH 'main'");
   s.Interpret("CREATE EDGE INDEX ON :R");
   s.Interpret("CREATE EDGE INDEX ON :R(w)");
 }
@@ -3399,10 +3616,10 @@ void CreateLateEdgeIndexes(InterpreterFaker &s) {
 TEST_F(VersioningGatedTest, BranchLateEdgeIndexMainDriftBeforeIndexBuild) {
   SeedLateIndexEdges(faker);
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kEdgeMainDrift);
   CreateLateEdgeIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchEdgeIndexes(faker, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20});
 }
 
@@ -3410,10 +3627,10 @@ TEST_F(VersioningGatedTest, BranchLateEdgeIndexMainDriftAndBranchWritesBeforeInd
   SeedLateIndexEdges(faker);
   Fork();
   RunStatements(faker, kEdgeBranchWrites);
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kEdgeMainDrift);
   CreateLateEdgeIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchEdgeIndexes(faker, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20});
 }
 
@@ -3424,12 +3641,12 @@ TEST_F(VersioningGatedTest, BranchRebuiltIndexMainDriftBeforeRebuild) {
   faker.Interpret("CREATE INDEX ON :L(p)");
   SeedLateIndexVertices(faker);
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kMainDrift);
   faker.Interpret("DROP INDEX ON :L");
   faker.Interpret("DROP INDEX ON :L(p)");
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 9, 50, 2}, true);
 }
 
@@ -3439,12 +3656,12 @@ TEST_F(VersioningGatedTest, BranchRebuiltIndexBranchWritesAndMainDriftBeforeRebu
   SeedLateIndexVertices(faker);
   Fork();
   RunStatements(faker, kBranchWrites);
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kMainDrift);
   faker.Interpret("DROP INDEX ON :L");
   faker.Interpret("DROP INDEX ON :L(p)");
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2}, true);
 }
 
@@ -3453,12 +3670,12 @@ TEST_F(VersioningGatedTest, BranchRebuiltEdgeIndexMainDriftBeforeRebuild) {
   faker.Interpret("CREATE EDGE INDEX ON :R(w)");
   SeedLateIndexEdges(faker);
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kEdgeMainDrift);
   faker.Interpret("DROP EDGE INDEX ON :R");
   faker.Interpret("DROP EDGE INDEX ON :R(w)");
   CreateLateEdgeIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchEdgeIndexes(faker, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}, true);
 }
 
@@ -3468,10 +3685,10 @@ TEST_F(VersioningGatedTest, BranchRebuiltIndexNoDriftControl) {
   faker.Interpret("CREATE INDEX ON :L(p)");
   SeedLateIndexVertices(faker);
   Fork();
-  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("USE BRANCH 'main'");
   faker.Interpret("DROP INDEX ON :L");
   faker.Interpret("DROP INDEX ON :L(p)");
   CreateLateVertexIndexes(faker);
-  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6}, true);
 }

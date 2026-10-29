@@ -284,7 +284,7 @@ void ExpectRestartDropsTheBranches(Restart &&restart) {
       acc->CreateVertex();
       Commit(*acc);
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
     {
       auto acc = db.Access(ms::WRITE);
       acc->CreateVertex();

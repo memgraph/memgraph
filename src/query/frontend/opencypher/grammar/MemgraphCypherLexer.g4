@@ -47,7 +47,6 @@ BUILD                   : B U I L D ;
 CALL                    : C A L L ;
 CALLABLE                : C A L L A B L E ;
 CHECK                   : C H E C K ;
-CHECKOUT                : C H E C K O U T ;
 CLEAR                   : C L E A R ;
 CLUSTER                 : C L U S T E R;
 COMMIT                  : C O M M I T ;

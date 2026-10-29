@@ -2132,8 +2132,8 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
-  /// USING VERSION target; an Expression (like hops_limit_) because the AST is cached across executions.
-  memgraph::query::Expression *version_target_{nullptr};
+  /// USING BRANCH target; an Expression (like hops_limit_) because the AST is cached across executions.
+  memgraph::query::Expression *branch_target_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2145,7 +2145,7 @@ struct PreQueryDirectives {
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
     object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
-    object.version_target_ = version_target_ ? version_target_->Clone(storage) : nullptr;
+    object.branch_target_ = branch_target_ ? branch_target_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -4300,27 +4300,23 @@ class VersioningQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
-  enum class Action : uint8_t { CREATE_BRANCH, CHECKOUT_BRANCH, MERGE_BRANCH, DROP_BRANCH, SHOW_BRANCH, SHOW_BRANCHES };
+  enum class Action : uint8_t { CREATE_BRANCH, DROP_BRANCH, USE_BRANCH, SHOW_BRANCH, SHOW_BRANCHES };
 
-  // name_/description_/parent_ stay Expression* (PrimitiveLiteral or ParameterLookup): the AST is
-  // cached across executions with different stripped-literal values, so never resolve them to std::string.
+  // name_ stays an Expression* (PrimitiveLiteral or ParameterLookup): the AST is cached across executions with
+  // different stripped-literal values, so never resolve it to std::string. Null for SHOW BRANCH(ES) without a name.
   memgraph::query::Expression *name_{nullptr};
-  memgraph::query::Expression *description_{nullptr};
-  memgraph::query::Expression *parent_{nullptr};
   /// A plain identifier, never stripped into a parameter, so safe to resolve eagerly.
   std::optional<std::string> for_database_;
   memgraph::query::VersioningQuery::Action action_;
-  /// CHECKOUT BRANCH x FROM y (create-if-absent + switch) vs CHECKOUT BRANCH x (switch only).
-  bool checkout_{false};
+  /// DROP BRANCH ... FORCE
+  bool force_{false};
 
   VersioningQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<VersioningQuery>();
     object->action_ = action_;
     object->name_ = name_ ? name_->Clone(storage) : nullptr;
-    object->description_ = description_ ? description_->Clone(storage) : nullptr;
-    object->parent_ = parent_ ? parent_->Clone(storage) : nullptr;
     object->for_database_ = for_database_;
-    object->checkout_ = checkout_;
+    object->force_ = force_;
     return object;
   }
 };

@@ -30,7 +30,7 @@ def branch() -> Iterator[str]:
     with contextlib.closing(connect()) as connection:
         cursor = connection.cursor()
         execute_and_fetch_all(cursor, "CREATE (:V {id: 1})")
-        execute_and_fetch_all(cursor, f"CREATE BRANCH '{name}' FROM 'main'")
+        execute_and_fetch_all(cursor, f"CREATE BRANCH '{name}'")
     yield name
     with contextlib.closing(connect()) as connection:
         execute_and_fetch_all(connection.cursor(), f"DROP BRANCH '{name}'")
@@ -38,13 +38,13 @@ def branch() -> Iterator[str]:
 
 @pytest.fixture
 def cursor(branch):
-    """Closed before the branch is dropped: another session's checkout blocks DROP BRANCH."""
+    """Closed before the branch is dropped: another session on the branch blocks DROP BRANCH."""
     with contextlib.closing(connect()) as connection:
         yield connection.cursor()
 
 
 def test_nested_query_runs_on_callers_branch(branch, cursor):
-    execute_and_fetch_all(cursor, f"CHECKOUT BRANCH '{branch}'")
+    execute_and_fetch_all(cursor, f"USE BRANCH '{branch}'")
     execute_and_fetch_all(cursor, "CREATE (:OnlyOnBranch)")
 
     rows = execute_and_fetch_all(
@@ -58,53 +58,53 @@ def test_nested_query_runs_on_callers_branch(branch, cursor):
 
     execute_and_fetch_all(cursor, "CALL versioning_mgp.run('CREATE (:FromModule)') YIELD row RETURN row")
     assert _count(cursor, "FromModule") == 1
-    execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
+    execute_and_fetch_all(cursor, "USE BRANCH 'main'")
     assert _count(cursor, "FromModule") == 0
     assert _count(cursor, "OnlyOnBranch") == 0
 
 
-def test_nested_query_under_using_version_main_runs_on_main(branch, cursor):
-    execute_and_fetch_all(cursor, f"CHECKOUT BRANCH '{branch}'")
+def test_nested_query_under_using_branch_main_runs_on_main(branch, cursor):
+    execute_and_fetch_all(cursor, f"USE BRANCH '{branch}'")
     execute_and_fetch_all(cursor, "CREATE (:OnlyOnBranch)")
 
     rows = execute_and_fetch_all(
         cursor,
-        "USING VERSION 'main' CALL versioning_mgp.run('MATCH (n:OnlyOnBranch) RETURN count(n) AS c') YIELD row RETURN row",
+        "USING BRANCH 'main' CALL versioning_mgp.run('MATCH (n:OnlyOnBranch) RETURN count(n) AS c') YIELD row RETURN row",
     )
     assert [r[0]["c"] for r in rows] == [0]
 
     execute_and_fetch_all(
-        cursor, "USING VERSION 'main' CALL versioning_mgp.run('CREATE (:ToMain)') YIELD row RETURN row"
+        cursor, "USING BRANCH 'main' CALL versioning_mgp.run('CREATE (:ToMain)') YIELD row RETURN row"
     )
     assert _count(cursor, "ToMain") == 0
-    execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
+    execute_and_fetch_all(cursor, "USE BRANCH 'main'")
     assert _count(cursor, "ToMain") == 1
 
 
 def test_schema_assert_rejected_on_branch(branch, cursor):
-    execute_and_fetch_all(cursor, f"CHECKOUT BRANCH '{branch}'")
+    execute_and_fetch_all(cursor, f"USE BRANCH '{branch}'")
 
     with pytest.raises(Exception, match="versioning branch"):
         execute_and_fetch_all(cursor, "CALL schema.assert({V: ['id']}, {}) YIELD label RETURN label")
 
     assert _count(cursor, "V") == 1
-    execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
+    execute_and_fetch_all(cursor, "USE BRANCH 'main'")
     assert execute_and_fetch_all(cursor, "SHOW INDEX INFO") == []
 
 
 def test_drop_branch_after_nested_query():
     with contextlib.closing(connect()) as connection:
         cursor = connection.cursor()
-        execute_and_fetch_all(cursor, "CREATE BRANCH 'dropme' FROM 'main'")
-        execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'dropme'")
+        execute_and_fetch_all(cursor, "CREATE BRANCH 'dropme'")
+        execute_and_fetch_all(cursor, "USE BRANCH 'dropme'")
         execute_and_fetch_all(cursor, "CALL versioning_mgp.run('CREATE (:Tmp)') YIELD row RETURN row")
         assert _count(cursor, "Tmp") == 1
-        execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'main'")
+        execute_and_fetch_all(cursor, "USE BRANCH 'main'")
 
         # The nested query released its attach, so DROP succeeds and the branch is gone.
         execute_and_fetch_all(cursor, "DROP BRANCH 'dropme'")
         with pytest.raises(Exception):
-            execute_and_fetch_all(cursor, "CHECKOUT BRANCH 'dropme'")
+            execute_and_fetch_all(cursor, "USE BRANCH 'dropme'")
 
 
 if __name__ == "__main__":

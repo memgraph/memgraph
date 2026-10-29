@@ -380,7 +380,7 @@ TEST_F(VersioningHistoryReplayTest, TailReplayRestoresEpochAndHistory) {
     first_epoch = std::string(storage->repl_storage_state_.epoch_.id());
 
     CommitVertex(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
     CommitVertex(db);
   }
   {

@@ -232,7 +232,7 @@ const VertexDump *FindVertex(const std::vector<VertexDump> &dump, ms::Gid gid) {
   return it == dump.end() ? nullptr : &*it;
 }
 
-// Attaches to `name` the way CHECKOUT does: the registry's core, built on first use, with its floors recorded.
+// Attaches to `name` the way USE BRANCH does: the registry's core, built on first use, with its floors recorded.
 std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db, std::string_view name,
                                             bool *built = nullptr) {
   auto *store = db.version_store();
@@ -518,7 +518,7 @@ void BuildScenario(LastTxn kind, Scenario &out) {
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   const auto n = ResolveNames(db);
   out.base = CreateBase(db);
-  auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+  auto info = db.version_store()->CreateBranch("b", "main");
   ASSERT_TRUE(info.has_value());
   out.number = info->number;
   auto ctx = Checkout(db, "b");
@@ -709,10 +709,10 @@ void BuildMiddleScenario(MiddleScenario &out) {
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   const auto n = ResolveNames(db);
   out.base = CreateBase(db);
-  auto b_info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+  auto b_info = db.version_store()->CreateBranch("b", "main");
   ASSERT_TRUE(b_info.has_value());
   out.b_number = b_info->number;
-  ASSERT_TRUE(db.version_store()->CreateBranch("c", "main", std::nullopt).has_value());
+  ASSERT_TRUE(db.version_store()->CreateBranch("c", "main").has_value());
   auto b = Checkout(db, "b");
   auto c = Checkout(db, "c");
   ASSERT_NE(b, nullptr);
@@ -811,7 +811,7 @@ TEST_F(VersioningCrashRecoveryTest, MainWalTornInItsLastTransactionKeepsMainAtTh
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto n = ResolveNames(db);
     const auto base = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     RunPrior(*ctx, base, n);
@@ -882,7 +882,7 @@ TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNever
       ASSERT_TRUE(created.SetProperty(n.p, ms::PropertyValue(5)).has_value());
       Commit(*acc);
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main", std::nullopt).has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     BranchTxn(*ctx, [&](mv::BranchContext &c, ms::Storage::Accessor &) {
@@ -924,7 +924,7 @@ TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNever
 // ---- 4. Ledger written, branch WAL missing or empty
 // ------------------------------------------------------------------------
 
-// Expected to pass. No WAL files means the core is not built at startup and is built empty on the first checkout,
+// Expected to pass. No WAL files means the core is not built at startup and is built empty on first use,
 // reading main at the fork.
 TEST_F(VersioningCrashRecoveryTest, LedgerWithoutABranchWalDirectoryRecoversEmptyAtTheFork) {
   uint64_t number = 0;
@@ -933,7 +933,7 @@ TEST_F(VersioningCrashRecoveryTest, LedgerWithoutABranchWalDirectoryRecoversEmpt
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     static_cast<void>(CreateBase(db));
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = Checkout(db, "b");
@@ -966,7 +966,7 @@ TEST_F(VersioningCrashRecoveryTest, EmptyBranchWalFileRecoversEmptyAtTheFork) {
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto n = ResolveNames(db);
     const auto base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = Checkout(db, "b");
@@ -1032,7 +1032,7 @@ TEST_F(VersioningCrashRecoveryTest, TornOnlyBranchWalFileRecoversEmptyAtTheFork)
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto n = ResolveNames(db);
     const auto base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = Checkout(db, "b");
@@ -1062,7 +1062,7 @@ TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarli
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto n = ResolveNames(db);
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(info.has_value());
     number = info->number;
     auto ctx = Checkout(db, "b");
@@ -1109,7 +1109,7 @@ void BuildChainScenario(ChainScenario &out) {
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   const auto n = ResolveNames(db);
   const auto base = CreateBase(db);
-  auto info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+  auto info = db.version_store()->CreateBranch("b", "main");
   ASSERT_TRUE(info.has_value());
   out.number = info->number;
   auto ctx = Checkout(db, "b");
@@ -1262,10 +1262,10 @@ TEST_F(VersioningCrashRecoveryTest, AnUnreadableBranchDirectoryDoesNotStopTheOth
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto n = ResolveNames(db);
     const auto base = CreateBase(db);
-    auto a_info = db.version_store()->CreateBranch("a", "main", std::nullopt);
+    auto a_info = db.version_store()->CreateBranch("a", "main");
     ASSERT_TRUE(a_info.has_value());
     a_number = a_info->number;
-    auto b_info = db.version_store()->CreateBranch("b", "main", std::nullopt);
+    auto b_info = db.version_store()->CreateBranch("b", "main");
     ASSERT_TRUE(b_info.has_value());
     ASSERT_LT(a_info->number, b_info->number);
     auto a = Checkout(db, "a");
