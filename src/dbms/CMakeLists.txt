@@ -7,7 +7,6 @@ target_sources(mg-dbms
     database_info.cpp
     tenant_profiles.cpp
     coordinator_handler.cpp
-    inmemory/history_replay.cpp
     inmemory/replication_handlers.cpp
     inmemory/two_pc_commit_cache.cpp
     replication_handlers.cpp
@@ -22,6 +21,11 @@ target_sources(mg-dbms
 )
 
 target_link_libraries(mg-dbms
-    PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication mg-metrics mg::versioning
+    PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication mg-metrics
     PRIVATE mg-coordination mg-memory-utils
 )
+
+if (MG_ENTERPRISE)
+    target_sources(mg-dbms PRIVATE inmemory/history_replay.cpp)
+    target_link_libraries(mg-dbms PUBLIC mg::versioning)
+endif()

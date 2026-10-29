@@ -33,7 +33,9 @@
 #include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
+#endif
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -243,6 +245,7 @@ TEST_F(VectorIndexTest, ToBoltVertexOmitsVectorIndexedPropertyWhenFlagOn) {
   EXPECT_TRUE(without_prop->properties.contains("tags"));
 }
 
+#ifdef MG_ENTERPRISE
 // N8 parity fix: the branch arm of ToBoltVertex (communication.cpp) must apply the same
 // vector-indexed property omit-on-return filtering the storage arm does. This test exercises
 // that arm by wrapping a storage::VertexAccessor in a query::VertexAccessor with a non-null
@@ -297,6 +300,7 @@ TEST_F(VectorIndexTest, ToBoltVertexBranchArmOmitsVectorIndexedPropertyWhenFlagO
   EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
   EXPECT_TRUE(without_prop->properties.contains("title"));
 }
+#endif
 
 TEST_F(VectorIndexTest, ConcurrencyTest) {
   this->CreateIndex(2, 10);

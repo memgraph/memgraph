@@ -31,7 +31,9 @@
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
+#endif
 
 namespace memgraph::storage {
 enum class PointDistanceCondition : uint8_t;
@@ -131,7 +133,10 @@ class VerticesIterable final {
   std::variant<storage::VerticesIterable,
                std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                   utils::Allocator<VertexAccessor>> *,
-               versioning::BranchContext::UnionVerticesIterable, std::shared_ptr<std::vector<VertexAccessor>>>
+#ifdef MG_ENTERPRISE
+               versioning::BranchContext::UnionVerticesIterable,
+#endif
+               std::shared_ptr<std::vector<VertexAccessor>>>
       iterable_;
   // Branch union-scan alternative only: stamped onto each yielded VertexAccessor so mutators can CowVertex through it.
   // The diff-engine accessor lives in BranchContext::current_diff_txn(), keeping accessors at one extra pointer.
@@ -142,7 +147,10 @@ class VerticesIterable final {
     std::variant<storage::VerticesIterable::Iterator,
                  std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                     utils::Allocator<VertexAccessor>>::iterator,
-                 versioning::BranchContext::UnionVerticesIterable::Iterator, std::vector<VertexAccessor>::iterator>
+#ifdef MG_ENTERPRISE
+                 versioning::BranchContext::UnionVerticesIterable::Iterator,
+#endif
+                 std::vector<VertexAccessor>::iterator>
         it_;
     versioning::BranchContext *branch_ctx_{nullptr};
     std::shared_ptr<std::vector<VertexAccessor>> materialized_;
@@ -155,8 +163,10 @@ class VerticesIterable final {
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
+#ifdef MG_ENTERPRISE
     Iterator(versioning::BranchContext::UnionVerticesIterable::Iterator it, versioning::BranchContext *ctx)
         : it_(std::move(it)), branch_ctx_(ctx) {}
+#endif
 
     Iterator(std::vector<VertexAccessor>::iterator it, std::shared_ptr<std::vector<VertexAccessor>> materialized)
         : it_(it), materialized_(std::move(materialized)) {}
@@ -171,9 +181,11 @@ class VerticesIterable final {
                                           utils::Allocator<VertexAccessor>>::iterator &it) {
                 return VertexAccessor(*it);
               },
+#ifdef MG_ENTERPRISE
               [this](const versioning::BranchContext::UnionVerticesIterable::Iterator &it) {
                 return VertexAccessor(*it, branch_ctx_);
               },
+#endif
               [](const std::vector<VertexAccessor>::iterator &it) { return *it; }},
           it_);
     }
@@ -197,8 +209,10 @@ class VerticesIterable final {
                                                utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
+#ifdef MG_ENTERPRISE
   VerticesIterable(versioning::BranchContext::UnionVerticesIterable iterable, versioning::BranchContext *ctx)
       : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
+#endif
 
   explicit VerticesIterable(std::shared_ptr<std::vector<VertexAccessor>> materialized)
       : iterable_(std::move(materialized)) {}
@@ -213,9 +227,11 @@ class VerticesIterable final {
                                                                         utils::Allocator<VertexAccessor>> *iterable_) {
                                                     return Iterator(iterable_->begin());
                                                   },
+#ifdef MG_ENTERPRISE
                                                   [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
                                                     return Iterator(iterable_.begin(), branch_ctx_);
                                                   },
+#endif
                                                   [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
                                                     return Iterator(materialized->begin(), materialized);
                                                   }},
@@ -230,9 +246,11 @@ class VerticesIterable final {
                                   std::hash<VertexAccessor>,
                                   std::equal_to<void>,
                                   utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); },
+#ifdef MG_ENTERPRISE
             [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
               return Iterator(iterable_.end(), branch_ctx_);
             },
+#endif
             [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
               return Iterator(materialized->end(), materialized);
             }},
@@ -482,6 +500,7 @@ class DbAccessor final {
     return has_label.has_value() && *has_label;
   }
 
+#ifdef MG_ENTERPRISE
   // Full scan of the branch union, O(graph) regardless of selectivity; fallback when an index is not ready.
   template <typename Pred>
   auto MaterializeFilteredBranchScan(storage::View view, Pred &&predicate)
@@ -1035,6 +1054,7 @@ class DbAccessor final {
 
     return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
   }
+#endif
 
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
@@ -1054,11 +1074,13 @@ class DbAccessor final {
   auto type() const { return accessor_->type(); }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto maybe_vertex = branch_ctx_->ResolveVertex(gid, view);
       if (maybe_vertex) return VertexAccessor(*maybe_vertex, branch_ctx_);
       return std::nullopt;
     }
+#endif
     auto maybe_vertex = accessor_->FindVertex(gid, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
@@ -1067,6 +1089,7 @@ class DbAccessor final {
   // On a branch `accessor_` is the diff engine only: look up diff-first, else union scan O(V+E).
   // Prefer the 3-argument overload when the FROM vertex is known.
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) return EdgeAccessor(*diff_edge, branch_ctx_);
       std::optional<EdgeAccessor> found;
@@ -1077,6 +1100,7 @@ class DbAccessor final {
       });
       return found;
     }
+#endif
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
@@ -1084,12 +1108,14 @@ class DbAccessor final {
 
   // Walks only the FROM vertex's OUT adjacency, no full scan.
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       for (auto &e : branch_ctx_->ResolveEdges(from_vertex_gid, storage::EdgeDirection::OUT, view)) {
         if (e.Gid() == edge_gid) return EdgeAccessor(e, branch_ctx_);
       }
       return std::nullopt;
     }
+#endif
     auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
@@ -1112,6 +1138,7 @@ class DbAccessor final {
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 
   VerticesIterable Vertices(storage::View view) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       // No deletes and no branch-native vertices (skiplist size counts uncommitted/un-GC'd ones, so 0 means none
       // visible to anyone): the union is exactly the fork stream, yielded lazily without the per-vertex merge.
@@ -1122,12 +1149,14 @@ class DbAccessor final {
       }
       return VerticesIterable(branch_ctx_->Vertices(view), branch_ctx_);
     }
+#endif
     return VerticesIterable(accessor_->Vertices(view));
   }
 
   // Union of the fork and diff label indexes, unsorted; full-scan fallback if main dropped the index after the fork.
   // Fork candidates with an overlay are re-checked on the reconstructed vertex.
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.LabelIndexReady(label)) {
@@ -1179,6 +1208,7 @@ class DbAccessor final {
 
       return VerticesIterable(std::move(result));
     }
+#endif
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
@@ -1186,13 +1216,16 @@ class DbAccessor final {
                             std::span<storage::PropertyPath const> properties,
                             std::span<storage::PropertyValueRange const> property_ranges,
                             storage::IndexOrder order = storage::IndexOrder::ASC) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       return BranchLabelPropertyScan(view, label, properties, property_ranges, order);
     }
+#endif
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
   VerticesIterable Vertices(storage::View view, storage::PropertyId property) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       return BranchPropertyScan(
           view,
@@ -1201,10 +1234,12 @@ class DbAccessor final {
           [&] { return accessor_->Vertices(property, view); },
           [](storage::PropertyValue const &) { return true; });
     }
+#endif
     return VerticesIterable(accessor_->Vertices(property, view));
   }
 
   VerticesIterable Vertices(storage::View view, storage::PropertyId property, storage::PropertyValue const &value) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       return BranchPropertyScan(
           view,
@@ -1213,12 +1248,14 @@ class DbAccessor final {
           [&] { return accessor_->Vertices(property, value, view); },
           [&value](storage::PropertyValue const &v) { return v == value; });
     }
+#endif
     return VerticesIterable(accessor_->Vertices(property, value, view));
   }
 
   VerticesIterable Vertices(storage::View view, storage::PropertyId property,
                             std::optional<utils::Bound<storage::PropertyValue>> const &lower,
                             std::optional<utils::Bound<storage::PropertyValue>> const &upper) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto range = storage::PropertyValueRange::Bounded(lower, upper);
       return BranchPropertyScan(
@@ -1228,20 +1265,26 @@ class DbAccessor final {
           [&] { return accessor_->Vertices(property, lower, upper, view); },
           [&range](storage::PropertyValue const &v) { return range.IsValueInRange(v); });
     }
+#endif
     return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
   }
 
   // Chunked scans bypass the branch union and would return only the diff engine's contents, so they are rejected.
   void RejectBranchChunkedVertexScan() const {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
+#endif
   }
 
   void RejectBranchChunkedEdgeScan() const {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+#endif
   }
 
   VerticesIterable Vertices(storage::View view, storage::PropertyId property,
                             storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       return BranchPropertyScan(
           view,
@@ -1250,6 +1293,7 @@ class DbAccessor final {
           [&] { return accessor_->Vertices(property, range, view); },
           [&range](storage::PropertyValue const &v) { return BranchValueInRange(range, v); });
     }
+#endif
     return VerticesIterable(accessor_->Vertices(property, range, view));
   }
 
@@ -1331,6 +1375,7 @@ class DbAccessor final {
   // historical(). Edge-type scan: unsorted union (no property key); a fork candidate is skipped if the branch deleted
   // it (fork edges never change type or endpoints).
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypeIndexReady(edge_type)) {
@@ -1352,12 +1397,14 @@ class DbAccessor final {
 
       return EdgesIterable(std::move(result));
     }
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
   // Presence scan; the full-scan fallback (main dropped the index after the fork) sorts ascending by `property`
   // because the planner elides OrderBy on a branch regardless of main's index.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
@@ -1375,11 +1422,13 @@ class DbAccessor final {
                                                        historical.Edges(edge_type, property, storage::View::OLD),
                                                        [](storage::PropertyValue const &) { return true; }));
     }
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const storage::PropertyValue value) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
@@ -1398,11 +1447,13 @@ class DbAccessor final {
                                       historical.Edges(edge_type, property, value, storage::View::OLD),
                                       [&value](storage::PropertyValue const &v) { return v == value; }));
     }
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
@@ -1421,10 +1472,12 @@ class DbAccessor final {
           historical.Edges(edge_type, property, range, storage::View::OLD),
           [&range](storage::PropertyValue const &v) { return BranchValueInRange(range, v); }));
     }
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, property, range, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
@@ -1440,10 +1493,12 @@ class DbAccessor final {
                                                        historical.Edges(property, storage::View::OLD),
                                                        [](storage::PropertyValue const &) { return true; }));
     }
+#endif
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
@@ -1460,10 +1515,12 @@ class DbAccessor final {
                                       historical.Edges(property, value, storage::View::OLD),
                                       [&value](storage::PropertyValue const &v) { return v == value; }));
     }
+#endif
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
@@ -1481,6 +1538,7 @@ class DbAccessor final {
           historical.Edges(property, range, storage::View::OLD),
           [&range](storage::PropertyValue const &v) { return BranchValueInRange(range, v); }));
     }
+#endif
     return EdgesIterable(accessor_->Edges(property, range, view));
   }
 
@@ -1499,9 +1557,11 @@ class DbAccessor final {
   // On a branch the gid comes from main's counter (BranchContext::CreateNativeVertex), disjoint from every fork and
   // main gid.
   VertexAccessor InsertVertex() {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       return VertexAccessor(branch_ctx_->CreateNativeVertex(), branch_ctx_);
     }
+#endif
     return VertexAccessor(accessor_->CreateVertex());
   }
 
@@ -1509,6 +1569,7 @@ class DbAccessor final {
   // redirect a native `from`/`to` to its diff-engine vertex so outstanding accessors stay consistent with the new edge.
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto from_diff = branch_ctx_->CowVertex(from->Gid());
       if (!from_diff) throw QueryRuntimeException(from_diff.error().message);
@@ -1527,6 +1588,7 @@ class DbAccessor final {
       branch_ctx_->RecordEdgeChange(to->Gid());
       return EdgeAccessor(*maybe_edge, branch_ctx_);
     }
+#endif
 
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
@@ -1535,12 +1597,14 @@ class DbAccessor final {
 
   // mgp C-API single-object deletes on a branch; the Cypher clause goes through DetachDelete below.
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto res = BranchDetachDelete({}, {*edge}, false);
       if (!res) return std::unexpected{res.error()};
       if (!*res || (*res)->second.empty()) return std::optional<EdgeAccessor>{};
       return std::make_optional<EdgeAccessor>((*res)->second.front());
     }
+#endif
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -1558,12 +1622,14 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto res = BranchDetachDelete({*vertex_accessor}, {}, true);
       if (!res) return std::unexpected{res.error()};
       if (!*res || (*res)->first.empty()) return std::optional<ReturnType>{};
       return std::make_optional<ReturnType>((*res)->first.front(), std::move((*res)->second));
     }
+#endif
 
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (!res) {
@@ -1586,12 +1652,14 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) {
       auto res = BranchDetachDelete({*vertex_accessor}, {}, false);
       if (!res) return std::unexpected{res.error()};
       if (!*res || (*res)->first.empty()) return std::optional<VertexAccessor>{};
       return std::make_optional<VertexAccessor>((*res)->first.front());
     }
+#endif
     auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -1609,7 +1677,9 @@ class DbAccessor final {
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchDetachDelete(std::move(nodes), std::move(edges), detach);
+#endif
 
     std::vector<storage::VertexAccessor *> nodes_impl;
     std::vector<storage::EdgeAccessor *> edges_impl;
@@ -1676,20 +1746,26 @@ class DbAccessor final {
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
   std::expected<void, storage::StorageManipulationError> Commit(storage::CommitArgs commit_args) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return branch_ctx_->CommitTransaction(std::move(commit_args));
+#endif
     return accessor_->PrepareForCommitPhase(std::move(commit_args));
   }
 
+#ifdef MG_ENTERPRISE
   // Branch only: checks main's existence and type constraints on the reconstructed view of every touched vertex, before
   // the diff engine's commit and outside its engine lock; on violation the caller aborts.
   std::expected<void, storage::ConstraintViolation> ValidateBranchConstraints();
+#endif
 
   std::expected<void, storage::StorageManipulationError> PeriodicCommit(storage::CommitArgs commit_args) {
+#ifdef MG_ENTERPRISE
     if (auto valid = ValidateBranchConstraints(); !valid) {
       accessor_->Abort();
       return std::unexpected{storage::StorageManipulationError{valid.error()}};
     }
     if (branch_ctx_ != nullptr) return branch_ctx_->PeriodicCommitTransaction(std::move(commit_args));
+#endif
     return accessor_->PeriodicCommit(std::move(commit_args));
   }
 

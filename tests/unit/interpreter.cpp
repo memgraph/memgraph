@@ -946,6 +946,21 @@ TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
 }
 #endif
 
+#ifndef MG_ENTERPRISE
+// Graph Versioning is enterprise-only: community still parses branch statements and refuses to run them.
+TYPED_TEST(InterpreterTest, BranchQueriesAreEnterpriseOnly) {
+  for (auto const *query : {"CREATE BRANCH feature",
+                            "DROP BRANCH feature",
+                            "USE BRANCH feature",
+                            "SHOW BRANCH",
+                            "SHOW BRANCHES",
+                            "USING BRANCH feature MATCH (n) RETURN n"}) {
+    SCOPED_TRACE(query);
+    EXPECT_THROW(this->Interpret(query), memgraph::query::EnterpriseOnlyException);
+  }
+}
+#endif
+
 // Charging runs on the jemalloc hooks, so without them nothing is charged and every assertion here
 // holds vacuously.
 #if defined(MG_ENTERPRISE) && USE_JEMALLOC

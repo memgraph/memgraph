@@ -52,7 +52,9 @@
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/version_store.hpp"
+#endif
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -2808,6 +2810,7 @@ TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
   MinMemgraph instance(main_conf);
 
@@ -2936,3 +2939,4 @@ TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
   EXPECT_TRUE(store->List().empty());
   EXPECT_TRUE(store->Frozen());
 }
+#endif  // MG_ENTERPRISE

@@ -153,10 +153,12 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/name.hpp"
 #include "versioning/version_store.hpp"
+#endif
 
 import memgraph.utils.aws;
 
@@ -216,11 +218,14 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
+#ifdef MG_ENTERPRISE
   ThrowIfBranchGone();
+#endif
   auto &db_acc = *db_acc_;
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
+#ifdef MG_ENTERPRISE
   // Branch transactions run against the branch's shared diff engine instead of the database's storage.
   const bool on_branch = branch_context_ != nullptr;
   storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
@@ -230,6 +235,10 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       throw QueryRuntimeException(opened.error().message);
     }
   }
+#else
+  constexpr bool on_branch = false;
+  storage::Storage *target_storage = db_acc->storage();
+#endif
 
   switch (acc_type) {
     case storage::StorageAccessType::READ:
@@ -250,11 +259,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
       throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
+#ifdef MG_ENTERPRISE
   // Published before DbAccessor is constructed so branch object resolution can use it immediately.
   if (on_branch) {
     branch_context_->SetCurrentDiffTxn(db_transactional_accessor_.get());
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get(), on_branch ? branch_context_.get() : nullptr);
+#else
+  execution_db_accessor_.emplace(db_transactional_accessor_.get());
+#endif
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
@@ -266,10 +279,12 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
 }
 
 void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
+#ifdef MG_ENTERPRISE
   // Release the historical accessor (and main's READ guard) before db_transactional_accessor_ is destroyed.
   if (branch_context_) {
     branch_context_->EndTransaction();
   }
+#endif
   if (abort && db_transactional_accessor_) {
     db_transactional_accessor_->Abort();
   }
@@ -278,10 +293,13 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+#ifdef MG_ENTERPRISE
   // A USING BRANCH query was the only user of the branch attached for it.
   RestoreSessionBranch();
+#endif
 }
 
+#ifdef MG_ENTERPRISE
 void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *version_store,
                                                 versioning::BranchContext const &outer) {
   MG_ASSERT(!branch_context_, "AttachBranchOf: session is already attached to a branch.");
@@ -369,6 +387,7 @@ void memgraph::query::CurrentDB::DiscardParkedBranch() {
   parked.plan_cache.reset();
   if (parked.version_store != nullptr) parked.version_store->ReleaseCheckout(parked.number);
 }
+#endif
 
 struct QueryLogWrapper {
   std::string_view query;
@@ -424,16 +443,17 @@ constexpr std::string_view kBrokenDatabaseError =
     "backup of the whole data directory, please replace the current data directory with the backup one and "
     "restart the process.";
 
+#ifdef MG_ENTERPRISE
 constexpr std::string_view kSchemaOnBranchError =
     "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.";
 
-// Not MG_ENTERPRISE-gated: PrepareVersioningQuery also needs it and compiles in community builds.
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
   if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
     throw QueryException(
         fmt::format("{} forbidden on REPLICA! This operation must be executed on the MAIN instance.", operation_name));
   }
 }
+#endif
 
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
@@ -4029,10 +4049,12 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
     if (dba.type() != storage::StorageAccessType::WRITE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
+#ifdef MG_ENTERPRISE
     // Without a valid license branches are read-only; reads and leaving the branch keep working.
     if (dba.branch_context() != nullptr && !license::global_license_checker.IsEnterpriseValidFast()) {
       throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
     }
+#endif
   }
 }
 
@@ -4233,9 +4255,11 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 // Keyed on current_diff_txn() (per transaction), so a query without an open branch transaction uses main's cache.
 query::PlanCacheLRU *SelectPlanCache(CurrentDB &current_db, bool is_cacheable) {
   if (!is_cacheable) return nullptr;
+#ifdef MG_ENTERPRISE
   auto *bctx = current_db.branch_context();
-  const bool on_branch = bctx != nullptr && bctx->current_diff_txn() != nullptr;
-  return on_branch ? current_db.branch_plan_cache() : current_db.db_acc_->get()->plan_cache();
+  if (bctx != nullptr && bctx->current_diff_txn() != nullptr) return current_db.branch_plan_cache();
+#endif
+  return current_db.db_acc_->get()->plan_cache();
 }
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
@@ -4676,11 +4700,12 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
     }
   }
 #endif
-  auto plan =
-      std::make_shared<PullPlanDump>(dba,
-                                     *current_db.db_acc_,
-                                     auth_checker.get(),
-                                     dba->branch_context() != nullptr ? &dba->branch_context()->historical() : nullptr);
+#ifdef MG_ENTERPRISE
+  auto *schema_acc = dba->branch_context() != nullptr ? &dba->branch_context()->historical() : nullptr;
+#else
+  storage::Storage::Accessor *schema_acc = nullptr;
+#endif
+  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, auth_checker.get(), schema_acc);
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),
@@ -6905,6 +6930,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
   // Checked again under the exclusive hold the switch itself takes: CREATE BRANCH only holds main shared, so a branch
   // can appear between this early check and the switch.
+#ifdef MG_ENTERPRISE
   const auto refuse_with_branches = [vs = db_acc->version_store()] {
     if (vs != nullptr && !vs->Empty()) {
       throw QueryRuntimeException(
@@ -6912,6 +6938,9 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
           "fork-point history. Drop all branches first.");
     }
   };
+#else
+  const auto refuse_with_branches = [] {};
+#endif
   refuse_with_branches();
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
@@ -6979,11 +7008,13 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
 PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
+#ifdef MG_ENTERPRISE
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot drop the graph while versioning branches exist: it would strand their fork-point "
         "base. Drop all branches first.");
   }
+#endif
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
@@ -7098,11 +7129,13 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
+#ifdef MG_ENTERPRISE
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot recover a snapshot while versioning branches exist: it would replace the storage "
         "the branches forked from. Drop all branches first.");
   }
+#endif
   storage::Storage *storage = current_db.db_acc_->get()->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -8026,10 +8059,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
   auto *database = current_db.db_acc_->get();
+#ifdef MG_ENTERPRISE
   // Non-null iff the session is on a branch. These info queries open no transaction and cannot carry USING BRANCH
   // (Cypher-only), so the session's branch is the only signal.
   auto const branch_core = current_db.branch_context() != nullptr ? current_db.branch_context()->core()
                                                                   : std::shared_ptr<versioning::BranchCore>{};
+#endif
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
@@ -8199,7 +8234,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"constraint type", "label", "properties", "data_type"};
       // On a branch, existence and type constraints are main's current set and are enforced at branch commit.
       // Unique constraints are not enforced on a branch, so they are listed with an explicit marker.
-      handler = [storage = current_db.db_acc_->get()->storage(), on_branch = current_db.branch_context() != nullptr] {
+      handler = [storage = current_db.db_acc_->get()->storage()
+#ifdef MG_ENTERPRISE
+                     ,
+                 on_branch = current_db.branch_context() != nullptr
+#endif
+      ] {
         auto ac = storage->GetActiveConstraints();
         auto const ts = storage::kLargestCommittedTimestamp;
         storage::ConstraintsInfo const info{
@@ -8222,7 +8262,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           for (const auto &property : item.second) {
             properties.emplace_back(storage->PropertyToName(property));
           }
-          results.push_back({TypedValue(on_branch ? "unique (not enforced on branch)" : "unique"),
+#ifdef MG_ENTERPRISE
+          auto constraint_type = TypedValue(on_branch ? "unique (not enforced on branch)" : "unique");
+#else
+          auto constraint_type = TypedValue("unique");
+#endif
+          results.push_back({std::move(constraint_type),
                              TypedValue(storage->LabelToName(item.first)),
                              TypedValue(std::move(properties)),
                              TypedValue("")});
@@ -8241,13 +8286,19 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"edge types"};
       // On a branch: main's edge types plus those created on the branch (the diff engine only holds edges created
       // on the branch). Both are metadata sets, so no graph scan.
-      handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
+      handler = [storage = current_db.db_acc_->get()->storage()
+#ifdef MG_ENTERPRISE
+                     ,
+                 branch = branch_core
+#endif
+      ] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
         auto edge_types = storage->ListAllPossiblyPresentEdgeTypes();
+#ifdef MG_ENTERPRISE
         if (branch) {
           auto const seen = std::unordered_set<storage::EdgeTypeId>(edge_types.begin(), edge_types.end());
           for (auto const edge_type : branch->diff_engine().ListAllPossiblyPresentEdgeTypes()) {
@@ -8256,6 +8307,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             }
           }
         }
+#endif
         std::vector<std::vector<TypedValue>> results;
         results.reserve(edge_types.size());
         for (auto &edge_type : edge_types) {
@@ -8271,13 +8323,19 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"node labels"};
       // On a branch: main's labels plus the diff engine's and those touched on fork
       // vertices. All are metadata sets, so no graph scan.
-      handler = [storage = current_db.db_acc_->get()->storage(), branch = branch_core] {
+      handler = [storage = current_db.db_acc_->get()->storage()
+#ifdef MG_ENTERPRISE
+                     ,
+                 branch = branch_core
+#endif
+      ] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
         }
         auto node_labels = storage->ListAllPossiblyPresentVertexLabels();
+#ifdef MG_ENTERPRISE
         if (branch) {
           auto seen = std::unordered_set<storage::LabelId>(node_labels.begin(), node_labels.end());
           for (auto const label : branch->diff_engine().ListAllPossiblyPresentVertexLabels()) {
@@ -8287,6 +8345,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             if (seen.insert(label).second) node_labels.push_back(label);
           }
         }
+#endif
         std::vector<std::vector<TypedValue>> results;
         results.reserve(node_labels.size());
         for (auto &node_label : node_labels) {
@@ -8498,14 +8557,20 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       auto database = resolve_database();
 
       if (database) {
+#ifdef MG_ENTERPRISE
         // The session's branch applies when the target database is the one the session is on.
         std::optional<std::string> branch_name;
         if (current_db.branch_context() != nullptr && current_db.db_acc_ &&
             database->get() == current_db.db_acc_->get()) {
           branch_name = current_db.branch_context()->name();
         }
-        handler = [db_acc = std::move(*database), branch_name = std::move(branch_name)] mutable
-            -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+#endif
+        handler = [db_acc = std::move(*database)
+#ifdef MG_ENTERPRISE
+                       ,
+                   branch_name = std::move(branch_name)
+#endif
+        ] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           auto *db = db_acc.get();
           if (!db) throw QueryRuntimeException("Database was dropped during query execution.");
           if (auto *mh = db->metric_handles()) mh->show_storage_info.Increment();
@@ -8518,9 +8583,13 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const auto db_peak_memory = static_cast<double>(db->DbPeakMemoryUsage());
           const auto tenant_limit = db->TenantMemoryLimit();
 
+#ifdef MG_ENTERPRISE
           // Exact branch counts would need a graph scan, so on a branch the data-shape counts are NULL rather than
           // main's (wrong) numbers. Memory and disk figures stay main's.
           const bool on_branch = branch_name.has_value();
+#else
+          constexpr bool on_branch = false;
+#endif
           std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
@@ -8543,6 +8612,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
               {TypedValue("health"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
+#ifdef MG_ENTERPRISE
           if (on_branch) {
             results.push_back({TypedValue("branch"), TypedValue(*branch_name)});
             results.push_back(
@@ -8551,6 +8621,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                             "USE BRANCH main for main's counts. Memory, disk and isolation figures are "
                             "main's.")});
           }
+#endif
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
       } else {
@@ -9022,12 +9093,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       .rw_type = RWType::NONE};
 }
 
+#ifdef MG_ENTERPRISE
 void ThrowIfDatabaseNameReserved(std::string_view name) {
   if (name.contains('@')) {
     throw QueryException("Database name '{}' is invalid: '@' is reserved for branch addressing (database@branch).",
                          name);
   }
 }
+#endif
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         Interpreter &interpreter) {
@@ -9332,6 +9405,23 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 }
 
 namespace {
+// The branch a USING BRANCH directive names, if the query (or the Cypher query EXPLAIN/PROFILE wraps) has one.
+std::optional<std::string> UsingBranchTarget(const ParsedQuery &parsed_query) {
+  CypherQuery *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  if (auto *explain = utils::Downcast<ExplainQuery>(parsed_query.query)) cypher_query = explain->cypher_query_;
+  if (auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) cypher_query = profile->cypher_query_;
+  if (cypher_query == nullptr || cypher_query->pre_query_directives_.branch_target_ == nullptr) return std::nullopt;
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  return GetOptionalStringValue(cypher_query->pre_query_directives_.branch_target_, evaluator);
+}
+}  // namespace
+
+#ifdef MG_ENTERPRISE
+namespace {
 // Same rendering as SHOW SNAPSHOTS' creation_time; null for branches recorded before the time was kept.
 TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
   if (!info.created_at_us) return TypedValue();
@@ -9444,20 +9534,6 @@ versioning::VersionStore *CheckedVersionStore(InterpreterContext *interpreter_co
     throw QueryRuntimeException("Graph versioning registry is unavailable for this database.");
   }
   return version_store;
-}
-
-// The branch a USING BRANCH directive names, if the query (or the Cypher query EXPLAIN/PROFILE wraps) has one.
-std::optional<std::string> UsingBranchTarget(const ParsedQuery &parsed_query) {
-  CypherQuery *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-  if (auto *explain = utils::Downcast<ExplainQuery>(parsed_query.query)) cypher_query = explain->cypher_query_;
-  if (auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) cypher_query = profile->cypher_query_;
-  if (cypher_query == nullptr || cypher_query->pre_query_directives_.branch_target_ == nullptr) return std::nullopt;
-
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = parsed_query.parameters;
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  return GetOptionalStringValue(cypher_query->pre_query_directives_.branch_target_, evaluator);
 }
 
 std::vector<std::string> BranchColumns() { return {"name", "created_at", "sessions", "current"}; }
@@ -9673,9 +9749,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           .rw_type = RWType::NONE};
     }
     case VersioningQuery::Action::SHOW_BRANCHES: {
-      // dbms_handler->Get(name) is MG_ENTERPRISE-only (as in UseDatabaseQuery); community builds reject FOR DATABASE.
       auto target_db_acc = db_acc;
-#ifdef MG_ENTERPRISE
       if (query->for_database_) {
         // The Bolt-level check covered only the session's database; the named one needs access and BRANCH_USE of its
         // own, and is checked before the lookup so a refusal does not reveal whether it exists.
@@ -9694,11 +9768,6 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           throw QueryRuntimeException(e.what());
         }
       }
-#else
-      if (query->for_database_) {
-        throw QueryRuntimeException("SHOW BRANCHES FOR DATABASE requires an enterprise multi-tenant build.");
-      }
-#endif
       // Gate the resolved target whenever FOR DATABASE is given (even naming the current db), since the top-level
       // gate skipped it for this form.
       if (query->for_database_) {
@@ -9744,6 +9813,17 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
   }
   LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
 }
+#else
+PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                     CurrentDB &current_db, Interpreter &interpreter) {
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  (void)current_db;
+  (void)interpreter;
+  throw EnterpriseOnlyException();
+}
+#endif
 
 PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                       InterpreterContext *interpreter_context,
@@ -10003,11 +10083,13 @@ PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_que
 
 PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Create Enum query expects a current DB");
+#ifdef MG_ENTERPRISE
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot create an enum while versioning branches exist: it would drift their frozen enum "
         "mirror out of sync. Drop all branches first.");
   }
+#endif
 
   auto *create_enum_query = utils::Downcast<CreateEnumQuery>(parsed_query.query);
   MG_ASSERT(create_enum_query);
@@ -10058,11 +10140,13 @@ PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current
 
 PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
+#ifdef MG_ENTERPRISE
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot alter an enum while versioning branches exist: it would drift their frozen enum "
         "mirror out of sync. Drop all branches first.");
   }
+#endif
 
   auto *alter_enum_add_query = utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query);
   MG_ASSERT(alter_enum_add_query);
@@ -10093,11 +10177,13 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
 
 PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
+#ifdef MG_ENTERPRISE
   if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
     throw QueryRuntimeException(
         "Cannot alter an enum while versioning branches exist: it would drift their frozen enum "
         "mirror out of sync. Drop all branches first.");
   }
+#endif
 
   auto *alter_enum_update_query = utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
   MG_ASSERT(alter_enum_update_query);
@@ -10242,12 +10328,14 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSchemaInfoOnDiskException();
   }
+#ifdef MG_ENTERPRISE
   if (current_db.branch_context() != nullptr) {
     throw QueryRuntimeException(
         "SHOW SCHEMA INFO is not supported on a versioning branch: the schema is tracked per storage engine, and "
         "merging the branch's changes with the fork would need a full graph scan. Run USE BRANCH main "
         "first.");
   }
+#endif
 
   Callback callback;
   callback.header = {"schema"};
@@ -11445,15 +11533,18 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
     query_execution->query_string = parse_info.parsed_query.query_string;
 
+#ifdef MG_ENTERPRISE
     // USE BRANCH and USE DATABASE are how a session leaves a branch that is gone.
     const auto *versioning_query = utils::Downcast<VersioningQuery>(parsed_query.query);
     if (!utils::Downcast<UseDatabaseQuery>(parsed_query.query) &&
         !(versioning_query != nullptr && versioning_query->action_ == VersioningQuery::Action::USE_BRANCH)) {
       current_db_.ThrowIfBranchGone();
     }
+#endif
 
     // Resolved before parsed_query is moved into a Prepare*Query helper that frees its AST.
     const auto using_branch = UsingBranchTarget(parsed_query);
+#ifdef MG_ENTERPRISE
     versioning::VersionStore *using_branch_store = nullptr;
     if (using_branch) {
       // The accessor opens once, at BEGIN, so a per-query branch cannot re-route an open explicit transaction.
@@ -11468,6 +11559,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw QueryRuntimeException("Branch '{}' does not exist.", *using_branch);
       }
     }
+#else
+    if (using_branch) throw EnterpriseOnlyException();
+#endif
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
     // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
@@ -11599,19 +11693,23 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         }
       }
 
+#ifdef MG_ENTERPRISE
       // schema.assert takes UNIQUE access and rewrites indexes/constraints; on a branch that would hit the diff engine.
       const bool query_on_branch = using_branch ? *using_branch != "main" : current_db_.branch_context() != nullptr;
       if (parse_info.parsed_query.using_schema_assert && query_on_branch) {
         throw QueryRuntimeException(std::string{kSchemaOnBranchError});
       }
+#endif
 
       if (transaction_requirements.access) {
         if (transaction_requirements.isolation_override) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
+#ifdef MG_ENTERPRISE
         if (using_branch) {
           EnterUsingBranch(current_db_, using_branch_store, *current_db_.db_acc_, *using_branch);
         }
+#endif
         SetupDatabaseTransaction(transaction_requirements.could_commit,
                                  ToStorageAccessType(*transaction_requirements.access));
 
@@ -11662,6 +11760,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       cached_fga_->Reset();
     }
 #endif
+#ifdef MG_ENTERPRISE
     // Rejected on a branch: these mutate main-global state (schema, TTL, triggers, streams) that the discard-only diff
     // engine cannot preview or roll back. CreateSnapshotQuery stays allowed: it snapshots main's storage.
     if (current_db_.branch_context() != nullptr) {
@@ -11686,6 +11785,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw QueryRuntimeException(std::string{kSchemaOnBranchError});
       }
     }
+#endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query),
@@ -12670,6 +12770,7 @@ void Interpreter::Commit() {
   }
 
   auto maybe_commit_error = [&]() -> std::expected<void, storage::StorageManipulationError> {
+#ifdef MG_ENTERPRISE
     // A branch's diff engine mirrors no constraints; validate main's existence/type constraints on the reconstructed
     // view first, aborting like a main commit does on violation. Unique constraints are not enforced on a branch.
     if (current_db_.execution_db_accessor_) {
@@ -12683,6 +12784,7 @@ void Interpreter::Commit() {
         return branch->CommitTransaction(make_commit_arg(is_main, *current_db_.db_acc_));
       }
     }
+#endif
     return current_db_.db_transactional_accessor_->PrepareForCommitPhase(
         make_commit_arg(is_main, *current_db_.db_acc_));
   }();
@@ -12725,6 +12827,7 @@ void Interpreter::Commit() {
                                      property_names_stream.str());
               }
               case storage::ConstraintViolation::Type::TYPE: {
+#ifdef MG_ENTERPRISE
                 // Main checks type constraints at write time; only a branch reaches this at commit.
                 MG_ASSERT(constraint_violation.properties.size() == 1U && constraint_violation.constraint_kind);
                 auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
@@ -12733,6 +12836,11 @@ void Interpreter::Commit() {
                     storage::TypeConstraintKindToString(*constraint_violation.constraint_kind),
                     label_name,
                     property_name);
+#else
+                // This should never get triggered since type constraints get checked immediately and not at
+                // commit time
+                MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
+#endif
               }
               default:
                 LOG_FATAL("Unknown constraint violation type");

@@ -114,6 +114,7 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker) {
+#ifdef MG_ENTERPRISE
   if (vertex.branch_ctx_ == nullptr) {
     return ToBoltVertex(vertex.impl_, db, view, auth_checker);
   }
@@ -145,11 +146,15 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAcc
   auto element_id = std::to_string(id.AsInt());
   return communication::bolt::Vertex{
       .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
+#else
+  return ToBoltVertex(vertex.impl_, db, view, auth_checker);
+#endif
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker) {
+#ifdef MG_ENTERPRISE
   if (edge.branch_ctx_ == nullptr) {
     return ToBoltEdge(edge.impl_, db, view, auth_checker);
   }
@@ -179,6 +184,9 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   const auto to_element_id = std::to_string(to.AsInt());
   return communication::bolt::Edge{
       id, from, to, std::move(type), std::move(properties), element_id, from_element_id, to_element_id};
+#else
+  return ToBoltEdge(edge.impl_, db, view, auth_checker);
+#endif
 }
 
 namespace {

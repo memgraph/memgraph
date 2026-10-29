@@ -52,9 +52,11 @@ namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::versioning {
 class VersionStore;
 }  // namespace memgraph::versioning
+#endif
 
 namespace memgraph::dbms {
 
@@ -170,6 +172,7 @@ class Database {
    */
   query::stream::Streams *streams() { return streams_.get(); }
 
+#ifdef MG_ENTERPRISE
   /**
    * @brief Returns the raw VersionStore pointer (branch registry).
    *
@@ -179,6 +182,7 @@ class Database {
    * @return versioning::VersionStore*
    */
   versioning::VersionStore *version_store() { return version_store_.get(); }
+#endif
 
   /**
    * @brief Returns the raw ThreadPool pointer (used for after commit triggers)
@@ -284,10 +288,12 @@ class Database {
   std::atomic<utils::Gatekeeper<Database>::Ref> gatekeeper_ref_{};
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
+#ifdef MG_ENTERPRISE
   // Branch registry (graph versioning). Destroyed before storage_ (declared after it) since its
   // GC-pin callbacks capture a raw InMemoryStorage* and it owns the shared per-branch BranchCores (diff engines),
   // which reference storage_ -- see the ctor in database.cpp.
   std::unique_ptr<versioning::VersionStore> version_store_;
+#endif
   // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is
   // never reset. After-commit triggers run on after_commit_trigger_pool_ outside the interpreter's
   // transaction registry, so they cannot be aborted through the normal transaction-status path; this

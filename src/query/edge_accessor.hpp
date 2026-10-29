@@ -87,15 +87,18 @@ class EdgeAccessor final {
 
   // On a branch, compare by gid like VertexAccessor (hash is gid-based too).
   bool operator==(const EdgeAccessor &e) const noexcept {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr || e.branch_ctx_ != nullptr) {
       return Gid() == e.Gid();
     }
+#endif
     return impl_ == e.impl_;
   }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 
  private:
+#ifdef MG_ENTERPRISE
   // Branch-mode mutators (edge_accessor.cpp); only reached when branch_ctx_ != nullptr.
   storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
                                                             const storage::PropertyValue &value);
@@ -103,6 +106,7 @@ class EdgeAccessor final {
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
+#endif
 };
 
 }  // namespace memgraph::query

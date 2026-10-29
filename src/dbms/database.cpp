@@ -28,7 +28,9 @@
 
 #include "dbms/database_info.hpp"
 #include "dbms/database_protector.hpp"
+#ifdef MG_ENTERPRISE
 #include "dbms/inmemory/history_replay.hpp"
+#endif
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -44,9 +46,11 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
 #include "utils/file.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/branch_ledger.hpp"
 #include "versioning/branch_recovery.hpp"
 #include "versioning/version_store.hpp"
+#endif
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -163,6 +167,7 @@ auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetric
   return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
 }
 
+#ifdef MG_ENTERPRISE
 struct BranchRecoveryPlan {
   // Branches ordered by fork_ts; empty when the ledger is missing or unreadable.
   versioning::LedgerContents ledger;
@@ -249,6 +254,7 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   plan.bound = BranchRecoveryBound(plan.ledger);
   return plan;
 }
+#endif  // MG_ENTERPRISE
 
 }  // namespace
 
@@ -273,8 +279,12 @@ Database::Database(storage::Config config)
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   // Captured before config is std::move()'d into the storage engine below.
+#ifdef MG_ENTERPRISE
   const auto versioning_directory = config.durability.storage_directory / "versioning";
+#endif
+#ifdef MG_ENTERPRISE
   const auto branch_ledger_file = config.durability.storage_directory / "branches" / "ledger";
+#endif
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
   auto database_protector_factory = [this]() -> storage::DatabaseProtectorPtr {
     if (auto db_acc = gatekeeper_ref_.load(std::memory_order_acquire).access()) {
@@ -283,10 +293,12 @@ Database::Database(storage::Config config)
     return nullptr;
   };
 
+#ifdef MG_ENTERPRISE
   // versioning/ is a legacy directory left by an older build.
   if (utils::DirExists(versioning_directory) && !utils::DeleteDir(versioning_directory)) {
     spdlog::warn("Graph Versioning: failed to remove legacy branch directory '{}'.", versioning_directory.string());
   }
+#endif
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
   if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
@@ -294,9 +306,11 @@ Database::Database(storage::Config config)
     db_total_memory_tracker_.SetHardLimit(0);
   }
 
+#ifdef MG_ENTERPRISE
   BranchRecoveryPlan branch_plan;
   // Runtime fork pins of the restored branches, parallel to branch_plan.ledger.branches.
   std::vector<uint64_t> branch_pins;
+#endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
@@ -308,10 +322,12 @@ Database::Database(storage::Config config)
                                                       db_arena_.get(),
                                                       &db_embedding_memory_tracker_);
   } else {
+#ifdef MG_ENTERPRISE
     branch_plan = PlanBranchRecovery(config, branch_ledger_file);
     // Never reuse the number of a branch directory that is still on disk.
     branch_plan.ledger.next_number =
         std::max(branch_plan.ledger.next_number, NextFreeBranchNumber(branch_ledger_file.parent_path()));
+#endif
     const auto create_storage = [&](storage::Config storage_config, storage::PlanInvalidatorPtr plan_invalidator) {
       return dbms::CreateInMemoryStorage(std::move(storage_config),
                                          std::move(plan_invalidator),
@@ -321,6 +337,7 @@ Database::Database(storage::Config config)
                                          &db_embedding_memory_tracker_);
     };
 
+#ifdef MG_ENTERPRISE
     if (!branch_plan.bound) {
       // Main's WAL and snapshots must keep the history the hidden branches fork from; the snapshot thread starts with
       // the storage, so the floor goes in through the config.
@@ -366,8 +383,12 @@ Database::Database(storage::Config config)
             create_storage(std::move(unbounded_config), std::make_unique<PlanInvalidatorForDatabase>(plan_cache_));
       }
     }
+#else
+    storage_ = create_storage(std::move(config), std::move(invalidator));
+#endif
   }
 
+#ifdef MG_ENTERPRISE
   // Branches need IN_MEMORY_TRANSACTIONAL; InMemoryStorage is the only Storage reporting that mode.
   if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
@@ -406,6 +427,7 @@ Database::Database(storage::Config config)
           "Graph Versioning: failed to reset the branch ledger '{}': {}", branch_ledger_file.string(), written.error());
     }
   }
+#endif  // MG_ENTERPRISE
 
   // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the
   // registration was made under.

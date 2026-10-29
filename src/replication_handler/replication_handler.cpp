@@ -21,7 +21,9 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/version_store.hpp"
+#endif
 
 #include <spdlog/spdlog.h>
 
@@ -34,6 +36,7 @@ using namespace std::chrono_literals;
 namespace {
 // Databases are recovered before the role is known, so a REPLICA restart has rebuilt its branches. Startup must not
 // fail on a drop error: the store stays unfrozen only if its ledger write failed.
+#ifdef MG_ENTERPRISE
 void DropBranchesOnReplicaStartup(dbms::DbmsHandler &dbms_handler) {
   dbms_handler.ForEach([](dbms::DatabaseAccess db_acc) {
     auto *const store = db_acc->version_store();
@@ -53,6 +56,7 @@ void DropBranchesOnReplicaStartup(dbms::DbmsHandler &dbms_handler) {
     }
   });
 }
+#endif
 
 #ifdef MG_ENTERPRISE
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
@@ -118,7 +122,6 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
                         dbms::DbmsHandler &dbms_handler, parameters::Parameters &parameters) {
   // Startup replication state (if recovered at startup)
   auto replica = [&dbms_handler, &repl_state, &system, &parameters](replication::RoleReplicaData &data) {
-    DropBranchesOnReplicaStartup(dbms_handler);
     return replication::StartRpcServer(dbms_handler, repl_state, data, system, parameters);
   };
 
@@ -239,11 +242,14 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 #else
   RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
 #endif
+#ifdef MG_ENTERPRISE
   branches_allowed_.store(repl_state_.ReadLock()->IsMain(), std::memory_order_release);
+#endif
 }
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationHandler::DropBranchesForDemotion() {
   std::vector<versioning::VersionStore *> frozen;
   bool ok = true;
@@ -308,6 +314,7 @@ bool ReplicationHandler::DemoteWithBranchDrop(auto &&demote) {
 
   return demote();
 }
+#endif
 
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
@@ -331,7 +338,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       return false;
     }
 
-    return DemoteWithBranchDrop([&] {
+    auto demote = [&] {
       auto locked_repl_state = repl_state_.TryLock();
 
       dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
@@ -340,9 +347,16 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       });
 
       auto const ok = SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
+#ifdef MG_ENTERPRISE
       branches_allowed_.store(locked_repl_state->IsMain(), std::memory_order_release);
+#endif
       return ok;
-    });
+    };
+#ifdef MG_ENTERPRISE
+    return DemoteWithBranchDrop(demote);
+#else
+    return demote();
+#endif
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
@@ -350,12 +364,19 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
-    return DemoteWithBranchDrop([&] {
+    auto demote = [&] {
       auto locked_repl_state = repl_state_.TryLock();
       auto const ok = SetReplicationRoleReplica_<false>(locked_repl_state, config);
+#ifdef MG_ENTERPRISE
       branches_allowed_.store(locked_repl_state->IsMain(), std::memory_order_release);
+#endif
       return ok;
-    });
+    };
+#ifdef MG_ENTERPRISE
+    return DemoteWithBranchDrop(demote);
+#else
+    return demote();
+#endif
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
@@ -388,8 +409,10 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       storage->PrepareForNewEpoch();
     });
 
+#ifdef MG_ENTERPRISE
     // Held across the flip and UnfreezeBranches so a concurrent post-publish reconcile sees one consistent role.
     std::unique_lock role_lock{branch_role_mutex_};
+#endif
 
     // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
@@ -430,9 +453,11 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
+#ifdef MG_ENTERPRISE
     branches_allowed_.store(true, std::memory_order_release);
     UnfreezeBranches();
     role_lock.unlock();
+#endif
 
     // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {

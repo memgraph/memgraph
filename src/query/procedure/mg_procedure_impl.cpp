@@ -408,11 +408,13 @@ bool IsDeleted(const mgp_vertex *vertex) {
 
 bool IsDeleted(const mgp_edge *edge) {
   return std::visit(memgraph::utils::Overloaded{[](const memgraph::query::EdgeAccessor &ea) {
+#ifdef MG_ENTERPRISE
                                                   if (auto *ctx = ea.branch_ctx_;
                                                       ctx != nullptr && ctx->current_diff_txn() != nullptr &&
                                                       ctx->IsForkEdgeHidden(ea.impl_, memgraph::storage::View::NEW)) {
                                                     return true;
                                                   }
+#endif
                                                   return ea.IsDeleted();
                                                 },
                                                 [](const memgraph::query::VirtualEdge &) { return false; }},
@@ -3329,12 +3331,14 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
 namespace {
 // mgp schema DDL would act on the branch's diff engine (indexes silently lost on branch exit, constraints checked only
 // against sparse stubs), so it is rejected like the Cypher on-branch DDL rail.
-void RejectSchemaDdlOnBranch(const mgp_graph &graph) {
+void RejectSchemaDdlOnBranch([[maybe_unused]] const mgp_graph &graph) {
+#ifdef MG_ENTERPRISE
   auto *impl = graph.TryGetImpl();
   if (impl != nullptr && impl->branch_context() != nullptr) {
     throw ImmutableObjectException{
         "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first."};
   }
+#endif
 }
 }  // namespace
 
@@ -5153,16 +5157,20 @@ namespace {
 // Report main@fork's approximate count instead (a lower bound: branch-native creates are not added, deletes not
 // subtracted -- the API is approximate by contract).
 int64_t ApproximateVertexCountOf(memgraph::query::DbAccessor *impl) {
+#ifdef MG_ENTERPRISE
   if (auto *ctx = impl->branch_context(); ctx != nullptr && ctx->current_diff_txn() != nullptr) {
     return ctx->historical().ApproximateVertexCount();
   }
+#endif
   return impl->VerticesCount();
 }
 
 int64_t ApproximateEdgeCountOf(memgraph::query::DbAccessor *impl) {
+#ifdef MG_ENTERPRISE
   if (auto *ctx = impl->branch_context(); ctx != nullptr && ctx->current_diff_txn() != nullptr) {
     return ctx->historical().ApproximateEdgeCount();
   }
+#endif
   return impl->EdgesCount();
 }
 }  // namespace
@@ -5970,12 +5978,9 @@ struct mgp_execution_result::pImplMgpExecutionResult {
 mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type alloc)
     : pImpl(std::make_unique<pImplMgpExecutionResult>()), alloc(alloc) {
   auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
-  auto *outer_dba = graph->getImpl();
-  auto db_acc = instance.dbms_handler->Get(
 #ifdef MG_ENTERPRISE
-      outer_dba->DatabaseName()
-#endif
-  );
+  auto *outer_dba = graph->getImpl();
+  auto db_acc = instance.dbms_handler->Get(outer_dba->DatabaseName());
   auto *version_store = db_acc->version_store();
   pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, std::move(db_acc));
   // A nested query must see exactly what the caller sees: on a branch it runs on that same branch (same shared diff
@@ -5985,6 +5990,10 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type allo
   if (auto *branch_ctx = outer_dba->branch_context(); branch_ctx != nullptr) {
     pImpl->interpreter->current_db_.AttachBranchOf(version_store, *branch_ctx);
   }
+#else
+  (void)graph;
+  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, instance.dbms_handler->Get());
+#endif
 }
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }

@@ -43,7 +43,9 @@
 #include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
+#endif
 
 #include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -194,6 +196,7 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
   EXPECT_TRUE(without_prop->properties.contains("weight"));
 }
 
+#ifdef MG_ENTERPRISE
 // N8 parity fix: the branch arm of ToBoltEdge (communication.cpp) must apply the same
 // vector-indexed property omit-on-return filtering the storage arm does. This test exercises
 // that arm by wrapping a storage::EdgeAccessor in a query::EdgeAccessor with a non-null
@@ -245,6 +248,7 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeBranchArmOmitsVectorIndexedPropertyWhenFla
   EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
   EXPECT_TRUE(without_prop->properties.contains("weight"));
 }
+#endif
 
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   this->CreateEdgeIndex(2, 10);

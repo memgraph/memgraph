@@ -38,7 +38,6 @@
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
-#include "versioning/branch_engine.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
@@ -46,6 +45,7 @@
 #include "coordination/utils.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "versioning/branch_engine.hpp"
 #endif
 
 namespace memgraph::query {
@@ -271,11 +271,13 @@ struct CurrentDB {
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
+#ifdef MG_ENTERPRISE
   // Must detach on destruction, or the branch's attach count leaks and the branch can never be dropped.
   ~CurrentDB() {
     RestoreSessionBranch();
     ClearBranchContext();
   }
+#endif
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
@@ -286,19 +288,25 @@ struct CurrentDB {
     // the branch on a genuinely different database (compared by identity, not name).
     // Outgoing Accessor is destructed after the lock is released (see db_acc_mutex_).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
+#ifdef MG_ENTERPRISE
     bool same_db{false};
+#endif
     {
       std::lock_guard lock{db_acc_mutex_};
+#ifdef MG_ENTERPRISE
       same_db = db_acc_.has_value() && *db_acc_ == new_db;
+#endif
       old_db = std::exchange(db_acc_, std::move(new_db));
       in_explicit_db_ = in_explicit_db;
     }
+#ifdef MG_ENTERPRISE
     // Must run before old_db destructs: ClearBranchContext dereferences a raw pointer into the old Database.
     if (!same_db) {
       RestoreSessionBranch();
       ClearBranchContext();
       current_version_.reset();
     }
+#endif
   }
 
   void ResetDB() {
@@ -310,10 +318,12 @@ struct CurrentDB {
       std::lock_guard lock{db_acc_mutex_};
       old_db.swap(db_acc_);
     }
+#ifdef MG_ENTERPRISE
     // old_db still pins the Database here: a background reaper could otherwise destroy it under ClearBranchContext.
     RestoreSessionBranch();
     ClearBranchContext();
     current_version_.reset();
+#endif
     // Release the storage-side accessors FIRST, while old_db still pins the Database/Storage alive.
     // ~InMemoryAccessor runs Abort()/FinalizeTransaction() which dereference the Storage, and the gatekeeper
     // never destroys the Storage while an Accessor is live (finish_suspend asserts count_==0). Releasing the
@@ -370,6 +380,7 @@ struct CurrentDB {
     return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
   }
 
+#ifdef MG_ENTERPRISE
   // The session's active branch; std::nullopt means `main`. Without a branch context it names a branch that is gone
   // (see ThrowIfBranchGone).
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
@@ -420,6 +431,7 @@ struct CurrentDB {
 
   // Per-checkout plan cache; nullptr on `main`. Kept separate so branch plans never mix with main's.
   query::PlanCacheLRU *branch_plan_cache() { return branch_plan_cache_.get(); }
+#endif
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
@@ -443,6 +455,7 @@ struct CurrentDB {
   // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
   // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
+#ifdef MG_ENTERPRISE
   std::optional<std::string> current_version_;
   std::unique_ptr<versioning::BranchContext> branch_context_;
   // Non-null iff branch_context_ is non-null.
@@ -472,6 +485,7 @@ struct CurrentDB {
   // Every path that changes the branch pointer routes through here so a checkout is never leaked.
   // Out-of-line: VersionStore is only forward-declared here.
   void ClearBranchContext();
+#endif
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;

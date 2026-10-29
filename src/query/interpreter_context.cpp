@@ -302,6 +302,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
   return result;
 }
 
+#ifdef MG_ENTERPRISE
 std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingBranch(
     const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name, uint64_t branch_number) {
   std::vector<uint64_t> results;
@@ -330,6 +331,7 @@ std::map<uint64_t, size_t> InterpreterContext::CountSessionsPerBranch(
   }
   return counts;
 }
+#endif
 
 std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name) {

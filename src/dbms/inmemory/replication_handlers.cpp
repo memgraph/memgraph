@@ -28,7 +28,9 @@
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/version_store.hpp"
+#endif
 
 #include <spdlog/spdlog.h>
 #include <optional>
@@ -198,12 +200,14 @@ void DrainAndRejectPrepareCommit(storage::replication::Decoder &decoder, uint64_
 
 // A resync wipes the tenant; branches forked from the state being discarded must not outlive it. Called before
 // main_lock_ is taken because dropping branches does blocking file I/O. A failure must not block the resync.
-void DropBranchesBeforeClear(dbms::Database &db) {
+void DropBranchesBeforeClear([[maybe_unused]] dbms::Database &db) {
+#ifdef MG_ENTERPRISE
   auto *const store = db.version_store();
   if (!store) return;
   if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
     spdlog::error("Failed to drop the branches of database {} before a replica resync: {}", db.name(), dropped.error());
   }
+#endif
 }
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {

@@ -187,12 +187,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // as REPLICA, become MAIN
   bool SetReplicationRoleMain() override;
 
+#ifdef MG_ENTERPRISE
   // ForEach skips COLD tenants, so a tenant resumed on a REPLICA must drop its restored branches here. No-op on MAIN;
   // false (logged) when the drop failed.
   bool DropBranchesIfReplica(dbms::DatabaseAccess db_acc);
 
   // Post-publish: re-applies the current role to a just-published tenant (a role change may have skipped it).
   void ReconcileBranchesAfterPublish(dbms::DatabaseAccess db_acc);
+#endif
 
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
@@ -238,12 +240,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #endif
 
  private:
+#ifdef MG_ENTERPRISE
   // Demotion drops every database's branches first (they were forked from a MAIN-only history); false leaves all
   // stores unfrozen. Does blocking file I/O, so it must run before the replication state lock is taken.
   bool DropBranchesForDemotion();
   void UnfreezeBranches();
   // Runs DropBranchesForDemotion, then `demote`; unfreezes the stores if the instance is still MAIN afterwards.
   bool DemoteWithBranchDrop(auto &&demote);
+#endif
 
   void ClientsShutdown(auto &locked_repl_state) const {
     spdlog::info("Shutting down instance level clients.");
@@ -498,10 +502,12 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auth::SynchedAuth &auth_;
 #endif
   parameters::Parameters &parameters_;
+#ifdef MG_ENTERPRISE
   // Lock order: repl_state -> branch_role_mutex_; never block on repl_state while holding it.
   std::mutex branch_role_mutex_;
   // True iff MAIN; written under branch_role_mutex_ at every role flip, read lock-free.
   std::atomic<bool> branches_allowed_{false};
+#endif
 };
 
 }  // namespace memgraph::replication

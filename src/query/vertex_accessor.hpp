@@ -20,7 +20,9 @@
 
 #include "query/expanded_edges.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#ifdef MG_ENTERPRISE
 #include "versioning/branch_change_kind.hpp"
+#endif
 
 namespace memgraph::versioning {
 class BranchContext;
@@ -55,21 +57,27 @@ class VertexAccessor final {
   auto Labels(storage::View view) const -> decltype(impl_.Labels(view));
 
   storage::Result<bool> AddLabel(storage::LabelId label) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchAddLabel(label);
+#endif
     return impl_.AddLabel(label);
   }
 
   storage::Result<bool> RemoveLabel(storage::LabelId label) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchRemoveLabel(label);
+#endif
     return impl_.RemoveLabel(label);
   }
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const;
 
   storage::Result<bool> HasAnyLabel(storage::View view) const {
-    if (branch_ctx_ == nullptr) [[likely]]
-      return impl_.HasAnyLabel(view);
-    return BranchHasAnyLabel(view);
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchHasAnyLabel(view);
+#endif
+    return impl_.HasAnyLabel(view);
   }
 
   auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
@@ -84,19 +92,25 @@ class VertexAccessor final {
   }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchSetProperty(key, value);
+#endif
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchInitProperties(properties);
+#endif
     return impl_.InitProperties(properties);
   }
 
   // Non-const (unlike storage's UpdateProperties) because the branch path reassigns impl_ via CowIfNeeded.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchUpdateProperties(properties);
+#endif
     return impl_.UpdateProperties(properties);
   }
 
@@ -105,7 +119,9 @@ class VertexAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchClearProperties();
+#endif
     return impl_.ClearProperties();
   }
 
@@ -145,9 +161,11 @@ class VertexAccessor final {
 
   // On a branch, compare by gid: a COW'd vertex and its historical original have distinct impl_ (Vertex*/Transaction*).
   bool operator==(const VertexAccessor &v) const noexcept {
+#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr || v.branch_ctx_ != nullptr) {
       return Gid() == v.Gid();
     }
+#endif
     static_assert(noexcept(impl_ == v.impl_));
     return impl_ == v.impl_;
   }
@@ -155,6 +173,7 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 
  private:
+#ifdef MG_ENTERPRISE
   // Fork vertex: materializes the overlay (impl_ unchanged); native: redirects impl_ to its diff-engine vertex.
   // Idempotent; throws QueryRuntimeException on COW error. `kind` is recorded on every call, not only the first.
   void CowIfNeeded(versioning::BranchChangeKind kind);
@@ -180,6 +199,7 @@ class VertexAccessor final {
   storage::Result<ExpandedEdgesResult> BranchEdges(storage::EdgeDirection direction, storage::View view,
                                                    const std::vector<storage::EdgeTypeId> &edge_types,
                                                    const VertexAccessor *dest, storage::HopsLimit *hops_limit) const;
+#endif
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,

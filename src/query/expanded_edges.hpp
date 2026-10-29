@@ -32,8 +32,10 @@ class ExpandedEdges {
 
   explicit ExpandedEdges(storage::ExpandedEdges edges) : storage_edges_(std::move(edges)) {}
 
+#ifdef MG_ENTERPRISE
   /// A branch's edges come from its overlay and each carries the branch context, so they are held built.
   explicit ExpandedEdges(std::vector<EdgeAccessor> edges) : branch_edges_(std::move(edges)), from_storage_(false) {}
+#endif
 
   class Iterator {
    public:
@@ -71,9 +73,11 @@ class ExpandedEdges {
   auto end() const -> Iterator { return Iterator{this, size()}; }
 
   auto size() const -> std::size_t {
-    if (from_storage_) [[likely]]
-      return storage_edges_.size();
-    return branch_edges_.size();
+#ifdef MG_ENTERPRISE
+    if (!from_storage_) [[unlikely]]
+      return branch_edges_.size();
+#endif
+    return storage_edges_.size();
   }
 
   auto empty() const -> bool { return size() == 0; }
@@ -82,6 +86,7 @@ class ExpandedEdges {
 
   template <typename Predicate>
   auto Filtered(Predicate keep) const -> ExpandedEdges {
+#ifdef MG_ENTERPRISE
     if (!from_storage_) [[unlikely]] {
       auto kept = std::vector<EdgeAccessor>{};
       for (auto const &edge : branch_edges_) {
@@ -89,20 +94,25 @@ class ExpandedEdges {
       }
       return ExpandedEdges{std::move(kept)};
     }
+#endif
     return ExpandedEdges{storage_edges_.Filtered(
         [&keep](storage::EdgeAccessor const &edge) -> bool { return keep(EdgeAccessor{edge}); })};
   }
 
  private:
   auto At(std::size_t index) const -> EdgeAccessor {
+#ifdef MG_ENTERPRISE
     if (!from_storage_) [[unlikely]]
       return branch_edges_[index];
+#endif
     return EdgeAccessor{storage_edges_.At(index)};
   }
 
   storage::ExpandedEdges storage_edges_;
+#ifdef MG_ENTERPRISE
   std::vector<EdgeAccessor> branch_edges_;
   bool from_storage_{true};
+#endif
 };
 
 struct ExpandedEdgesResult {

@@ -83,6 +83,7 @@ add_unit_test(crc_accumulator
         LINK_TARGETS mg-utils
 )
 
+if (MG_ENTERPRISE)
 add_unit_test(versioning_gate
         SOURCES versioning_gate.cpp
         LINK_TARGETS mg::versioning mg-flags
@@ -183,6 +184,7 @@ add_unit_test(versioning_mgp
         LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
         INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
+endif()
 
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
@@ -629,10 +631,12 @@ add_unit_test(hot_cold_resume
     LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
 )
 
+if (MG_ENTERPRISE)
 add_unit_test(versioning_cold_replica_resume
     SOURCES versioning_cold_replica_resume.cpp
     LINK_TARGETS mg::versioning mg-query mg-auth mg-glue mg-dbms mg-replication_handler
 )
+endif()
 
 
 add_unit_test(utils_aws
