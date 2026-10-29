@@ -71,6 +71,24 @@ class ManifestPropertyStore {
                           std::span<PropertyValue const> values, std::span<std::size_t const> position_lookup,
                           std::vector<bool> &result) const;
 
+  /// The values at `ordered_properties`, one per path in the paths' order, which is the key an
+  /// index builds for a record. A path arriving at nothing, because the record lacks the
+  /// property or the key is not there, reads as Null, so a record is keyed on what it does not
+  /// carry as well as on what it does.
+  ///
+  /// Named for the question `PropertyStore` answers, so the one can stand in for the other.
+  /// Unlike that store this one needs no order among the paths: a shape gives each property's
+  /// place without reading what sits before it.
+  auto ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                          std::span<PropertyPath const> ordered_properties) const
+      -> std::vector<PropertyValue>;
+
+  /// As above, writing into a caller's buffer so a key of known arity is built without
+  /// allocating. `out.size()` must equal `ordered_properties.size()`.
+  void ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                          std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const;
+
   /// True when this gave the record a property it did not carry. A Null value removes the
   /// property, as it does for the store this replaces.
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
@@ -85,6 +103,12 @@ class ManifestPropertyStore {
 
   /// Reads one value out of the record, from where `layout` says it sits.
   auto ValueAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> PropertyValue;
+
+  /// The value the keys after a path's first property arrive at, Null when they arrive at
+  /// nothing. `location` must be where that first property sits. The shape says nothing about
+  /// what is inside a value, so this reads the value and walks it.
+  auto ValueAtKeys(PropertyManifest const &layout, PropertyManifest::Location location,
+                   std::span<PropertyId const> keys) const -> PropertyValue;
 
   /// The bytes of a value the shape does not know the width of. `location` must name one.
   auto PayloadAt(PropertyManifest const &layout, PropertyManifest::Location location) const -> std::span<uint8_t const>;

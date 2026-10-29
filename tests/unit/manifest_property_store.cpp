@@ -500,6 +500,76 @@ TEST(ManifestPropertyStore, OnePathsAnswerDoesNotDependOnAnothers) {
   EXPECT_EQ(result, (std::vector<bool>{true, true}));
 }
 
+// An index is keyed by the values at several paths at once, and builds that key per record, so
+// it asks for all of them in one pass rather than a path at a time. A path arriving at nothing
+// is keyed as Null, which is how a record is keyed on what it does not carry.
+TEST(ManifestPropertyStore, ReadsSeveralPathsAtOnceAsThePropertyStoreDoes) {
+  using memgraph::storage::PropertyPath;
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+
+  auto const nested = PropertyValue{PropertyValue::map_t{
+      {Prop(7), PropertyValue{int64_t{11}}},
+      {Prop(8), PropertyValue{"inner"}},
+  }};
+  for (auto const &[property, value] : std::initializer_list<std::pair<PropertyId, PropertyValue>>{
+           {Prop(1), PropertyValue{int64_t{300}}},
+           {Prop(2), PropertyValue{"outer"}},
+           {Prop(3), nested},
+           // A value with fields of its own, which a path's last segment cannot name here.
+           {Prop(4), PropertyValue{TemporalData{TemporalType::Date, 1'709'596'800'000'000}}},
+       }) {
+    manifest.SetProperty(registry, property, value);
+    current.SetProperty(property, value);
+  }
+
+  // In path order, which the old store requires of a caller because its reader only goes
+  // forwards. A path and a longer one starting with it are asked about separately for the same
+  // reason.
+  auto const whole = std::vector<PropertyPath>{
+      PropertyPath{Prop(1)},
+      PropertyPath{Prop(2)},
+      PropertyPath{Prop(3)},
+      PropertyPath{Prop(4)},
+      // A property the record does not carry.
+      PropertyPath{Prop(5)},
+  };
+  auto const nested_paths = std::vector<PropertyPath>{
+      PropertyPath{Prop(3), Prop(7)},
+      PropertyPath{Prop(3), Prop(8)},
+      // A key the nested value does not hold.
+      PropertyPath{Prop(3), Prop(9)},
+      // A step into a value that is not a map, and one into a property that is not there.
+      PropertyPath{Prop(4), Prop(9)},
+      PropertyPath{Prop(5), Prop(9)},
+  };
+
+  for (auto const &asked : {whole, nested_paths}) {
+    EXPECT_EQ(manifest.ExtractPropertyValuesMissingAsNull(registry, asked),
+              current.ExtractPropertyValuesMissingAsNull(asked));
+  }
+
+  // The same answers written into a caller's buffer rather than a returned one, which is how a
+  // fixed-arity key is built without allocating.
+  for (auto const &asked : {whole, nested_paths}) {
+    auto into = std::vector<PropertyValue>(asked.size());
+    manifest.ExtractPropertyValuesMissingAsNull(registry, asked, into);
+    EXPECT_EQ(into, current.ExtractPropertyValuesMissingAsNull(asked));
+  }
+
+  // A record carrying nothing is keyed as Null at every path.
+  ManifestRegistry empty_registry;
+  ManifestPropertyStore empty;
+  for (auto const &asked : {whole, nested_paths}) {
+    EXPECT_EQ(empty.ExtractPropertyValuesMissingAsNull(empty_registry, asked),
+              std::vector<PropertyValue>(asked.size()));
+  }
+}
+
 // A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a
 // number within a known range, and one taken from the database is named, so naming it by an
 // interned id makes the whole value one of a known width. Nothing about it then needs the

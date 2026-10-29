@@ -584,21 +584,44 @@ void ManifestPropertyStore::ArePropertiesEqual(ManifestRegistry const &registry,
       continue;
     }
 
-    // A path of more than one names a key inside a value, which the shape says nothing about,
-    // so the value is built up and walked into. A path that runs through something that is
-    // not a map, or names a key that is not there, arrives at nothing and so is equivalent to
-    // Null and to nothing else.
-    auto nested = ValueAt(*layout, *location);
-    for (std::size_t step = 1; step != path.size(); ++step) {
-      if (!nested.IsMap()) {
-        nested = PropertyValue{};
-        break;
-      }
-      auto const &map = nested.ValueMap();
-      auto const at = map.find(path[step]);
-      nested = at == map.end() ? PropertyValue{} : PropertyValue{at->second};
-    }
-    result[pos] = nested == value;
+    // A path arriving at nothing is equivalent to Null and to nothing else.
+    result[pos] = ValueAtKeys(*layout, *location, path.as_span().subspan(1)) == value;
+  }
+}
+
+auto ManifestPropertyStore::ValueAtKeys(PropertyManifest const &layout, PropertyManifest::Location location,
+                                        std::span<PropertyId const> keys) const -> PropertyValue {
+  auto nested = ValueAt(layout, location);
+  for (auto const key : keys) {
+    // Only a map holds keys, so a path through anything else arrives at nothing, as does one
+    // naming a key the map does not hold.
+    if (!nested.IsMap()) return {};
+    auto const &map = nested.ValueMap();
+    auto const at = map.find(key);
+    if (at == map.end()) return {};
+    nested = at->second;
+  }
+  return nested;
+}
+
+auto ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                                               std::span<PropertyPath const> ordered_properties) const
+    -> std::vector<PropertyValue> {
+  auto values = std::vector<PropertyValue>(ordered_properties.size());
+  ExtractPropertyValuesMissingAsNull(registry, ordered_properties, values);
+  return values;
+}
+
+void ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry const &registry,
+                                                               std::span<PropertyPath const> ordered_properties,
+                                                               std::span<PropertyValue> out) const {
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value is read per path asked about");
+
+  auto const *layout = manifest_ ? &registry.Resolve(*manifest_) : nullptr;
+  for (std::size_t pos = 0; pos != ordered_properties.size(); ++pos) {
+    auto const &path = ordered_properties[pos];
+    auto const location = layout ? layout->Find(path.front()) : std::nullopt;
+    out[pos] = location ? ValueAtKeys(*layout, *location, path.as_span().subspan(1)) : PropertyValue{};
   }
 }
 
