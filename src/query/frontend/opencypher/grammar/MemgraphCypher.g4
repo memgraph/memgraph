@@ -40,6 +40,8 @@ memgraphCypherKeyword : cypherKeyword
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BRANCH
+                      | BRANCH_EDIT
+                      | BRANCH_USE
                       | BRANCHES
                       | BUILD
                       | CALL
@@ -619,6 +621,8 @@ privilege : CREATE
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | BRANCH_USE
+          | BRANCH_EDIT
           | COORDINATOR_READ
           | COORDINATOR_WRITE
           ;

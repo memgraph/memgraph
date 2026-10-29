@@ -16,7 +16,10 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <functional>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <ranges>
 #include <set>
 #include <string>
@@ -294,6 +297,72 @@ TEST_F(VersioningGatedTest, ManagementQueryRejectedOnReplica) {
   }
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 }
+
+namespace {
+// Authorizes a privilege only on the databases it was built with.
+struct ScopedDatabaseUser final : memgraph::query::QueryUserOrRole {
+  explicit ScopedDatabaseUser(std::set<std::string, std::less<>> dbs)
+      : memgraph::query::QueryUserOrRole{"scoped", {}}, dbs_{std::move(dbs)} {}
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
+                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy * /*policy*/) const override {
+    return !db_name || dbs_.contains(*db_name);
+  }
+
+  std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<ScopedDatabaseUser>(*this); }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const std::string & /*target*/, memgraph::query::UserPolicy * /*policy*/,
+                      std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
+    return false;
+  }
+
+  std::string GetDefaultDB() const override { return "memgraph"; }
+#endif
+
+  std::set<std::string, std::less<>> dbs_;
+};
+}  // namespace
+
+// Each branch query reports the privilege set the Bolt layer enforces: BRANCH_USE / BRANCH_EDIT, never the
+// multi-database ones, and FORCE adds TRANSACTION_MANAGEMENT.
+TEST_F(VersioningGatedTest, BranchQueriesReportBranchPrivileges) {
+  using memgraph::query::AuthQuery;
+  using ::testing::UnorderedElementsAre;
+  faker.Interpret("CREATE BRANCH 'feature'");
+
+  const auto privileges_of = [&](const std::string &query) {
+    auto prepared =
+        faker.interpreter.Prepare(query, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+    faker.Abort();
+    return prepared.privileges;
+  };
+
+  EXPECT_THAT(privileges_of("CREATE BRANCH 'other'"), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_EDIT));
+  EXPECT_THAT(privileges_of("DROP BRANCH 'feature'"), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_EDIT));
+  EXPECT_THAT(privileges_of("DROP BRANCH 'feature' FORCE"),
+              UnorderedElementsAre(AuthQuery::Privilege::BRANCH_EDIT, AuthQuery::Privilege::TRANSACTION_MANAGEMENT));
+  EXPECT_THAT(privileges_of("USE BRANCH 'feature'"), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));
+  EXPECT_THAT(privileges_of("SHOW BRANCH"), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));
+  EXPECT_THAT(privileges_of("SHOW BRANCHES"), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));
+  EXPECT_THAT(privileges_of("USING BRANCH 'feature' MATCH (n) RETURN n"),
+              UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::BRANCH_USE));
+}
+
+#ifdef MG_ENTERPRISE
+// SHOW BRANCHES FOR DATABASE is authorized against the named database, not the session's: a user with access only to
+// the current database is refused for another one, before the database is even looked up.
+TEST_F(VersioningGatedTest, ShowBranchesForDatabaseAuthorizedAgainstTarget) {
+  faker.interpreter.SetUser(std::make_shared<ScopedDatabaseUser>(std::set<std::string, std::less<>>{"memgraph"}));
+  try {
+    faker.Interpret("SHOW BRANCHES FOR DATABASE other_tenant");
+    FAIL() << "expected an authorization error";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("not authorized to show branches of the database \"other_tenant\""));
+  }
+}
+#endif
 
 TEST_F(VersioningGatedTest, ManagementQueryRejectedInExplicitTransaction) {
   faker.Interpret("BEGIN");

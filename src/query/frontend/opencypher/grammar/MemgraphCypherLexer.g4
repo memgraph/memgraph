@@ -43,6 +43,8 @@ BOOLEAN                 : B O O L E A N ;
 BOOTSTRAP_SERVERS       : B O O T S T R A P UNDERSCORE S E R V E R S ;
 BRANCH                  : B R A N C H ;
 BRANCHES                : B R A N C H E S ;
+BRANCH_EDIT             : B R A N C H UNDERSCORE E D I T ;
+BRANCH_USE              : B R A N C H UNDERSCORE U S E ;
 BUILD                   : B U I L D ;
 CALL                    : C A L L ;
 CALLABLE                : C A L L A B L E ;

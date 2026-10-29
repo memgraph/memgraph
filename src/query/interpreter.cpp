@@ -9660,6 +9660,17 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       auto target_db_acc = db_acc;
 #ifdef MG_ENTERPRISE
       if (query->for_database_) {
+        // The Bolt-level check covered only the session's database; the named one needs access and BRANCH_USE of its
+        // own, and is checked before the lookup so a refusal does not reveal whether it exists.
+        if (auto *user_or_role = interpreter.user_or_role_.get();
+            user_or_role != nullptr &&
+            !user_or_role->IsAuthorized(
+                {AuthQuery::Privilege::BRANCH_USE}, *query->for_database_, &query::session_long_policy)) {
+          throw QueryRuntimeException(
+              "You are not authorized to show branches of the database \"{}\"! Please contact your database "
+              "administrator.",
+              *query->for_database_);
+        }
         try {
           target_db_acc = interpreter_context->dbms_handler->Get(*query->for_database_);
         } catch (const utils::BasicException &e) {

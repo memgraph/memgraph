@@ -911,7 +911,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     // The branch part is checked like USE BRANCH.
     if (branch && target &&
         !target->IsAuthorized(
-            {memgraph::query::AuthQuery::Privilege::MULTI_DATABASE_EDIT}, db, &memgraph::query::session_long_policy)) {
+            {memgraph::query::AuthQuery::Privilege::BRANCH_USE}, db, &memgraph::query::session_long_policy)) {
       throw memgraph::communication::bolt::ClientError(
           "You are not authorized to use branches on the database \"{}\"! Please contact your database "
           "administrator.",

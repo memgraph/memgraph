@@ -2866,6 +2866,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
+  if (ctx->BRANCH_USE()) return AuthQuery::Privilege::BRANCH_USE;
+  if (ctx->BRANCH_EDIT()) return AuthQuery::Privilege::BRANCH_EDIT;
   if (ctx->COORDINATOR_READ()) return AuthQuery::Privilege::COORDINATOR_READ;
   if (ctx->COORDINATOR_WRITE()) return AuthQuery::Privilege::COORDINATOR_WRITE;
   LOG_FATAL("Should not get here - unknown privilege!");

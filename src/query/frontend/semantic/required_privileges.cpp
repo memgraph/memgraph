@@ -99,6 +99,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     if (query.pre_query_directives_.parallel_execution_) {
       AddPrivilege(AuthQuery::Privilege::PARALLEL_EXECUTION);
     }
+    if (query.pre_query_directives_.branch_target_ != nullptr) {
+      AddPrivilege(AuthQuery::Privilege::BRANCH_USE);
+    }
     query.single_query_->Accept(*this);
     for (auto *cypher_union : query.cypher_unions_) {
       cypher_union->Accept(*this);
@@ -174,9 +177,26 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  // No dedicated BRANCH privilege exists; MULTI_DATABASE_EDIT is reused for the whole branch-management
-  // surface (branches are sub-database forks, and it is enterprise-gated like VersioningQuery itself).
-  void Visit(VersioningQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT); }
+  // Branch privileges are independent of the multi-database ones. DROP BRANCH ... FORCE additionally needs
+  // TRANSACTION_MANAGEMENT, like DROP DATABASE ... FORCE.
+  void Visit(VersioningQuery &query) override {
+    switch (query.action_) {
+      case VersioningQuery::Action::CREATE_BRANCH:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_EDIT);
+        break;
+      case VersioningQuery::Action::DROP_BRANCH:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_EDIT);
+        if (query.force_) {
+          AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
+        }
+        break;
+      case VersioningQuery::Action::USE_BRANCH:
+      case VersioningQuery::Action::SHOW_BRANCH:
+      case VersioningQuery::Action::SHOW_BRANCHES:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_USE);
+        break;
+    }
+  }
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 

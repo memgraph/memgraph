@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <span>
+#include <utility>
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
@@ -288,6 +289,44 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeGrantOn
   ASSERT_TRUE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_TRUE(auth_checker.Has(this->r4, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
+}
+
+// BRANCH_USE / BRANCH_EDIT are independent bits: neither implies the other nor any multi-database privilege.
+TEST(AuthChecker, BranchPrivilegesAreIndependent) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_branch"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+
+  // First user gets every privilege; the second starts empty.
+  ASSERT_TRUE(AddUser(*auth.Lock(), "first"));
+  auto user = *AddUser(*auth.Lock(), "branch_user");
+  auto &policy = memgraph::query::session_long_policy;
+
+  user.permissions().Grant(memgraph::auth::Permission::BRANCH_USE);
+  auth->SaveUser(user);
+  auto query_user = auth_checker.GenQueryUser("branch_user", {});
+  EXPECT_TRUE(query_user->IsAuthorized({BRANCH_USE}, "memgraph", &policy));
+  EXPECT_FALSE(query_user->IsAuthorized({BRANCH_EDIT}, "memgraph", &policy));
+  EXPECT_FALSE(query_user->IsAuthorized({MULTI_DATABASE_USE}, "memgraph", &policy));
+  EXPECT_FALSE(query_user->IsAuthorized({MULTI_DATABASE_EDIT}, "memgraph", &policy));
+
+  user.permissions().Revoke(memgraph::auth::Permission::BRANCH_USE);
+  user.permissions().Grant(memgraph::auth::Permission::MULTI_DATABASE_EDIT);
+  auth->SaveUser(user);
+  query_user = auth_checker.GenQueryUser("branch_user", {});
+  EXPECT_FALSE(query_user->IsAuthorized({BRANCH_USE}, "memgraph", &policy));
+  EXPECT_FALSE(query_user->IsAuthorized({BRANCH_EDIT}, "memgraph", &policy));
+  EXPECT_TRUE(query_user->IsAuthorized({MULTI_DATABASE_EDIT}, "memgraph", &policy));
+
+  // Distinct bits above the coordinator privileges.
+  EXPECT_EQ(std::to_underlying(memgraph::auth::Permission::BRANCH_USE), 1ULL << 34ULL);
+  EXPECT_EQ(std::to_underlying(memgraph::auth::Permission::BRANCH_EDIT), 1ULL << 35ULL);
 }
 
 TEST(AuthChecker, Generate) {
