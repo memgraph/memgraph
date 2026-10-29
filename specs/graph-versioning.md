@@ -85,7 +85,8 @@ calling session's branch).
 (`'main' is a reserved branch name.`); must not start with `.`; must not contain `/`, `\` or `@`.
 Names are unique among a database's live branches; a dropped branch's name can be reused.
 
-**Database names and `@`.** `@` is legal in database names before this release. (1) `CREATE`/`RENAME DATABASE` reject names containing `@` from now on; (2) a Bolt `db`
+**Database names and `@`.** Database names accept any character today (including `@`, `/`, NUL and
+the empty string), so every separator needs this compatibility rule; `@` reads naturally. (1) `CREATE`/`RENAME DATABASE` reject names containing `@` from now on; (2) a Bolt `db`
 value first matches an existing database name **exactly** (pre-existing `@` names keep working
 after upgrade), otherwise it splits at the **last** `@` into `<database>@<branch>`; (3) `CREATE
 BRANCH b` on database `a` is refused if a database literally named `a@b` exists.
@@ -171,8 +172,8 @@ until the session switches. With `db="x@b"` every new transaction fails with
 | Create/delete vertices and edges, labels, properties (on fork-era and branch-created objects) | Yes. Plain `DELETE` of a vertex with edges fails, as on `main`. |
 | Index-backed scans (label, label+property incl. composite/nested/range, edge-type, edge-type+property, global property) | Yes: main's indexes as of the fork plus the branch's changes. Results equal a full scan. |
 | Point functions (`point.distance`, `point.withinbbox`) | Correct results via full scan plus filter; the point index is not used |
-| Text search, vector search | No (rejected, §11) |
-| Parallel execution | No (rejected) |
+| Text search, vector search | Not supported (architecture): these indexes live outside the MVCC store and cannot answer "as of the fork plus the branch's changes" (§12) |
+| Parallel execution | Not planned: branch queries run single-threaded |
 | Existence and type constraints | Enforced at branch commit, against main's **current** constraints |
 | Unique constraints | **Not enforced**. `SHOW CONSTRAINT INFO` marks them `unique (not enforced on branch)`. |
 | Enums | Main's enums can be used in values |
@@ -180,9 +181,9 @@ until the session switches. With `db="x@b"` every new transaction fails with
 | Triggers, TTL, streams | Never act on a branch; branch writes fire no triggers |
 | `DUMP DATABASE` | The branch's data with main's schema |
 | `CREATE SNAPSHOT` | Snapshots `main` |
-| Schema DDL (index, constraint, enum, TTL, trigger, stream, description), `ANALYZE GRAPH`, `DROP GRAPH`, `STORAGE MODE`, `RECOVER SNAPSHOT`, `EDGE IMPORT MODE`, `schema.assert` | Rejected: `Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.` |
+| Schema DDL (index, constraint, enum, TTL, trigger, stream, description), `ANALYZE GRAPH`, `DROP GRAPH`, `STORAGE MODE`, `RECOVER SNAPSHOT`, `EDGE IMPORT MODE`, `schema.assert` | Not in v1: schema and storage-wide state belong to `main` (§12 has the reason per item). Error: `Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.` |
 | `SHOW INDEX INFO` / `SHOW CONSTRAINT INFO` | Main's |
-| `SHOW SCHEMA INFO` | Rejected |
+| `SHOW SCHEMA INFO` | Not in v1: schema info is tracked per storage engine, so main's does not include the branch's changes |
 | Label / edge-type listings | Main's ∪ the branch's |
 | `SHOW STORAGE INFO` | Vertex/edge counts and average degree are `NULL` (exact counts need a full scan); a `branch` row names the branch |
 
@@ -232,10 +233,10 @@ inspection where noted. Conditions, checked in order:
 | Condition at startup | Result |
 |---|---|
 | Branch registry unreadable or corrupt | All branches dropped |
-| Started without `--experimental-enabled=versioning` | Branches are dropped **logically** only: not visible or usable, branch queries fail with the disabled-flag error. All durable state stays (ledger, each branch's directory and WAL). Restarting with the flag on restores every branch with its data. |
-| Started with `--experimental-enabled=commit-lock-narrowing` | All branches dropped durably |
-| WAL off, or recovery on startup off | All branches dropped |
+| WAL off, or recovery on startup off | All branches dropped (main's writes from this run would be missing from the history the branches are rebuilt from) |
 | Database starts in a non-transactional mode | All branches dropped |
+| Started without `--experimental-enabled=versioning` | Branches are hidden only: not visible or usable, branch queries fail with the disabled-flag error. All durable state stays (ledger, each branch's directory and WAL). Restarting with the flag on restores every branch with its data. |
+| Started with `--experimental-enabled=commit-lock-narrowing` | All branches dropped durably |
 | Main cannot be replayed to the fork points | All branches dropped; main recovers normally |
 | A branch's WAL is damaged | Main's WAL rules apply (unreadable or empty file skipped, unfinished file used up to its last complete transaction). Where main would refuse to start (e.g. a gap in the sequence), only that branch is dropped and its files are kept. |
 | Main itself cannot be recovered | Standard Memgraph behaviour |
@@ -244,7 +245,9 @@ inspection where noted. Conditions, checked in order:
 retention, so main keeps a snapshot and its WAL files back to the oldest fork point even with the
 flag off; otherwise the branches could not be rebuilt when the flag is turned back on. Runtime GC
 fork pins are not held while the flag is off (nothing reads the branches), so main's memory is not
-retained. The main-side refusals of §7 still apply while the ledger holds branches.
+retained. Main's clock and vertex/edge id counters still move past every recorded fork point and
+branch-created id, so writes made while the flag is off never land in a branch's fork base or reuse
+a branch's ids. The main-side refusals of §7 still apply while the ledger holds branches.
 
 Branch WALs are never compacted, so a long-lived branch's restart time grows with its write
 history.
@@ -258,7 +261,7 @@ version has written files is not supported.
 Branches are single-instance in v1. Main's writes replicate as usual; branch writes never enter
 the replication stream.
 
-- Every branch query is rejected on a REPLICA. A promoted replica starts with no branches.
+- Every branch query fails on a REPLICA. A promoted replica starts with no branches.
 - Branches are dropped durably, including those sessions are on (§5.3), when the instance is
   demoted to REPLICA (before the role changes; if the drop fails, the demotion fails), when a
   replica resyncs a database, when an instance restarts as REPLICA, and when a COLD database is
@@ -315,7 +318,8 @@ much of main's history is retained because of branches.
 | `ANALYZE GRAPH` on a branch | No | Scheduling: stats would go to the branch engine, but the branch planner's use of them is not yet verified |
 | Unique constraints enforced on a branch | No | Scheduling: needs a check against main@fork plus branch changes under concurrent sessions |
 | Text, vector search on a branch | No | Architecture: these indexes live outside the MVCC store and cannot answer "as of the fork plus branch changes"; a stale answer would be worse than an error |
-| Point index, parallel execution on a branch | No (point: full-scan fallback) | Scheduling |
+| Point index on a branch | No (full-scan fallback, correct results) | Scheduling |
+| Parallel execution on a branch | No | Not planned |
 | Branch WAL compaction (branch snapshots) | No | Scheduling |
 | Caps on branch count, size, age | No | Scheduling: needs operating experience to pick bounds |
 | Per-branch memory/disk reporting | No | Architecture: branch memory shares the database allocator |
