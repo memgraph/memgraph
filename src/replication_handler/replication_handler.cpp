@@ -264,6 +264,18 @@ bool ReplicationHandler::DropBranchesForDemotion() {
   return ok;
 }
 
+bool ReplicationHandler::DropBranchesIfReplica(dbms::DatabaseAccess db_acc) {
+  // Lock released before the drop (blocking I/O; demotion needs the exclusive lock).
+  if (repl_state_.ReadLock()->IsMain()) return true;
+  auto *const store = db_acc->version_store();
+  if (!store) return true;
+  if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
+    spdlog::error("Failed to drop the branches of resumed database {} on REPLICA: {}", db_acc->name(), dropped.error());
+    return false;
+  }
+  return true;
+}
+
 void ReplicationHandler::UnfreezeBranches() {
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
     if (auto *const store = db_acc->version_store()) store->Unfreeze();

@@ -629,6 +629,11 @@ add_unit_test(hot_cold_resume
     LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
 )
 
+add_unit_test(versioning_cold_replica_resume
+    SOURCES versioning_cold_replica_resume.cpp
+    LINK_TARGETS mg::versioning mg-query mg-auth mg-glue mg-dbms mg-replication_handler
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp

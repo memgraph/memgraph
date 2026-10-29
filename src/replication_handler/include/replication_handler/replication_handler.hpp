@@ -185,6 +185,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // as REPLICA, become MAIN
   bool SetReplicationRoleMain() override;
 
+  // ForEach skips COLD tenants, so a tenant resumed on a REPLICA must drop its restored branches here. No-op on MAIN;
+  // false (logged) when the drop failed.
+  bool DropBranchesIfReplica(dbms::DatabaseAccess db_acc);
+
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                  std::optional<utils::UUID> const &maybe_main_uuid) override;
