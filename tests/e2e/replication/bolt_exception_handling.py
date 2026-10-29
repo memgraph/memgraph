@@ -55,10 +55,12 @@ _INVALID_TEMPORAL = [
     ("RETURN localdatetime('bogus')", "Invalid LocalDateTime format", "localdatetime"),
 ]
 
-# The impersonation failure path is enterprise-gated (RuntimeConfig::Configure is compiled only under MG_ENTERPRISE).
+# Enterprise-gated paths: impersonation (RuntimeConfig::Configure is compiled only under MG_ENTERPRISE) and the
+# SHOW METRICS INFO query (src/query/interpreter.cpp rejects it without a valid enterprise license). A community run
+# must skip these rather than fail on the gated query.
 requires_enterprise = pytest.mark.skipif(
     not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
-    reason="impersonation is enterprise-gated (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
+    reason="enterprise-gated feature (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
 )
 
 
@@ -258,8 +260,12 @@ def test_invalid_temporal_input_is_client_error(query, message, test_name):
         driver.close()
 
 
+@requires_enterprise
 def test_invalid_temporal_input_does_not_increment_transient_errors(test_name):
-    """A permanently-invalid temporal parse is never counted as a transient error."""
+    """A permanently-invalid temporal parse is never counted as a transient error.
+
+    SHOW METRICS INFO is enterprise-gated, so this metric-level assertion is skipped on a community build.
+    """
     _start_main(test_name)
     driver = _driver()
     try:
