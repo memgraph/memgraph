@@ -53,7 +53,8 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }
 }  // end namespace
 
-PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties,
+                                                         NameIdMapper *name_id_mapper)
     : sorted_properties_(properties.begin(), properties.end()) {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{}, [](auto const &value) -> decltype(auto) {
@@ -65,14 +66,61 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
     auto const outer_prop_id = path[0];
     grouped_by_outer_prop_id_[outer_prop_id].emplace_back(pos);
   }
+
+  // Which of these paths end in the name of a field a value carries, worked out once here
+  // because resolving a name is a lookup and these paths are read for every record.
+  auto const any_nested = r::any_of(sorted_properties_, [](auto const &path) { return path.size() > 1; });
+  DMG_ASSERT(!any_nested || name_id_mapper != nullptr,
+             "Telling a key inside a value from a field of it takes the names behind the ids");
+
+  // Asked as "which id is this name" rather than the other way about: asking for the name of
+  // an id the mapper does not know is fatal, and asking for the id of an unused name would
+  // mint one.
+  auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
+  if (any_nested) {
+    for (auto const &[name, field] : FieldNames()) {
+      if (auto const id = name_id_mapper->NameToIdIfExists(name)) {
+        field_ids.emplace_back(PropertyId::FromUint(*id), field);
+      }
+    }
+  }
+  fields_.reserve(sorted_properties_.size());
+  for (auto const &path : sorted_properties_) {
+    auto found = std::optional<ValueField>{};
+    if (path.size() > 1) {
+      for (auto const &[id, field] : field_ids) {
+        if (id == path.back()) {
+          found = field;
+          break;
+        }
+      }
+    }
+    fields_.push_back(found);
+  }
+}
+
+auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const &value) const
+    -> std::optional<PropertyValue> {
+  return ReadPropertyPath(value, sorted_properties_[pos].as_span(), fields_[pos]);
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
-  return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
+  auto values = properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
+  ReadFieldsInto(properties, values);
+  return values;
 }
 
 void PropertiesPermutationHelper::ExtractInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
   properties.ExtractPropertyValuesMissingAsNull(sorted_properties_, out);
+  ReadFieldsInto(properties, out);
+}
+
+void PropertiesPermutationHelper::ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
+  for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
+    if (!field) continue;
+    auto read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
+    out[pos] = read ? *std::move(read) : PropertyValue{};
+  }
 }
 
 void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue const &value,
@@ -81,10 +129,10 @@ void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue
   if (it == grouped_by_outer_prop_id_.cend()) return;  // outer_prop_id is irrelevant to this index
   auto const &sorted_positions = it->second;
   for (auto const &pos : sorted_positions) {
-    auto const *nested_value = ReadNestedPropertyValue(value, sorted_properties_[pos] | rv::drop(1));
+    auto read = ReadPath(pos, value);
     // The path need not resolve: `value` may not be a map, or may be one without the property.
     // No value at the path means a null index key.
-    extracted_values[pos] = nested_value ? *nested_value : PropertyValue{};
+    extracted_values[pos] = read ? *std::move(read) : PropertyValue{};
   }
 }
 
@@ -114,10 +162,9 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
   auto is_match = [&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
     auto &&[index, path] = el;
     auto const &cmp_value = cmp_values[position_lookup_[index]];
-    // Outer property was already read to get `value`, strip that off of the path
     DMG_ASSERT(!path.empty(), "PropertyPath should be at least 1");
-    auto const *nested_value = ReadNestedPropertyValue(value, path | rv::drop(1));
-    return {index, nested_value && *nested_value == cmp_value};
+    auto const read = ReadPath(index, value);
+    return {index, read ? *read == cmp_value : cmp_value.IsNull()};
   };
   return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
@@ -125,6 +172,12 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
                                                 std::vector<bool> &out) const {
   properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
+  for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
+    if (!field) continue;
+    auto const read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
+    auto const &cmp_value = values[position_lookup_[pos]];
+    out[pos] = read ? *read == cmp_value : cmp_value.IsNull();
+  }
 }
 
 size_t PropertyValueRange::hash() const noexcept {

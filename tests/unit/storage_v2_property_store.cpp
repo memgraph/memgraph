@@ -33,6 +33,14 @@ using enum CoordinateReferenceSystem;
 
 namespace {
 
+/// The helper resolves a path's last segment through a mapper, to tell a key inside a value
+/// from a field of it. These tests use ids no name was ever registered for, so none of their
+/// paths names a field and every one reads as a key.
+memgraph::storage::NameIdMapper &NamelessMapper() {
+  static memgraph::storage::NameIdMapper mapper;
+  return mapper;
+}
+
 /** `ArePropertiesEqual` and `MatchesValues` fill a caller-supplied buffer rather than returning
  * one, so that a caller walking index entries allocates once per loop instead of once per entry.
  * These assertions read better against a returned value, so the buffer is kept here rather than at
@@ -1504,6 +1512,148 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
             (std::vector{true, true}));
 }
 
+// A path only goes on into a map, so one naming a key inside a value of any other kind names
+// nothing. That is not the record running out: the properties after that value are still
+// there, and a later path must still find what it names.
+TEST(PropertyStore, ArePropertiesEqual_APathIntoSomethingThatIsNotAMapLeavesLaterPathsAlone) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue{int64_t{300}}},
+      {p2, MakeMap(KVPair{p3, PropertyValue{"apple"}})},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  // On its own, the path into the map is found.
+  EXPECT_EQ(
+      EqualityMask(
+          store, std::array{PropertyPath{p2, p3}}, std::array{PropertyValue{"apple"}}, std::array<std::size_t, 1>{0}),
+      (std::vector{true}));
+
+  // And it is still found when a path into the integer is asked about first.
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p3}, PropertyPath{p2, p3}},
+                         std::array{PropertyValue{"apple"}},
+                         std::array<std::size_t, 2>{0, 0}),
+            (std::vector{false, true}));
+}
+
+// Asking about no paths at all is answerable, and every caller happens to ask about at least
+// one, so nothing else would notice if it stopped being.
+TEST(PropertyStore, AskingAboutNoPathsAtAllYieldsNoAnswers) {
+  auto const p1 = PropertyId::FromInt(1);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1, PropertyValue{int64_t{300}}}};
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_TRUE(
+      EqualityMask(
+          store, std::span<PropertyPath const>{}, std::span<PropertyValue const>{}, std::span<std::size_t const>{})
+          .empty());
+  EXPECT_TRUE(store.ExtractPropertyValuesMissingAsNull(std::vector<PropertyPath>{}).empty());
+}
+
+// Giving up on a path has to leave the reader after the value it gave up on, which is where a
+// plain read of that value would leave it, because the paths after it are read from there. The
+// value here is long enough that a reader left inside it is left well short of the property
+// that follows.
+TEST(PropertyStore, ArePropertiesEqual_GivingUpOnAPathLeavesTheReaderAfterTheValueItGaveUpOn) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p9 = PropertyId::FromInt(9);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue{std::string(400, 'x')}},
+      {p9, PropertyValue{"outer"}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p3}, PropertyPath{p9}},
+                         std::array{PropertyValue{"outer"}},
+                         std::array<std::size_t, 2>{0, 0}),
+            (std::vector{false, true}));
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p3}, PropertyPath{p9}}),
+            (std::vector{PropertyValue(), PropertyValue("outer")}));
+}
+
+// A key is looked for inside the value that holds it and nowhere else. The ids here are chosen
+// so that a search for the key inside the nested map passes the one key it does hold and so
+// would carry on into what follows the map if it were not stopped at its end, where a property
+// of the same id sits at the top level.
+TEST(PropertyStore, ArePropertiesEqual_AKeyIsNotFoundOutsideTheValueThatHoldsIt) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p9 = PropertyId::FromInt(9);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p4, PropertyValue{"inner"}})})},
+      {p9, PropertyValue{"outer"}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  // The nested map holds no key 9, so the path names nothing.
+  EXPECT_EQ(EqualityMask(store,
+                         std::array{PropertyPath{p1, p2, p9}},
+                         std::array{PropertyValue{"outer"}},
+                         std::array<std::size_t, 1>{0}),
+            (std::vector{false}));
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p2, p9}}),
+            (std::vector{PropertyValue()}));
+}
+
+// The same, with one step rather than two, and a single path: a plain index on one key inside
+// one property is enough to ask this.
+TEST(PropertyStore, ArePropertiesEqual_AKeyIsNotFoundOutsideTheValueThatHoldsItAtOneStep) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p9 = PropertyId::FromInt(9);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p4, PropertyValue{"inner"}})},
+      {p9, PropertyValue{"outer"}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(
+      EqualityMask(
+          store, std::array{PropertyPath{p1, p9}}, std::array{PropertyValue{"outer"}}, std::array<std::size_t, 1>{0}),
+      (std::vector{false}));
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p9}}),
+            (std::vector{PropertyValue()}));
+}
+
+// Reading the values at a set of paths walks the same scan, so a path into something that is
+// not a map must leave the paths after it readable there too.
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_APathIntoSomethingThatIsNotAMapLeavesLaterPathsAlone) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue{int64_t{300}}},
+      {p2, MakeMap(KVPair{p3, PropertyValue{"apple"}})},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p3}, PropertyPath{p2, p3}}),
+            (std::vector{PropertyValue(), PropertyValue("apple")}));
+}
+
 TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWithAnEmptyStore) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
@@ -1595,7 +1745,7 @@ TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p1}}};
+  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p1}}, &NamelessMapper()};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(1u, values.size());
   EXPECT_EQ(values[0], data[0].second);
@@ -1612,7 +1762,7 @@ TEST(PropertiesPermutationHelper, CanReadTwoValuesInOrderFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader(std::array{PropertyPath{p1}, PropertyPath{p2}});
+  PropertiesPermutationHelper prop_reader(std::array{PropertyPath{p1}, PropertyPath{p2}}, &NamelessMapper());
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(2u, values.size());
   EXPECT_EQ(values[0], data[0].second);
@@ -1630,7 +1780,7 @@ TEST(PropertiesPermutationHelper, CanReadTwoValuesOutOfOrderFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p2}, PropertyPath{p1}}};
+  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p2}, PropertyPath{p1}}, &NamelessMapper()};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(2u, values.size());
   EXPECT_EQ(values[0], data[1].second);
@@ -1653,7 +1803,7 @@ TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
   store.InitProperties(data);
 
   PropertiesPermutationHelper prop_reader{
-      std::vector{PropertyPath{p3}, PropertyPath{p1}, PropertyPath{p4}, PropertyPath{p2}}};
+      std::vector{PropertyPath{p3}, PropertyPath{p1}, PropertyPath{p4}, PropertyPath{p2}}, &NamelessMapper()};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(4u, values.size());
 
@@ -1661,6 +1811,59 @@ TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
   EXPECT_EQ(values[1], data[0].second);
   EXPECT_EQ(values[2], data[3].second);
   EXPECT_EQ(values[3], data[1].second);
+}
+
+// A path's last segment reads a key when the value it is read off is a map and a field of that
+// value when it is not. An index over `a.year` therefore has to answer 2024 for a date, which
+// is what a lookup on `a.year` answers, and the key for a map that holds one.
+// A path arriving at nothing is keyed as Null, and the two ways of asking whether a record
+// still matches an entry have to say the same about that. One is asked of the record as it
+// stands and the other of each change behind it, and the second overwrites the first position
+// by position, so a record can be judged not to hold what it holds if they differ.
+TEST(PropertiesPermutationHelper, BothComparisonsPlaceAPathThatArrivesAtNothingAlike) {
+  NameIdMapper mapper;
+  auto const outer = PropertyId::FromUint(mapper.NameToId("a"));
+  auto const key = PropertyId::FromUint(mapper.NameToId("k"));
+  auto const paths = std::vector<PropertyPath>{PropertyPath{outer, key}};
+  PropertiesPermutationHelper helper{paths, &mapper};
+
+  // `a` is an integer, so `a.k` names nothing in it.
+  auto const outer_value = PropertyValue{int64_t{300}};
+  PropertyStore store;
+  store.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{{outer, outer_value}});
+
+  // What the record is keyed on, which is the value the two comparisons are asked about.
+  auto const keyed = helper.ApplyPermutation(helper.Extract(store));
+  ASSERT_TRUE(keyed.values_[0].IsNull());
+
+  auto const against_keyed = IndexOrderedValuesVector{std::vector<PropertyValue>{keyed.values_[0]}};
+  EXPECT_EQ(EqualityMask(helper, store, against_keyed), (std::vector{true}));
+
+  auto const one = helper.MatchesValue(outer, outer_value, against_keyed);
+  ASSERT_EQ(one.size(), 1U);
+  EXPECT_TRUE(one[0].second) << "asked of a change behind the record";
+}
+
+TEST(PropertiesPermutationHelper, ReadsAFieldOfAValueThatIsNotAMap) {
+  NameIdMapper mapper;
+  auto const outer = PropertyId::FromUint(mapper.NameToId("a"));
+  auto const year = PropertyId::FromUint(mapper.NameToId("year"));
+  auto const paths = std::vector<PropertyPath>{PropertyPath{outer, year}};
+  PropertiesPermutationHelper prop_reader{paths, &mapper};
+
+  // 2024-03-05, as microseconds since the epoch.
+  auto const date = PropertyValue{TemporalData{TemporalType::Date, 1'709'596'800'000'000}};
+  PropertyStore holds_a_date;
+  holds_a_date.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{{outer, date}});
+  EXPECT_EQ(prop_reader.ApplyPermutation(prop_reader.Extract(holds_a_date)).values_,
+            (std::vector{PropertyValue{int64_t{2024}}}));
+
+  // And the same path still reads the key when the value does hold one.
+  PropertyStore holds_a_map;
+  holds_a_map.InitProperties(std::vector<std::pair<PropertyId, PropertyValue>>{
+      {outer, PropertyValue{PropertyValue::map_t{{year, PropertyValue{int64_t{1999}}}}}}});
+  EXPECT_EQ(prop_reader.ApplyPermutation(prop_reader.Extract(holds_a_map)).values_,
+            (std::vector{PropertyValue{int64_t{1999}}}));
 }
 
 TEST(PropertiesPermutationHelper, CanExtractSinglyNestedValuesFromMap) {
@@ -1673,7 +1876,7 @@ TEST(PropertiesPermutationHelper, CanExtractSinglyNestedValuesFromMap) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p1, p2}}};
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p1, p2}}, &NamelessMapper()};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(1u, values.size());
   EXPECT_EQ(values[0], PropertyValue{"test-value"});
@@ -1691,7 +1894,7 @@ TEST(PropertiesPermutationHelper, ExtractWillReturnNullForMissingNestedValues) {
   store.InitProperties(data);
 
   for (auto &&path : {PropertyPath{p1, p3}, PropertyPath{p2, p3}, PropertyPath{p1, p2, p3}}) {
-    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{path}};
+    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{path}, &NamelessMapper()};
     auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
     ASSERT_EQ(1u, values.size());
     EXPECT_EQ(values[0], PropertyValue{});
@@ -1710,7 +1913,7 @@ TEST(PropertiesPermutationHelper, CanExtractDeeplyNestedValuesFromMap) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p3, p1, p4, p2}}};
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p3, p1, p4, p2}}, &NamelessMapper()};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(1u, values.size());
   EXPECT_EQ(values[0], PropertyValue{"test-value"});
@@ -1736,8 +1939,10 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
     PropertyStore store;
     store.InitProperties(data);
 
-    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{
-        PropertyPath{p7, p8}, PropertyPath{p4, p5}, PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
+    PropertiesPermutationHelper prop_reader{
+        std::vector<PropertyPath>{
+            PropertyPath{p7, p8}, PropertyPath{p4, p5}, PropertyPath{p1, p2, p3}, PropertyPath{p6}},
+        &NamelessMapper()};
     auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
     ASSERT_EQ(4u, values.size());
     EXPECT_EQ(values[0], PropertyValue{"date"});
@@ -1756,7 +1961,7 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
     store.InitProperties(data);
 
     PropertiesPermutationHelper prop_reader{
-        std::vector<PropertyPath>{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}}};
+        std::vector<PropertyPath>{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}}, &NamelessMapper()};
     auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
     ASSERT_EQ(3u, values.size());
     EXPECT_EQ(values[0], PropertyValue{"banana"});
@@ -1783,7 +1988,8 @@ TEST(PropertiesPermutationHelper, CanExtractMultipleValuesFromSameTopMostPropert
   store.InitProperties(data);
 
   PropertiesPermutationHelper prop_reader{
-      std::vector<PropertyPath>{PropertyPath{p1, p2, p3}, PropertyPath{p1, p2, p4}, PropertyPath{p1, p2, p5}}};
+      std::vector<PropertyPath>{PropertyPath{p1, p2, p3}, PropertyPath{p1, p2, p4}, PropertyPath{p1, p2, p5}},
+      &NamelessMapper()};
 
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(3u, values.size());
@@ -1803,8 +2009,10 @@ TEST(PropertiesPermutationHelper, MatchesValue_ProducesVectorOfPositionsAndCompa
   auto const p6 = PropertyId::FromInt(6);
   auto const p7 = PropertyId::FromInt(7);
 
-  PropertiesPermutationHelper prop_reader{std::array{
-      PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4}, PropertyPath{p5, p6}, PropertyPath{p7}}};
+  PropertiesPermutationHelper prop_reader{
+      std::array{
+          PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4}, PropertyPath{p5, p6}, PropertyPath{p7}},
+      &NamelessMapper()};
 
   IndexOrderedValuesVector const baseline{{
       PropertyValue("apple"),
@@ -1885,9 +2093,10 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
   auto const p4 = PropertyId::FromInt(4);
 
   PropertiesPermutationHelper prop_reader{std::array{
-      PropertyPath{p3, p4},
-      PropertyPath{p1, p2},
-  }};
+                                              PropertyPath{p3, p4},
+                                              PropertyPath{p1, p2},
+                                          },
+                                          &NamelessMapper()};
 
   IndexOrderedValuesVector const baseline{{
       PropertyValue("apple"),   // corresponds to p3.p4; ordered-index[1]
@@ -1921,7 +2130,8 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderPropertiesWhenR
   auto const p6 = PropertyId::FromInt(6);
 
   PropertiesPermutationHelper prop_reader{
-      std::array{PropertyPath{p3, p4}, PropertyPath{p1, p6}, PropertyPath{p3, p5}, PropertyPath{p1, p2}}};
+      std::array{PropertyPath{p3, p4}, PropertyPath{p1, p6}, PropertyPath{p3, p5}, PropertyPath{p1, p2}},
+      &NamelessMapper()};
 
   IndexOrderedValuesVector const baseline{{
       PropertyValue("apple"),   // corresponds to p3.p4; ordered-index[2]
@@ -1994,10 +2204,11 @@ TEST(PropertiesPermutationHelper, ExtractContinuesReadsIfNestedValueIsNull) {
   store.InitProperties(data);
 
   PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{
-      PropertyPath{p2, p4},
-      PropertyPath{p1, p4},
-      PropertyPath{p3, p4},
-  }};
+                                              PropertyPath{p2, p4},
+                                              PropertyPath{p1, p4},
+                                              PropertyPath{p3, p4},
+                                          },
+                                          &NamelessMapper()};
 
   // Read values back unpermuted and unnested
   EXPECT_EQ(store.GetProperty(p2), PropertyValue());
@@ -2021,7 +2232,7 @@ TEST(PropertiesPermutationHelper, MatchesValues_ReturnsABooleanMaskOfMatches) {
   auto const p4 = PropertyId::FromInt(4);
 
   PropertiesPermutationHelper prop_reader{
-      std::array{PropertyPath{p1}, PropertyPath{p2}, PropertyPath{p3}, PropertyPath{p4}}};
+      std::array{PropertyPath{p1}, PropertyPath{p2}, PropertyPath{p3}, PropertyPath{p4}}, &NamelessMapper()};
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1, PropertyValue{"apple"}},
                                                                   {p2, PropertyValue{"banana"}},
@@ -2062,7 +2273,7 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithOutOfOrderProperties) {
   auto const p4 = PropertyId::FromInt(4);
 
   PropertiesPermutationHelper prop_reader{
-      std::array{PropertyPath{p3}, PropertyPath{p1}, PropertyPath{p2}, PropertyPath{p4}}};
+      std::array{PropertyPath{p3}, PropertyPath{p1}, PropertyPath{p2}, PropertyPath{p4}}, &NamelessMapper()};
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1, PropertyValue{"apple"}},
                                                                   {p2, PropertyValue{"banana"}},
@@ -2094,7 +2305,8 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
   auto const p4 = PropertyId::FromInt(4);
 
   PropertiesPermutationHelper prop_reader{
-      std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}, PropertyPath{p4}}};
+      std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}, PropertyPath{p4}},
+      &NamelessMapper()};
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1,
                                                                 MakeMap(KVPair{p1, PropertyValue{"apple"}},

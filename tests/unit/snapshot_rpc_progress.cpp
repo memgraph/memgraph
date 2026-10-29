@@ -239,7 +239,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, on_progress));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, nullptr, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
@@ -263,7 +263,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, on_progress));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, nullptr, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) {
@@ -294,6 +294,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
                                         vertices.access(),
                                         par_schema_info,
                                         updater,
+                                        nullptr,
                                         on_progress));
 }
 
@@ -320,7 +321,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(5);
   auto updater = ActiveIndicesUpdater{active_indices_store_};
   ASSERT_TRUE(label_prop_idx.CreateIndexOnePass(
-      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, on_progress));
+      label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info, updater, nullptr, on_progress));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
@@ -353,6 +354,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
                                         vertices.access(),
                                         par_schema_info,
                                         updater,
+                                        nullptr,
                                         on_progress));
 }
 

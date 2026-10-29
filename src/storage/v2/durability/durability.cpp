@@ -305,7 +305,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
     for (auto const &[label, properties] : indices_metadata.label_properties) {
       if (!mem_label_property_index->CreateIndexOnePass(
-              label, properties, vertices->access(), parallel_exec_info, updater, on_progress))
+              label, properties, vertices->access(), parallel_exec_info, updater, name_id_mapper, on_progress))
         throw RecoveryFailure("The label+property index must be created here!");
       spdlog::info("Index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),
@@ -319,8 +319,14 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Recreating {} DESC label+property indices from metadata.",
                  indices_metadata.label_properties_desc.size());
     for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
-      if (!mem_label_property_index->CreateIndexOnePass(
-              label, properties, vertices->access(), parallel_exec_info, updater, on_progress, IndexOrder::DESC))
+      if (!mem_label_property_index->CreateIndexOnePass(label,
+                                                        properties,
+                                                        vertices->access(),
+                                                        parallel_exec_info,
+                                                        updater,
+                                                        name_id_mapper,
+                                                        on_progress,
+                                                        IndexOrder::DESC))
         throw RecoveryFailure("The DESC label+property index must be created here!");
       spdlog::info("DESC index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(label.AsUint()),

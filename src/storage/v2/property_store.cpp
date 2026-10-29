@@ -2103,11 +2103,21 @@ enum class ExpectedPropertyStatus {
 // Similar to FindSpecificProperty, except that the reader will not consume
 // the next property if it is ordered after the requested property.
 //
+// `limit` is the offset the search must stop at, and has to be given: a search among the
+// properties held inside one value must not run past that value. Stopping there reports the
+// property absent, which is what it is, since the bytes beyond belong to whatever holds that
+// value. A search among a record's own properties is bounded by the reader and passes the
+// largest offset there is.
+//
 // @sa FindSpecificProperty
 // @sa FindSpecificPropertyAndBufferInfo
-[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property)
+[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property, uint64_t limit)
     -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
   while (true) {
+    // A key held inside a value is searched for among that value's bytes and no further.
+    if (reader->GetPosition() >= limit) {
+      return {ExpectedPropertyStatus::GREATER, std::nullopt};
+    }
     auto ret = TryDecodeExpectedProperty(reader, property);
     // Because the properties are sorted in the buffer, we only need to
     // continue searching for the property while this function returns a
@@ -2207,23 +2217,29 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, 
 }
 
 // Like FindSpecificPropertyAndBufferInfo, but will early exit. No need to find the "all" information
-SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Reader *reader, PropertyId property) {
+SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(
+    Reader *reader, PropertyId property, uint64_t limit = std::numeric_limits<uint64_t>::max()) {
   uint64_t property_begin = reader->GetPosition();
   while (true) {
+    // See `MatchSpecificProperty` for what `limit` is for.
+    if (property_begin >= limit) {
+      reader->SetPosition(property_begin);
+      return {.status = ExpectedPropertyStatus::GREATER, .property_begin = 0, .property_end = 0};
+    }
     auto status = HasExpectedProperty(reader, property);
     switch (status) {
       case ExpectedPropertyStatus::MISSING_DATA: {
-        return {status, 0, 0};
+        return {.status = status, .property_begin = 0, .property_end = 0};
       }
       case ExpectedPropertyStatus::GREATER: {
         // Restore the reader position so that the next property isn't skipped.
         // This allows `FindSpecificPropertyAndBufferInfoMinimal` to be
         // additional properties to be read from the same reader.
         reader->SetPosition(property_begin);
-        return {status, 0, 0};
+        return {.status = status, .property_begin = 0, .property_end = 0};
       }
       case ExpectedPropertyStatus::EQUAL: {
-        return {status, property_begin, reader->GetPosition()};
+        return {.status = status, .property_begin = property_begin, .property_end = reader->GetPosition()};
       }
       case ExpectedPropertyStatus::SMALLER: {
         property_begin = reader->GetPosition();
@@ -2655,16 +2671,36 @@ class ReaderPropPositionHistory {
     }
 
     for (auto inner_property_id : std::ranges::subrange(parent_map_fork_it, parent_map.end())) {
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id, CurrentLimit());
       if (info.status != ExpectedPropertyStatus::EQUAL) return info.status;
-      history_.emplace_back(inner_property_id, info.property_end);
 
       reader.SetPosition(info.property_begin);
       auto metadata = reader.ReadMetadata();
+      // These are the bytes the search above read to recognise the property, so they are there
+      // to be read again.
+      DMG_ASSERT(metadata, "A property was found and then could not be read");
+      // A path goes on only into a map, since nothing else holds keys. Stepping into any other
+      // kind would read its payload as though it were a list of properties, and running off the
+      // end of that would be taken for the record itself running out, which stops every later
+      // path being read at all. The path names nothing, which is what GREATER says.
+      if (metadata->type != Type::MAP) {
+        reader.SetPosition(info.property_end);
+        return ExpectedPropertyStatus::GREATER;
+      }
+      history_.emplace_back(inner_property_id, info.property_end);
+
       reader.SkipBytes(SizeToByteSize(metadata->id_size) + SizeToByteSize(metadata->payload_size));
     }
 
     return ExpectedPropertyStatus::EQUAL;
+  }
+
+  /// The offset a lookup must stop at: the end of the innermost value this scan has stepped
+  /// into. Unbounded while the scan is among the record's own properties, where the reader's
+  /// own end is the bound and running past it does mean the record ran out.
+  uint64_t CurrentLimit() const {
+    if (history_.empty()) return std::numeric_limits<uint64_t>::max();
+    return history_.back().offset_to_property_end;
   }
 
  private:
@@ -2682,6 +2718,8 @@ namespace {
 // to `sink`. Shared by the vector-returning and into-buffer overloads.
 template <typename Sink>
 void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath const> ordered_properties, Sink sink) {
+  // No paths means no values, and `max_element` below would read the first of none.
+  if (ordered_properties.empty()) return;
   auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
@@ -2691,7 +2729,7 @@ void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath c
     if (result != ExpectedPropertyStatus::EQUAL) {
       return {result, std::nullopt};
     }
-    return MatchSpecificProperty(&reader, path.back());
+    return MatchSpecificProperty(&reader, path.back(), history.CurrentLimit());
   };
 
   auto safe_reader = SafeReader{reader, get_value, std::move(sink), std::nullopt};
@@ -2740,11 +2778,12 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup, std::vector<bool> &result) const {
-  auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
-  ReaderPropPositionHistory history{max_history_depth};
-
   // assign rather than construct: a reused buffer keeps its capacity
   result.assign(ordered_properties.size(), false);
+  // No paths means no answers, and `max_element` below would read the first of none.
+  if (ordered_properties.empty()) return;
+  auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
+  ReaderPropPositionHistory history{max_history_depth};
 
   auto properties_are_equal = [&](Reader &reader) {
     auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
@@ -2757,7 +2796,7 @@ void PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
 
       auto leaf_property_id = path.back();
 
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, leaf_property_id);
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, leaf_property_id, history.CurrentLimit());
       auto property_size = info.property_size();
       if (property_size != 0) {
         auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
