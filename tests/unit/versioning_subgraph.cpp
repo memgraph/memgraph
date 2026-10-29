@@ -67,7 +67,6 @@ class VersioningSubgraphTest : public ::testing::Test {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
     config.experimental_versioning = true;
-    config.experimental_versioning = true;
     config.durability.recover_on_startup = true;
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;

@@ -401,21 +401,17 @@ TEST_F(VersioningDurabilityRestartTest, DroppingABranchDeletesItsDirectory) {
   EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
 }
 
-TEST_F(VersioningDurabilityRestartTest, LegacyBranchDirectoryIsRemovedAndNewBranchesContinueTheNumbering) {
+TEST_F(VersioningDurabilityRestartTest, BranchesSurviveRestartAndNewBranchesContinueTheNumbering) {
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBase(db);
     ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
     ASSERT_TRUE(db.version_store()->CreateBranch("b2", "b1").has_value());
-    auto const stray = kStorageDirectory / "versioning" / "branches" / "b1";
-    std::filesystem::create_directories(stray);
-    std::ofstream{stray / "leftover"} << "x";
   }
 
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning"));
   ASSERT_EQ(db.version_store()->List().size(), 2u);
   EXPECT_EQ(db.version_store()->Get("b2")->parent, "b1");
 

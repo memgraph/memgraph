@@ -11,7 +11,6 @@
 
 // A tenant resumed on a REPLICA must not keep Graph Versioning branches (the demotion sweep skips COLD tenants);
 // on MAIN, resume keeps them.
-#ifdef MG_ENTERPRISE
 
 #include <chrono>
 #include <filesystem>
@@ -191,11 +190,3 @@ TEST_F(ColdReplicaResume, PromotionDuringResume) {
   ASSERT_NE(store, nullptr);
   EXPECT_TRUE(store->CreateBranch("x", "main").has_value()) << "resumed store left frozen after promotion";
 }
-
-#else
-
-#include <gtest/gtest.h>
-
-TEST(ColdReplicaResume, NotApplicableInCommunity) { GTEST_SKIP() << "enterprise-only"; }
-
-#endif

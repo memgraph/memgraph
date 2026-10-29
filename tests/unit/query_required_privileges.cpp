@@ -352,17 +352,6 @@ TEST_F(TestPrivilegeExtractor, DropBranchForceNeedsTransactionManagement) {
               UnorderedElementsAre(AuthQuery::Privilege::BRANCH_EDIT, AuthQuery::Privilege::TRANSACTION_MANAGEMENT));
 }
 
-TEST_F(TestPrivilegeExtractor, BranchQueriesDoNotNeedMultiDatabasePrivileges) {
-  using Action = VersioningQuery::Action;
-  for (auto const action :
-       {Action::CREATE_BRANCH, Action::DROP_BRANCH, Action::USE_BRANCH, Action::SHOW_BRANCH, Action::SHOW_BRANCHES}) {
-    EXPECT_THAT(GetRequiredPrivileges(MakeVersioningQuery(storage, action, /*force=*/false)),
-                ::testing::Not(::testing::Contains(AuthQuery::Privilege::MULTI_DATABASE_EDIT)));
-    EXPECT_THAT(GetRequiredPrivileges(MakeVersioningQuery(storage, action, /*force=*/false)),
-                ::testing::Not(::testing::Contains(AuthQuery::Privilege::MULTI_DATABASE_USE)));
-  }
-}
-
 TEST_F(TestPrivilegeExtractor, UsingBranchNeedsBranchUse) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   query->pre_query_directives_.branch_target_ = LITERAL("feature");

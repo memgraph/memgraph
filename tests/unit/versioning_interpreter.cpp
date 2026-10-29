@@ -28,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <typeinfo>
 #include <utility>
 #include <vector>
@@ -96,6 +97,19 @@ std::string ExplainText(InterpreterFaker &session, const std::string &query) {
   }
   return plan;
 }
+
+// The what() of whatever `fn` throws, or a marker when it does not throw.
+template <typename Fn>
+std::string ThrownMessage(Fn &&fn) {
+  try {
+    fn();
+  } catch (const std::exception &e) {
+    return e.what();
+  }
+  return "<no exception>";
+}
+
+constexpr auto kVersioningDisabled = "Graph versioning is disabled.";
 
 // True when `plan` contains the operator named exactly `op`, not merely as the prefix of a longer operator name
 // (ScanAllByLabel inside ScanAllByLabelProperties).
@@ -236,16 +250,24 @@ void ExpectCreateRefusedAsNotDurable(InterpreterFaker &session) {
 }
 }  // namespace
 
-// A branch must survive a restart, so it is never created without the WAL.
-TEST_F(VersioningNoWalTest, CreateRefusedWithoutWal) {
-  ExpectCreateRefusedAsNotDurable(faker);
-  EXPECT_TRUE(db->version_store()->Empty());
-}
+template <typename Fixture>
+class VersioningNotDurableTest : public Fixture {};
 
-// WAL on, recovery off: the branch would be lost at the next startup.
-TEST_F(VersioningNoRecoveryTest, CreateRefusedWithoutRecoveryOnStartup) {
-  ExpectCreateRefusedAsNotDurable(faker);
-  EXPECT_TRUE(db->version_store()->Empty());
+struct NotDurableFixtureName {
+  template <typename Fixture>
+  static std::string GetName(int) {
+    return std::is_same_v<Fixture, VersioningNoWalTest> ? "NoWal" : "NoRecovery";
+  }
+};
+
+using NotDurableFixtures = ::testing::Types<VersioningNoWalTest, VersioningNoRecoveryTest>;
+TYPED_TEST_SUITE(VersioningNotDurableTest, NotDurableFixtures, NotDurableFixtureName);
+
+// A branch must survive a restart, so it is never created without the WAL (NoWal) nor, with the WAL on, without
+// recovery on startup (NoRecovery): it would be lost at the next startup.
+TYPED_TEST(VersioningNotDurableTest, CreateRefused) {
+  ExpectCreateRefusedAsNotDurable(this->faker);
+  EXPECT_TRUE(this->db->version_store()->Empty());
 }
 
 // The durability prerequisite sits after the storage-mode one and only applies to CREATE.
@@ -1356,6 +1378,26 @@ TEST_F(VersioningGatedTest, BranchPeriodicCommitWritesToBranch) {
   }
 }
 
+namespace {
+using QueryAndMessage = std::pair<const char *, const char *>;
+
+constexpr QueryAndMessage kDatabaseGlobalRefusals[] = {
+    {"STORAGE MODE IN_MEMORY_ANALYTICAL", "Cannot switch storage mode while versioning branches exist"},
+    {"DROP GRAPH", "Cannot drop the graph while versioning branches exist"},
+    {"CREATE ENUM Status VALUES { Good, Bad }", "Cannot create an enum while versioning branches exist"},
+    {"RECOVER SNAPSHOT \"/nonexistent/snapshot\"", "Cannot recover a snapshot while versioning branches exist"},
+};
+
+void ExpectRefusedWith(InterpreterFaker &session, const char *query, const char *message) {
+  try {
+    session.Interpret(query);
+    ADD_FAILURE() << "must be rejected: " << query;
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr(message)) << query;
+  }
+}
+}  // namespace
+
 // DB-global operations (storage mode, drop graph, enum, recover snapshot) are rejected while any branch exists, even
 // from a session on main (CREATE BRANCH does not check out); the guard clears once the last branch is dropped.
 TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
@@ -1363,20 +1405,7 @@ TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
   faker.Interpret("CREATE BRANCH 'b'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 
-  for (const auto &[query, message] :
-       {std::pair<const char *, const char *>{"STORAGE MODE IN_MEMORY_ANALYTICAL",
-                                              "Cannot switch storage mode while "
-                                              "versioning branches exist"},
-        {"DROP GRAPH", "Cannot drop the graph while versioning branches exist"},
-        {"CREATE ENUM Status VALUES { Good, Bad }", "Cannot create an enum while versioning branches exist"},
-        {"RECOVER SNAPSHOT \"/nonexistent/snapshot\"", "Cannot recover a snapshot while versioning branches exist"}}) {
-    try {
-      faker.Interpret(query);
-      FAIL() << "must be rejected while a branch exists: " << query;
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      EXPECT_THAT(e.what(), ::testing::HasSubstr(message)) << query;
-    }
-  }
+  for (const auto &[query, message] : kDatabaseGlobalRefusals) ExpectRefusedWith(faker, query, message);
 
   {
     auto s = faker.Interpret("MATCH (n:A) RETURN n.x");
@@ -1417,22 +1446,11 @@ TEST_F(VersioningGatedTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused) {
   ASSERT_FALSE((*acc)->version_store()->Empty());
   InterpreterFaker hidden_faker{&interpreter_context, *acc};
 
-  for (const auto &[query, message] :
-       {std::pair<const char *, const char *>{"STORAGE MODE IN_MEMORY_ANALYTICAL",
-                                              "Cannot switch storage mode while versioning branches exist"},
-        {"DROP GRAPH", "Cannot drop the graph while versioning branches exist"},
-        {"CREATE ENUM Status VALUES { Good, Bad }", "Cannot create an enum while versioning branches exist"},
-        {"RECOVER SNAPSHOT \"/nonexistent/snapshot\"", "Cannot recover a snapshot while versioning branches exist"},
-        {"CREATE BRANCH 'c'",
-         "Graph versioning is disabled. Start Memgraph with "
-         "--experimental-enabled=versioning to use branch queries."}}) {
-    try {
-      hidden_faker.Interpret(query);
-      FAIL() << "must be rejected while the branches are hidden: " << query;
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      EXPECT_THAT(e.what(), ::testing::HasSubstr(message)) << query;
-    }
-  }
+  for (const auto &[query, message] : kDatabaseGlobalRefusals) ExpectRefusedWith(hidden_faker, query, message);
+  ExpectRefusedWith(hidden_faker,
+                    "CREATE BRANCH 'c'",
+                    "Graph versioning is disabled. Start Memgraph with "
+                    "--experimental-enabled=versioning to use branch queries.");
 }
 
 // `USING BRANCH 'main'` routes that one query to main's own storage while the session stays checked out: the branch
@@ -1531,12 +1549,26 @@ TEST_F(VersioningGatedTest, UsingBranchHonouredByExplainAndProfile) {
   EXPECT_FALSE(faker.Interpret("PROFILE USING BRANCH 'b' MATCH (n:OnB) RETURN n").GetResults().empty());
   EXPECT_EQ(store->CheckoutCount("b"), 0U);
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  // An unknown branch is refused on both paths, so USING is resolved there rather than silently ignored.
+  for (const auto *prefix : {"EXPLAIN", "PROFILE"}) {
+    EXPECT_THAT(
+        ThrownMessage([&] { faker.Interpret(std::string{prefix} + " USING BRANCH 'nope' MATCH (n) RETURN n"); }),
+        ::testing::HasSubstr("Branch 'nope' does not exist."))
+        << prefix;
+  }
 }
 
 TEST_F(VersioningGatedTest, UsingBranchCombinesWithOtherDirectives) {
   faker.Interpret("CREATE (:Base {v:1})");
   faker.Interpret("CREATE BRANCH 'b'");
+  faker.Interpret("USE BRANCH 'b'");
+  faker.Interpret("CREATE (:OnB {v:2})");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker, "USING BRANCH 'b', HOPS LIMIT 5 MATCH (n:Base) RETURN n.v"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'b', HOPS LIMIT 5 MATCH (n:OnB) RETURN n.v"), (Rows{{2}}))
+      << "a branch-only node is read only if USING BRANCH is honoured next to HOPS LIMIT";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
 }
 
 TEST_F(VersioningGatedTest, UsingBranchOfAnUnknownBranchFailsAndLeavesTheSessionUsable) {
@@ -1569,7 +1601,8 @@ TEST_F(VersioningGatedTest, UsingBranchInsideAnExplicitTransactionIsRefused) {
 TEST_F(VersioningGatedTest, UsingBranchRespectsTheGate) {
   faker.Interpret("CREATE BRANCH 'b'");
   SetVersioningFlag(false);
-  EXPECT_THROW(faker.Interpret("USING BRANCH 'b' MATCH (n) RETURN n"), memgraph::query::QueryRuntimeException);
+  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USING BRANCH 'b' MATCH (n) RETURN n"); }),
+              ::testing::HasSubstr(kVersioningDisabled));
 }
 
 // A `USING BRANCH 'main'` write while on 'b' lands on main only; a plain write lands on the branch only.
@@ -3312,7 +3345,9 @@ TEST_F(VersioningMultiSessionTest, DropBranchIsRefusedWhileAnotherSessionIsAttac
 // DROP BRANCH ... FORCE drops a branch other sessions are on and terminates their transactions; those sessions then
 // get the dead-branch error until they switch.
 TEST_F(VersioningMultiSessionTest, DropBranchForceTerminatesOtherSessionsAndLeavesThemOnADeadBranch) {
+  auto &sessions = memgraph::metrics::Metrics().global.versioning_active_sessions;
   faker.Interpret("CREATE (:K {id:1, v:10})");
+  const double sessions0 = sessions->Value();
   Fork();
   faker2.Interpret("USE BRANCH 'b'");
   faker2.Interpret("BEGIN");
@@ -3323,7 +3358,11 @@ TEST_F(VersioningMultiSessionTest, DropBranchForceTerminatesOtherSessionsAndLeav
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value()) << "the dropping session moves to main";
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
 
-  EXPECT_ANY_THROW(faker2.Interpret("MATCH (n:K) RETURN n.v")) << "the transaction was terminated";
+  EXPECT_EQ(faker2.interpreter.transaction_status_.load(), memgraph::query::TransactionStatus::TERMINATED)
+      << "the open transaction was terminated, not merely left on a dead branch";
+  // The dead-branch check runs when the query is prepared, before termination can surface at commit.
+  EXPECT_EQ(ThrownMessage([&] { faker2.Interpret("MATCH (n:K) RETURN n.v"); }),
+            "Branch 'b' no longer exists. Run USE BRANCH or USE DATABASE to continue.");
   faker2.Interpret("ROLLBACK");
 
   try {
@@ -3336,7 +3375,7 @@ TEST_F(VersioningMultiSessionTest, DropBranchForceTerminatesOtherSessionsAndLeav
 
   faker2.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker2, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_DOUBLE_EQ(sessions->Value(), sessions0) << "both attaches were released exactly once";
 }
 
 TEST_F(VersioningMultiSessionTest, DropBranchForceByTheOnlySessionOnTheBranch) {
@@ -3784,49 +3823,6 @@ void RunStatements(InterpreterFaker &s, std::string_view script) {
 }
 }  // namespace
 
-TEST_F(VersioningGatedTest, BranchLateIndexMainDriftBeforeIndexBuild) {
-  SeedLateIndexVertices(faker);
-  Fork();
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kMainDrift);
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 9, 50, 2});
-}
-
-TEST_F(VersioningGatedTest, BranchLateIndexBranchWritesBeforeIndexBuild) {
-  SeedLateIndexVertices(faker);
-  Fork();
-  RunStatements(faker, kBranchWrites);
-  faker.Interpret("MATCH (n {t:'b'}) SET n:L");
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"b", 2}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 2, 3, 5, 6, 7, 10});
-}
-
-TEST_F(VersioningGatedTest, BranchLateIndexMainDriftAndBranchWritesBeforeIndexBuild) {
-  SeedLateIndexVertices(faker);
-  Fork();
-  RunStatements(faker, kBranchWrites);
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kMainDrift);
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2});
-}
-
-// Branch writes landing after the late index is built on main.
-TEST_F(VersioningGatedTest, BranchLateIndexBranchWritesAfterIndexBuild) {
-  SeedLateIndexVertices(faker);
-  Fork();
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kMainDrift);
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  RunStatements(faker, kBranchWrites);
-  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2});
-}
-
 namespace {
 void SeedLateIndexEdges(InterpreterFaker &s) {
   s.Interpret(
@@ -3868,84 +3864,198 @@ void CreateLateEdgeIndexes(InterpreterFaker &s) {
 }
 }  // namespace
 
-TEST_F(VersioningGatedTest, BranchLateEdgeIndexMainDriftBeforeIndexBuild) {
+namespace {
+struct LateVertexIndexCase {
+  const char *name;
+  // The :L indexes exist at the fork and are dropped and re-created on main; otherwise they are first created late.
+  bool rebuilt;
+  bool branch_writes_before;  // before main drifts and the indexes are built
+  bool branch_labels_b;       // with branch_writes_before: also label the fork vertex 'b' as :L on the branch
+  bool main_drift;
+  bool branch_writes_after;  // after the indexes are built
+  TagP expected;
+  std::vector<int64_t> probe_p;
+};
+
+const std::vector<LateVertexIndexCase> kLateVertexIndexCases = {
+    {"LateMainDrift",
+     false,
+     false,
+     false,
+     true,
+     false,
+     {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}},
+     {1, 3, 5, 6, 9, 50, 2}},
+    {"LateBranchWritesBefore",
+     false,
+     true,
+     true,
+     false,
+     false,
+     {{"a", 10}, {"b", 2}, {"bn", 7}, {"e", 5}, {"f", 6}},
+     {1, 2, 3, 5, 6, 7, 10}},
+    {"LateMainDriftAndBranchWritesBefore",
+     false,
+     true,
+     false,
+     true,
+     false,
+     {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}},
+     {1, 3, 5, 6, 7, 9, 10, 50, 2}},
+    {"LateBranchWritesAfter",
+     false,
+     false,
+     false,
+     true,
+     true,
+     {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}},
+     {1, 3, 5, 6, 7, 9, 10, 50, 2}},
+    {"RebuiltNoDriftControl", true, false, false, false, false, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6}},
+    {"RebuiltMainDrift",
+     true,
+     false,
+     false,
+     true,
+     false,
+     {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}},
+     {1, 3, 5, 6, 9, 50, 2}},
+    {"RebuiltBranchWritesAndMainDrift",
+     true,
+     true,
+     false,
+     true,
+     false,
+     {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}},
+     {1, 3, 5, 6, 7, 9, 10, 50, 2}},
+};
+
+class VersioningLateVertexIndexTest : public VersioningGatedTest,
+                                      public ::testing::WithParamInterface<LateVertexIndexCase> {};
+}  // namespace
+
+// A rebuilt index still exists at the fork, so the branch plans against it; a late one does not exist there, so the
+// branch scans. Either way the branch reads fork state plus its own writes, never main's drifted state.
+TEST_P(VersioningLateVertexIndexTest, BranchReadsForkStateAndOwnWrites) {
+  const auto &c = GetParam();
+  if (c.rebuilt) {
+    faker.Interpret("CREATE INDEX ON :L");
+    faker.Interpret("CREATE INDEX ON :L(p)");
+  }
+  SeedLateIndexVertices(faker);
+  Fork();
+  if (c.branch_writes_before) {
+    RunStatements(faker, kBranchWrites);
+    if (c.branch_labels_b) faker.Interpret("MATCH (n {t:'b'}) SET n:L");
+  }
+  faker.Interpret("USE BRANCH 'main'");
+  if (c.main_drift) RunStatements(faker, kMainDrift);
+  if (c.rebuilt) {
+    faker.Interpret("DROP INDEX ON :L");
+    faker.Interpret("DROP INDEX ON :L(p)");
+  }
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("USE BRANCH 'b'");
+  if (c.branch_writes_after) RunStatements(faker, kBranchWrites);
+  ExpectBranchVertexIndexes(faker, c.expected, c.probe_p, c.rebuilt);
+}
+
+INSTANTIATE_TEST_SUITE_P(Cases, VersioningLateVertexIndexTest, ::testing::ValuesIn(kLateVertexIndexCases),
+                         [](const ::testing::TestParamInfo<LateVertexIndexCase> &info) {
+                           return std::string{info.param.name};
+                         });
+
+namespace {
+struct LateEdgeIndexCase {
+  const char *name;
+  bool rebuilt;
+  bool branch_writes_before;
+  TagP expected_r;
+  std::vector<int64_t> probe_w;
+};
+
+// Main always drifts (kEdgeMainDrift) before the indexes are built.
+const std::vector<LateEdgeIndexCase> kLateEdgeIndexCases = {
+    {"LateMainDrift", false, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
+    {"LateMainDriftAndBranchWritesBefore", false, true, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20}},
+    {"RebuiltMainDrift", true, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
+};
+
+class VersioningLateEdgeIndexTest : public VersioningGatedTest,
+                                    public ::testing::WithParamInterface<LateEdgeIndexCase> {};
+}  // namespace
+
+TEST_P(VersioningLateEdgeIndexTest, BranchReadsForkStateAndOwnWrites) {
+  const auto &c = GetParam();
+  if (c.rebuilt) {
+    faker.Interpret("CREATE EDGE INDEX ON :R");
+    faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  }
+  SeedLateIndexEdges(faker);
+  Fork();
+  if (c.branch_writes_before) RunStatements(faker, kEdgeBranchWrites);
+  faker.Interpret("USE BRANCH 'main'");
+  RunStatements(faker, kEdgeMainDrift);
+  if (c.rebuilt) {
+    faker.Interpret("DROP EDGE INDEX ON :R");
+    faker.Interpret("DROP EDGE INDEX ON :R(w)");
+  }
+  CreateLateEdgeIndexes(faker);
+  faker.Interpret("USE BRANCH 'b'");
+  ExpectBranchEdgeIndexes(faker, c.expected_r, c.probe_w, c.rebuilt);
+}
+
+INSTANTIATE_TEST_SUITE_P(Cases, VersioningLateEdgeIndexTest, ::testing::ValuesIn(kLateEdgeIndexCases),
+                         [](const ::testing::TestParamInfo<LateEdgeIndexCase> &info) {
+                           return std::string{info.param.name};
+                         });
+
+// A global property index existing at the fork, then dropped and re-created on main after main drifted: the branch
+// still plans against the global index and reads fork state.
+TEST_F(VersioningGatedTest, BranchRebuiltGlobalVertexPropertyIndexReadsForkState) {
+  faker.Interpret("CREATE GLOBAL INDEX ON :(w)");
+  faker.Interpret("CREATE (:A {w:1, t:'a'}), (:B {w:2, t:'b'}), (:C {w:3, t:'c'})");
+  Fork();
+  faker.Interpret("USE BRANCH 'main'");
+  RunStatements(faker,
+                "MATCH (n {t:'b'}) SET n.w = 20;"
+                "MATCH (n {t:'c'}) REMOVE n.w;"
+                "CREATE (:D {w:4, t:'d'});"
+                "MATCH (n {t:'a'}) DETACH DELETE n");
+  faker.Interpret("DROP GLOBAL INDEX ON :(w)");
+  faker.Interpret("CREATE GLOBAL INDEX ON :(w)");
+  faker.Interpret("USE BRANCH 'b'");
+
+  using V = std::vector<std::string>;
+  const std::string range = "MATCH (n) WHERE n.w > 0 RETURN n.t AS t ORDER BY n.w";
+  ExpectPlanUses(faker, range, "ScanAllByVertexProperty");
+  ExpectPlanUses(faker, "MATCH (n) WHERE n.w = 2 RETURN n.t", "ScanAllByVertexProperty");
+  EXPECT_EQ(BranchScanStrings(faker, range), (V{"a", "b", "c"}));
+  const std::vector<std::pair<int64_t, V>> probes = {{1, {"a"}}, {2, {"b"}}, {3, {"c"}}, {4, {}}, {20, {}}};
+  for (const auto &[w, want] : probes) {
+    EXPECT_EQ(BranchScanStrings(faker, "MATCH (n) WHERE n.w = " + std::to_string(w) + " RETURN n.t AS t"), want)
+        << "point lookup w=" << w;
+  }
+}
+
+TEST_F(VersioningGatedTest, BranchRebuiltGlobalEdgePropertyIndexReadsForkState) {
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
   SeedLateIndexEdges(faker);
   Fork();
   faker.Interpret("USE BRANCH 'main'");
   RunStatements(faker, kEdgeMainDrift);
-  CreateLateEdgeIndexes(faker);
+  faker.Interpret("DROP GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
   faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchEdgeIndexes(faker, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20});
-}
 
-TEST_F(VersioningGatedTest, BranchLateEdgeIndexMainDriftAndBranchWritesBeforeIndexBuild) {
-  SeedLateIndexEdges(faker);
-  Fork();
-  RunStatements(faker, kEdgeBranchWrites);
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kEdgeMainDrift);
-  CreateLateEdgeIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchEdgeIndexes(faker, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20});
-}
-
-// An index that existed at the fork is dropped and rebuilt on main after main drifted: the branch still plans against
-// the index, but the rebuilt one was populated from main's current state.
-TEST_F(VersioningGatedTest, BranchRebuiltIndexMainDriftBeforeRebuild) {
-  faker.Interpret("CREATE INDEX ON :L");
-  faker.Interpret("CREATE INDEX ON :L(p)");
-  SeedLateIndexVertices(faker);
-  Fork();
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kMainDrift);
-  faker.Interpret("DROP INDEX ON :L");
-  faker.Interpret("DROP INDEX ON :L(p)");
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 9, 50, 2}, true);
-}
-
-TEST_F(VersioningGatedTest, BranchRebuiltIndexBranchWritesAndMainDriftBeforeRebuild) {
-  faker.Interpret("CREATE INDEX ON :L");
-  faker.Interpret("CREATE INDEX ON :L(p)");
-  SeedLateIndexVertices(faker);
-  Fork();
-  RunStatements(faker, kBranchWrites);
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kMainDrift);
-  faker.Interpret("DROP INDEX ON :L");
-  faker.Interpret("DROP INDEX ON :L(p)");
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2}, true);
-}
-
-TEST_F(VersioningGatedTest, BranchRebuiltEdgeIndexMainDriftBeforeRebuild) {
-  faker.Interpret("CREATE EDGE INDEX ON :R");
-  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
-  SeedLateIndexEdges(faker);
-  Fork();
-  faker.Interpret("USE BRANCH 'main'");
-  RunStatements(faker, kEdgeMainDrift);
-  faker.Interpret("DROP EDGE INDEX ON :R");
-  faker.Interpret("DROP EDGE INDEX ON :R(w)");
-  CreateLateEdgeIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchEdgeIndexes(faker, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}, true);
-}
-
-// Control: dropped and rebuilt on main with no drift since the fork.
-TEST_F(VersioningGatedTest, BranchRebuiltIndexNoDriftControl) {
-  faker.Interpret("CREATE INDEX ON :L");
-  faker.Interpret("CREATE INDEX ON :L(p)");
-  SeedLateIndexVertices(faker);
-  Fork();
-  faker.Interpret("USE BRANCH 'main'");
-  faker.Interpret("DROP INDEX ON :L");
-  faker.Interpret("DROP INDEX ON :L(p)");
-  CreateLateVertexIndexes(faker);
-  faker.Interpret("USE BRANCH 'b'");
-  ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6}, true);
+  using V = std::vector<std::string>;
+  const std::string range = "MATCH ()-[e]->() WHERE e.w > 0 RETURN e.t AS t ORDER BY e.w";
+  ExpectPlanUses(faker, range, "ScanAllByEdgeProperty");
+  EXPECT_EQ(BranchScanStrings(faker, range), (V{"e1", "e2", "e3"})) << "spans both edge types, as at the fork";
+  const std::vector<std::pair<int64_t, V>> probes = {{1, {"e1"}}, {2, {"e2"}}, {3, {"e3"}}, {4, {}}, {20, {}}};
+  for (const auto &[w, want] : probes) {
+    EXPECT_EQ(BranchScanStrings(faker, "MATCH ()-[e]->() WHERE e.w = " + std::to_string(w) + " RETURN e.t AS t"), want)
+        << "point lookup w=" << w;
+  }
 }
 
 #ifdef MG_ENTERPRISE
@@ -3987,7 +4097,8 @@ TEST_F(VersioningMultiSessionTest, PinnedBranchHonoursTheVersioningGate) {
   faker2.Interpret("CREATE BRANCH 'b'");
   faker.interpreter.SetCurrentDB(db, true);
   SetVersioningFlag(false);
-  EXPECT_THROW(faker.interpreter.SelectPinnedBranch("b"), memgraph::query::QueryRuntimeException);
+  EXPECT_THAT(ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("b"); }),
+              ::testing::HasSubstr(kVersioningDisabled));
   EXPECT_NO_THROW(faker.interpreter.SelectPinnedBranch(std::nullopt)) << "no '@' part, no gate";
 }
 
@@ -4006,7 +4117,8 @@ TEST_F(VersioningMultiSessionTest, PinnedSessionRefusesUseBranchAndUseDatabaseBu
   } catch (const memgraph::query::QueryException &e) {
     EXPECT_EQ(std::string{e.what()}, "Branch switching is prohibited if the session explicitly defines the database.");
   }
-  EXPECT_ANY_THROW(faker.Interpret("USE DATABASE memgraph"));
+  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USE DATABASE memgraph"); }),
+              ::testing::HasSubstr("Database switching is prohibited"));
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
 
   EXPECT_EQ(IntRows(faker, "USING BRANCH 'main' MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
@@ -4015,11 +4127,14 @@ TEST_F(VersioningMultiSessionTest, PinnedSessionRefusesUseBranchAndUseDatabaseBu
 }
 
 TEST_F(VersioningMultiSessionTest, PinnedBranchDroppedFailsEveryTransactionUntilTheDbChanges) {
+  auto &sessions = memgraph::metrics::Metrics().global.versioning_active_sessions;
   faker2.Interpret("CREATE (:K {v:10})");
   faker2.Interpret("CREATE BRANCH 'b'");
   faker.interpreter.SetCurrentDB(db, true);
+  const double sessions0 = sessions->Value();
   faker.interpreter.SelectPinnedBranch("b");
   ASSERT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
+  ASSERT_DOUBLE_EQ(sessions->Value(), sessions0 + 1.0);
 
   faker2.Interpret("DROP BRANCH 'b' FORCE");
 
@@ -4034,6 +4149,6 @@ TEST_F(VersioningMultiSessionTest, PinnedBranchDroppedFailsEveryTransactionUntil
 
   faker.interpreter.SelectPinnedBranch(std::nullopt);
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_DOUBLE_EQ(sessions->Value(), sessions0) << "the pinned session's attach was released exactly once";
 }
 #endif
