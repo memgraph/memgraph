@@ -13,11 +13,15 @@
 // on MAIN, resume keeps them.
 #ifdef MG_ENTERPRISE
 
+#include <chrono>
 #include <filesystem>
+#include <functional>
+#include <future>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -57,6 +61,10 @@ class ColdReplicaResume : public ::testing::Test {
     repl_handler_.emplace(*repl_state_, *dbms_, system_, *auth_, *parameters_);
     dbms_->SetOnResume([this](memgraph::dbms::DatabaseAccess db_acc) {
       if (!repl_handler_->DropBranchesIfReplica(db_acc)) throw std::runtime_error("branch drop failed");
+      if (after_drop_) after_drop_();
+    });
+    dbms_->SetOnPublished([this](memgraph::dbms::DatabaseAccess db_acc) {
+      repl_handler_->ReconcileBranchesAfterPublish(std::move(db_acc));
     });
   }
 
@@ -80,6 +88,32 @@ class ColdReplicaResume : public ::testing::Test {
     ASSERT_TRUE(db_acc->version_store()->CreateBranch("b", "main", std::nullopt).has_value());
   }
 
+  static constexpr auto kWait = std::chrono::seconds(30);
+
+  // Resume "cold_tenant" on a thread; the on_resume hook parks after the branch drop until released.
+  // Runs `during` on the calling thread while the resume is parked.
+  std::optional<memgraph::dbms::DatabaseAccess> ResumeParked(const std::function<void()> &during) {
+    std::promise<void> parked, release;
+    auto release_f = release.get_future();
+    after_drop_ = [&] {
+      parked.set_value();
+      release_f.wait_for(kWait);
+    };
+    std::optional<memgraph::dbms::DatabaseAccess> out;
+    std::jthread t([&] {
+      auto r = dbms_->Resume("cold_tenant");
+      if (r.has_value()) out = std::move(r.value().db);
+    });
+    const bool ok = parked.get_future().wait_for(kWait) == std::future_status::ready;
+    if (ok) during();
+    release.set_value();
+    t.join();
+    after_drop_ = nullptr;
+    if (!ok) ADD_FAILURE() << "resume never reached the hook";
+    return out;
+  }
+
+  std::function<void()> after_drop_;
   fs::path test_dir_;
   memgraph::storage::Config conf_;
   memgraph::system::System system_;
@@ -120,6 +154,44 @@ TEST_F(ColdReplicaResume, ResumedTenantOnMainKeepsBranches) {
   auto *store = resumed.value().db->version_store();
   ASSERT_NE(store, nullptr);
   EXPECT_EQ(store->List().size(), 1U);
+}
+
+TEST_F(ColdReplicaResume, DemotionDuringResume) {
+  CreateTenantWithBranch("cold_tenant");
+  ASSERT_TRUE(dbms_->Suspend("cold_tenant").has_value());
+
+  std::future<bool> demoted;
+  auto resumed = ResumeParked([&] {
+    demoted = std::async(std::launch::async, [&] {
+      return repl_handler_->SetReplicationRoleReplica(
+          ReplicationServerConfig{.repl_server = memgraph::io::network::Endpoint("127.0.0.1", 10'732)}, std::nullopt);
+    });
+    // Demotion must finish while the resume is parked; if it blocks on the RESUMING tenant, fail instead of hang.
+    EXPECT_EQ(demoted.wait_for(kWait), std::future_status::ready) << "demotion blocked on the parked resume";
+  });
+  if (demoted.valid()) ASSERT_TRUE(demoted.get());
+  ASSERT_TRUE(resumed.has_value());
+  ASSERT_NE((*resumed)->version_store(), nullptr);
+  EXPECT_TRUE((*resumed)->version_store()->List().empty());
+}
+
+TEST_F(ColdReplicaResume, PromotionDuringResume) {
+  CreateTenantWithBranch("cold_tenant");
+  ASSERT_TRUE(dbms_->Suspend("cold_tenant").has_value());
+  ASSERT_TRUE(repl_handler_->SetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = memgraph::io::network::Endpoint("127.0.0.1", 10'733)}, std::nullopt));
+
+  std::future<bool> promoted;
+  auto resumed = ResumeParked([&] {
+    promoted = std::async(std::launch::async, [&] { return repl_handler_->SetReplicationRoleMain(); });
+    EXPECT_EQ(promoted.wait_for(kWait), std::future_status::ready) << "promotion blocked on the parked resume";
+  });
+  if (promoted.valid()) ASSERT_TRUE(promoted.get());
+  ASSERT_TRUE(resumed.has_value());
+  auto *store = (*resumed)->version_store();
+  ASSERT_NE(store, nullptr);
+  EXPECT_TRUE(store->CreateBranch("x", "main", std::nullopt).has_value())
+      << "resumed store left frozen after promotion";
 }
 
 #else

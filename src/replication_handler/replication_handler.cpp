@@ -239,6 +239,7 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 #else
   RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
 #endif
+  branches_allowed_.store(repl_state_.ReadLock()->IsMain(), std::memory_order_release);
 }
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
@@ -265,8 +266,7 @@ bool ReplicationHandler::DropBranchesForDemotion() {
 }
 
 bool ReplicationHandler::DropBranchesIfReplica(dbms::DatabaseAccess db_acc) {
-  // Lock released before the drop (blocking I/O; demotion needs the exclusive lock).
-  if (repl_state_.ReadLock()->IsMain()) return true;
+  if (branches_allowed_.load(std::memory_order_acquire)) return true;
   auto *const store = db_acc->version_store();
   if (!store) return true;
   if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
@@ -276,6 +276,18 @@ bool ReplicationHandler::DropBranchesIfReplica(dbms::DatabaseAccess db_acc) {
   return true;
 }
 
+void ReplicationHandler::ReconcileBranchesAfterPublish(dbms::DatabaseAccess db_acc) {
+  auto *const store = db_acc->version_store();
+  if (!store) return;
+  std::lock_guard const lock{branch_role_mutex_};
+  if (branches_allowed_.load(std::memory_order_acquire)) {
+    store->Unfreeze();
+  } else if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
+    spdlog::error(
+        "Failed to drop the branches of published database {} on REPLICA: {}", db_acc->name(), dropped.error());
+  }
+}
+
 void ReplicationHandler::UnfreezeBranches() {
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
     if (auto *const store = db_acc->version_store()) store->Unfreeze();
@@ -283,14 +295,15 @@ void ReplicationHandler::UnfreezeBranches() {
 }
 
 bool ReplicationHandler::DemoteWithBranchDrop(auto &&demote) {
+  std::lock_guard const role_lock{branch_role_mutex_};
   // Only a MAIN has branches to drop; an already-REPLICA re-config keeps its frozen stores.
-  bool const was_main = repl_state_.ReadLock()->IsMain();
+  bool const was_main = branches_allowed_.load(std::memory_order_acquire);
   if (was_main && !DropBranchesForDemotion()) {
     return false;
   }
 
   utils::OnScopeExit const unfreeze_if_still_main{[&] {
-    if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
+    if (was_main && branches_allowed_.load(std::memory_order_acquire)) UnfreezeBranches();
   }};
 
   return demote();
@@ -326,7 +339,9 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
         db_acc->ttl().Pause();
       });
 
-      return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
+      auto const ok = SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
+      branches_allowed_.store(locked_repl_state->IsMain(), std::memory_order_release);
+      return ok;
     });
   } catch (const utils::TryLockException & /* unused */) {
     return false;
@@ -337,7 +352,9 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
   try {
     return DemoteWithBranchDrop([&] {
       auto locked_repl_state = repl_state_.TryLock();
-      return SetReplicationRoleReplica_<false>(locked_repl_state, config);
+      auto const ok = SetReplicationRoleReplica_<false>(locked_repl_state, config);
+      branches_allowed_.store(locked_repl_state->IsMain(), std::memory_order_release);
+      return ok;
     });
   } catch (const utils::TryLockException & /* unused */) {
     return false;
@@ -370,6 +387,9 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
     });
+
+    // Held across the flip and UnfreezeBranches so a concurrent post-publish reconcile sees one consistent role.
+    std::unique_lock role_lock{branch_role_mutex_};
 
     // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
@@ -410,7 +430,9 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
+    branches_allowed_.store(true, std::memory_order_release);
     UnfreezeBranches();
+    role_lock.unlock();
 
     // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {

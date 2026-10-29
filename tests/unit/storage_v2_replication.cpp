@@ -204,7 +204,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
@@ -692,7 +692,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   check_replica(replica1.db);
   check_replica(replica2.db);
 
-  auto handler = main.repl_handler;
+  auto &handler = main.repl_handler;
   handler.UnregisterReplica(replicas[1]);
   {
     const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
@@ -798,7 +798,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   static constexpr const auto *vertex_label = "vertex_label";
   {
     MinMemgraph replica(repl_conf);
-    auto replica_store_handler = replica.repl_handler;
+    auto &replica_store_handler = replica.repl_handler;
 
     replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
         .repl_server = Endpoint(local_host, ports[0]),
@@ -894,7 +894,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);
 
-  auto replica_store_handler = replica_async.repl_handler;
+  auto &replica_store_handler = replica_async.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, ports[1]),
   });
@@ -1478,7 +1478,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
     ASSERT_EQ(replicas_info.entries_[1].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
   }
 
-  auto handler = main->repl_handler;
+  auto &handler = main->repl_handler;
   const auto unregister_res = handler.UnregisterReplica(replicas[0]);
   ASSERT_EQ(unregister_res, UnregisterReplicaResult::SUCCESS);
 
@@ -1931,7 +1931,7 @@ TEST_F(ReplicationTest, AnalyticalModeAndReplicationAreMutuallyExclusive) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
@@ -2372,7 +2372,7 @@ TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
@@ -2543,7 +2543,7 @@ TEST_F(ReplicationTest, EdgeMetadataRecoveredOnReplicaSnapshotTransfer) {
   ASSERT_TRUE(static_cast<InMemoryStorage *>(main.db.storage())->CreateSnapshot(true).has_value());
 
   MinMemgraph replica(repl_conf);
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
   ASSERT_TRUE(main.repl_handler

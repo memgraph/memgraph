@@ -1190,7 +1190,8 @@ int main(int argc, char **argv) {
       memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
     });
-    dh->SetOnPublished([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnPublished([&repl_state, &replication_handler](memgraph::dbms::DatabaseAccess db_acc) {
+      if (replication_handler) replication_handler->ReconcileBranchesAfterPublish(db_acc);
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();

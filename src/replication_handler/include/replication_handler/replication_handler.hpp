@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
+#include <mutex>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -188,6 +190,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // ForEach skips COLD tenants, so a tenant resumed on a REPLICA must drop its restored branches here. No-op on MAIN;
   // false (logged) when the drop failed.
   bool DropBranchesIfReplica(dbms::DatabaseAccess db_acc);
+
+  // Post-publish: re-applies the current role to a just-published tenant (a role change may have skipped it).
+  void ReconcileBranchesAfterPublish(dbms::DatabaseAccess db_acc);
 
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
@@ -493,6 +498,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auth::SynchedAuth &auth_;
 #endif
   parameters::Parameters &parameters_;
+  // Lock order: repl_state -> branch_role_mutex_; never block on repl_state while holding it.
+  std::mutex branch_role_mutex_;
+  // True iff MAIN; written under branch_role_mutex_ at every role flip, read lock-free.
+  std::atomic<bool> branches_allowed_{false};
 };
 
 }  // namespace memgraph::replication
