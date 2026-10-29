@@ -297,9 +297,9 @@ void SessionHL::TryDefaultDB() {
 #endif
   } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
     // The default database is known but currently suspended (cold). This is a
-    // permanent client-visible condition — retrying will not help — so surface
-    // it as a ClientError rather than letting it propagate as a bare
-    // BasicException (which the Bolt handler would mis-classify as transient).
+    // permanent client-visible condition, so surface it as a ClientError with
+    // the specific message rather than letting the generic BasicException
+    // fallback report it.
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
@@ -552,7 +552,7 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const memgraph::storage::InvalidOperationException &e) {
     // The engine rejected the request as invalid, so it stays invalid however many times it is
-    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
@@ -575,7 +575,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const memgraph::storage::InvalidOperationException &e) {
     // The engine rejected the request as invalid, so it stays invalid however many times it is
-    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
@@ -701,7 +701,7 @@ void SessionHL::RollbackTransaction() {
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const memgraph::storage::InvalidOperationException &e) {
     // The engine rejected the request as invalid, so it stays invalid however many times it is
-    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
@@ -727,7 +727,7 @@ bolt_map_t SessionHL::CommitTransaction() {
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const memgraph::storage::InvalidOperationException &e) {
     // The engine rejected the request as invalid, so it stays invalid however many times it is
-    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
@@ -882,7 +882,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     try {
       return session_->interpreter_context_->dbms_handler->Get(*defined_db);
     } catch (const memgraph::dbms::UnknownDatabaseException &e) {
-      // ClientError, as a plain BasicException would reach the driver as a retryable Transient. An unchanged request
+      // Surface the unknown/suspended database as a ClientError with its own message. An unchanged request
       // without db/imp_user whose home db is gone behaves as a cache hit; Prepare releases the db (ReleaseDbIfMarked).
       if (!db_explicit && !user && previous_run_time_info_ && run_time_info == *previous_run_time_info_) {
         return std::nullopt;

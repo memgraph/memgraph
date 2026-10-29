@@ -18,10 +18,9 @@
 namespace memgraph::rpc {
 
 /// Exception that is thrown whenever a RPC call fails.
-/// This exception inherits `std::exception` directly because
-/// `utils::BasicException` is used for transient errors that should be reported
-/// to the user and `utils::StacktraceException` is used for fatal errors.
-/// This exception always requires explicit handling.
+/// It derives from `utils::RetryableException` because an RPC failure is a
+/// transient condition: retrying the call may succeed. `utils::StacktraceException`
+/// is reserved for fatal errors. This exception always requires explicit handling.
 class RpcFailedException : public utils::RetryableException {
  public:
   explicit RpcFailedException(std::string_view const msg) : utils::RetryableException(msg) {}
