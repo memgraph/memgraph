@@ -95,13 +95,15 @@ rm -rf /root/memgraph
 
 # install toolchain run dependencies
 ./mage/environment/os/install_deps.sh install TOOLCHAIN_RUN_DEPS
-# TODO(matt): figure out a good way of installing the same rust version, without
-# also having to install the toolchain build-deps. Perhaps a new option
-# MAGE_BUILD_DEPS?
-#rustversion=$(cargo --version | sed 's/cargo //')
 
-# install Rust as `memgraph` user - this is required for building mage
-su - memgraph -c 'curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85 && echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> $HOME/.bashrc'
+# install Rust as `memgraph` user - this is required for building mage. The
+# version and the hash-verified rustup-init come from environment/util.sh, so
+# the dev container gets the same Rust as the mgbuild containers.
+if ! grep -q "^MG_RUSTUP_SHA256_$(uname -m)=" /mage/environment/util.sh; then
+  echo "/mage/environment/util.sh at $MEMGRAPH_REF has no pinned rustup-init; refusing to install Rust" >&2
+  exit 1
+fi
+su - memgraph -s /bin/bash -c 'source /mage/environment/util.sh && retry_install install_rust "$MG_RUST_VERSION" && echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> $HOME/.bashrc'
 
 # build everything again (because it isn't copied into the prod image);
 # MAGE modules end up in /mage/build/mage/dist

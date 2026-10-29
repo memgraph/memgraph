@@ -10,6 +10,18 @@
 MG_RUST_VERSION="${MG_RUST_VERSION:-1.98.1}"
 MG_NODE_VERSION="${MG_NODE_VERSION:-26.9.0}"
 
+# Pinned installers used by install_rust / install_node. rustup-init and nvm's
+# install.sh are checked against these SHA256s before they run, and the nvm
+# checkout that install.sh fetches must be at MG_NVM_COMMIT (the commit the
+# MG_NVM_VERSION tag points to). Bump a version together with its hashes. The mgbuild Dockerfiles and mage's make-dev-container.sh
+# install through these functions too, so this is the only place to change.
+MG_RUSTUP_VERSION="1.29.2"
+MG_RUSTUP_SHA256_x86_64="5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4"
+MG_RUSTUP_SHA256_aarch64="a9c168dbea81a84671c6b7a5c1795cb0eb699020110d107ddfca427bd797e697"
+MG_NVM_VERSION="v0.40.8"
+MG_NVM_INSTALL_SHA256="48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e"
+MG_NVM_COMMIT="a885b885fef16fac4bc544188fb25e9e37ae83e8"
+
 function operating_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         local detected_os=$(grep -E '^(VERSION_)?ID=' /etc/os-release | \
@@ -314,8 +326,16 @@ function install_rust() {
   local rust_version="$1"
   local target_user="${SUDO_USER:-$(id -un)}"
   local target_home
+  local arch rustup_sha256
 
   target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64) rustup_sha256="$MG_RUSTUP_SHA256_x86_64" ;;
+    aarch64) rustup_sha256="$MG_RUSTUP_SHA256_aarch64" ;;
+    *) echo "install_rust: unsupported architecture $arch" >&2; return 1 ;;
+  esac
 
   # Drop privileges only when there is someone to drop to — when the target
   # user IS the current user (no sudo, e.g. inside a container), run directly:
@@ -329,12 +349,16 @@ function install_rust() {
     bash -c '
       set -euo pipefail
 
-      curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs |
-        sh -s -- -y
-
-      . "$HOME/.cargo/env"
-      rustup default "$1"
-    ' bash "$rust_version"
+      # rustup-init picks its mode from argv[0], so keep the file name.
+      tmp_dir="$(mktemp -d)"
+      trap "rm -rf \"$tmp_dir\"" EXIT
+      rustup_init="$tmp_dir/rustup-init"
+      curl --proto "=https" --proto-redir "=https" --tlsv1.2 -sSfo "$rustup_init" \
+        "https://static.rust-lang.org/rustup/archive/$2/$3-unknown-linux-gnu/rustup-init"
+      echo "$4  $rustup_init" | sha256sum -c -
+      chmod +x "$rustup_init"
+      "$rustup_init" -y --default-toolchain "$1"
+    ' bash "$rust_version" "$MG_RUSTUP_VERSION" "$arch" "$rustup_sha256"
 }
 
 function install_node() {
@@ -356,15 +380,25 @@ function install_node() {
 
       export NVM_DIR="$HOME/.nvm"
 
-      curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh |
-        bash
+      nvm_install="$(mktemp)"
+      trap "rm -f \"$nvm_install\"" EXIT
+      curl -fsSL --proto "=https" --proto-redir "=https" --tlsv1.2 -o "$nvm_install" \
+        "https://raw.githubusercontent.com/nvm-sh/nvm/$2/install.sh"
+      echo "$3  $nvm_install" | sha256sum -c -
+      bash "$nvm_install"
+      # install.sh only fetches nvm by tag; make sure it is the pinned commit.
+      nvm_commit="$(git -C "$NVM_DIR" rev-parse HEAD)"
+      if [[ "$nvm_commit" != "$4" ]]; then
+        echo "nvm checkout is at $nvm_commit, expected $4" >&2
+        exit 1
+      fi
 
       . "$NVM_DIR/nvm.sh"
 
       nvm install "$1"
       nvm use "$1"
       nvm alias default "$1"
-    ' bash "$node_version"
+    ' bash "$node_version" "$MG_NVM_VERSION" "$MG_NVM_INSTALL_SHA256" "$MG_NVM_COMMIT"
 }
 
 # Resolve a Python interpreter >= 3.10 and print its absolute path. Some

@@ -33,14 +33,20 @@ ARG GIT_REF
 SHELL ["/bin/bash", "-c"]
 RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
+    && if ! grep -q '^MG_NVM_COMMIT=' environment/util.sh; then \
+         echo "environment/util.sh at ${GIT_REF} predates the pinned rust/node installers" >&2; \
+         exit 1; \
+       fi \
     && ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS \
     && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_TEST_DEPS \
     && ./environment/os/ubuntu-24.04.sh install MEMGRAPH_RUN_DEPS \
+    && cp environment/util.sh /tmp/util.sh \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default
-RUN useradd -m -s /bin/bash mg
+RUN useradd -m -s /bin/bash mg \
+    && chown mg: /tmp/util.sh
 USER mg
 
 ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/lib:/opt/conda/lib
@@ -48,17 +54,14 @@ ENV PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bi
 ENV CXXFLAGS="-DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE"
 ENV CUDAFLAGS="-DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE"
 
-# Install rust
+# Install rust and node for mg.
 ARG RUST_VERSION
-RUN curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && . "$HOME/.cargo/env" \
-    && rustup default ${RUST_VERSION}
-
-# Fix node
 ARG NODE_VERSION
-RUN curl --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
-    && . ~/.nvm/nvm.sh \
-    && nvm install ${NODE_VERSION} \
-    && nvm use ${NODE_VERSION}
+# util.sh falls back to its own MG_*_VERSION defaults when these are empty.
+RUN export MG_RUST_VERSION="${RUST_VERSION}" MG_NODE_VERSION="${NODE_VERSION}" \
+    && source /tmp/util.sh \
+    && retry_install install_rust "$MG_RUST_VERSION" \
+    && retry_install install_node "$MG_NODE_VERSION" \
+    && rm /tmp/util.sh
 
 ENTRYPOINT ["sleep", "infinity"]
