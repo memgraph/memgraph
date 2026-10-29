@@ -1518,6 +1518,19 @@ TEST(BoltSession, ExceptionToErrorMessageRpcFailedStaysTransientError) {
   EXPECT_EQ(Classification(e), kTransientErrorCode);
 }
 
+TEST(BoltSession, ExceptionToErrorMessageDirectlyCoversAccessTimeoutFamily) {
+  // Direct unit coverage of the pure classifier ExceptionToErrorMessage itself (both returned fields), rather
+  // than only through the Classification helper: the whole storage access-timeout family is allow-listed (A2),
+  // not just UniqueAccessTimeout. These are retryable before and after the fix.
+  memgraph::storage::SharedAccessTimeout shared;
+  const auto [shared_code, shared_message] = ExceptionToErrorMessage(shared, nullptr);
+  EXPECT_EQ(shared_code, kTransientErrorCode);
+  EXPECT_EQ(shared_message, shared.what());
+
+  memgraph::storage::ReadOnlyAccessTimeout read_only;
+  EXPECT_EQ(ExceptionToErrorMessage(read_only, nullptr).first, kTransientErrorCode);
+}
+
 TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {
   // With response-batching, a RUN+PULL response deferred earlier in a pipelined burst must still
   // reach the client when the same burst ends with GOODBYE — GOODBYE closes the connection, but the
