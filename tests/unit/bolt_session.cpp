@@ -1474,7 +1474,7 @@ TEST(BoltSession, ExceptionToErrorMessageBoltClientErrorIsClientError) {
 }
 
 TEST(BoltSession, ExceptionToErrorMessagePlainBasicExceptionIsClientError) {
-  // A BasicException outside the retryable allow-list must never be a TransientError.
+  // A BasicException that does not derive from the RetryableException marker must never be a TransientError.
   memgraph::utils::BasicException e("plain failure");
   EXPECT_EQ(Classification(e), kClientErrorCode);
   EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "plain failure");
@@ -1520,8 +1520,8 @@ TEST(BoltSession, ExceptionToErrorMessageRpcFailedStaysTransientError) {
 
 TEST(BoltSession, ExceptionToErrorMessageDirectlyCoversAccessTimeoutFamily) {
   // Direct unit coverage of the pure classifier ExceptionToErrorMessage itself (both returned fields), rather
-  // than only through the Classification helper: the whole storage access-timeout family is allow-listed,
-  // not just UniqueAccessTimeout.
+  // than only through the Classification helper: the whole storage access-timeout family derives from the
+  // RetryableException marker, not just UniqueAccessTimeout.
   memgraph::storage::SharedAccessTimeout shared;
   const auto [shared_code, shared_message] = ExceptionToErrorMessage(shared, nullptr);
   EXPECT_EQ(shared_code, kTransientErrorCode);
