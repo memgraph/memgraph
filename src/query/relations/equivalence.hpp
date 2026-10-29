@@ -42,7 +42,6 @@ bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b);
 ///
 /// @pre `a` is a list, a map or a lazy embedding. Only those hold a value
 /// equality declines to decide, other than a Null or a NaN standing on its own.
-/// An embedding is a list of doubles, so it can hold a NaN.
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b);
 
 /// Reads a pair of points equality did not decide equal. A point holds its
@@ -56,8 +55,7 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b);
 /// so that ruling a type out is one test rather than one per type.
 ///
 /// A list and a map are absent because they are answered for before equality is
-/// asked at all. A lazy embedding is present: it holds a NaN as a list of
-/// doubles does, and is kept off the inline path for that.
+/// asked at all. A lazy embedding is present: it can hold a NaN.
 ///
 /// One bit per type is only a mask while the types fit the word holding it.
 static_assert(TypedValue::kTypeCount <= std::numeric_limits<unsigned>::digits, "More types than a bit each fits in");

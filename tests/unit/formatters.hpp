@@ -119,8 +119,7 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       os << "]";
       break;
     case memgraph::query::TypedValue::Type::VectorRef: {
-      std::vector<float> vec;
-      value.MaterializeVectorRefInto(vec);
+      const auto vec = value.ReadVectorRef();
       os << "[";
       memgraph::utils::PrintIterable(os, vec, ", ", [](auto &stream, const auto &item) { stream << item; });
       os << "]";

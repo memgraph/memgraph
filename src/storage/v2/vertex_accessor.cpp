@@ -783,10 +783,8 @@ Result<PropertyValue> VertexAccessor::GetPropertyCompact(PropertyId property, Vi
 }
 
 bool VertexAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
-  // A delta-carried ref holds its own floats for `view`; only the live ref (empty list) may read the usearch
-  // index, which is written at SetProperty time and so is only correct for the live value.
-  // Read speculatively under the vertex lock (writers hold it through UpdateOnSetProperty) so the floats match
-  // the ref; kept only if the live ref survives delta resolution.
+  // Only the live ref (empty list) may read the index, which is correct only for the live value; delta refs carry
+  // their own floats. The index is read speculatively under the vertex lock and kept only if the live ref survives.
   bool live_read_ok = false;
   const auto maybe_value = GetPropertyImpl<true>(property, view, [&](const PropertyValue &raw) {
     if (!raw.IsVectorIndexId() || !raw.ValueVectorIndexList().empty()) return;

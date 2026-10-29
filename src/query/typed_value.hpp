@@ -15,7 +15,6 @@
 #include <iosfwd>
 #include <map>
 #include <memory>
-#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -39,11 +38,9 @@ class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
 
-/// Lazy handle for a vector-index embedding stored as a VectorIndexId reference. Holds a copy of the
-/// storage accessor (vertex or edge; both trivially copyable) and the property id. No floats are
-/// reconstructed until MaterializeVectorRef() / MaterializeVectorRefInto() is called.
-/// A hand-rolled tagged union (not std::variant) so the tag packs after the accessor and the handle
-/// stays within TypedValue's widest union member.
+/// Lazy handle for a vector-index embedding: an accessor copy plus the property id; no floats are read
+/// until ReadVectorRef() / ValueList(). Hand-rolled tagged union (not std::variant) so the tag packs
+/// after the accessor and the handle fits TypedValue's widest union member.
 struct VectorRefValue {
   VectorRefValue(storage::VertexAccessor entity, storage::PropertyId prop, storage::View view)
       : vertex{entity}, prop{prop}, view{view}, is_edge_{false} {}
@@ -63,8 +60,7 @@ struct VectorRefValue {
   };
 
   storage::PropertyId prop;
-  // View the ref was read under. Materialization re-resolves the property through the same MVCC
-  // delta chain, so a lazy ref stays snapshot-consistent with the eager read it replaced.
+  // View the ref was read under; materialization re-reads through the same MVCC chain, staying snapshot-consistent.
   storage::View view;
 
  private:
@@ -159,8 +155,8 @@ class TypedValue {
     Function,
     VirtualEdge,
     VirtualNode,
-    // Last so every other type keeps its value. Owns nothing, but is wider than the first group, so it
-    // sits past kLastWithoutAnAllocation and is copied case by case.
+    // Last so every other type keeps its value. Owns nothing but is wider than the inline group, so it is
+    // copied case by case.
     VectorRef
   };
 
@@ -619,9 +615,8 @@ class TypedValue {
   VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, held_inline_.double_v)
   VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  // A VectorRef is a lazy list: the first list access caches the materialized List in place (mutable state, so
-  // const access is well-defined). Readers that don't need a List (Bolt, mgp, relations, size/isEmpty) use
-  // ReadVectorRef(). A VectorRef is never shared across threads before its first list access.
+  // A VectorRef is a lazy list: the first list access caches the materialized List in place, also via const.
+  // Do not share a VectorRef across threads before that first access.
   TVector &ValueList() {
     if (type_ != Type::List) [[unlikely]]
       return SlowValueList();
@@ -634,7 +629,7 @@ class TypedValue {
     return list_v;
   }
 
-  /// List-like: a plain List or a VectorRef. Contrast IsPlainList().
+  /// A plain List or a VectorRef.
   bool IsList() const { return type_ == Type::List || type_ == Type::VectorRef; }
 
   /// Strictly a materialized List (false for a VectorRef).
@@ -646,11 +641,7 @@ class TypedValue {
     return list_v;
   }
 
-  /// Materialize a VectorRef in place into a List (in this value's allocator). No-op for any other type.
-  void Force() { MaterializeInPlace(); }
-
-  /// Read a VectorRef's floats by value, without materializing or allocating in the query arena. Must only be
-  /// called when type() == Type::VectorRef.
+  /// Read a VectorRef's floats by value without materializing. Requires type() == Type::VectorRef.
   std::vector<float> ReadVectorRef() const;
 
   VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
@@ -675,17 +666,6 @@ class TypedValue {
 
 #undef VALUE_AND_TYPE_GETTERS
 #undef VALUE_AND_TYPE_GETTERS_PRIMITIVE
-
-  /// Reconstruct the referenced embedding into a TypedValue::List of Doubles.
-  /// Transient: the returned list is freed when the TypedValue goes out of scope.
-  /// Must only be called when type() == Type::VectorRef.
-  TypedValue MaterializeVectorRef(allocator_type alloc) const;
-
-  /// Reconstruct the referenced embedding into a caller-owned float buffer (std::allocator).
-  /// This is the allocation-free path for the hot compare / hash / equality routines: the buffer
-  /// frees at the caller's scope, so it never accumulates in the query's monotonic arena the way a
-  /// materialized pmr List would. Must only be called when type() == Type::VectorRef.
-  void MaterializeVectorRefInto(std::vector<float> &out) const;
 
   bool ContainsDeleted() const;
 
@@ -889,7 +869,7 @@ class TypedValue {
   void CopyComplexValue(TypedValue const &other);
   TypedValue &MoveAssignComplex(TypedValue &&other);
 
-  // Out-of-line (cold) paths: materialize a VectorRef into a List (logically const cache), else throw.
+  // Cold: materialize a VectorRef into a List (const cache), else throw.
   const TVector &SlowValueList() const;
 
   TVector &SlowValueList() { return const_cast<TVector &>(std::as_const(*this).SlowValueList()); }
@@ -946,7 +926,6 @@ class TypedValue {
     std::function<void(TypedValue *)> function_v;
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
-    // Trivially copyable: storage accessor + property id, no heap allocation.
     mutable VectorRefValue vector_ref_v;
   };
 
@@ -956,7 +935,6 @@ class TypedValue {
   mutable Type type_;
 };
 
-// A lazy embedding must never widen TypedValue's union.
 static_assert(sizeof(VectorRefValue) <= sizeof(TypedValue::TMap));
 
 /**

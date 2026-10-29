@@ -1203,8 +1203,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 #endif
 
-  // The one place lazy-vs-eager is decided: a vector-index embedding becomes a lazy VectorRef bound to
-  // (accessor, prop), forced only on compare, hash, or serialize. Eager reads never yield a VectorIndexId.
+  // The one place a VectorRef is created; eager (non-compact) reads never yield a VectorIndexId.
   template <class TRecordAccessor, class TPropertyValue>
   TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
                                TPropertyValue &&raw) {
@@ -1219,7 +1218,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(VectorRefValue{record_accessor.impl_, prop_id, view_}, ctx_->memory);
   }
 
-  // Lazy-mode property read: keeps an embedding compact and wraps it.
   template <class TRecordAccessor>
   [[gnu::cold, gnu::noinline]] TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor,
                                                             const PropertyIx &prop) {
@@ -1319,7 +1317,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    // Lazy mode reads embeddings compact; MakePropertyValue wraps each, so a projected map never holds floats.
+    // Lazy mode reads embeddings compact; CachedPropertyValue wraps them, so the cached map never holds floats.
     const auto read = [&](storage::View view) {
       return ctx_->lazy_vector_refs ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
     };

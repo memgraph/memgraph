@@ -19,7 +19,6 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 #include <utility>
-#include <variant>
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
@@ -1005,8 +1004,11 @@ __attribute__((cold, noinline)) void TypedValue::ThrowTypeMismatch(Type expected
 }
 
 std::vector<float> TypedValue::ReadVectorRef() const {
+  MG_ASSERT(type_ == Type::VectorRef, "ReadVectorRef called on non-VectorRef TypedValue");
   std::vector<float> floats;
-  MaterializeVectorRefInto(floats);
+  const bool ok = vector_ref_v.Visit(
+      [&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, floats); });
+  if (!ok) floats.clear();
   return floats;
 }
 
@@ -1027,25 +1029,6 @@ const TypedValue::TVector &TypedValue::SlowValueList() const {
     return list_v;
   }
   ThrowTypeMismatch(Type::List);
-}
-
-TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
-  MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
-  const auto floats = ReadVectorRef();
-  TVector list(alloc);
-  list.reserve(floats.size());
-  for (const float f : floats) {
-    list.emplace_back(static_cast<double>(f));
-  }
-  return {std::move(list), alloc};
-}
-
-void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
-  MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
-  const bool ok =
-      vector_ref_v.Visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, out); });
-  // Callers may reuse `out`; clear on a miss so a stale prior entity's floats are never compared/hashed.
-  if (!ok) out.clear();
 }
 
 bool TypedValue::ContainsDeleted() const {

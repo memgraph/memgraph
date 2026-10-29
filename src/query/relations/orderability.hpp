@@ -72,29 +72,16 @@ std::partial_ordering PlacePoints(Point const &a, Point const &b) {
 /// handed a pair of unlike things.
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
-/// Two lazy embeddings, ordered as the lists of doubles they stand for.
-///
-/// Read through the thread's scratch buffers, so that a sort over a column of them holds references
-/// rather than a list per row in the query's arena. Each float is placed by PlaceDoubles as its double
-/// would be, so a NaN sorts as it does in a list.
+/// Two lazy embeddings, ordered as the lists of doubles they stand for (a NaN sorts as it does in a list).
+/// Each is read by value, so neither is materialized into the query's arena.
 ///
 /// @pre Both are VectorRef.
 std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const &b);
 
-/// An embedding against a list, in either order, which share a position though unlike in type. Cold, so
-/// that Compare carries one unlikely test for it.
+/// An embedding against a list, in either order, which share a position though unlike in type.
 ///
 /// @pre One is a VectorRef and the other a List.
 [[gnu::cold]] std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b);
-
-/// Walks the embedding's floats against the list's elements, each placed as the double it stands for
-/// would be in a list, so no list is built.
-///
-/// @pre @p a is a VectorRef and @p b a List.
-std::partial_ordering CompareOfVectorRefAndList(TypedValue const &a, TypedValue const &b);
-
-/// @pre @p a is a List and @p b a VectorRef.
-std::partial_ordering CompareOfListAndVectorRef(TypedValue const &a, TypedValue const &b);
 
 namespace detail {
 

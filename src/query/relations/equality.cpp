@@ -38,8 +38,7 @@ bool AnyValueWithin(const TypedValue &value, auto const &holds) {
       return std::ranges::any_of(value.UnsafeValueMap(),
                                  [&](auto const &entry) { return AnyValueWithin(entry.second, holds); });
     case TypedValue::Type::VectorRef: {
-      // An embedding is floats, so it never holds a Null and the search need not read it. Any other
-      // question is asked of each element as a double, read at a leaf.
+      // Floats never hold a Null, so the Null search skips reading the embedding.
       if constexpr (std::is_same_v<std::remove_cvref_t<decltype(holds)>, std::remove_cvref_t<decltype(kIsNull)>>) {
         return false;
       } else {
@@ -138,7 +137,6 @@ TypedValue EqualOfVectorRefAndOther(const TypedValue &a, const TypedValue &b, Ty
   DMG_ASSERT(a.IsVectorRef() != b.IsVectorRef(), "EqualOfVectorRefAndOther needs exactly one VectorRef");
   auto const &embedding = a.IsVectorRef() ? a : b;
   auto const &other = a.IsVectorRef() ? b : a;
-  // Only a list can be equal to an embedding.
   if (!other.IsPlainList()) return TypedValue(false, alloc);
 
   // Elementwise as EqualOfLists does, with each float read as the double it widens to.

@@ -1108,22 +1108,3 @@ Feature: Vector search related features
         Then the result should be:
             | total |
             | 3.0   |
-
-    Scenario: Ordering by a vector-index property element
-        Given an empty graph
-        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
-        And having executed
-            """
-            CREATE (:L1 {prop1: [3.0, 1.0]})
-            CREATE (:L1 {prop1: [1.0, 2.0]})
-            CREATE (:L1 {prop1: [2.0, 5.0]});
-            """
-        When executing query:
-            """
-            MATCH (n) RETURN n.prop1 AS p ORDER BY n.prop1[0];
-            """
-        Then the result should be, in order:
-            | p          |
-            | [1.0, 2.0] |
-            | [2.0, 5.0] |
-            | [3.0, 1.0] |

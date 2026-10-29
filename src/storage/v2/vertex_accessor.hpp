@@ -100,13 +100,11 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetPropertyCompact(PropertyId property, View view) const;
 
-  /// Materialize into `out` the numeric-list value the MVCC read at `view` yields (index-backed or plain);
-  /// false if that value is not a numeric list.
+  /// Fill `out` with the numeric list visible at `view` (index-backed or plain); false if it is not a numeric list.
   bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
 
  private:
-  /// GetProperty body; for kCompact a non-null `on_locked(const PropertyValue &)` runs on the raw value while the
-  /// vertex lock is held.
+  /// For kCompact, a non-null `on_locked(const PropertyValue &)` sees the raw value under the vertex lock.
   template <bool kCompact, typename OnLocked>
   Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, OnLocked &&on_locked) const;
 

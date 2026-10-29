@@ -282,9 +282,8 @@ class VectorEdgeIndex {
   utils::small_vector<float> GetVectorPropertyFromEdgeIndex(Edge *edge, std::string_view index_name,
                                                             NameIdMapper *name_id_mapper) const;
 
-  /// @brief Streams the edge's embedding into a caller-owned buffer without allocating an owning
-  /// PropertyValue. Mirrors VectorIndex::GetVectorInto for the lazy read path. Returns false if the
-  /// index or entry is missing.
+  /// Reconstruct an edge's indexed vector into `out` (resized to the index dimension); false if the index or entry is
+  /// absent. Looked up by index id. Zero owning PropertyValue.
   bool GetVectorInto(Edge *edge, uint64_t index_id, std::vector<float> &out) const;
 
   /// @brief Returns all index ids whose filter matches `edge_type` and which index `property`.

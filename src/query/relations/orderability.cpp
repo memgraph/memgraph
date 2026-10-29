@@ -140,22 +140,10 @@ std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const 
       });
 }
 
-std::partial_ordering CompareOfVectorRefAndList(TypedValue const &a, TypedValue const &b) {
-  DMG_ASSERT(a.IsVectorRef() && b.IsPlainList(), "Expected a VectorRef and a List");
-  auto const floats = a.ReadVectorRef();
-  return CompareFloatsWithList<false>(floats, b.UnsafeValueList());
-}
-
-std::partial_ordering CompareOfListAndVectorRef(TypedValue const &a, TypedValue const &b) {
-  DMG_ASSERT(a.IsPlainList() && b.IsVectorRef(), "Expected a List and a VectorRef");
-  auto const floats = b.ReadVectorRef();
-  return CompareFloatsWithList<true>(floats, a.UnsafeValueList());
-}
-
 std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b) {
-  if (a.IsVectorRef() && b.IsPlainList()) return CompareOfVectorRefAndList(a, b);
+  if (a.IsVectorRef() && b.IsPlainList()) return CompareFloatsWithList<false>(a.ReadVectorRef(), b.UnsafeValueList());
   DMG_ASSERT(a.IsPlainList() && b.IsVectorRef(), "Only a VectorRef against a List shares a position with unlike types");
-  return CompareOfListAndVectorRef(a, b);
+  return CompareFloatsWithList<true>(b.ReadVectorRef(), a.UnsafeValueList());
 }
 
 }  // namespace memgraph::query::relations::orderability

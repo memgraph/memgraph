@@ -6761,8 +6761,8 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
     return false;
   };
 
-  if (a.IsList()) return compare_to_list(a, b);
-  if (b.IsList()) return compare_to_list(b, a);
+  if (a.type() == TypedValue::Type::List) return compare_to_list(a, b);
+  if (b.type() == TypedValue::Type::List) return compare_to_list(b, a);
 
   return a.ValueEdge() == b.ValueEdge();
 }
@@ -7506,13 +7506,13 @@ class AggregateCursor : public Cursor {
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
    */
   static void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
-    if (!arg1.IsList() || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
+    if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
           return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
         })) {
       throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
     }
 
-    if (!arg2.IsList() || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
+    if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
           return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
         })) {
       throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
@@ -7540,7 +7540,7 @@ class AggregateCursor : public Cursor {
                                VirtualNode::allocator_type alloc) const {
     VirtualNode::label_list labels{alloc};
     if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
-      if (!labels_it->second.IsList()) {
+      if (labels_it->second.type() != TypedValue::Type::List) {
         throw QueryRuntimeException("derive() option '{}' must be a list of label strings.", labels_key);
       }
       for (const auto &label : labels_it->second.ValueList()) {
@@ -7617,7 +7617,7 @@ class AggregateCursor : public Cursor {
     const bool type_is_undirected = [&] {
       const auto it = options.find(kUndirectedEdgeTypes);
       if (it == options.end()) return false;
-      if (!it->second.IsList()) {
+      if (it->second.type() != TypedValue::Type::List) {
         throw QueryRuntimeException("derive() option '{}' must be a list of edge-type strings.", kUndirectedEdgeTypes);
       }
       const auto &list = it->second.ValueList();
