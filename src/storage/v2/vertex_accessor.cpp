@@ -720,7 +720,7 @@ Result<PropertyValue> VertexAccessor::GetPropertyImpl(PropertyId property, View 
   bool deleted = false;
   Delta *delta = nullptr;
   VertexReadLock read_lock{vertex_};
-  auto value = std::invoke([&]() -> PropertyValue {
+  auto value = [&]() -> PropertyValue {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     delta = vertex_->delta();
@@ -735,7 +735,7 @@ Result<PropertyValue> VertexAccessor::GetPropertyImpl(PropertyId property, View 
               .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
       return prop_value;
     }
-  });
+  }();
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
