@@ -1999,5 +1999,43 @@ def test_db_memory_tracking_cross_db_replication_isolation(connection, test_name
     )
 
 
+def test_replica_tenant_uses_replicated_salient_config(connection, test_name):
+    # Goal: a tenant built on a REPLICA from MAIN's SalientConfig honours every per-database flag, not
+    # only the few that used to go over the wire. --schema-info-enabled is the observable one.
+    # 0/ Start all instances with --schema-info-enabled
+    # 1/ MAIN CREATE DATABASE before registering replicas (SystemRecovery path)
+    # 2/ Register replicas, MAIN CREATE DATABASE (CreateDatabase path)
+    # 3/ SHOW SCHEMA INFO works on both tenants on every REPLICA
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    for instance in MEMGRAPH_INSTANCES_DESCRIPTION.values():
+        instance["args"].append("--schema-info-enabled=true")
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE recovered;")
+
+    # 2/
+    do_manual_setting_up(connection)
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE created;")
+
+    # 3/
+    def show_schema_info(port, db_name):
+        cursor = connection(port, "replica").cursor()
+        try:
+            execute_and_fetch_all(cursor, f"USE DATABASE {db_name};")
+            execute_and_fetch_all(cursor, "SHOW SCHEMA INFO;")
+            return True
+        except Exception as e:
+            return str(e)
+
+    for replica in ("replica_1", "replica_2"):
+        for db_name in ("recovered", "created"):
+            mg_sleep_and_assert(True, partial(show_schema_info, BOLT_PORTS[replica], db_name))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

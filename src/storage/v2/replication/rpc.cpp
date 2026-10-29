@@ -251,8 +251,16 @@ void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *
   memgraph::slk::Save(*self.name.str_view(), builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
+  memgraph::slk::Save(self.property_store_compression_level, builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
+  memgraph::slk::Save(self.items.enable_edges_metadata, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
+  memgraph::slk::Save(self.items.enable_schema_info, builder);
+  memgraph::slk::Save(self.items.enable_label_index_auto_creation, builder);
+  memgraph::slk::Save(self.items.enable_edge_type_index_auto_creation, builder);
+  memgraph::slk::Save(self.items.storage_light_edge, builder);
+  memgraph::slk::Save(self.items.delta_on_identical_property_update, builder);
+  memgraph::slk::Save(self.items.property_store_compression_enabled, builder);
 }
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
@@ -263,7 +271,40 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   uint8_t sm = 0;
   memgraph::slk::Load(&sm, reader);
   if (!utils::NumToEnum(sm, self->storage_mode)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+    throw SlkReaderException("Unexpected storage mode {}!", sm);
+  }
+  memgraph::slk::Load(&self->property_store_compression_level, reader);
+  if (self->property_store_compression_level > utils::CompressionLevel::HIGH) {
+    throw SlkReaderException("Unexpected property store compression level!");
+  }
+  memgraph::slk::Load(&self->items.properties_on_edges, reader);
+  memgraph::slk::Load(&self->items.enable_edges_metadata, reader);
+  memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
+  memgraph::slk::Load(&self->items.enable_schema_info, reader);
+  memgraph::slk::Load(&self->items.enable_label_index_auto_creation, reader);
+  memgraph::slk::Load(&self->items.enable_edge_type_index_auto_creation, reader);
+  memgraph::slk::Load(&self->items.storage_light_edge, reader);
+  memgraph::slk::Load(&self->items.delta_on_identical_property_update, reader);
+  memgraph::slk::Load(&self->items.property_store_compression_enabled, reader);
+}
+
+void SaveSalientConfigV1(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(*self.name.str_view(), builder);
+  memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
+  memgraph::slk::Save(self.items.properties_on_edges, builder);
+  memgraph::slk::Save(self.items.enable_schema_metadata, builder);
+}
+
+void LoadSalientConfigV1(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
+  std::string name;
+  memgraph::slk::Load(&name, reader);
+  self->name = std::move(name);
+  memgraph::slk::Load(&self->uuid, reader);
+  uint8_t sm = 0;
+  memgraph::slk::Load(&sm, reader);
+  if (!utils::NumToEnum(sm, self->storage_mode)) {
+    throw SlkReaderException("Unexpected storage mode {}!", sm);
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
