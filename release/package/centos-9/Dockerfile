@@ -17,6 +17,10 @@ ARG GIT_REF
 SHELL ["/bin/bash", "-c"]
 RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
+    && if ! grep -q '^MG_NVM_COMMIT=' environment/util.sh; then \
+         echo "environment/util.sh at ${GIT_REF} predates the pinned rust/node installers" >&2; \
+         exit 1; \
+       fi \
     && ./environment/os/centos-9.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/centos-9.sh install MEMGRAPH_BUILD_DEPS \
     && ./environment/os/centos-9.sh install MEMGRAPH_TEST_DEPS \
@@ -32,12 +36,12 @@ USER mg
 # Install rust and node for mg.
 ARG RUST_VERSION
 ARG NODE_VERSION
-RUN source /tmp/util.sh \
-    && retry_install install_rust "${RUST_VERSION:-$MG_RUST_VERSION}" \
-    && retry_install install_node "${NODE_VERSION:-$MG_NODE_VERSION}" \
-    && rm /tmp/util.sh
-
-# Install PyYAML (only for amzn-2, centos-7, cento-9 and rocky-9)
-RUN pip3 install --user PyYAML
+# util.sh falls back to its own MG_*_VERSION defaults when these are empty.
+RUN export MG_RUST_VERSION="${RUST_VERSION}" MG_NODE_VERSION="${NODE_VERSION}" \
+    && source /tmp/util.sh \
+    && retry_install install_rust "$MG_RUST_VERSION" \
+    && retry_install install_node "$MG_NODE_VERSION" \
+    && rm /tmp/util.sh \
+    && pip3 install --user PyYAML # only for amzn-2, centos-7, cento-9 and rocky-9
 
 ENTRYPOINT ["sleep", "infinity"]

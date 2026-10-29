@@ -99,7 +99,7 @@ rm -rf /root/memgraph
 # install Rust as `memgraph` user - this is required for building mage. The
 # version and the hash-verified rustup-init come from environment/util.sh, so
 # the dev container gets the same Rust as the mgbuild containers.
-if ! grep -q '^MG_RUSTUP_VERSION=' /mage/environment/util.sh; then
+if ! grep -q "^MG_RUSTUP_SHA256_$(uname -m)=" /mage/environment/util.sh; then
   echo "/mage/environment/util.sh at $MEMGRAPH_REF has no pinned rustup-init; refusing to install Rust" >&2
   exit 1
 fi
