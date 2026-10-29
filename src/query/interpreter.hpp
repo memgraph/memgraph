@@ -385,14 +385,12 @@ struct CurrentDB {
   // (see ThrowIfBranchGone).
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
 
-  // Returns the session to main, releasing any held branch context.
   void LeaveBranch() {
     ClearBranchContext();
     current_version_.reset();
   }
 
-  // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was already released or
-  // parked. Makes `name` the session's branch.
+  // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was released or parked.
   void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
                         std::string name, uint64_t number) {
     branch_context_ = std::move(context);
@@ -405,14 +403,12 @@ struct CurrentDB {
     branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
   }
 
-  // A branch dropped under the session (DROP BRANCH ... FORCE, replica demotion) is never replaced by `main`: every
-  // query fails here until the session switches. The attach on the dead branch is released as soon as no transaction
-  // still uses its context.
+  // A branch dropped under the session (DROP BRANCH ... FORCE, replica demotion) never falls back to `main`: every
+  // query throws here until the session switches.
   void ThrowIfBranchGone();
 
-  // Parks the session's branch state so another branch (or main) can be attached; RestoreSessionBranch puts it back
-  // and releases whatever was attached meanwhile, DiscardParkedBranch drops it for good. Used by USE BRANCH (switch
-  // keeps the old branch on failure) and USING BRANCH (one transaction on another branch).
+  // Parks the session's branch so another can be attached; Restore puts it back (releasing what was attached
+  // meanwhile), Discard drops it. USE BRANCH keeps the old branch on failure; USING BRANCH is per-transaction.
   void ParkSessionBranch();
   void RestoreSessionBranch();
   void DiscardParkedBranch();
@@ -420,7 +416,6 @@ struct CurrentDB {
   // Branch the session's transactions run on, by number; 0 for main. Readable from any thread.
   uint64_t foreign_branch_number() const { return foreign_branch_number_.load(std::memory_order_acquire); }
 
-  // True when the session is attached to the branch numbered `number`.
   bool OnBranch(uint64_t number) { return branch_context() != nullptr && foreign_branch_number() == number; }
 
   // Attaches this fresh nested session (mgp_execute_query) to the branch `outer` is on, with its own counted
@@ -568,9 +563,8 @@ class Interpreter final {
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_explicit_db);
 
-  // Bolt `db="<database>@<branch>"`: puts the session on `branch` (std::nullopt or "main" means main) of the current
-  // database, reusing USE BRANCH's attach/park machinery and gates. Throws QueryRuntimeException (session left where
-  // it was) if the branch does not exist or the versioning gate refuses.
+  // Bolt `db="<database>@<branch>"`: std::nullopt or "main" means main. Throws QueryRuntimeException, session
+  // unchanged, if the branch does not exist or the versioning gate refuses.
   void SelectPinnedBranch(std::optional<std::string> const &branch);
 
   void ResetDB() { current_db_.ResetDB(); }

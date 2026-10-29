@@ -4308,7 +4308,6 @@ class VersioningQuery : public memgraph::query::Query {
   /// A plain identifier, never stripped into a parameter, so safe to resolve eagerly.
   std::optional<std::string> for_database_;
   memgraph::query::VersioningQuery::Action action_;
-  /// DROP BRANCH ... FORCE
   bool force_{false};
 
   VersioningQuery *Clone(AstStorage *storage) const override {

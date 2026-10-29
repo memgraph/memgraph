@@ -324,7 +324,6 @@ TEST(AuthChecker, BranchPrivilegesAreIndependent) {
   EXPECT_FALSE(query_user->IsAuthorized({BRANCH_EDIT}, "memgraph", &policy));
   EXPECT_TRUE(query_user->IsAuthorized({MULTI_DATABASE_EDIT}, "memgraph", &policy));
 
-  // Distinct bits above the coordinator privileges.
   EXPECT_EQ(std::to_underlying(memgraph::auth::Permission::BRANCH_USE), 1ULL << 34ULL);
   EXPECT_EQ(std::to_underlying(memgraph::auth::Permission::BRANCH_EDIT), 1ULL << 35ULL);
 }

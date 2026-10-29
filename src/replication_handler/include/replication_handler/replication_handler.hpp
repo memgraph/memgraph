@@ -503,9 +503,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #endif
   parameters::Parameters &parameters_;
 #ifdef MG_ENTERPRISE
-  // Lock order: repl_state -> branch_role_mutex_; never block on repl_state while holding it.
+  // Promotion blocks on this while holding repl_state; demotion holds it and only TryLocks repl_state, which is what
+  // keeps this deadlock-free. Never block on repl_state while holding it.
   std::mutex branch_role_mutex_;
-  // True iff MAIN; written under branch_role_mutex_ at every role flip, read lock-free.
+  // True iff MAIN; written under branch_role_mutex_ at every role flip (constructor aside), read lock-free.
   std::atomic<bool> branches_allowed_{false};
 #endif
 };

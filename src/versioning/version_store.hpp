@@ -68,10 +68,9 @@ class VersionStore {
   // value in `recorded_fork_ts`. `pins` must have exactly one entry per branch.
   void Restore(const LedgerContents &contents, std::span<const uint64_t> pins);
 
-  // Startup only, before any other call, instead of Restore when versioning is off. Keeps `contents` as hidden
-  // branches: they are not listed, checked out or droppable, but they stay in every ledger write, count against Empty()
-  // and keep the retention floor at their oldest fork point, so the next start with versioning on restores them.
-  // Does not write the ledger.
+  // Startup only, instead of Restore when versioning is off. Keeps `contents` as hidden branches: not listed, checked
+  // out or droppable, but still in every ledger write, in Empty() and in the retention floor. Does not write the
+  // ledger.
   void RestoreHidden(const LedgerContents &contents);
 
   // Startup only, before any other call. Discards unrecoverable branches: persists an empty registry that keeps

@@ -1324,9 +1324,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
   }
 
-  // Chunked scans bypass the branch union and would return only the diff engine's contents, so they are rejected.
-  // Text, vector and point indices are not mirrored into the diff engine, so searching them on a branch would
-  // report a misleading "index does not exist" or silently miss historical vertices.
+  // Text, vector and point indices are not mirrored into the diff engine; searching them on a branch would miss
+  // main's vertices or report a misleading "index does not exist".
   void RejectBranchTextSearch() const {
 #ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) throw storage::TextSearchException("Text search is not supported on a branch.");
@@ -1345,6 +1344,7 @@ class DbAccessor final {
 #endif
   }
 
+  // Chunked scans bypass the branch union and would return only the diff engine's contents, so they are rejected.
   void RejectBranchChunkedVertexScan() const {
 #ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");

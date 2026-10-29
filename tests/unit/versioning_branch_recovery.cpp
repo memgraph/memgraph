@@ -664,8 +664,6 @@ TEST_F(VersioningBranchRecoveryTest, ConcurrentFirstCheckoutsBuildTheBranchOnce)
   EXPECT_EQ(DumpBranch(db, *ctx), branch_before);
 }
 
-// Versioning off hides the branches: main recovers and takes writes as usual, the ledger and the branch files stay as
-// they were, and the next start with versioning on restores each branch to its fork state plus its own writes.
 TEST_F(VersioningBranchRecoveryTest, BranchesComeBackAfterARunWithVersioningOff) {
   Base base{};
   Workload workload{};
@@ -751,7 +749,6 @@ TEST_F(VersioningBranchRecoveryTest, MainCommitsWhileHiddenStayOutOfTheBranch) {
   EXPECT_TRUE(db.Access(ms::READ)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
 }
 
-// Ids main hands out while the branches are hidden must clear the ones the branch created.
 TEST_F(VersioningBranchRecoveryTest, MainIdsWhileHiddenClearTheBranchNativeIds) {
   Base base{};
   Workload workload{};

@@ -5983,9 +5983,7 @@ mgp_execution_result::mgp_execution_result([[maybe_unused]] mgp_graph *graph, al
   auto db_acc = instance.dbms_handler->Get(outer_dba->DatabaseName());
   auto *version_store = db_acc->version_store();
   pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, std::move(db_acc));
-  // A nested query must see exactly what the caller sees: on a branch it runs on that same branch (same shared diff
-  // engine, own counted attach, released when the interpreter is destroyed -- also if this throws). The caller's
-  // DbAccessor carries a branch context only when its query really runs on the branch, so a `USING BRANCH main`
+  // The caller's DbAccessor has a branch context only if its query really runs on the branch, so a `USING BRANCH main`
   // caller nests onto main.
   if (auto *branch_ctx = outer_dba->branch_context(); branch_ctx != nullptr) {
     pImpl->interpreter->current_db_.AttachBranchOf(version_store, *branch_ctx);

@@ -908,7 +908,6 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
       ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), db);
     }
     MultiDatabaseAuth(target.get(), db);
-    // The branch part is checked like USE BRANCH.
     if (branch && target &&
         !target->IsAuthorized(
             {memgraph::query::AuthQuery::Privilege::BRANCH_USE}, db, &memgraph::query::session_long_policy)) {

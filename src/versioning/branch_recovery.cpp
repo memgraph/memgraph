@@ -119,8 +119,6 @@ void CheckWalChain(const std::vector<WalFileEntry> &files) {
   }
 }
 
-// Opens `file` in `decoder` positioned at its first delta and returns the WAL version.
-// @throw utils::BasicException the file cannot be opened, is of an unsupported version, or cannot be positioned
 uint64_t OpenAtDeltas(dur::Decoder &decoder, const WalFileEntry &file) {
   const auto version = decoder.Initialize(file.path, dur::kWalMagic);
   if (!version) throw utils::BasicException("Cannot read the WAL magic and version of '{}'.", file.path.string());
@@ -545,13 +543,13 @@ std::expected<std::shared_ptr<BranchCore>, std::string> BuildAndReplay(storage::
   return std::move(*built);
 }
 
-// New main objects must not take a gid a branch uses: gids below a floor are fork objects, so a native object taking
-// one would be misread as a fork object, and a native gid that main hands out again would alias two objects.
 void RaiseMainCounters(storage::InMemoryStorage &main, uint64_t next_vertex, uint64_t next_edge) {
   atomic_fetch_max_explicit(&main.vertex_id_, next_vertex, std::memory_order_acq_rel);
   atomic_fetch_max_explicit(&main.edge_id_, next_edge, std::memory_order_acq_rel);
 }
 
+// New main objects must not take a gid a branch uses: gids below a floor are fork objects, so a native object taking
+// one would be misread as a fork object, and a native gid that main hands out again would alias two objects.
 void RaiseGidCounters(VersionStore &store, storage::InMemoryStorage &main,
                       const std::vector<std::shared_ptr<BranchCore>> &recovered) {
   for (const auto &entry : store.List()) {
@@ -566,8 +564,6 @@ void RaiseGidCounters(VersionStore &store, storage::InMemoryStorage &main,
   }
 }
 
-// Raises `next_vertex` and `next_edge` past every vertex and edge the WAL file creates.
-// @throw std::exception the file cannot be decoded
 void ScanCreatedGids(const WalFileEntry &file, uint64_t &next_vertex, uint64_t &next_edge) {
   dur::Decoder decoder;
   const auto version = OpenAtDeltas(decoder, file);

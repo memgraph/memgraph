@@ -243,9 +243,8 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
         return entry;
       };
 
-  // '@' is reserved for database@branch addressing; a Bolt `db` value containing it is always split. Refuse to boot
-  // rather than leave a database that can never be addressed. Checked on the durable keys, so COLD tenants and
-  // renamed databases are covered, and before any storage is built.
+  // Such a database could never be addressed (SessionHL splits any '@' in `db`), so refuse to boot. Scans durable
+  // keys, covering COLD and renamed tenants, before any storage is built.
   {
     std::vector<std::string> reserved;
     for (auto rit = durability_->begin(std::string(kDBPrefix)), rend = durability_->end(std::string(kDBPrefix));

@@ -393,8 +393,7 @@ Database::Database(storage::Config config)
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
       versioning::RecoverBranchContents(*version_store_, *in_memory_storage);
     } else if (branch_plan.hidden) {
-      // Commits made while the branches are hidden must stay above every fork point, and ids main hands out must not
-      // collide with the ones the branches use.
+      // Commits made while the branches are hidden must stay above every fork point.
       in_memory_storage->BumpClockPastDurable(branch_plan.ledger.branches.back().info.recorded_fork_ts);
       versioning::RaiseGidCountersForHiddenBranches(branch_plan.ledger, *in_memory_storage);
       version_store_->RestoreHidden(branch_plan.ledger);

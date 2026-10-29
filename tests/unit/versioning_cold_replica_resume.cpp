@@ -88,8 +88,7 @@ class ColdReplicaResume : public ::testing::Test {
 
   static constexpr auto kWait = std::chrono::seconds(30);
 
-  // Resume "cold_tenant" on a thread; the on_resume hook parks after the branch drop until released.
-  // Runs `during` on the calling thread while the resume is parked.
+  // Resumes "cold_tenant" with the on_resume hook parked after the branch drop, running `during` meanwhile.
   std::optional<memgraph::dbms::DatabaseAccess> ResumeParked(const std::function<void()> &during) {
     std::promise<void> parked, release;
     auto release_f = release.get_future();
@@ -164,7 +163,6 @@ TEST_F(ColdReplicaResume, DemotionDuringResume) {
       return repl_handler_->SetReplicationRoleReplica(
           ReplicationServerConfig{.repl_server = memgraph::io::network::Endpoint("127.0.0.1", 10'732)}, std::nullopt);
     });
-    // Demotion must finish while the resume is parked; if it blocks on the RESUMING tenant, fail instead of hang.
     EXPECT_EQ(demoted.wait_for(kWait), std::future_status::ready) << "demotion blocked on the parked resume";
   });
   if (demoted.valid()) ASSERT_TRUE(demoted.get());

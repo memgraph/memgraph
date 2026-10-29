@@ -226,7 +226,6 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
 #ifdef MG_ENTERPRISE
-  // Branch transactions run against the branch's shared diff engine instead of the database's storage.
   const bool on_branch = branch_context_ != nullptr;
   storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
 
@@ -294,7 +293,6 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
 #ifdef MG_ENTERPRISE
-  // A USING BRANCH query was the only user of the branch attached for it.
   RestoreSessionBranch();
 #endif
 }
@@ -9407,7 +9405,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 }
 
 namespace {
-// The branch a USING BRANCH directive names, if the query (or the Cypher query EXPLAIN/PROFILE wraps) has one.
 std::optional<std::string> UsingBranchTarget(const ParsedQuery &parsed_query) {
   CypherQuery *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   if (auto *explain = utils::Downcast<ExplainQuery>(parsed_query.query)) cypher_query = explain->cypher_query_;
@@ -9487,7 +9484,6 @@ void SwitchSessionBranch(CurrentDB &current_db, versioning::VersionStore *versio
   current_db.DiscardParkedBranch();
 }
 
-// Switches the session to `target` unless it is already there; returns whether it already was.
 bool EnterSessionBranch(CurrentDB &current_db, versioning::VersionStore *version_store,
                         memgraph::dbms::DatabaseAccess db_acc, const std::string &target) {
   if (target == "main") {
@@ -9504,8 +9500,7 @@ bool EnterSessionBranch(CurrentDB &current_db, versioning::VersionStore *version
   return false;
 }
 
-// Runs the next transaction on `target` while the session keeps its branch; CurrentDB::CleanupDBTransaction puts the
-// session's branch back when that transaction ends.
+// The session keeps its branch; CurrentDB::CleanupDBTransaction restores it after the next transaction.
 void EnterUsingBranch(CurrentDB &current_db, versioning::VersionStore *version_store,
                       memgraph::dbms::DatabaseAccess db_acc, const std::string &target) {
   if (target == "main") {
@@ -9516,7 +9511,6 @@ void EnterUsingBranch(CurrentDB &current_db, versioning::VersionStore *version_s
   ParkAndAttach(current_db, version_store, std::move(db_acc), target);
 }
 
-// The prerequisite gate of `db_acc`'s database, then the replica refusal (the last prerequisite).
 void CheckBranchPrerequisites(InterpreterContext *interpreter_context, const memgraph::dbms::DatabaseAccess &db_acc,
                               versioning::GateOperation op) {
   const auto &config = db_acc->config();
@@ -9535,14 +9529,12 @@ void CheckBranchPrerequisites(InterpreterContext *interpreter_context, const mem
   EnsureMainInstance(interpreter_context, "Branch management operations");
 }
 
-// The prerequisite gate for every branch query; returns `db_acc`'s registry.
 versioning::VersionStore *CheckedVersionStore(InterpreterContext *interpreter_context,
                                               memgraph::dbms::DatabaseAccess db_acc,
                                               versioning::GateOperation op = versioning::GateOperation::kObserve) {
   CheckBranchPrerequisites(interpreter_context, db_acc, op);
 
   auto *version_store = db_acc->version_store();
-  // Defensive: the gate guarantees IN_MEMORY_TRANSACTIONAL, the only mode that constructs version_store_.
   if (version_store == nullptr) [[unlikely]] {
     throw QueryRuntimeException("Graph versioning registry is unavailable for this database.");
   }
@@ -9564,9 +9556,7 @@ std::vector<TypedValue> BranchRow(std::string name, TypedValue created_at, size_
 }
 }  // namespace
 
-// Management-query dispatch for CREATE/DROP/USE/SHOW BRANCH*. Opens no storage accessor (VersionStore has its own
-// locking; CREATE BRANCH additionally holds main's shared lock); USE BRANCH only attaches the session to a branch,
-// ordinary Cypher routing lives in CurrentDB.
+// Opens no storage accessor: VersionStore has its own locking, and CREATE BRANCH also holds main's shared lock.
 PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                      CurrentDB &current_db, Interpreter &interpreter) {
   auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
@@ -9609,10 +9599,9 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [version_store, storage, name = *name](
                                AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
-            // Shared access to main from the fork until the branch is registered: STORAGE MODE, DROP GRAPH, RECOVER
-            // SNAPSHOT and enum DDL hold exclusive access when they check for branches, so none of them can run
-            // between that check and this registration. Taken straight from main's lock rather than through the
-            // session's accessor, which would route to a branch's diff engine if the session is on one.
+            // Shared access to main until the branch is registered, so STORAGE MODE, DROP GRAPH, RECOVER SNAPSHOT and
+            // enum DDL (exclusive when they check for branches) cannot run in between. Taken from main's lock, not the
+            // session's accessor, which would route to a branch's diff engine.
             const utils::SharedResourceLockGuard main_access{storage->main_lock_, utils::SharedResourceLockGuard::READ};
             auto created = version_store->CreateBranch(name, "main");
             if (!created) {

@@ -98,7 +98,6 @@ std::string ExplainText(InterpreterFaker &session, const std::string &query) {
   return plan;
 }
 
-// The what() of whatever `fn` throws, or a marker when it does not throw.
 template <typename Fn>
 std::string ThrownMessage(Fn &&fn) {
   try {
@@ -270,7 +269,6 @@ TYPED_TEST(VersioningNotDurableTest, CreateRefused) {
   EXPECT_TRUE(this->db->version_store()->Empty());
 }
 
-// The durability prerequisite sits after the storage-mode one and only applies to CREATE.
 TEST_F(VersioningNoWalTest, DurabilityOnlyGatesCreate) {
   EXPECT_NO_THROW(faker.Interpret("SHOW BRANCHES"));
   EXPECT_NO_THROW(faker.Interpret("USE BRANCH 'main'"));
@@ -379,7 +377,6 @@ TEST_F(VersioningGatedTest, WithoutLicenseBranchesAreReadOnlyAndDroppable) {
 
   memgraph::license::global_license_checker.DisableTesting();
 
-  // Reads on the branch the session is stuck on keep working; writes and CREATE BRANCH are refused.
   EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}}));
   ExpectRefusedForLicense(faker, "CREATE (:V {id: 3})");
   ExpectRefusedForLicense(faker, "USING BRANCH 'keep' CREATE (:V {id: 4})");
@@ -395,12 +392,10 @@ TEST_F(VersioningGatedTest, WithoutLicenseBranchesAreReadOnlyAndDroppable) {
   }
   EXPECT_NO_THROW(faker.Interpret("SHOW BRANCH"));
 
-  // Leaving the branch: back to main, where writes are unaffected by the branch license.
   faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   EXPECT_NO_THROW(faker.Interpret("CREATE (:V {id: 5})"));
 
-  // Dropping releases main's retention, with or without FORCE.
   faker.Interpret("USE BRANCH 'b'");
   EXPECT_NO_THROW(faker.Interpret("DROP BRANCH 'b'"));
   EXPECT_FALSE(db->version_store()->Exists("b"));
@@ -629,12 +624,10 @@ TEST_F(VersioningGatedTest, CreateShowUseDropHappyPath) {
 
   ASSERT_THROW(faker.Interpret("DROP BRANCH 'feature'"), memgraph::query::QueryRuntimeException);
 
-  // The name of a dropped branch can be used again.
   faker.Interpret("CREATE BRANCH 'feature'");
   faker.Interpret("USE BRANCH 'feature'");
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "feature");
 
-  // Dropping the branch the session is on moves it to main.
   faker.Interpret("DROP BRANCH 'feature'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
@@ -1453,7 +1446,7 @@ TEST_F(VersioningGatedTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused) {
                     "--experimental-enabled=versioning to use branch queries.");
 }
 
-// `USING BRANCH 'main'` routes that one query to main's own storage while the session stays checked out: the branch
+// `USING BRANCH 'main'` routes that one query to main's own storage while the session stays on its branch: the branch
 // sees MainOnly (fork-era) plus BranchOnly, `USING BRANCH 'main'` sees MainOnly only.
 TEST_F(VersioningGatedTest, UsingBranchMainReadsMainWhileOnBranch) {
   faker.Interpret("CREATE (:MainOnly {v:1})");
@@ -1493,7 +1486,6 @@ TEST_F(VersioningGatedTest, UsingBranchTargetsSessionOrMain) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:PlainWrite) RETURN n.v"), (Rows{{6}}));
 }
 
-// USING BRANCH runs one autocommit query on any branch while the session stays where it is.
 TEST_F(VersioningGatedTest, UsingBranchRunsOneQueryOnAnotherBranchAndLeavesTheSessionAlone) {
   faker.Interpret("CREATE (:Base {v:0})");
   faker.Interpret("CREATE BRANCH 'b'");
@@ -1605,7 +1597,6 @@ TEST_F(VersioningGatedTest, UsingBranchRespectsTheGate) {
               ::testing::HasSubstr(kVersioningDisabled));
 }
 
-// A `USING BRANCH 'main'` write while on 'b' lands on main only; a plain write lands on the branch only.
 TEST_F(VersioningGatedTest, UsingBranchMainWriteWhileOnBranchLandsOnMainOnly) {
   Fork();
 
@@ -3687,7 +3678,6 @@ TEST_F(VersioningGatedTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingInd
   }
 }
 
-// A dropped branch is never replaced by main: every query fails until the session switches.
 TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsEveryQueryUntilItSwitches) {
   auto &sessions = memgraph::metrics::Metrics().global.versioning_active_sessions;
   faker.Interpret("CREATE (:A {x:1})");
@@ -3728,7 +3718,6 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsEveryQueryUntilItSwitches
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}})) << "the session runs on main once it switched";
 }
 
-// USE BRANCH to a live branch also gets a session out of the dead-branch state.
 TEST_F(VersioningGatedTest, SessionOnDroppedBranchCanUseAnotherBranch) {
   faker.Interpret("CREATE (:A {x:1})");
   Fork("b");
@@ -3741,7 +3730,6 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchCanUseAnotherBranch) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}}));
 }
 
-// A branch re-created under a dropped branch's name is not the branch the session was on.
 TEST_F(VersioningGatedTest, SessionOnDroppedBranchStaysDeadWhenTheNameIsReused) {
   Fork("b");
   ASSERT_TRUE(db->version_store()->ForceDropBranch("b").value_or(false));
@@ -3784,7 +3772,6 @@ void CreateLateVertexIndexes(InterpreterFaker &s) {
   s.Interpret("CREATE INDEX ON :L(p)");
 }
 
-// `expected` is the branch's exact set of :L vertices with their p.
 void ExpectBranchVertexIndexes(InterpreterFaker &s, const TagP &expected, const std::vector<int64_t> &probe_p,
                                bool expect_index_plan = false) {
   const std::string label_idx = "MATCH (n:L) RETURN n.t AS t ORDER BY t";
@@ -3973,7 +3960,6 @@ struct LateEdgeIndexCase {
   std::vector<int64_t> probe_w;
 };
 
-// Main always drifts (kEdgeMainDrift) before the indexes are built.
 const std::vector<LateEdgeIndexCase> kLateEdgeIndexCases = {
     {"LateMainDrift", false, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
     {"LateMainDriftAndBranchWritesBefore", false, true, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20}},
