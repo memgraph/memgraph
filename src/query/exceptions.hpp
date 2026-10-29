@@ -305,7 +305,7 @@ class ConcurrentSystemQueriesException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(ConcurrentSystemQueriesException)
 };
 
-// This one is inherited from BasicException and will be treated as
+// This one is inherited from RetryBasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
 class TransactionSerializationException : public RetryBasicException {
