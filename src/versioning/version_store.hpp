@@ -68,6 +68,12 @@ class VersionStore {
   // value in `recorded_fork_ts`. `pins` must have exactly one entry per branch.
   void Restore(const LedgerContents &contents, std::span<const uint64_t> pins);
 
+  // Startup only, before any other call, instead of Restore when versioning is off. Keeps `contents` as hidden
+  // branches: they are not listed, checked out or droppable, but they stay in every ledger write, count against Empty()
+  // and keep the retention floor at their oldest fork point, so the next start with versioning on restores them.
+  // Does not write the ledger.
+  void RestoreHidden(const LedgerContents &contents);
+
   // Startup only, before any other call. Discards unrecoverable branches: persists an empty registry that keeps
   // `next_number` so branch numbers are still never reused. A write failure is logged, not fatal.
   void ResetLedger(uint64_t next_number);
@@ -109,8 +115,8 @@ class VersionStore {
   // True iff `name` is a live branch with this `number` (false after a drop, even if the name was re-created).
   bool IsLive(std::string_view name, uint64_t number) const;
 
-  // True iff no branches exist (`main` is not counted). Storage-global destructive ops (STORAGE MODE, RECOVER
-  // SNAPSHOT, DROP GRAPH) are rejected while any branch exists.
+  // True iff no branches exist, hidden ones included (`main` is not counted). Storage-global destructive ops (STORAGE
+  // MODE, RECOVER SNAPSHOT, DROP GRAPH) are rejected while any branch exists.
   bool Empty() const;
 
   // Attaches a session to `name`; any number may attach, all sharing the branch's BranchCore. Returns the BranchInfo
@@ -137,6 +143,8 @@ class VersionStore {
  private:
   mutable utils::SpinLock lock_;
   std::map<std::string, BranchInfo, std::less<>> branches_;
+  // Branches kept only in the ledger while versioning is off (RestoreHidden). Guarded by lock_.
+  std::vector<LedgerBranch> hidden_;
   // Attached sessions per branch number; entries are erased at zero.
   std::map<uint64_t, size_t> checked_out_;
   size_t total_checkouts_{0};

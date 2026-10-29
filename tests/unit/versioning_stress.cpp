@@ -198,6 +198,7 @@ class VersioningStressTest : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
+    config.experimental_versioning = true;
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.disk.main_storage_directory = data_directory / "disk";
@@ -236,15 +237,11 @@ class VersioningStressTest : public ::testing::Test {
   // interpreter_context.auth_checker, which is not synchronized) and only USED from worker threads.
   std::vector<std::unique_ptr<InterpreterFaker>> sessions;
 
-  void SetUp() override {
-    FLAGS_versioning_enabled = true;
-    memgraph::license::global_license_checker.EnableTesting();
-  }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void TearDown() override {
     interpreter_context.auth_checker = &fixture_auth_checker;
     sessions.clear();
-    FLAGS_versioning_enabled = false;
     memgraph::license::global_license_checker.DisableTesting();
     std::filesystem::remove_all(data_directory);
   }

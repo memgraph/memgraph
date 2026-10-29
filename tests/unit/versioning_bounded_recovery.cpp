@@ -18,8 +18,11 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "dbms/database.hpp"
@@ -45,8 +48,9 @@ namespace {
 
 const std::filesystem::path kRoot{std::filesystem::temp_directory_path() / "versioning_bounded_recovery"};
 
-ms::Config MakeConfig(bool recover) {
+ms::Config MakeConfig(bool recover, bool versioning = true) {
   ms::Config config;
+  config.experimental_versioning = versioning;
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = kRoot,
                        .recover_on_startup = recover,
@@ -319,22 +323,70 @@ TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupDropsTheBranches) {
   });
 }
 
-TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledDropsTheBranches) {
-  struct Restore {
-    bool value;
+std::string ReadWholeFile(const std::filesystem::path &file) {
+  std::ifstream in{file, std::ios::binary};
+  return {std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+}
 
-    ~Restore() { FLAGS_versioning_enabled = value; }
-  } const restore{FLAGS_versioning_enabled};
-
-  FLAGS_versioning_enabled = true;
-  ExpectRestartDropsTheBranches([] {
-    FLAGS_versioning_enabled = false;
-    {
-      memgraph::dbms::Database db{MakeConfig(true)};
-      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      // Main is recovered unbounded: every commit is present.
-      EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
+// Versioning off hides the branches instead of dropping them: main recovers unbounded with every commit, and the
+// ledger and the branch directory stay exactly as they were.
+TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledHidesTheBranches) {
+  {
+    memgraph::dbms::Database db{MakeConfig(false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    for (int i = 0; i < 2; ++i) {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      Commit(*acc);
     }
-    FLAGS_versioning_enabled = true;
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    auto acc = db.Access(ms::WRITE);
+    acc->CreateVertex();
+    Commit(*acc);
+  }
+
+  auto const ledger_file = kRoot / "branches" / "ledger";
+  auto const ledger_before = ReadWholeFile(ledger_file);
+  ASSERT_FALSE(ledger_before.empty());
+  auto const read = memgraph::versioning::BranchLedger{ledger_file}.Read();
+  ASSERT_TRUE(read.has_value() && read->has_value());
+  ASSERT_EQ((*read)->branches.size(), 1U);
+  auto const branch_directory = kRoot / "branches" / std::to_string((*read)->branches[0].info.number);
+  // The branch committed nothing, so it has no files yet; stand in for its WAL.
+  std::filesystem::create_directories(branch_directory / "wal");
+  {
+    std::ofstream{branch_directory / "wal" / "marker"} << "x";
+  }
+
+  {
+    memgraph::dbms::Database db{MakeConfig(true, /*versioning=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
+    auto *store = db.version_store();
+    ASSERT_NE(store, nullptr);
+    EXPECT_TRUE(store->List().empty());
+    EXPECT_FALSE(store->Exists("b"));
+    EXPECT_FALSE(store->Empty());
+    EXPECT_FALSE(store->CreateBranch("b", "main").has_value()) << "a hidden branch still owns its name";
+  }
+
+  EXPECT_EQ(ReadWholeFile(ledger_file), ledger_before);
+  EXPECT_TRUE(std::filesystem::exists(branch_directory / "wal" / "marker"));
+}
+
+// Branches that could not be rebuilt later are dropped for good even while versioning is off.
+TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledAndNoRecoveryDropsTheBranches) {
+  ExpectRestartDropsTheBranches([] {
+    memgraph::dbms::Database db{MakeConfig(false, /*versioning=*/false)};
+    EXPECT_TRUE(db.version_store()->Empty());
+  });
+}
+
+TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledAndNoWalDropsTheBranches) {
+  ExpectRestartDropsTheBranches([] {
+    auto config = MakeConfig(true, /*versioning=*/false);
+    config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::DISABLED;
+    memgraph::dbms::Database db{std::move(config)};
+    EXPECT_TRUE(db.version_store()->Empty());
   });
 }

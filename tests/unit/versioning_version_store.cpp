@@ -9,11 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
 #include <algorithm>
 #include <expected>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -551,4 +554,70 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllLedgerFailureOnFrozenStoreKeepsIt
   EXPECT_FALSE(store->TryAcquireCheckout("a").has_value());
 
   std::filesystem::remove(tmp);
+}
+
+namespace {
+memgraph::versioning::LedgerContents HiddenContents() {
+  using memgraph::versioning::LedgerBranch;
+  return {
+      .next_number = 5,
+      .branches = {
+          LedgerBranch{.name = "h2", .info = {.number = 2, .parent = "main", .fork_ts = 40, .recorded_fork_ts = 40}},
+          LedgerBranch{.name = "h4", .info = {.number = 4, .parent = "main", .fork_ts = 20, .recorded_fork_ts = 20}}}};
+}
+}  // namespace
+
+TEST_F(VersionStoreLedgerTest, RestoreHiddenKeepsBranchesOutOfSightButCountsThem) {
+  auto store = MakeLedgerStore();
+  std::vector<std::optional<uint64_t>> floors;
+  store->SetRetentionFloorCallback([&](std::optional<uint64_t> floor) { floors.push_back(floor); });
+
+  store->RestoreHidden(HiddenContents());
+
+  EXPECT_TRUE(store->List().empty());
+  EXPECT_FALSE(store->Exists("h2"));
+  EXPECT_FALSE(store->Get("h4").has_value());
+  EXPECT_FALSE(store->TryAcquireCheckout("h2").has_value());
+  EXPECT_FALSE(store->Empty());
+  ASSERT_FALSE(floors.empty());
+  EXPECT_EQ(floors.back(), 19u) << "the floor follows the oldest hidden fork point";
+}
+
+TEST_F(VersionStoreLedgerTest, HiddenBranchesStayInTheLedgerAcrossCreateAndOwnTheirNames) {
+  auto store = MakeLedgerStore();
+  store->RestoreHidden(HiddenContents());
+
+  EXPECT_FALSE(store->CreateBranch("h2", "main").has_value());
+  EXPECT_FALSE(store->CreateBranch("child", "h2").has_value()) << "a hidden branch cannot be a parent";
+  auto created = store->CreateBranch("fresh", "main");
+  ASSERT_TRUE(created.has_value());
+  EXPECT_EQ(created->number, 5u) << "numbering continues past the hidden branches";
+
+  auto read = memgraph::versioning::BranchLedger{file_}.Read();
+  ASSERT_TRUE(read.has_value() && read->has_value());
+  std::vector<std::string> names;
+  for (const auto &branch : (*read)->branches) names.push_back(branch.name);
+  EXPECT_THAT(names, ::testing::UnorderedElementsAre("h2", "h4", "fresh"));
+}
+
+TEST_F(VersionStoreLedgerTest, FreezeAndDropAllDropsHiddenBranchesAndTheirDirectories) {
+  auto store = MakeLedgerStore();
+  const auto root = file_.parent_path();
+  std::filesystem::create_directories(root / "2");
+  std::filesystem::create_directories(root / "4");
+  store->RestoreHidden(HiddenContents());
+  std::vector<std::optional<uint64_t>> floors;
+  store->SetRetentionFloorCallback([&](std::optional<uint64_t> floor) { floors.push_back(floor); });
+
+  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+
+  auto read = memgraph::versioning::BranchLedger{file_}.Read();
+  ASSERT_TRUE(read.has_value() && read->has_value());
+  EXPECT_TRUE((*read)->branches.empty());
+  EXPECT_EQ((*read)->next_number, 5u);
+  EXPECT_FALSE(std::filesystem::exists(root / "2"));
+  EXPECT_FALSE(std::filesystem::exists(root / "4"));
+  EXPECT_TRUE(store->Empty());
+  ASSERT_FALSE(floors.empty());
+  EXPECT_FALSE(floors.back().has_value());
 }

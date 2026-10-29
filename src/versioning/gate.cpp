@@ -27,7 +27,7 @@ std::string_view GateErrorMessage(GateError err) {
   switch (err) {
     using enum GateError;
     case kDisabled:
-      return "Versioning is disabled. Start Memgraph with --versioning-enabled=true to use branch queries."sv;
+      return "Graph versioning is disabled. Start Memgraph with --experimental-enabled=versioning to use branch queries."sv;
     case kNoLicense:
       return "Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required."sv;
     case kUnsupportedStorageMode:

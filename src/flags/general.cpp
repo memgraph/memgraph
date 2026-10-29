@@ -212,11 +212,6 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
 DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(versioning_enabled, false,
-            "Enable graph versioning (branches). Startup-only; enterprise feature; requires "
-            "IN_MEMORY_TRANSACTIONAL. Off by default.");
-
 // RocksDB flags
 // The info log flags are defined in mg-kvstore (kvstore/rocksdb_options.hpp) because they apply to every RocksDB
 // instance, not just the disk storage one.

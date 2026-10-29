@@ -43,6 +43,7 @@ class VersioningDumpTest : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
+    config.experimental_versioning = true;
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.disk.main_storage_directory = data_directory / "disk";
@@ -78,13 +79,9 @@ class VersioningDumpTest : public ::testing::Test {
 
   InterpreterFaker faker{&interpreter_context, db};
 
-  void SetUp() override {
-    FLAGS_versioning_enabled = true;
-    memgraph::license::global_license_checker.EnableTesting();
-  }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void TearDown() override {
-    FLAGS_versioning_enabled = false;
     memgraph::license::global_license_checker.DisableTesting();
     std::filesystem::remove_all(data_directory);
   }

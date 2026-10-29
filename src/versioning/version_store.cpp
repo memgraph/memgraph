@@ -47,9 +47,11 @@ void VersionStore::PublishRetentionFloor() const {
   std::optional<uint64_t> oldest_fork_ts;
   {
     std::lock_guard guard{lock_};
-    for (const auto &[_, info] : branches_) {
+    const auto note = [&](const BranchInfo &info) {
       oldest_fork_ts = oldest_fork_ts ? std::min(*oldest_fork_ts, info.recorded_fork_ts) : info.recorded_fork_ts;
-    }
+    };
+    for (const auto &[_, info] : branches_) note(info);
+    for (const auto &branch : hidden_) note(branch.info);
   }
   if (!oldest_fork_ts) return retention_floor_callback_(std::nullopt);
   retention_floor_callback_(*oldest_fork_ts == 0 ? 0 : *oldest_fork_ts - 1);
@@ -69,6 +71,7 @@ LedgerContents VersionStore::SnapshotLocked() const {
     auto &entry = out.branches.emplace_back(name, info);
     entry.info.fork_ts = info.recorded_fork_ts;
   }
+  out.branches.insert(out.branches.end(), hidden_.begin(), hidden_.end());
   std::ranges::sort(out.branches, std::less{}, [](const auto &b) { return b.info.number; });
   return out;
 }
@@ -99,6 +102,15 @@ void VersionStore::Restore(const LedgerContents &contents, std::span<const uint6
   PublishRetentionFloor();
 }
 
+void VersionStore::RestoreHidden(const LedgerContents &contents) {
+  {
+    std::lock_guard guard{lock_};
+    next_number_ = contents.next_number;
+    hidden_ = contents.branches;
+  }
+  PublishRetentionFloor();
+}
+
 void VersionStore::ResetLedger(uint64_t next_number) {
   std::lock_guard ledger_guard{ledger_mutex_};
   {
@@ -115,7 +127,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   {
     std::lock_guard guard{lock_};
     if (frozen_) return std::unexpected(std::string{kFrozenMessage});
-    if (branches_.contains(name)) {
+    if (branches_.contains(name) || std::ranges::any_of(hidden_, [&](const auto &b) { return b.name == name; })) {
       return std::unexpected(fmt::format("Branch '{}' already exists.", name));
     }
     if (parent != "main" && !branches_.contains(parent)) {
@@ -229,7 +241,9 @@ std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
   std::vector<uint64_t> dropped_numbers;
   {
     std::lock_guard guard{lock_};
-    dropped_numbers.reserve(branches_.size());
+    dropped_numbers.reserve(branches_.size() + hidden_.size());
+    for (const auto &branch : hidden_) dropped_numbers.push_back(branch.info.number);
+    hidden_.clear();
     for (const auto &[branch_name, info] : branches_) {
       release_pin_(info.fork_ts);
       dropped_numbers.push_back(info.number);
@@ -335,7 +349,7 @@ bool VersionStore::IsLiveNumber(uint64_t number) const {
 
 bool VersionStore::Empty() const {
   std::lock_guard guard{lock_};
-  return branches_.empty();
+  return branches_.empty() && hidden_.empty();
 }
 
 std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {

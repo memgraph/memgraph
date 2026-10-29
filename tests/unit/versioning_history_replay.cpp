@@ -49,6 +49,7 @@ const std::filesystem::path kDirB{kRoot / "b"};
 
 ms::Config MakeConfigA() {
   ms::Config config;
+  config.experimental_versioning = true;
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = kDirA,
                        .recover_on_startup = false,
@@ -76,6 +77,7 @@ const std::filesystem::path kDirUnbounded{kRoot / "unbounded"};
 
 ms::Config MakeDurableConfig(const std::filesystem::path &dir, bool recover_on_startup) {
   ms::Config config;
+  config.experimental_versioning = true;
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = dir,
                        .recover_on_startup = recover_on_startup,
@@ -186,14 +188,10 @@ class VersioningHistoryReplayTest : public ::testing::Test {
  protected:
   void SetUp() override {
     FLAGS_metrics_format = "OpenMetrics";
-    FLAGS_versioning_enabled = true;
     std::filesystem::remove_all(kRoot);
   }
 
-  void TearDown() override {
-    FLAGS_versioning_enabled = false;
-    std::filesystem::remove_all(kRoot);
-  }
+  void TearDown() override { std::filesystem::remove_all(kRoot); }
 };
 
 TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) {

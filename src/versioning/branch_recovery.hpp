@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/inmemory/storagefwd.hpp"
+#include "versioning/branch_ledger.hpp"
 
 namespace memgraph::versioning {
 
@@ -28,5 +29,11 @@ class VersionStore;
 // logged and the branch dropped (registry, ledger, fork pin), since keeping it would show main@fork as its contents.
 // Other branches and main are unaffected, and main's gid counters are raised even if a branch fails. Never throws.
 void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main);
+
+// Startup only, with versioning off and the branches in `ledger` kept hidden: raises main's vertex and edge id counters
+// above every recorded gid floor and above every gid a hidden branch's own WAL created, so objects main creates
+// meanwhile never take an id a branch uses once it is restored. A WAL that cannot be read in full contributes what was
+// read before the damage (logged); recovery of that branch fails later on its own. Never throws.
+void RaiseGidCountersForHiddenBranches(const LedgerContents &ledger, storage::InMemoryStorage &main);
 
 }  // namespace memgraph::versioning

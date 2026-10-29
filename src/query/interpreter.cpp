@@ -9399,7 +9399,7 @@ versioning::VersionStore *CheckedVersionStore(InterpreterContext *interpreter_co
 
   storage::Storage *storage = db_acc->storage();
   if (const auto gate_err =
-          versioning::CheckVersioningGate(FLAGS_versioning_enabled,
+          versioning::CheckVersioningGate(db_acc->config().experimental_versioning,
                                           license::global_license_checker.IsEnterpriseValidFast(),
                                           storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
                                           db_acc->config().experimental_commit_lock_narrowing)) {
@@ -9471,7 +9471,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
     version_store = CheckedVersionStore(interpreter_context, db_acc);
   } else {
     EnsureMainInstance(interpreter_context, "Branch management operations");
-    if (!FLAGS_versioning_enabled) {
+    if (!db_acc->config().experimental_versioning) {
       throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kDisabled)));
     }
     if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -9672,7 +9672,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       if (query->for_database_) {
         storage::Storage *target_storage = target_db_acc->storage();
         if (const auto target_gate_err = versioning::CheckVersioningGate(
-                FLAGS_versioning_enabled,
+                target_db_acc->config().experimental_versioning,
                 license::global_license_checker.IsEnterpriseValidFast(),
                 target_storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
                 target_db_acc->config().experimental_commit_lock_narrowing)) {

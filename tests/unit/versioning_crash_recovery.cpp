@@ -69,6 +69,7 @@ ms::Config MakeConfig(bool recover_on_startup) {
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
+      .experimental_versioning = true,
   };
 }
 
@@ -606,13 +607,11 @@ void ExpectTornLastTransactionIsDropped(LastTxn kind) {
 class VersioningCrashRecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    FLAGS_versioning_enabled = true;
     fs::remove_all(kStorageDirectory);
     fs::remove_all(kImageDirectory);
   }
 
   void TearDown() override {
-    FLAGS_versioning_enabled = false;
     fs::remove_all(kStorageDirectory);
     fs::remove_all(kImageDirectory);
   }

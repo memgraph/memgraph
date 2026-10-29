@@ -39,7 +39,7 @@ args_versioning: &args_versioning
   - "--log-level=TRACE"
   - "--query-callable-mappings-path"
   - "query_modules/callable_alias_mapping.json"
-  - "--versioning-enabled=true"
+  - "--experimental-enabled=versioning"
   - "--storage-wal-enabled=true"
   - "--storage-snapshot-interval-sec=86400"
 

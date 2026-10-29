@@ -50,13 +50,14 @@ namespace mv = memgraph::versioning;
 namespace {
 const std::filesystem::path kStorageDirectory{std::filesystem::temp_directory_path() / "versioning_branch_recovery"};
 
-ms::Config MakeConfig(bool recover_on_startup) {
+ms::Config MakeConfig(bool recover_on_startup, bool versioning = true) {
   return ms::Config{
       .durability = {.storage_directory = kStorageDirectory,
                      .recover_on_startup = recover_on_startup,
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
+      .experimental_versioning = versioning,
   };
 }
 
@@ -348,15 +349,9 @@ std::optional<ms::Gid> NewMainVertex(memgraph::dbms::Database &db) {
 
 class VersioningBranchRecoveryTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    FLAGS_versioning_enabled = true;
-    std::filesystem::remove_all(kStorageDirectory);
-  }
+  void SetUp() override { std::filesystem::remove_all(kStorageDirectory); }
 
-  void TearDown() override {
-    FLAGS_versioning_enabled = false;
-    std::filesystem::remove_all(kStorageDirectory);
-  }
+  void TearDown() override { std::filesystem::remove_all(kStorageDirectory); }
 };
 
 TEST_F(VersioningBranchRecoveryTest, RestartReproducesTheBranchAndRebuildsItsDerivedState) {
@@ -667,4 +662,121 @@ TEST_F(VersioningBranchRecoveryTest, ConcurrentFirstCheckoutsBuildTheBranchOnce)
   auto ctx = Checkout(db, "b");
   ASSERT_NE(ctx, nullptr);
   EXPECT_EQ(DumpBranch(db, *ctx), branch_before);
+}
+
+// Versioning off hides the branches: main recovers and takes writes as usual, the ledger and the branch files stay as
+// they were, and the next start with versioning on restores each branch to its fork state plus its own writes.
+TEST_F(VersioningBranchRecoveryTest, BranchesComeBackAfterARunWithVersioningOff) {
+  Base base{};
+  Workload workload{};
+  std::vector<VertexDump> branch_before;
+  std::vector<VertexDump> main_before;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    RunWorkload(db, *ctx, base, workload);
+    branch_before = DumpBranch(db, *ctx);
+    main_before = DumpMain(db);
+  }
+
+  std::vector<VertexDump> main_after_off_run;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*versioning=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto n = ResolveNames(db);
+    ASSERT_NE(db.version_store(), nullptr);
+    EXPECT_TRUE(db.version_store()->List().empty());
+    EXPECT_FALSE(db.version_store()->Empty());
+    EXPECT_EQ(DumpMain(db), main_before);
+
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto v1 = acc->FindVertex(base.v1, ms::View::OLD);
+      auto v3 = acc->FindVertex(base.v3, ms::View::OLD);
+      ASSERT_TRUE(v1.has_value() && v3.has_value());
+      ASSERT_TRUE(v1->SetProperty(n.p, ms::PropertyValue(50)).has_value());
+      ASSERT_TRUE(acc->CreateEdge(&*v1, &*v3, n.t).has_value());
+      acc->CreateVertex();
+      Commit(*acc);
+    }
+    main_after_off_run = DumpMain(db);
+    ASSERT_NE(main_after_off_run, main_before);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_EQ(db.version_store()->List().size(), 1u);
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(DumpBranch(db, *ctx), branch_before) << "the branch must show its fork state plus its own writes only";
+  EXPECT_EQ(DumpMain(db), main_after_off_run);
+}
+
+// A fork taken with no main commit after it sits above the durable timestamp; commits made while the branch is hidden
+// must still land above the fork point or they would show up in the branch.
+TEST_F(VersioningBranchRecoveryTest, MainCommitsWhileHiddenStayOutOfTheBranch) {
+  Base base{};
+  uint64_t fork_ts = 0;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    for (int i = 0; i < 10; ++i) db.Access(ms::READ)->Abort();
+    const auto info = db.version_store()->CreateBranch("b", "main");
+    ASSERT_TRUE(info.has_value());
+    fork_ts = info->fork_ts;
+  }
+
+  ms::Gid hidden_run_vertex;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*versioning=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    hidden_run_vertex = *NewMainVertex(db);
+    EXPECT_GE(Mem(db)->repl_storage_state_.commit_ts_info_.load().ldt_, fork_ts)
+        << "a commit made while hidden must be stamped at or above the fork point";
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto info = db.version_store()->Get("b");
+  ASSERT_TRUE(info.has_value());
+  auto branch = Mem(db)->HistoricalAccess(info->fork_ts);
+  ASSERT_TRUE(branch.has_value());
+  EXPECT_FALSE((*branch)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
+  EXPECT_TRUE((*branch)->FindVertex(base.v1, ms::View::OLD).has_value());
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
+}
+
+// Ids main hands out while the branches are hidden must clear the ones the branch created.
+TEST_F(VersioningBranchRecoveryTest, MainIdsWhileHiddenClearTheBranchNativeIds) {
+  Base base{};
+  Workload workload{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    RunWorkload(db, *ctx, base, workload);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*versioning=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto n = ResolveNames(db);
+  const auto vertex = NewMainVertex(db);
+  ASSERT_TRUE(vertex.has_value());
+  EXPECT_GT(vertex->AsUint(), workload.max_native_vertex_gid);
+  auto acc = db.Access(ms::WRITE);
+  auto from = acc->FindVertex(base.v1, ms::View::OLD);
+  auto to = acc->FindVertex(base.v3, ms::View::OLD);
+  ASSERT_TRUE(from.has_value() && to.has_value());
+  const auto edge = acc->CreateEdge(&*from, &*to, n.t);
+  ASSERT_TRUE(edge.has_value());
+  EXPECT_GT(edge->Gid().AsUint(), workload.max_native_edge_gid);
+  acc->Abort();
 }

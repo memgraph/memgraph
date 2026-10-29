@@ -30,6 +30,7 @@
 #include "gtest/gtest.h"
 
 #include "auth/models.hpp"
+#include "dbms/database.hpp"
 #include "flags/general.hpp"
 #include "glue/auth_checker.hpp"
 #include "interpreter_faker.hpp"
@@ -123,6 +124,7 @@ class VersioningFixture : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
+    config.experimental_versioning = true;
     config.durability.snapshot_wal_mode =
         kWal ? memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
              : memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
@@ -160,16 +162,18 @@ class VersioningFixture : public ::testing::Test {
 
   InterpreterFaker faker{&interpreter_context, db};
 
-  void SetUp() override { FLAGS_versioning_enabled = false; }
+  void SetUp() override { SetVersioningFlag(false); }
+
+  // The flag is a startup setting; flipping it on the live config is how these tests exercise the gate.
+  void SetVersioningFlag(bool enabled) { db->storage()->config_.experimental_versioning = enabled; }
 
   void TearDown() override {
-    FLAGS_versioning_enabled = false;
     memgraph::license::global_license_checker.DisableTesting();
     std::filesystem::remove_all(data_directory);
   }
 
   void SatisfyGate() {
-    FLAGS_versioning_enabled = true;
+    SetVersioningFlag(true);
     memgraph::license::global_license_checker.EnableTesting();
   }
 
@@ -232,7 +236,7 @@ TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {
       {true, false, memgraph::versioning::GateError::kNoLicense, "flag=ON  license=OFF"},
   };
   for (const auto &c : cases) {
-    FLAGS_versioning_enabled = c.enable_flag;
+    SetVersioningFlag(c.enable_flag);
     if (c.enable_license) memgraph::license::global_license_checker.EnableTesting();
     try {
       faker.Interpret("CREATE BRANCH 'feature'");
@@ -240,7 +244,7 @@ TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {
     } catch (const memgraph::query::QueryRuntimeException &e) {
       EXPECT_EQ(std::string{e.what()}, std::string{memgraph::versioning::GateErrorMessage(c.expected)}) << c.label;
     }
-    FLAGS_versioning_enabled = false;
+    SetVersioningFlag(false);
     memgraph::license::global_license_checker.DisableTesting();
   }
 }
@@ -250,6 +254,7 @@ TEST_F(VersioningGatedTest, BranchCreationRefusedWithCommitLockNarrowing) {
   memgraph::storage::Config narrowing_config{};
   narrowing_config.durability.storage_directory = data_directory / "narrowing_db";
   narrowing_config.disk.main_storage_directory = data_directory / "narrowing_db" / "disk";
+  narrowing_config.experimental_versioning = true;
   narrowing_config.experimental_commit_lock_narrowing = true;
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> narrowing_gk{narrowing_config};
   auto narrowing_acc = narrowing_gk.access();
@@ -1180,6 +1185,50 @@ TEST_F(VersioningGatedTest, BranchExistenceRejectsStorageModeAndDropGraph) {
       << "DROP GRAPH must actually run once no branch exists";
 }
 
+// Versioning off with branches kept hidden: the database-global operations stay refused as with live branches, and
+// branch queries report that versioning is disabled.
+TEST_F(VersioningGatedTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused) {
+  const auto hidden_directory = data_directory / "hidden_db";
+  const auto hidden_config = [&](bool versioning) {
+    memgraph::storage::Config c{};
+    c.durability.storage_directory = hidden_directory;
+    c.durability.recover_on_startup = true;
+    c.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    c.disk.main_storage_directory = hidden_directory / "disk";
+    c.experimental_versioning = versioning;
+    return c;
+  };
+  {
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{hidden_config(true)};
+    auto acc = gk.access();
+    ASSERT_TRUE(acc);
+    ASSERT_TRUE((*acc)->version_store()->CreateBranch("b", "main").has_value());
+  }
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{hidden_config(false)};
+  auto acc = gk.access();
+  ASSERT_TRUE(acc);
+  ASSERT_FALSE((*acc)->version_store()->Empty());
+  InterpreterFaker hidden_faker{&interpreter_context, *acc};
+
+  for (const auto &[query, message] :
+       {std::pair<const char *, const char *>{"STORAGE MODE IN_MEMORY_ANALYTICAL",
+                                              "Cannot switch storage mode while versioning branches exist"},
+        {"DROP GRAPH", "Cannot drop the graph while versioning branches exist"},
+        {"CREATE ENUM Status VALUES { Good, Bad }", "Cannot create an enum while versioning branches exist"},
+        {"RECOVER SNAPSHOT \"/nonexistent/snapshot\"", "Cannot recover a snapshot while versioning branches exist"},
+        {"CREATE BRANCH 'c'",
+         "Graph versioning is disabled. Start Memgraph with "
+         "--experimental-enabled=versioning to use branch queries."}}) {
+    try {
+      hidden_faker.Interpret(query);
+      FAIL() << "must be rejected while the branches are hidden: " << query;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr(message)) << query;
+    }
+  }
+}
+
 // `USING BRANCH 'main'` routes that one query to main's own storage while the session stays checked out: the branch
 // sees MainOnly (fork-era) plus BranchOnly, `USING BRANCH 'main'` sees MainOnly only.
 TEST_F(VersioningGatedTest, UsingBranchMainReadsMainWhileOnBranch) {
@@ -1313,7 +1362,7 @@ TEST_F(VersioningGatedTest, UsingBranchInsideAnExplicitTransactionIsRefused) {
 
 TEST_F(VersioningGatedTest, UsingBranchRespectsTheGate) {
   faker.Interpret("CREATE BRANCH 'b'");
-  FLAGS_versioning_enabled = false;
+  SetVersioningFlag(false);
   EXPECT_THROW(faker.Interpret("USING BRANCH 'b' MATCH (n) RETURN n"), memgraph::query::QueryRuntimeException);
 }
 

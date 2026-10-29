@@ -66,6 +66,8 @@ class VersioningSubgraphTest : public ::testing::Test {
   memgraph::storage::Config config{[&] {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
+    config.experimental_versioning = true;
+    config.experimental_versioning = true;
     config.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.disk.main_storage_directory = data_directory / "disk";
@@ -101,16 +103,18 @@ class VersioningSubgraphTest : public ::testing::Test {
 
   InterpreterFaker faker{&interpreter_context, db};
 
-  void SetUp() override { FLAGS_versioning_enabled = false; }
+  void SetUp() override { SetVersioningFlag(false); }
+
+  // The flag is a startup setting; flipping it on the live config is how these tests exercise the gate.
+  void SetVersioningFlag(bool enabled) { db->storage()->config_.experimental_versioning = enabled; }
 
   void TearDown() override {
-    FLAGS_versioning_enabled = false;
     memgraph::license::global_license_checker.DisableTesting();
     std::filesystem::remove_all(data_directory);
   }
 
   void SatisfyGate() {
-    FLAGS_versioning_enabled = true;
+    SetVersioningFlag(true);
     memgraph::license::global_license_checker.EnableTesting();
   }
 };

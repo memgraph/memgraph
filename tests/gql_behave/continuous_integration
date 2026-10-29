@@ -235,7 +235,7 @@ def main():
     # environment by the CI wrapper (mgbuild.sh) and is inherited by Popen.
     memgraph_extra_args = []
     if args.versioned_branch:
-        memgraph_extra_args = ["--versioning-enabled=true", "--storage-wal-enabled=true"]
+        memgraph_extra_args = ["--experimental-enabled=versioning", "--storage-wal-enabled=true"]
     memgraph = MemgraphRunner(args.build_directory, extra_args=memgraph_extra_args)
 
     @atexit.register

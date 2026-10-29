@@ -294,6 +294,7 @@ ms::Config MakeRestartConfig(bool recover_on_startup) {
                      .recover_on_startup = recover_on_startup,
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
+      .experimental_versioning = true,
   };
 }
 
@@ -327,9 +328,6 @@ std::vector<uint64_t> BranchDirectoryNumbers() {
 
 class BranchLedgerRestartTest : public ::testing::Test {
  protected:
-  void SetUp() override { FLAGS_versioning_enabled = true; }
-
-  void TearDown() override { FLAGS_versioning_enabled = false; }
 };
 
 TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {

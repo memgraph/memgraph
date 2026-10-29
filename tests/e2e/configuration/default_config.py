@@ -392,7 +392,7 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [commit-lock-narrowing, planner-v2]",
+        "Experimental features to be used, comma-separated. Options [commit-lock-narrowing, planner-v2, versioning]",
     ),
     "experimental_config": (
         "",
@@ -416,9 +416,4 @@ startup_config_dict = {
         "Maximum number of RocksDB info log files kept per RocksDB instance. Every restart rolls the current info log, older ones are deleted. Default is 1000.",
     ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
-    "versioning_enabled": (
-        "false",
-        "false",
-        "Enable graph versioning (branches). Startup-only; enterprise feature; requires IN_MEMORY_TRANSACTIONAL. Off by default.",
-    ),
 }

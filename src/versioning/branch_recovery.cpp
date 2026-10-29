@@ -558,7 +558,57 @@ void RaiseGidCounters(VersionStore &store, storage::InMemoryStorage &main,
   }
 }
 
+// Raises `next_vertex` and `next_edge` past every vertex and edge the WAL file creates.
+// @throw std::exception the file cannot be decoded
+void ScanCreatedGids(const WalFileEntry &file, uint64_t &next_vertex, uint64_t &next_edge) {
+  dur::Decoder decoder;
+  const auto version = decoder.Initialize(file.path, dur::kWalMagic);
+  if (!version || !dur::IsVersionSupported(*version)) {
+    throw utils::BasicException("Cannot read the WAL magic and version of '{}'.", file.path.string());
+  }
+  if (!decoder.SetPosition(file.info.offset_deltas)) {
+    throw utils::BasicException("Cannot seek to the deltas of WAL '{}'.", file.path.string());
+  }
+  for (uint64_t i = 0; i < file.info.num_deltas; ++i) {
+    dur::ReadWalDeltaHeader(&decoder);
+    const auto delta = dur::ReadWalDeltaData(&decoder, *version);
+    std::visit(utils::Overloaded{
+                   [&](const dur::WalVertexCreate &d) { next_vertex = std::max(next_vertex, d.gid.AsUint() + 1); },
+                   [&](const dur::WalEdgeCreate &d) { next_edge = std::max(next_edge, d.gid.AsUint() + 1); },
+                   [](const auto & /*other*/) {}},
+               delta.data_);
+  }
+}
+
 }  // namespace
+
+void RaiseGidCountersForHiddenBranches(const LedgerContents &ledger, storage::InMemoryStorage &main) {
+  const auto branches_dir = main.config_.durability.storage_directory / "branches";
+  for (const auto &branch : ledger.branches) {
+    uint64_t next_vertex = branch.info.vertex_gid_floor.value_or(0);
+    uint64_t next_edge = branch.info.edge_gid_floor.value_or(0);
+    const auto wal_dir = branches_dir / std::to_string(branch.info.number) / "wal";
+    try {
+      // A branch that never committed has no WAL directory.
+      std::error_code exists_ec;
+      for (const auto &file :
+           std::filesystem::exists(wal_dir, exists_ec) ? ListWalFiles(wal_dir) : std::vector<WalFileEntry>{}) {
+        try {
+          ScanCreatedGids(file, next_vertex, next_edge);
+        } catch (const std::exception &e) {
+          spdlog::warn("Graph Versioning: cannot read the branch WAL '{}' of hidden branch '{}' in full: {}",
+                       file.path.string(),
+                       branch.name,
+                       e.what());
+        }
+      }
+    } catch (const std::exception &e) {
+      spdlog::warn("Graph Versioning: cannot list the WAL of hidden branch '{}': {}", branch.name, e.what());
+    }
+    atomic_fetch_max_explicit(&main.vertex_id_, next_vertex, std::memory_order_acq_rel);
+    atomic_fetch_max_explicit(&main.edge_id_, next_edge, std::memory_order_acq_rel);
+  }
+}
 
 void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) {
   const memory::DbArenaScope arena_scope{main.DbArenaPool()};

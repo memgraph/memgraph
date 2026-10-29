@@ -175,6 +175,9 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // The branch WAL is never snapshotted; a default (disabled) interval keeps the periodic snapshot from firing.
   config.durability.snapshot_interval = utils::SchedulerInterval{};
   config.durability.recover_on_startup = false;
+  // Main's retention needs are not the diff engine's: they would pin its WAL for no reason.
+  config.durability.recovery_history_bound.reset();
+  config.durability.retention_floor.reset();
   // A branch with recorded floors continues its own WAL; the engine must not move those files aside.
   config.durability.keep_existing_files = recorded.has_value();
   config.durability.snapshot_on_exit = false;

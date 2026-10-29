@@ -169,6 +169,9 @@ struct BranchRecoveryPlan {
   bool ledger_unreadable{false};
   // Set when branches can be rebuilt: main is recovered up to this timestamp, the rest replayed.
   std::optional<uint64_t> bound;
+  // Versioning is off but the branches are replayable: main recovers normally and the ledger and branch files are
+  // kept untouched for a later start with versioning on.
+  bool hidden{false};
 };
 
 std::string BranchNames(const versioning::LedgerContents &ledger) {
@@ -212,32 +215,38 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   std::ranges::stable_sort(plan.ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
   if (plan.ledger.branches.empty()) return plan;
 
-  const char *unsupported = nullptr;
-  if (!FLAGS_versioning_enabled) {
-    unsupported = "Graph Versioning is disabled (--versioning-enabled=false)";
-  } else if (config.experimental_commit_lock_narrowing) {
-    unsupported = "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing";
-  }
-  if (unsupported) {
-    spdlog::warn("{}; the {} existing branches [{}] are dropped.",
-                 unsupported,
-                 plan.ledger.branches.size(),
-                 BranchNames(plan.ledger));
-    return plan;
-  }
-
+  // Checked first: branches that could not be rebuilt later are not worth hiding.
   const bool can_replay =
       config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
       config.durability.recover_on_startup &&
       config.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-  if (can_replay) {
-    plan.bound = BranchRecoveryBound(plan.ledger);
-  } else {
+  if (!can_replay) {
     spdlog::warn(
         "Graph Versioning: branches [{}] cannot be recovered without recovery on startup and a write-ahead log; they "
         "are dropped.",
         BranchNames(plan.ledger));
+    return plan;
   }
+
+  if (!config.experimental_versioning) {
+    spdlog::info(
+        "Graph Versioning is disabled (--experimental-enabled=versioning is not set); the existing branches [{}] are "
+        "hidden and come back when it is enabled again.",
+        BranchNames(plan.ledger));
+    plan.hidden = true;
+    return plan;
+  }
+
+  if (config.experimental_commit_lock_narrowing) {
+    spdlog::warn(
+        "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing; the {} existing "
+        "branches [{}] are dropped.",
+        plan.ledger.branches.size(),
+        BranchNames(plan.ledger));
+    return plan;
+  }
+
+  plan.bound = BranchRecoveryBound(plan.ledger);
   return plan;
 }
 
@@ -313,6 +322,9 @@ Database::Database(storage::Config config)
     };
 
     if (!branch_plan.bound) {
+      // Main's WAL and snapshots must keep the history the hidden branches fork from; the snapshot thread starts with
+      // the storage, so the floor goes in through the config.
+      if (branch_plan.hidden) config.durability.retention_floor = BranchRecoveryBound(branch_plan.ledger);
       storage_ = create_storage(std::move(config), std::move(invalidator));
     } else {
       // Anything below that goes wrong drops the branches and recovers main as it would without them.
@@ -370,6 +382,16 @@ Database::Database(storage::Config config)
       version_store_->Restore(branch_plan.ledger, branch_pins);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
       versioning::RecoverBranchContents(*version_store_, *in_memory_storage);
+    } else if (branch_plan.hidden) {
+      // Commits made while the branches are hidden must stay above every fork point, and ids main hands out must not
+      // collide with the ones the branches use.
+      uint64_t newest_fork_ts = 0;
+      for (const auto &branch : branch_plan.ledger.branches) {
+        newest_fork_ts = std::max(newest_fork_ts, branch.info.recorded_fork_ts);
+      }
+      in_memory_storage->BumpClockPastDurable(newest_fork_ts);
+      versioning::RaiseGidCountersForHiddenBranches(branch_plan.ledger, *in_memory_storage);
+      version_store_->RestoreHidden(branch_plan.ledger);
     } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {
       version_store_->ResetLedger(branch_plan.ledger.next_number);
     } else {

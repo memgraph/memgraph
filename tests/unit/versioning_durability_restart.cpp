@@ -38,7 +38,8 @@ namespace {
 constexpr auto kTestSuite = "versioning_durability_restart";
 const std::filesystem::path kStorageDirectory{std::filesystem::temp_directory_path() / kTestSuite};
 
-ms::Config MakeConfig(bool recover_on_startup, bool wal = true, uint64_t snapshot_retention_count = 3) {
+ms::Config MakeConfig(bool recover_on_startup, bool wal = true, uint64_t snapshot_retention_count = 3,
+                      bool versioning = true) {
   return ms::Config{
       .durability = {.storage_directory = kStorageDirectory,
                      .recover_on_startup = recover_on_startup,
@@ -47,6 +48,7 @@ ms::Config MakeConfig(bool recover_on_startup, bool wal = true, uint64_t snapsho
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)},
                      .snapshot_retention_count = snapshot_retention_count},
+      .experimental_versioning = versioning,
   };
 }
 
@@ -173,15 +175,9 @@ void Snapshot(memgraph::dbms::Database &db) { ASSERT_TRUE(Mem(db)->CreateSnapsho
 
 class VersioningDurabilityRestartTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    FLAGS_versioning_enabled = true;
-    std::filesystem::remove_all(kStorageDirectory);
-  }
+  void SetUp() override { std::filesystem::remove_all(kStorageDirectory); }
 
-  void TearDown() override {
-    FLAGS_versioning_enabled = false;
-    std::filesystem::remove_all(kStorageDirectory);
-  }
+  void TearDown() override { std::filesystem::remove_all(kStorageDirectory); }
 };
 
 TEST_F(VersioningDurabilityRestartTest, BranchReadsMainAtItsForkAfterRestart) {
@@ -563,6 +559,47 @@ TEST_P(BranchSnapshotRetentionTest, BranchSurvivesSnapshotRetention) {
     if (snapshot_below_fork) Snapshot(db);
     ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
     gids = MoveMainOn(db, gids);
+    Snapshot(db);
+    SetV1(db, gids, 11);
+    Snapshot(db);
+    SetV1(db, gids, 12);
+    Snapshot(db);
+    EXPECT_EQ(CountFiles("snapshots"), snapshot_below_fork ? 2u : 1u)
+        << (snapshot_below_fork ? "the newest snapshot and the one below the fork" : "only the newest snapshot");
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/true, /*retention=*/1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_EQ(db.version_store()->List().size(), 1u) << "the branch must not have been dropped";
+  auto branch = ReadBranch(db, "b");
+  ASSERT_NE(branch, nullptr);
+  ExpectForkState(*branch, ResolveNames(db), gids, 1);
+}
+
+// The same retention as above, but the middle run has versioning off: its snapshot passes must keep the fork base of
+// the hidden branch, and the run after it restores the branch.
+TEST_P(BranchSnapshotRetentionTest, HiddenBranchSurvivesSnapshotRetention) {
+  const bool snapshot_below_fork = GetParam();
+  Gids gids{};
+  uint64_t oldest_fork_ts = 0;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*wal=*/true, /*retention=*/1)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    if (snapshot_below_fork) Snapshot(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    gids = MoveMainOn(db, gids);
+  }
+  const auto ledger = ReadLedger();
+  ASSERT_TRUE(ledger.has_value());
+  ASSERT_EQ(ledger->branches.size(), 1u);
+  oldest_fork_ts = ledger->branches[0].info.recorded_fork_ts;
+
+  {
+    memgraph::dbms::Database db{
+        MakeConfig(/*recover_on_startup=*/true, /*wal=*/true, /*retention=*/1, /*versioning=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(Mem(db)->RetentionFloor(), oldest_fork_ts - 1);
     Snapshot(db);
     SetV1(db, gids, 11);
     Snapshot(db);

@@ -2809,8 +2809,6 @@ TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
 }
 
 TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
-  FLAGS_versioning_enabled = true;
-  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
   MinMemgraph instance(main_conf);
 
   auto *store = instance.db.version_store();
@@ -2832,8 +2830,6 @@ TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
 }
 
 TEST_F(ReplicationTest, TryDemoteToReplicaDropsBranches) {
-  FLAGS_versioning_enabled = true;
-  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
   MinMemgraph instance(main_conf);
 
   auto *store = instance.db.version_store();
@@ -2847,8 +2843,6 @@ TEST_F(ReplicationTest, TryDemoteToReplicaDropsBranches) {
 }
 
 TEST_F(ReplicationTest, DemoteFailingToDropBranchesStaysMain) {
-  FLAGS_versioning_enabled = true;
-  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
   MinMemgraph instance(main_conf);
 
   auto *store = instance.db.version_store();
@@ -2874,8 +2868,6 @@ TEST_F(ReplicationTest, DemoteFailingToDropBranchesStaysMain) {
 }
 
 TEST_F(ReplicationTest, ReplicaResyncDropsBranchesAndKeepsStoreFrozen) {
-  FLAGS_versioning_enabled = true;
-  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
@@ -2918,9 +2910,8 @@ TEST_F(ReplicationTest, ReplicaResyncDropsBranchesAndKeepsStoreFrozen) {
 }
 
 TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
-  FLAGS_versioning_enabled = true;
-  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
   auto conf = main_conf;
+  conf.experimental_versioning = true;
   conf.durability.recover_on_startup = true;
   conf.durability.restore_replication_state_on_startup = true;
 

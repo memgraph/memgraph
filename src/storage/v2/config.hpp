@@ -125,6 +125,10 @@ struct Config {
     // WAL chain; the files holding the rest are handed back through InMemoryStorage::TakeRecoveryTail.
     std::optional<uint64_t> recovery_history_bound{std::nullopt};  // PER DATABASE
 
+    // Durable timestamp that snapshot/WAL retention keeps recoverable from the start, before anything lowers it (the
+    // hidden branches of a database whose versioning is off). Unlike recovery_history_bound it does not alter recovery.
+    std::optional<uint64_t> retention_floor{std::nullopt};  // PER DATABASE
+
     // When set, files an earlier run left in the snapshot and WAL directories stay in place instead of being moved to
     // .backup because recover_on_startup is off. For an owner that reads them itself before use (a branch diff engine
     // replaying its own WAL).
@@ -136,6 +140,10 @@ struct Config {
   // cluster may disagree about it. Must stay out of SalientConfig: durable output must not depend on
   // it, which is what lets an instance restart with the flag flipped and still recover what it wrote.
   bool experimental_commit_lock_narrowing{false};
+
+  // Graph versioning (branches), --experimental-enabled=versioning. Startup-only and per-instance; kept out of
+  // SalientConfig for the same reason as experimental_commit_lock_narrowing.
+  bool experimental_versioning{false};
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};

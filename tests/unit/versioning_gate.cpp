@@ -11,6 +11,9 @@
 
 #include "gtest/gtest.h"
 
+#include <utility>
+
+#include "flags/experimental.hpp"
 #include "versioning/gate.hpp"
 
 using memgraph::versioning::CheckVersioningGate;
@@ -47,8 +50,9 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
 }
 
 TEST(VersioningGate, ErrorMessagesAreExact) {
-  ASSERT_EQ(GateErrorMessage(GateError::kDisabled),
-            "Versioning is disabled. Start Memgraph with --versioning-enabled=true to use branch queries.");
+  ASSERT_EQ(
+      GateErrorMessage(GateError::kDisabled),
+      "Graph versioning is disabled. Start Memgraph with --experimental-enabled=versioning to use branch queries.");
   ASSERT_EQ(GateErrorMessage(GateError::kNoLicense),
             "Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required.");
   ASSERT_EQ(GateErrorMessage(GateError::kUnsupportedStorageMode),
@@ -56,4 +60,20 @@ TEST(VersioningGate, ErrorMessagesAreExact) {
             "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL.");
   ASSERT_EQ(GateErrorMessage(GateError::kCommitLockNarrowing),
             "Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing.");
+}
+
+TEST(VersioningExperimentalFlag, VersioningIsItsOwnExperimentsBit) {
+  using memgraph::flags::Experiments;
+  EXPECT_TRUE(memgraph::flags::ValidExperimentalFlag("versioning"));
+  EXPECT_EQ(memgraph::flags::ReadExperimental("versioning"), Experiments::VERSIONING);
+
+  const auto both = memgraph::flags::ReadExperimental("commit-lock-narrowing,versioning");
+  EXPECT_EQ(std::to_underlying(both),
+            std::to_underlying(Experiments::COMMIT_LOCK_NARROWING) | std::to_underlying(Experiments::VERSIONING));
+
+  memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("planner-v2"));
+  EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("versioning"));
+  EXPECT_TRUE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  memgraph::flags::SetExperimental(Experiments::NONE);
 }

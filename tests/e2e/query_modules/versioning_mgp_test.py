@@ -9,7 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Needs a server with --versioning-enabled (enterprise license).
+# Needs a server with --experimental-enabled=versioning (enterprise license).
 
 import contextlib
 import sys

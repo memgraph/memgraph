@@ -45,7 +45,6 @@ using memgraph::replication::ReplicationServerConfig;
 class ColdReplicaResume : public ::testing::Test {
  protected:
   void SetUp() override {
-    FLAGS_versioning_enabled = true;
     test_dir_ = fs::temp_directory_path() / "MG_test_unit_versioning_cold_replica_resume";
     fs::remove_all(test_dir_);
     fs::create_directories(test_dir_);
@@ -53,6 +52,7 @@ class ColdReplicaResume : public ::testing::Test {
     conf_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     conf_.durability.recover_on_startup = true;
+    conf_.experimental_versioning = true;
 
     auth_.emplace(test_dir_ / "auth", memgraph::auth::Auth::Config{});
     parameters_.emplace(test_dir_);
@@ -78,7 +78,6 @@ class ColdReplicaResume : public ::testing::Test {
     repl_handler_.reset();
     dbms_.reset();
     repl_state_.reset();
-    FLAGS_versioning_enabled = false;
     fs::remove_all(test_dir_);
   }
 

@@ -85,7 +85,7 @@ add_unit_test(crc_accumulator
 
 add_unit_test(versioning_gate
         SOURCES versioning_gate.cpp
-        LINK_TARGETS mg::versioning
+        LINK_TARGETS mg::versioning mg-flags
 )
 
 add_unit_test(versioning_name
