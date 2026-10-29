@@ -279,20 +279,29 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   }
   // A cartesian point has x and y where a geographic one has longitude and latitude, and
   // naming the one to use instead is more help than reporting the name as unknown.
+  auto unknown_field = [](std::string_view prop_name, std::string_view kind) {
+    return QueryRuntimeException("Invalid property name {} for {}", prop_name, kind);
+  };
+
   // A cartesian point has x and y where a geographic one has longitude and latitude, and
   // naming the one to use instead is more help than reporting the name as unknown. Only for a
   // coordinate the point has, though: one in two dimensions has no third, so sending it there
   // would earn the asker a second refusal.
-  auto field_error = [](std::string_view prop_name, bool geographic, bool has_z, std::string_view kind) {
-    if (!geographic) {
-      if (prop_name == "longitude")
-        return QueryRuntimeException("Use x instead of longitude for cartesian point types");
-      if (prop_name == "latitude") return QueryRuntimeException("Use y instead of latitude for cartesian point types");
-      if (prop_name == "height" && has_z)
-        return QueryRuntimeException("Use z instead of height for cartesian point types");
-    }
-    return QueryRuntimeException("Invalid property name {} for {}", prop_name, kind);
-  };
+  //
+  // Both of those follow from the point's reference system, so that is what is given rather
+  // than two answers read off it, which could disagree.
+  auto point_field_error =
+      [&unknown_field](std::string_view prop_name, storage::CoordinateReferenceSystem crs, std::string_view kind) {
+        if (storage::IsCartesian(crs)) {
+          if (prop_name == "longitude")
+            return QueryRuntimeException("Use x instead of longitude for cartesian point types");
+          if (prop_name == "latitude")
+            return QueryRuntimeException("Use y instead of latitude for cartesian point types");
+          if (prop_name == "height" && storage::valid3d(crs))
+            return QueryRuntimeException("Use z instead of height for cartesian point types");
+        }
+        return unknown_field(prop_name, kind);
+      };
   auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") return RangeToTypedValueList(graph.vertices(), ctx_->memory);
     if (prop_name == "edges") return RangeToTypedValueList(graph.edges(), ctx_->memory);
@@ -339,7 +348,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
     }
     case TypedValue::Type::Map: {
-      auto &map = expression_result_ptr->ValueMap();
+      auto const &map = expression_result_ptr->ValueMap();
       auto found = map.find(property_lookup.property_.name.c_str());
       if (found == map.end()) return TypedValue(ctx_->memory);
       return {found->second, ctx_->memory};
@@ -349,35 +358,35 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueDuration(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, false, "Duration");
+      throw unknown_field(prop_name, "Duration");
     }
     case TypedValue::Type::Date: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueDate(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, false, "Date");
+      throw unknown_field(prop_name, "Date");
     }
     case TypedValue::Type::LocalTime: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueLocalTime(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, false, "LocalTime");
+      throw unknown_field(prop_name, "LocalTime");
     }
     case TypedValue::Type::LocalDateTime: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueLocalDateTime(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, false, "LocalDateTime");
+      throw unknown_field(prop_name, "LocalDateTime");
     }
     case TypedValue::Type::ZonedDateTime: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueZonedDateTime(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, false, "ZonedDateTime");
+      throw unknown_field(prop_name, "ZonedDateTime");
     }
     case TypedValue::Type::Point2d: {
       const auto &prop_name = property_lookup.property_.name;
@@ -385,7 +394,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (auto read = storage::ReadFieldNamed(point_2d, prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d, false, "Point2d");
+      throw point_field_error(prop_name, point_2d.crs(), "Point2d");
     }
     case TypedValue::Type::Point3d: {
       const auto &prop_name = property_lookup.property_.name;
@@ -393,7 +402,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (auto read = storage::ReadFieldNamed(point_3d, prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d, true, "Point3d");
+      throw point_field_error(prop_name, point_3d.crs(), "Point3d");
     }
     case TypedValue::Type::Graph: {
       const auto &prop_name = property_lookup.property_.name;
