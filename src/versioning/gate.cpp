@@ -13,12 +13,13 @@
 
 namespace memgraph::versioning {
 
-std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional,
-                                             bool commit_lock_narrowing) {
-  if (!flag_enabled) return GateError::kDisabled;
-  if (!enterprise_valid) return GateError::kNoLicense;
-  if (!is_in_memory_transactional) return GateError::kUnsupportedStorageMode;
-  if (commit_lock_narrowing) return GateError::kCommitLockNarrowing;
+std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state) {
+  const bool creating = op == GateOperation::kCreate;
+  if (!state.flag_enabled) return GateError::kDisabled;
+  if (creating && !state.enterprise_valid) return GateError::kNoLicense;
+  if (!state.is_in_memory_transactional) return GateError::kUnsupportedStorageMode;
+  if (creating && !state.durable) return GateError::kNotDurable;
+  if (state.commit_lock_narrowing) return GateError::kCommitLockNarrowing;
   return std::nullopt;
 }
 
@@ -33,6 +34,8 @@ std::string_view GateErrorMessage(GateError err) {
     case kUnsupportedStorageMode:
       return "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in "
              "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL."sv;
+    case kNotDurable:
+      return "Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true."sv;
     case kCommitLockNarrowing:
       return "Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing."sv;
   }

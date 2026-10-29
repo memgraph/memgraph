@@ -17,13 +17,27 @@
 
 namespace memgraph::versioning {
 
-enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kCommitLockNarrowing };
+enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable, kCommitLockNarrowing };
 
-// Returns std::nullopt when versioning is allowed. First failure wins, in argument order: flag,
-// license, storage mode, commit-lock narrowing.
+// What the caller is about to do. Without a valid license branches are read-only and droppable, so only creating a
+// branch (and writing on one, checked where the plan's read/write type is known) needs the license; creating also
+// needs durable branches. Every other branch query (SHOW, USE, USING, DROP) is kObserve.
+enum class GateOperation : uint8_t { kObserve, kCreate };
+
+struct GateState {
+  bool flag_enabled;
+  bool enterprise_valid;
+  bool is_in_memory_transactional;
+  // WAL on (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.
+  bool durable;
+  bool commit_lock_narrowing;
+};
+
+// Returns std::nullopt when `op` is allowed. First failure wins, in the order of the spec's prerequisites: flag,
+// license (kCreate only), storage mode, durability (kCreate only), commit-lock narrowing. The replica refusal is
+// last and checked by the caller.
 // Takes primitives so it is callable without Storage or license machinery.
-std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional,
-                                             bool commit_lock_narrowing);
+std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state);
 
 std::string_view GateErrorMessage(GateError err);
 

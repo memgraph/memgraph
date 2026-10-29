@@ -14,16 +14,20 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <typeinfo>
 #include <utility>
 #include <vector>
@@ -116,11 +120,12 @@ void ExpectPlanUses(InterpreterFaker &session, const std::string &query, std::st
 }  // namespace
 
 // `kPropertiesOnEdges = false` builds the storage with reference (light) edges.
-template <bool kPropertiesOnEdges, bool kWal = true>
+template <bool kPropertiesOnEdges, bool kWal = true, bool kRecover = true>
 class VersioningFixture : public ::testing::Test {
  protected:
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() /
                                          (!kWal                ? "MG_tests_unit_versioning_interpreter_no_wal"
+                                          : !kRecover          ? "MG_tests_unit_versioning_interpreter_no_recovery"
                                           : kPropertiesOnEdges ? "MG_tests_unit_versioning_interpreter"
                                                                : "MG_tests_unit_versioning_interpreter_reference_edge");
 
@@ -128,6 +133,7 @@ class VersioningFixture : public ::testing::Test {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
     config.experimental_versioning = true;
+    config.durability.recover_on_startup = kRecover;
     config.durability.snapshot_wal_mode =
         kWal ? memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
              : memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
@@ -208,21 +214,44 @@ class VersioningNoWalTest : public VersioningFixture<true, false> {
   }
 };
 
-bool HasBranchNotDurableNotification(const ResultStreamFaker &stream) {
-  const auto &summary = stream.GetSummary();
-  if (!summary.contains("notifications")) return false;
-  for (const auto &n : summary.at("notifications").ValueList()) {
-    if (n.ValueMap().at("code").ValueString() == "BranchNotDurable") return true;
+class VersioningNoRecoveryTest : public VersioningFixture<true, true, false> {
+ protected:
+  void SetUp() override {
+    VersioningFixture<true, true, false>::SetUp();
+    SatisfyGate();
   }
-  return false;
+};
+
+namespace {
+constexpr std::string_view kNotDurableMessage =
+    "Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.";
+
+void ExpectCreateRefusedAsNotDurable(InterpreterFaker &session) {
+  try {
+    session.Interpret("CREATE BRANCH 'a'");
+    ADD_FAILURE() << "CREATE BRANCH must be refused without the WAL and recovery on startup";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()}, std::string{kNotDurableMessage});
+  }
+}
+}  // namespace
+
+// A branch must survive a restart, so it is never created without the WAL.
+TEST_F(VersioningNoWalTest, CreateRefusedWithoutWal) {
+  ExpectCreateRefusedAsNotDurable(faker);
+  EXPECT_TRUE(db->version_store()->Empty());
 }
 
-TEST_F(VersioningNoWalTest, CreateNotifiesBranchNotDurable) {
-  EXPECT_TRUE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a'")));
+// WAL on, recovery off: the branch would be lost at the next startup.
+TEST_F(VersioningNoRecoveryTest, CreateRefusedWithoutRecoveryOnStartup) {
+  ExpectCreateRefusedAsNotDurable(faker);
+  EXPECT_TRUE(db->version_store()->Empty());
 }
 
-TEST_F(VersioningGatedTest, DurableBranchHasNoNotDurableNotification) {
-  EXPECT_FALSE(HasBranchNotDurableNotification(faker.Interpret("CREATE BRANCH 'a'")));
+// The durability prerequisite sits after the storage-mode one and only applies to CREATE.
+TEST_F(VersioningNoWalTest, DurabilityOnlyGatesCreate) {
+  EXPECT_NO_THROW(faker.Interpret("SHOW BRANCHES"));
+  EXPECT_NO_THROW(faker.Interpret("USE BRANCH 'main'"));
 }
 
 // One satisfied precondition (feature flag or license) is not sufficient on its own.
@@ -259,6 +288,10 @@ TEST_F(VersioningGatedTest, BranchCreationRefusedWithCommitLockNarrowing) {
   narrowing_config.disk.main_storage_directory = data_directory / "narrowing_db" / "disk";
   narrowing_config.experimental_versioning = true;
   narrowing_config.experimental_commit_lock_narrowing = true;
+  // Durability is checked before narrowing, so it must hold for CREATE BRANCH to reach the narrowing refusal.
+  narrowing_config.durability.recover_on_startup = true;
+  narrowing_config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> narrowing_gk{narrowing_config};
   auto narrowing_acc = narrowing_gk.access();
   ASSERT_TRUE(narrowing_acc);
@@ -296,6 +329,110 @@ TEST_F(VersioningGatedTest, ManagementQueryRejectedOnReplica) {
     }
   }
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+}
+
+namespace {
+constexpr std::string_view kNoLicenseMessage =
+    "Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required.";
+
+void ExpectRefusedForLicense(InterpreterFaker &session, const std::string &query) {
+  try {
+    session.Interpret(query);
+    ADD_FAILURE() << "expected the license refusal: " << query;
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()}, std::string{kNoLicenseMessage}) << query;
+  }
+}
+}  // namespace
+
+// Without a valid license branches are read-only and droppable: a session on a branch is never stuck, and main's
+// retention can be released.
+TEST_F(VersioningGatedTest, WithoutLicenseBranchesAreReadOnlyAndDroppable) {
+  faker.Interpret("CREATE (:V {id: 1})");
+  faker.Interpret("CREATE BRANCH 'keep'");
+  faker.Interpret("CREATE BRANCH 'force_me'");
+  Fork(faker, "b");
+  faker.Interpret("CREATE (:V {id: 2})");
+  ASSERT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}}));
+
+  memgraph::license::global_license_checker.DisableTesting();
+
+  // Reads on the branch the session is stuck on keep working; writes and CREATE BRANCH are refused.
+  EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}}));
+  ExpectRefusedForLicense(faker, "CREATE (:V {id: 3})");
+  ExpectRefusedForLicense(faker, "USING BRANCH 'keep' CREATE (:V {id: 4})");
+  ExpectRefusedForLicense(faker, "CREATE BRANCH 'c'");
+  EXPECT_FALSE(db->version_store()->Exists("c"));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}})) << "a refused write changes nothing";
+
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'keep' MATCH (n:V) RETURN count(n)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'main' MATCH (n:V) RETURN count(n)"), (Rows{{1}}));
+  {
+    auto stream = faker.Interpret("SHOW BRANCHES");
+    EXPECT_EQ(stream.GetResults().size(), 4U);
+  }
+  EXPECT_NO_THROW(faker.Interpret("SHOW BRANCH"));
+
+  // Leaving the branch: back to main, where writes are unaffected by the branch license.
+  faker.Interpret("USE BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_NO_THROW(faker.Interpret("CREATE (:V {id: 5})"));
+
+  // Dropping releases main's retention, with or without FORCE.
+  faker.Interpret("USE BRANCH 'b'");
+  EXPECT_NO_THROW(faker.Interpret("DROP BRANCH 'b'"));
+  EXPECT_FALSE(db->version_store()->Exists("b"));
+  EXPECT_NO_THROW(faker.Interpret("DROP BRANCH 'force_me' FORCE"));
+  EXPECT_FALSE(db->version_store()->Exists("force_me"));
+  EXPECT_NO_THROW(faker.Interpret("DROP BRANCH 'keep'"));
+  EXPECT_TRUE(db->version_store()->Empty());
+}
+
+// CREATE BRANCH reads and writes main's shared lock from before the fork until the branch is registered, so the
+// operations that check for branches under exclusive access cannot interleave with it.
+TEST_F(VersioningGatedTest, CreateBranchWaitsForExclusiveAccessToMain) {
+  InterpreterFaker creator{&interpreter_context, db};
+  std::atomic<bool> started{false};
+  std::atomic<bool> done{false};
+  std::string failure;
+  std::thread worker;
+  {
+    std::unique_lock exclusive{db->storage()->main_lock_};
+    worker = std::thread{[&] {
+      started = true;
+      try {
+        creator.Interpret("CREATE BRANCH 'raced'");
+      } catch (const std::exception &e) {
+        failure = e.what();
+      }
+      done = true;
+    }};
+    while (!started) std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    EXPECT_FALSE(done) << "CREATE BRANCH must wait while an exclusive operation holds main";
+    EXPECT_TRUE(db->version_store()->Empty()) << "no branch may be registered while the exclusive operation runs";
+  }
+  worker.join();
+  EXPECT_TRUE(failure.empty()) << failure;
+  EXPECT_TRUE(db->version_store()->Exists("raced"));
+}
+
+// The early "branches exist" check of STORAGE MODE is made at Prepare, before CREATE BRANCH can take effect; the switch
+// re-checks under its own exclusive hold, so a branch created in between still refuses it.
+TEST_F(VersioningGatedTest, StorageModeRefusedForBranchCreatedAfterPrepare) {
+  auto [stream, qid] = faker.Prepare("STORAGE MODE IN_MEMORY_ANALYTICAL");
+
+  InterpreterFaker other{&interpreter_context, db};
+  other.Interpret("CREATE BRANCH 'late'");
+
+  try {
+    faker.Pull(&stream, {}, qid);
+    ADD_FAILURE() << "the storage-mode switch must be refused once a branch exists";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("Drop all branches first."));
+  }
+  EXPECT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  EXPECT_TRUE(db->version_store()->Exists("late"));
 }
 
 namespace {
@@ -506,7 +643,7 @@ TEST_F(VersioningGatedTest, SwitchingBranchesKeepsOneAttachPerSession) {
   faker.Interpret("USE BRANCH y");
   EXPECT_EQ(store->CheckoutCount("x"), 0U);
   EXPECT_EQ(store->CheckoutCount("y"), 1U);
-  faker.Interpret("USE BRANCH main");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(store->CheckoutCount("y"), 0U);
 }
 
@@ -3197,7 +3334,7 @@ TEST_F(VersioningMultiSessionTest, DropBranchForceTerminatesOtherSessionsAndLeav
   }
   EXPECT_EQ(faker2.interpreter.current_db_.CurrentVersion(), "b");
 
-  faker2.Interpret("USE BRANCH main");
+  faker2.Interpret("USE BRANCH 'main'");
   EXPECT_EQ(IntRows(faker2, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
   EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
 }
@@ -3228,7 +3365,7 @@ TEST_F(VersioningMultiSessionTest, ShowBranchesCountsSessionsPerBranch) {
   EXPECT_EQ(rows[2][2].ValueInt(), 0);
   EXPECT_FALSE(rows[2][3].ValueBool());
 
-  faker2.Interpret("USE BRANCH main");
+  faker2.Interpret("USE BRANCH 'main'");
   const auto b_row = faker.Interpret("SHOW BRANCH 'b'");
   ASSERT_EQ(b_row.GetResults().size(), 1U);
   EXPECT_EQ(b_row.GetResults()[0][2].ValueInt(), 1);
@@ -3547,7 +3684,7 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsEveryQueryUntilItSwitches
   faker.Interpret("ROLLBACK");
 
   db->version_store()->Unfreeze();
-  faker.Interpret("USE BRANCH main");
+  faker.Interpret("USE BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}})) << "the session runs on main once it switched";
 }

@@ -3171,7 +3171,7 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
   return accessor;
 }
 
-void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode, const std::function<void()> &under_unique_access) {
   // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
   // main_lock_, so draining under UNIQUE would deadlock.
   if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -3181,6 +3181,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 
   auto unique_accessor = UniqueAccess();
+  if (under_unique_access) under_unique_access();
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||

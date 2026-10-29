@@ -4029,6 +4029,10 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
     if (dba.type() != storage::StorageAccessType::WRITE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
+    // Without a valid license branches are read-only; reads and leaving the branch keep working.
+    if (dba.branch_context() != nullptr && !license::global_license_checker.IsEnterpriseValidFast()) {
+      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
+    }
   }
 }
 
@@ -6777,9 +6781,9 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
-                            memgraph::dbms::DatabaseAccess &db) {
+                            memgraph::dbms::DatabaseAccess &db, const std::function<void()> &under_exclusive_access) {
   Callback callback;
-  callback.fn = [current_mode, requested_mode, &db]() mutable {
+  callback.fn = [current_mode, requested_mode, &db, under_exclusive_access]() mutable {
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -6793,7 +6797,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       // Bounded wait rather than a single-shot check: transient accessor holders (a /metrics scrape,
       // a Lab session between queries) release within ms; 3s rides them out but still refuses a busy DB.
       constexpr auto kSwitchToDiskExclusiveTimeout = std::chrono::seconds{3};
-      if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [](auto &in) {
+      if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [&under_exclusive_access](auto &in) {
+            under_exclusive_access();
             if (!in.streams()->GetStreamInfo().empty()) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
@@ -6897,12 +6902,17 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
     throw StorageModeModificationInMulticommandTxException();
   }
   MG_ASSERT(current_db.db_acc_, "Storage Mode query expects a current DB");
-  if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
-    throw QueryRuntimeException(
-        "Cannot switch storage mode while versioning branches exist: it would strand their "
-        "fork-point history. Drop all branches first.");
-  }
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+  // Checked again under the exclusive hold the switch itself takes: CREATE BRANCH only holds main shared, so a branch
+  // can appear between this early check and the switch.
+  const auto refuse_with_branches = [vs = db_acc->version_store()] {
+    if (vs != nullptr && !vs->Empty()) {
+      throw QueryRuntimeException(
+          "Cannot switch storage mode while versioning branches exist: it would strand their "
+          "fork-point history. Drop all branches first.");
+    }
+  };
+  refuse_with_branches();
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
@@ -6937,7 +6947,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc).fn;
+    callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc, refuse_with_branches).fn;
   } else {
     // TODO: this needs to be filtered to just db_acc->storage()
     if (ActiveTransactionsExist(interpreter_context)) {
@@ -6947,9 +6957,12 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
     }
 
     callback = [requested_mode,
-                storage = static_cast<storage::InMemoryStorage *>(db_acc->storage())]() -> std::function<void()> {
+                storage = static_cast<storage::InMemoryStorage *>(db_acc->storage()),
+                refuse_with_branches]() -> std::function<void()> {
       // SetStorageMode will probably be handled at the Database level
-      return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
+      return [storage, requested_mode, refuse_with_branches] {
+        storage->SetStorageMode(requested_mode, refuse_with_branches);
+      };
     }();
   }
 
@@ -9394,21 +9407,36 @@ void EnterUsingBranch(CurrentDB &current_db, versioning::VersionStore *version_s
   }
 }
 
-// The replica refusal and the prerequisite gate, for every branch query; returns `db_acc`'s registry.
-versioning::VersionStore *CheckedVersionStore(InterpreterContext *interpreter_context,
-                                              memgraph::dbms::DatabaseAccess db_acc) {
-  // VersionStore is a local, unreplicated registry that would silently diverge from MAIN's on a REPLICA, so every
-  // action (including SHOW) is rejected there, ahead of the storage-mode gate.
-  EnsureMainInstance(interpreter_context, "Branch management operations");
+// Branches stay droppable and readable without a license, but are only created when they survive a restart.
+bool BranchesDurable(const storage::Config &config) {
+  using enum storage::Config::Durability::SnapshotWalMode;
+  return config.durability.recover_on_startup && config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL;
+}
 
-  storage::Storage *storage = db_acc->storage();
+// The prerequisite gate of `db_acc`'s database, then the replica refusal (the last prerequisite).
+void CheckBranchPrerequisites(InterpreterContext *interpreter_context, const memgraph::dbms::DatabaseAccess &db_acc,
+                              versioning::GateOperation op) {
+  const auto &config = db_acc->config();
   if (const auto gate_err =
-          versioning::CheckVersioningGate(db_acc->config().experimental_versioning,
-                                          license::global_license_checker.IsEnterpriseValidFast(),
-                                          storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                                          db_acc->config().experimental_commit_lock_narrowing)) {
+          versioning::CheckVersioningGate(op,
+                                          {.flag_enabled = config.experimental_versioning,
+                                           .enterprise_valid = license::global_license_checker.IsEnterpriseValidFast(),
+                                           .is_in_memory_transactional = db_acc->storage()->GetStorageMode() ==
+                                                                         storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                           .durable = BranchesDurable(config),
+                                           .commit_lock_narrowing = config.experimental_commit_lock_narrowing})) {
     throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
   }
+  // VersionStore is a local, unreplicated registry that would silently diverge from MAIN's on a REPLICA, so every
+  // action (including SHOW) is rejected there.
+  EnsureMainInstance(interpreter_context, "Branch management operations");
+}
+
+// The prerequisite gate for every branch query; returns `db_acc`'s registry.
+versioning::VersionStore *CheckedVersionStore(InterpreterContext *interpreter_context,
+                                              memgraph::dbms::DatabaseAccess db_acc,
+                                              versioning::GateOperation op = versioning::GateOperation::kObserve) {
+  CheckBranchPrerequisites(interpreter_context, db_acc, op);
 
   auto *version_store = db_acc->version_store();
   // Defensive: the gate guarantees IN_MEMORY_TRANSACTIONAL, the only mode that constructs version_store_.
@@ -9432,17 +9460,6 @@ std::optional<std::string> UsingBranchTarget(const ParsedQuery &parsed_query) {
   return GetOptionalStringValue(cypher_query->pre_query_directives_.branch_target_, evaluator);
 }
 
-// A branch is durable only when main keeps a WAL (same predicate BranchCore::Build applies).
-void NotifyIfBranchNotDurable(storage::Storage *storage, std::string_view name,
-                              std::vector<Notification> *notifications) {
-  if (versioning::BranchCore::WritesWal(*static_cast<storage::InMemoryStorage *>(storage))) return;
-  notifications->emplace_back(
-      SeverityLevel::WARNING,
-      NotificationCode::BRANCH_NOT_DURABLE,
-      fmt::format("Branch '{}' is not durable: the WAL is disabled, so it will be dropped when Memgraph restarts.",
-                  name));
-}
-
 std::vector<std::string> BranchColumns() { return {"name", "created_at", "sessions", "current"}; }
 
 std::vector<TypedValue> BranchRow(std::string name, TypedValue created_at, size_t sessions, bool current) {
@@ -9454,10 +9471,10 @@ std::vector<TypedValue> BranchRow(std::string name, TypedValue created_at, size_
 }  // namespace
 
 // Management-query dispatch for CREATE/DROP/USE/SHOW BRANCH*. Opens no storage accessor (VersionStore has its own
-// locking); USE BRANCH only attaches the session to a branch, ordinary Cypher routing lives in CurrentDB.
+// locking; CREATE BRANCH additionally holds main's shared lock); USE BRANCH only attaches the session to a branch,
+// ordinary Cypher routing lives in CurrentDB.
 PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                     CurrentDB &current_db, std::vector<Notification> *notifications,
-                                     Interpreter &interpreter) {
+                                     CurrentDB &current_db, Interpreter &interpreter) {
   auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
   MG_ASSERT(query);
 
@@ -9465,22 +9482,18 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
   auto db_acc = *current_db.db_acc_;
   storage::Storage *storage = db_acc->storage();
 
-  // SHOW BRANCHES FOR DATABASE reports on another database, so its storage-mode gate is deferred to the resolved
-  // target below; the process-global flag/license checks still apply immediately.
+  // SHOW BRANCHES FOR DATABASE reports on another database, so its gate (and the replica refusal) is deferred to the
+  // resolved target below; the process-global flag check still applies immediately.
   const bool cross_tenant_show_branches =
       query->action_ == VersioningQuery::Action::SHOW_BRANCHES && query->for_database_.has_value();
 
   versioning::VersionStore *version_store = nullptr;
   if (!cross_tenant_show_branches) {
-    version_store = CheckedVersionStore(interpreter_context, db_acc);
-  } else {
-    EnsureMainInstance(interpreter_context, "Branch management operations");
-    if (!db_acc->config().experimental_versioning) {
-      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kDisabled)));
-    }
-    if (!license::global_license_checker.IsEnterpriseValidFast()) {
-      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
-    }
+    const auto op = query->action_ == VersioningQuery::Action::CREATE_BRANCH ? versioning::GateOperation::kCreate
+                                                                             : versioning::GateOperation::kObserve;
+    version_store = CheckedVersionStore(interpreter_context, db_acc, op);
+  } else if (!db_acc->config().experimental_versioning) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kDisabled)));
   }
 
   EvaluationContext evaluation_context;
@@ -9500,13 +9513,17 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       return PreparedQuery{
           .header = {},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [version_store, storage, notifications, name = *name](
+          .query_handler = [version_store, storage, name = *name](
                                AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+            // Shared access to main from the fork until the branch is registered: STORAGE MODE, DROP GRAPH, RECOVER
+            // SNAPSHOT and enum DDL hold exclusive access when they check for branches, so none of them can run
+            // between that check and this registration. Taken straight from main's lock rather than through the
+            // session's accessor, which would route to a branch's diff engine if the session is on one.
+            const utils::SharedResourceLockGuard main_access{storage->main_lock_, utils::SharedResourceLockGuard::READ};
             auto created = version_store->CreateBranch(name, "main");
             if (!created) {
               throw QueryRuntimeException(created.error());
             }
-            NotifyIfBranchNotDurable(storage, name, notifications);
             return QueryHandlerResult::COMMIT;
           },
           .rw_type = RWType::W};
@@ -9682,17 +9699,10 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
         throw QueryRuntimeException("SHOW BRANCHES FOR DATABASE requires an enterprise multi-tenant build.");
       }
 #endif
-      // Gate the resolved target's storage mode whenever FOR DATABASE is given (even naming the current db), since the
-      // top-level gate skipped it for this form.
+      // Gate the resolved target whenever FOR DATABASE is given (even naming the current db), since the top-level
+      // gate skipped it for this form.
       if (query->for_database_) {
-        storage::Storage *target_storage = target_db_acc->storage();
-        if (const auto target_gate_err = versioning::CheckVersioningGate(
-                target_db_acc->config().experimental_versioning,
-                license::global_license_checker.IsEnterpriseValidFast(),
-                target_storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                target_db_acc->config().experimental_commit_lock_narrowing)) {
-          throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*target_gate_err)));
-        }
+        CheckBranchPrerequisites(interpreter_context, target_db_acc, versioning::GateOperation::kObserve);
       }
 
       return PreparedQuery{
@@ -11895,8 +11905,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw VersioningQueryInMulticommandTxException();
       }
-      prepared_query = PrepareVersioningQuery(
-          std::move(parsed_query), interpreter_context_, current_db_, &query_execution->notifications, *this);
+      prepared_query = PrepareVersioningQuery(std::move(parsed_query), interpreter_context_, current_db_, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();

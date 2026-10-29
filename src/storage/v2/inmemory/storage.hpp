@@ -945,7 +945,9 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  void SetStorageMode(StorageMode storage_mode);
+  // `under_unique_access`, if set, runs once the UNIQUE hold is taken and before anything changes; it may throw to
+  // refuse the switch, which then has no side effect.
+  void SetStorageMode(StorageMode storage_mode, const std::function<void()> &under_unique_access = {});
 
  private:
   // Like CreateTransaction but with `start_timestamp = fork_ts`, `timestamp_` untouched, SNAPSHOT_ISOLATION and
