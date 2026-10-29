@@ -27,7 +27,10 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "query/exceptions.hpp"
+#include "rpc/exceptions.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -58,10 +61,23 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const utils::BasicException *>(&e)) {
-    // Exception not derived from QueryException was thrown which means that
-    // database probably aborted transaction because of some timeout,
-    // deadlock, serialization error or something similar. We return
-    // TransientError since retry of same transaction could succeed.
+    // Only exception types declared retryable here may be reported as
+    // TransientError: a retry can only help for a genuinely transient
+    // condition (a serialization conflict, a storage access timeout, an
+    // RPC failure or an out-of-memory condition). Every other
+    // BasicException - e.g. a permanently-invalid temporal literal or an
+    // unwrapped TypedValueException - is non-retryable, so it is reported
+    // as a ClientError and the driver does not retry a query that can
+    // never succeed.
+    const bool retryable = dynamic_cast<const query::RetryBasicException *>(&e) != nullptr ||
+                           dynamic_cast<const storage::SharedAccessTimeout *>(&e) != nullptr ||
+                           dynamic_cast<const storage::UniqueAccessTimeout *>(&e) != nullptr ||
+                           dynamic_cast<const storage::ReadOnlyAccessTimeout *>(&e) != nullptr ||
+                           dynamic_cast<const utils::OutOfMemoryException *>(&e) != nullptr ||
+                           dynamic_cast<const rpc::RpcFailedException *>(&e) != nullptr;
+    if (!retryable) {
+      return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
+    }
 
     // If this is in the context of a database (i.e., we have database
     // `metric_handles`), then log count failure in the db metrics;
