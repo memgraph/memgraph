@@ -47,7 +47,7 @@ FILE = "bolt_exception_handling"
 MAIN_PORT = 7687
 REPLICA_PORT = 7688
 
-# Unparseable temporal inputs; each is a plain temporal::InvalidArgumentException from one shared code path.
+# Unparseable temporal inputs; date/localtime/localdatetime throw temporal::InvalidArgumentException, duration a bare utils::BasicException.
 _INVALID_TEMPORAL = [
     ("RETURN duration('PXYZ')", "Invalid duration string", "duration"),
     ("RETURN date('not-a-date')", "Invalid year in the string", "date"),
@@ -55,9 +55,8 @@ _INVALID_TEMPORAL = [
     ("RETURN localdatetime('bogus')", "Invalid LocalDateTime format", "localdatetime"),
 ]
 
-# Enterprise-gated paths: impersonation (RuntimeConfig::Configure is compiled only under MG_ENTERPRISE) and the
-# SHOW METRICS INFO query (src/query/interpreter.cpp rejects it without a valid enterprise license). A community run
-# must skip these rather than fail on the gated query.
+# Enterprise-gated paths: impersonation (RuntimeConfig::Configure is compiled only under MG_ENTERPRISE) and
+# SHOW METRICS INFO (license-gated in src/query/interpreter.cpp). A community run must skip rather than fail.
 requires_enterprise = pytest.mark.skipif(
     not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
     reason="enterprise-gated feature (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
@@ -262,10 +261,7 @@ def test_invalid_temporal_input_is_client_error(query, message, test_name):
 
 @requires_enterprise
 def test_invalid_temporal_input_does_not_increment_transient_errors(test_name):
-    """A permanently-invalid temporal parse is never counted as a transient error.
-
-    SHOW METRICS INFO is enterprise-gated, so this metric-level assertion is skipped on a community build.
-    """
+    """A permanently-invalid temporal parse is never counted as a transient error (skipped on a community build: SHOW METRICS INFO is enterprise-gated)."""
     _start_main(test_name)
     driver = _driver()
     try:
