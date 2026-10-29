@@ -15,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
@@ -23,8 +24,10 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/vertex_info_cache.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/on_scope_exit.hpp"
 
 class CreateSnapshotTest : public testing::Test {
  protected:
@@ -440,6 +443,68 @@ TEST_F(CreateSnapshotTest, LightEdgeSnapshotRoundTripParallel) {
   }
 }
 
+// Uncommitted writes give every worker a long chain to walk back, so each would write the shared
+// delta-chain cache. The recovered value must be the committed one.
+TEST_F(CreateSnapshotTest, ParallelSnapshotOverLongDeltaChains) {
+  namespace s = memgraph::storage;
+
+  auto const saved_threshold = FLAGS_delta_chain_cache_threshold;
+  FLAGS_delta_chain_cache_threshold = 2;
+  auto const restore_threshold =
+      memgraph::utils::OnScopeExit{[&] { FLAGS_delta_chain_cache_threshold = saved_threshold; }};
+
+  constexpr int kVertices = 200;
+  constexpr int kChainLength = 8;
+  std::vector<s::Gid> gids;
+
+  {
+    memgraph::dbms::Database db{LightCfg(storage_directory, false, /*parallel=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *mem_storage = static_cast<s::InMemoryStorage *>(db.storage());
+
+    {
+      auto acc = mem_storage->Access(s::WRITE);
+      auto const prop = acc->NameToProperty("n");
+      for (int i = 0; i != kVertices; ++i) {
+        auto vertex = acc->CreateVertex();
+        gids.push_back(vertex.Gid());
+        ASSERT_TRUE(vertex.SetProperty(prop, s::PropertyValue{0}).has_value());
+      }
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Left uncommitted on purpose: these deltas are what the snapshot's workers walk back.
+    auto writer = mem_storage->Access(s::WRITE);
+    auto const prop = writer->NameToProperty("n");
+    for (auto gid : gids) {
+      auto vertex = writer->FindVertex(gid, s::View::NEW);
+      ASSERT_TRUE(vertex);
+      for (int i = 1; i <= kChainLength; ++i) {
+        ASSERT_TRUE(vertex->SetProperty(prop, s::PropertyValue{i}).has_value());
+      }
+    }
+
+    ASSERT_TRUE(mem_storage->CreateSnapshot().has_value()) << "parallel CreateSnapshot should succeed";
+    writer->Abort();
+  }
+
+  {
+    memgraph::dbms::Database db2{LightCfg(storage_directory, true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db2.Arena()};
+    auto *mem_storage2 = static_cast<s::InMemoryStorage *>(db2.storage());
+    auto acc = mem_storage2->Access(s::READ);
+    auto const prop = acc->NameToProperty("n");
+    for (auto gid : gids) {
+      auto vertex = acc->FindVertex(gid, s::View::OLD);
+      ASSERT_TRUE(vertex) << "vertex " << gid.AsUint() << " missing after recovery";
+      auto props = vertex->Properties(s::View::OLD);
+      ASSERT_TRUE(props.has_value());
+      ASSERT_TRUE(props->count(prop)) << "vertex " << gid.AsUint() << " lost property 'n'";
+      EXPECT_EQ(props->at(prop).ValueInt(), 0) << "snapshot captured an uncommitted value";
+    }
+  }
+}
+
 // Q2b: heavy-written snapshot (v34 bytes) loaded by a light instance.
 // Regression for the 475886cc4 fix: heavy loader path must be reachable from
 // a storage instance that has storage_light_edge=true.
@@ -507,7 +572,7 @@ TEST_F(CreateSnapshotTest, LightEdgeWalReplayRoundTrip) {
       ASSERT_TRUE(v2);
       auto out = v2->OutEdges(s::View::NEW);
       ASSERT_TRUE(out.has_value());
-      for (auto &ea : out->edges) {
+      for (auto ea : out->edges) {
         if (ea.EdgeType() == acc->NameToEdgeType("TEMP")) {
           ASSERT_TRUE(acc->DeleteEdge(&ea).has_value());
         }
@@ -527,7 +592,7 @@ TEST_F(CreateSnapshotTest, LightEdgeWalReplayRoundTrip) {
     ASSERT_TRUE(v2);
     auto out = v2->OutEdges(s::View::OLD);
     ASSERT_TRUE(out.has_value());
-    for (auto &ea : out->edges) {
+    for (auto ea : out->edges) {
       ASSERT_NE(ea.EdgeType(), acc->NameToEdgeType("TEMP")) << "Deleted TEMP edge must not survive WAL replay";
     }
   }

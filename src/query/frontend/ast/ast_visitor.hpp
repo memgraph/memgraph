@@ -116,8 +116,10 @@ class Foreach;
 class ShowConfigQuery;
 class ShowQueryCallableMappingsQuery;
 class CallSubquery;
+class ConditionalBranches;
 class AnalyzeGraphQuery;
 class TransactionQueueQuery;
+class SessionQuery;
 class SubqueryExpression;
 class MultiDatabaseQuery;
 class VersioningQuery;
@@ -157,7 +159,8 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
     ListComprehension, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach,
-    SubqueryExpression, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest, LoadJsonl>;
+    SubqueryExpression, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest, LoadJsonl,
+    ConditionalBranches>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 
@@ -189,7 +192,7 @@ class QueryVisitor
           SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery,
           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
           ShowSnapshotsQuery, ShowNextSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
-          ShowQueryCallableMappingsQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
+          ShowQueryCallableMappingsQuery, TransactionQueueQuery, SessionQuery, StorageModeQuery, AnalyzeGraphQuery,
           MultiDatabaseQuery, VersioningQuery, UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery,
           EdgeImportModeQuery, CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery,
           CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery,

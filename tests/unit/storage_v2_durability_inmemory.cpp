@@ -15,6 +15,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -28,6 +29,7 @@
 #include <iostream>
 #include <map>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -1007,7 +1009,7 @@ class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
 
       auto find_edge = [&](auto &edges,
                            memgraph::storage::Gid edge_gid) -> std::optional<memgraph::storage::EdgeAccessor> {
-        for (auto &edge : edges) {
+        for (auto edge : edges) {
           if (edge.Gid() == edge_gid) {
             return edge;
           }
@@ -1160,7 +1162,7 @@ class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
       // Verify edges.
       for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
         auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
-          for (auto &edge : edges) {
+          for (auto edge : edges) {
             if (edge.Gid() == extended_edge_gids_[i]) {
               return edge;
             }
@@ -1466,11 +1468,11 @@ void CorruptSnapshot(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadSnapshotInfo(path);
   spdlog::info("Destroying snapshot {}", path);
   memgraph::utils::OutputFile file;
-  file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, info.offset_vertices);
   auto value = static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_MAP);
-  file.Write(&value, sizeof(value));
-  file.Sync();
+  std::ignore = file.Write(&value, sizeof(value));
+  std::ignore = file.Sync();
   file.Close();
 }
 
@@ -1478,11 +1480,11 @@ void DestroyWalFirstDelta(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadWalInfo(path);
   spdlog::info("Destroying WAL {}", path);
   memgraph::utils::OutputFile file;
-  file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, info.offset_deltas);
   auto value = static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_MAP);
-  file.Write(&value, sizeof(value));
-  file.Sync();
+  std::ignore = file.Write(&value, sizeof(value));
+  std::ignore = file.Sync();
   file.Close();
 }
 
@@ -1490,13 +1492,13 @@ void DestroyWalSuffix(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadWalInfo(path);
   spdlog::info("Destroying WAL {}", path);
   memgraph::utils::OutputFile file;
-  file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
   ASSERT_LT(info.offset_deltas, file.SetPosition(memgraph::utils::OutputFile::Position::RELATIVE_TO_END, -100));
   uint8_t value = 0;
   for (size_t i = 0; i < 100; ++i) {
-    file.Write(&value, sizeof(value));
+    std::ignore = file.Write(&value, sizeof(value));
   }
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 }
 
@@ -2459,7 +2461,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.has_value());
-        for (auto &edge : in_edges->edges) {
+        for (auto edge : in_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.has_value());
@@ -2469,7 +2471,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
         }
         auto out_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.has_value());
-        for (auto &edge : out_edges->edges) {
+        for (auto edge : out_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.has_value());
@@ -3326,8 +3328,13 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 #if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
   GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
 #endif
+  pid_t const parent_pid = getpid();
   pid_t pid = fork();
   if (pid == 0) {
+    // Arm the parent-death signal, then check the parent has not already gone: it would have sent
+    // that signal before we armed it, and nothing else stops the unbounded loop below.
+    MG_ASSERT(prctl(PR_SET_PDEATHSIG, SIGKILL) == 0, "Couldn't arm the parent-death signal!");
+    if (getppid() != parent_pid) std::_Exit(1);
     // Create WALs.
     {
       memgraph::storage::Config config{
@@ -3343,8 +3350,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       };
       memgraph::dbms::Database db{config};
       const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      // Create one million vertices.
-      for (uint64_t i = 0; i < 1'000'000; ++i) {
+      // Commit until the parent kills us, so the kill never races a clean exit.
+      for (;;) {
         auto acc = db.Access(memgraph::storage::WRITE);
         acc->CreateVertex();
         MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
@@ -3352,9 +3359,15 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       }
     }
   } else if (pid > 0) {
-    // Wait for WALs to be created.
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    int status;
+    // Wait for the child to open its WAL file, then let it write for a while before killing it. A fixed sleep is
+    // too short when the runner is slow.
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    // The assertions below read this even on the paths where no waitpid fills it.
+    int status = 0;
     EXPECT_EQ(waitpid(pid, &status, WNOHANG), 0);
     EXPECT_EQ(kill(pid, SIGKILL), 0);
     EXPECT_EQ(waitpid(pid, &status, 0), pid);
@@ -5778,7 +5791,9 @@ TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
       auto to_delete =
           std::ranges::find_if(out_edges->edges, [&](auto const &e) { return e.Gid() == deleted_edge_gid; });
       ASSERT_NE(to_delete, out_edges->edges.end());
-      ASSERT_TRUE(acc->DeleteEdge(&*to_delete).has_value());
+      // Dereferencing builds the edge, so it has to be held before its address can be taken.
+      auto edge = *to_delete;
+      ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }

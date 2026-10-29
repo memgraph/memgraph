@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <range/v3/all.hpp>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -1540,8 +1541,6 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        VectorIndexRecovery::UpdateOnLabelAddition(
-            label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1556,8 +1555,6 @@ std::optional<RecoveryInfo> LoadWal(
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        VectorIndexRecovery::UpdateOnLabelRemoval(
-            label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1569,8 +1566,13 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        VectorIndexRecovery::UpdateOnSetProperty(
-            property_id, property_value, &*vertex, indices_constraints->indices.vector_indices);
+        // Moves the tag's floats into vertex_vectors; may rewrite property_value (empty tag → [], no spec → plain
+        // list).
+        VectorIndexRecovery::UpdateOnSetProperty(property_id,
+                                                 property_value,
+                                                 &*vertex,
+                                                 indices_constraints->indices.vector_indices,
+                                                 indices_constraints->indices.vertex_vectors);
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
@@ -1734,7 +1736,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         if (items.storage_light_edge) {
           const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-          const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+          auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
           // Light edges are not in edge_acc; resolve via cache (O(1)), then out_edges scan, then find_edge.
           EdgeRef edge_ref{data.gid};
@@ -1789,9 +1791,14 @@ std::optional<RecoveryInfo> LoadWal(
                                      old_type,
                                      items.properties_on_edges);
           }
+          // Capture the vector from the decoded value before the property store drops it.
+          // UpdateOnSetEdgeProperty may mutate property_value (tag-without-spec → plain list).
+          VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(property_id,
+                                                           property_value,
+                                                           edge_raw,
+                                                           indices_constraints->indices.vector_edge_indices,
+                                                           indices_constraints->indices.edge_vectors);
           edge_raw->properties.SetProperty(property_id, property_value);
-          VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
-              property_id, property_value, edge_raw, indices_constraints->indices.vector_edge_indices);
           return;
         }
 
@@ -1799,7 +1806,7 @@ std::optional<RecoveryInfo> LoadWal(
         if (edge == edge_acc.end())
           throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+        auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
         if (schema_info) {
           // Fast path: use cached edge recovery info.
@@ -1873,9 +1880,12 @@ std::optional<RecoveryInfo> LoadWal(
           }
         }
 
+        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(property_id,
+                                                         property_value,
+                                                         &*edge,
+                                                         indices_constraints->indices.vector_edge_indices,
+                                                         indices_constraints->indices.edge_vectors);
         edge->properties.SetProperty(property_id, property_value);
-        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
-            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);
@@ -2128,8 +2138,7 @@ std::optional<RecoveryInfo> LoadWal(
             .resize_coefficient = data.resize_coefficient,
             .capacity = data.capacity,
             .scalar_kind = scalar_kind};
-        indices_constraints->indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{
-            .spec = spec, .index_entries = absl::flat_hash_map<Gid, utils::small_vector<float>>{}});
+        indices_constraints->indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{.spec = spec});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
@@ -2150,14 +2159,18 @@ std::optional<RecoveryInfo> LoadWal(
                                         .dimension = data.dimension,
                                         .resize_coefficient = data.resize_coefficient,
                                         .capacity = data.capacity,
-                                        .scalar_kind = scalar_kind},
-            .index_entries = {}});
+                                        .scalar_kind = scalar_kind}});
       },
       [&](WalVectorIndexDrop const &data) {
-        VectorIndexRecovery::UpdateOnIndexDrop(
-            data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
-        VectorEdgeIndexRecovery::UpdateOnIndexDrop(
-            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
+        VectorIndexRecovery::UpdateOnIndexDrop(data.index_name,
+                                               indices_constraints->indices.vector_indices,
+                                               indices_constraints->indices.vertex_vectors,
+                                               vertex_acc);
+        VectorEdgeIndexRecovery::UpdateOnIndexDrop(data.index_name,
+                                                   indices_constraints->indices.vector_edge_indices,
+                                                   indices_constraints->indices.edge_vectors,
+                                                   vertex_acc,
+                                                   name_id_mapper);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {
@@ -2405,8 +2418,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.SetPosition(offset_deltas);
   wal_.ResetCrcAcc();
 
-  // Sync the initial data.
-  wal_.Sync();
+  // Sync the initial data. The WAL crashes on a failed write, so this never reports an error.
+  std::ignore = wal_.Sync();
 }
 
 void WalFile::WriteSummary() {
@@ -2430,7 +2443,8 @@ void WalFile::WriteSummary() {
 void WalFile::FinalizeWal() {
   if (count_ != 0) {
     WriteSummary();
-    wal_.Finalize();
+    // The WAL crashes on a failed write, so this never reports an error.
+    std::ignore = wal_.Finalize();
     wal_.Close();
     // Rename file.
     std::filesystem::path new_path(RemakeWalName(path_, from_timestamp_, to_timestamp_));
@@ -2510,7 +2524,8 @@ WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   return txn_end_pos;
 }
 
-void WalFile::Sync() { wal_.Sync(); }
+// The WAL crashes on a failed write, so this never reports an error.
+void WalFile::Sync() { std::ignore = wal_.Sync(); }
 
 uint64_t WalFile::GetSize() { return wal_.GetSize(); }
 

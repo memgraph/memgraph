@@ -289,30 +289,19 @@ TYPED_TEST(QueryPlanTest, OrderByExceptions) {
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
-  // a vector of pairs of typed values that should result
-  // in an exception when trying to order on them
+  // A sort places a pair of unlike types by where the two types sit, so what is left to
+  // refuse is a pair of one type carrying no order of its own. A map is the one such type a
+  // property can hold, at the top level and inside a list.
+  auto const key = dba.NameToProperty("key");
+  auto const one = memgraph::storage::PropertyValue(
+      memgraph::storage::PropertyValue::map_t{{key, memgraph::storage::PropertyValue(1)}});
+  auto const two = memgraph::storage::PropertyValue(
+      memgraph::storage::PropertyValue::map_t{{key, memgraph::storage::PropertyValue(2)}});
+
   std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> exception_pairs{
-      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue(true)},
-      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue("bla")},
-      {memgraph::storage::PropertyValue(42),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
-      {memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue("bla")},
-      {memgraph::storage::PropertyValue(true),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(true)})},
-      {memgraph::storage::PropertyValue("bla"),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})},
-      // illegal comparisons of same-type values
-      {memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")}),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
-      {memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue("bla")}),
-       memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue(42)})}};
+      {one, two},
+      {memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{one}),
+       memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{two})}};
 
   for (const auto &pair : exception_pairs) {
     // empty database
@@ -337,5 +326,54 @@ TYPED_TEST(QueryPlanTest, OrderByExceptions) {
         std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}}, std::vector<Symbol>{});
     auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
+  }
+}
+
+TYPED_TEST(QueryPlanTest, OrderBySortsAColumnHoldingUnlikeTypes) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+  auto prop = dba.NameToProperty("prop");
+
+  // Each pair holds two types, so every row of the sorted column is placed by where its type
+  // sits rather than by a payload the two share. A list is walked, so a pair of lists differing
+  // in the type of an element is the same question one element down.
+  std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> unlike_pairs{
+      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue("bla")},
+      {memgraph::storage::PropertyValue(42),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
+      {memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue("bla")},
+      {memgraph::storage::PropertyValue(true),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(true)})},
+      {memgraph::storage::PropertyValue("bla"),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})},
+      {memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")}),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
+      {memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue("bla")}),
+       memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+           memgraph::storage::PropertyValue("bla"), memgraph::storage::PropertyValue(42)})}};
+
+  for (const auto &pair : unlike_pairs) {
+    for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).has_value());
+    dba.AdvanceCommand();
+
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).has_value());
+    dba.AdvanceCommand();
+
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+    auto order_by =
+        std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}}, std::vector<Symbol>{});
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    EXPECT_EQ(2, PullAll(*order_by, &context));
   }
 }

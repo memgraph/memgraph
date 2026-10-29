@@ -52,6 +52,7 @@ def verify_execution_fields(item: dict) -> bool:
         ("run_id", str),
         ("timestamp", float),
         ("type", str),
+        ("product", str),
         ("ssl", bool),
         ("version", str),
     ]
@@ -217,6 +218,7 @@ EXPECTED_EVENT_COUNTERS = {
     "CallProcedureOperator",
     "CartesianOperator",
     "CommitedTransactions",
+    "ConditionalOperator",
     "ConstructNamedPathOperator",
     "CreateExpandOperator",
     "CreateNodeOperator",
@@ -548,6 +550,7 @@ def verify_measurement_fields(item: dict) -> bool:
         ("run_id", str),
         ("timestamp", float),
         ("type", str),
+        ("product", str),
         ("ssl", bool),
         ("version", str),
     ]

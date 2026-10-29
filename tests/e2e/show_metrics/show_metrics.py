@@ -170,6 +170,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ApplyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CallProcedureOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CartesianOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ConditionalOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ConstructNamedPathOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CreateExpandOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CreateNodeOperator", "type": "Operator", "metric type": "Counter"},
@@ -417,7 +418,7 @@ def test_failed_prepare_incremented_on_prepare_error(connect):
     initial = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedPrepare")
     try:
         cursor.execute("BEGIN")
-        cursor.execute("CREATE USER test_user")
+        cursor.execute("CREATE INDEX ON :Label")
     except Exception:
         pass
     after = next(row[3] for row in execute_and_fetch_all(cursor, "SHOW METRICS INFO") if row[0] == "FailedPrepare")

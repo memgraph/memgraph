@@ -54,7 +54,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
     pin_due(tail.reached_timestamp + 1);
     {
       const storage::InMemoryStorage::SuppressWalScope suppress_wal{storage};
-      rpc::ProgressHeartbeat heartbeat{nullptr, std::chrono::hours{24}};
+      rpc::ProgressHeartbeat heartbeat;  // never started: nobody to send progress to
       const std::function<void(uint64_t)> on_txn_begin = pin_due;
       for (const auto &file : tail.wal_files) {
         const auto ldt_before = storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;

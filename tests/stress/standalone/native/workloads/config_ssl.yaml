@@ -19,6 +19,9 @@ general:
   verbose: false
   use_ssl: true
 
+# `cores` is read only by continuous_integration_parallel: the number of cores the
+# entry needs (its client concurrency). Entries without it are assumed to use every
+# core and run alone.
 dataset:
   tests:
     - name: bipartite.py
@@ -31,6 +34,7 @@ dataset:
         - "--worker-count=4"
         - "--repetition-count=100"
       timeout_min: 5
+      cores: 4
     - name: memory_tracker.py
       test_args:
         - "--worker-count=5"
@@ -38,6 +42,7 @@ dataset:
       memgraph_args:
         - "--memory-limit=2048"
       timeout_min: 5
+      cores: 5
     - name: memory_limit.py
       test_args:
         - "--worker-count=5"
@@ -45,6 +50,7 @@ dataset:
       memgraph_args:
         - "--memory-limit=2048"
       timeout_min: 5
+      cores: 5
     - name: create_match.py
       test_args:
         - "--vertex-count=40000"

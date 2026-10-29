@@ -149,7 +149,7 @@ bool HasMarker(const std::vector<std::string> &names) {
 
 std::string EdgeKey(DbAccessor &dba, const EdgeAccessor &e) { return dba.EdgeTypeToName(e.EdgeType()); }
 
-std::vector<std::string> EdgeKeys(DbAccessor &dba, const std::vector<EdgeAccessor> &edges) {
+std::vector<std::string> EdgeKeys(DbAccessor &dba, const auto &edges) {
   std::vector<std::string> keys;
   for (auto const &e : edges) keys.push_back(EdgeKey(dba, e));
   std::ranges::sort(keys);
@@ -260,7 +260,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnBranchIsBranchView) {
     auto d_out_raw = d->OutEdges(View::NEW);
     ASSERT_TRUE(d_out_raw.has_value());
     ASSERT_EQ(d_out_raw->edges.size(), 1U);
-    with_r4.InsertEdge(d_out_raw->edges.front());
+    with_r4.InsertEdge(d_out_raw->edges[0]);
 
     SubgraphVertexAccessor wd{*d, &with_r4}, we{*e, &with_r4}, nd{*d, &without_r4}, ne{*e, &without_r4};
     EXPECT_EQ(EdgeKeys(dba, wd.OutEdges(View::NEW)->edges), (std::vector<std::string>{"R4"}));
@@ -286,7 +286,7 @@ TEST_F(VersioningSubgraphTest, SubgraphAdjacencyOnMainUnchanged) {
     g.InsertVertex(v);
     auto out = v.OutEdges(View::NEW);
     ASSERT_TRUE(out.has_value());
-    if (!out->edges.empty()) g.InsertEdge(out->edges.front());
+    if (!out->edges.empty()) g.InsertEdge(out->edges[0]);
   }
   ASSERT_EQ(g.edges().size(), 1U);
   size_t out_total = 0;

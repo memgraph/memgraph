@@ -12,14 +12,17 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <iosfwd>
 #include <memory>
 #include <optional>
+#include <system_error>
 #include <thread>
 #include <vector>
 
 #include <fmt/format.h>
 
+#include "communication/accept_retry.hpp"
 #include "communication/init.hpp"
 #include "communication/listener.hpp"
 #include "io/network/fmt.hpp"
@@ -154,7 +157,8 @@ class Server final {
     // Accept a connection from a socket.
     auto s = socket_.Accept();
     if (!s) {
-      // Connection is not available anymore or configuration failed.
+      // Connection is not available anymore or configuration failed. errno is only meaningful on this path.
+      if (int const err = errno; IsTransientAcceptErrno(err)) BackOffAfterTransientError(err);
       return;
     }
     auto const endpoint = s->endpoint();
@@ -162,8 +166,20 @@ class Server final {
     listener_.AddConnection(std::move(*s));
   }
 
+  // Polls alive_ in slices instead of a condvar wake: Shutdown() must stay signal-handler safe.
+  void BackOffAfterTransientError(int err) {
+    accept_log_throttle_.Warn(service_name_, std::generic_category().message(err));
+    constexpr std::chrono::milliseconds slice{100};
+    static_assert(kAcceptRetryDelay % slice == std::chrono::milliseconds{0},
+                  "retry delay must be a whole number of sleep slices");
+    for (std::chrono::milliseconds slept{0}; slept < kAcceptRetryDelay && alive_; slept += slice) {
+      std::this_thread::sleep_for(slice);
+    }
+  }
+
   std::atomic<bool> alive_;
   std::thread thread_;
+  AcceptRetryLogThrottle accept_log_throttle_;
 
   Socket socket_;
   io::network::Endpoint endpoint_;

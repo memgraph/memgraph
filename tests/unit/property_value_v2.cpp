@@ -19,6 +19,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/small_vector.hpp"
 
@@ -740,6 +741,56 @@ TEST(PropertyValue, AListIsOrderedByEveryBitOfTheIntegersItHolds) {
   EXPECT_FALSE(boxed({huge}) == packed({1}));
 }
 
+TEST(PropertyValue, TwoIntegersReachingOneDoubleAreStillOrderedApart) {
+  // Above the point where the doubles stop being spaced one apart, an integer and its
+  // neighbour reach the same double. Ordering the pair through that double would place both
+  // integers where one of them belongs, so a sorted container could hand back the wrong entry
+  // for a key, and the order would not be total: the two are told apart from each other while
+  // each sits alongside the double.
+  auto const widest_exact = int64_t{1} << 53;
+  auto const lower = PropertyValue{widest_exact};
+  auto const higher = PropertyValue{widest_exact + 1};
+  auto const reached = PropertyValue{static_cast<double>(widest_exact)};
+
+  EXPECT_TRUE(std::is_eq(lower <=> reached));
+  EXPECT_TRUE(std::is_gt(higher <=> reached));
+  EXPECT_TRUE(std::is_lt(reached <=> higher));
+  EXPECT_TRUE(std::is_lt(lower <=> higher));
+}
+
+TEST(PropertyValue, AListIsOrderedByAnIntegerNoDoubleInItCanHold) {
+  // The same pair one level down, and across two representations: a boxed list holds the
+  // number at its full width, a packed one holds doubles. A packed integer list is narrower
+  // than this number, so the integer side has to be the boxed one.
+  auto const widest_exact = int64_t{1} << 53;
+  auto const boxed = [](int64_t number) { return PropertyValue{std::vector<PropertyValue>{PropertyValue{number}}}; };
+  auto const doubles = [](double number) {
+    return PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue{number}}};
+  };
+
+  auto const reached = doubles(static_cast<double>(widest_exact));
+  EXPECT_TRUE(std::is_eq(boxed(widest_exact) <=> reached));
+  EXPECT_TRUE(std::is_gt(boxed(widest_exact + 1) <=> reached));
+  EXPECT_TRUE(std::is_lt(reached <=> boxed(widest_exact + 1)));
+}
+
+TEST(PropertyValue, AnIntegerIsOrderedAgainstADoubleNoIntegerCanHold) {
+  // The placement settles the range before converting, since turning a double outside the
+  // integer range into one is undefined rather than merely inexact.
+  auto const widest = PropertyValue{std::numeric_limits<int64_t>::max()};
+  auto const narrowest = PropertyValue{std::numeric_limits<int64_t>::min()};
+
+  EXPECT_TRUE(std::is_lt(widest <=> PropertyValue{1e300}));
+  EXPECT_TRUE(std::is_gt(narrowest <=> PropertyValue{-1e300}));
+  EXPECT_TRUE(std::is_lt(widest <=> PropertyValue{std::numeric_limits<double>::infinity()}));
+  EXPECT_TRUE(std::is_gt(narrowest <=> PropertyValue{-std::numeric_limits<double>::infinity()}));
+
+  // A NaN stays last, whichever side of the pair holds it.
+  auto const nan = PropertyValue{std::numeric_limits<double>::quiet_NaN()};
+  EXPECT_TRUE(std::is_lt(widest <=> nan));
+  EXPECT_TRUE(std::is_gt(nan <=> widest));
+}
+
 TEST(PropertyValue, ANaNIsOrderedAfterEveryNumberAndAlongsideAnotherNaN) {
   // An ordered container needs an answer for every pair it is handed, and IEEE
   // gives none for a NaN. Left unordered, an entry is placed where no later
@@ -873,16 +924,16 @@ TEST(PropertyValue, Less) {
   auto map = PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
       PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}}),
+      PropertyValue(vec),
       PropertyValue{enum_val},
       PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      PropertyValue("nandare"),
+      PropertyValue(true),
+      PropertyValue(123),
+      PropertyValue(123.5),
+      PropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
@@ -903,16 +954,16 @@ TEST(PropertyValue, ExternalLess) {
   auto map = ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<ExternalPropertyValue> data{
-      ExternalPropertyValue(),
-      ExternalPropertyValue(true),
-      ExternalPropertyValue(123),
-      ExternalPropertyValue(123.5),
-      ExternalPropertyValue("nandare"),
-      ExternalPropertyValue(vec),
       ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}}),
+      ExternalPropertyValue(vec),
       ExternalPropertyValue{enum_val},
       ExternalPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       ExternalPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      ExternalPropertyValue("nandare"),
+      ExternalPropertyValue(true),
+      ExternalPropertyValue(123),
+      ExternalPropertyValue(123.5),
+      ExternalPropertyValue(),
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
@@ -995,6 +1046,31 @@ TEST(PMRPropertyValue, GivenNullAllocatorFailsIfTriesToAllocate) {
     EXPECT_THROW((sut = map_cpy), std::bad_alloc);
     EXPECT_THROW((sut = std::move(map_cpy)), std::bad_alloc);
   }
+}
+
+TEST(PMRPropertyValue, PlacesAListAgainstOneTheOtherAllocatorHolds) {
+  // The comparison is templated on both sides' allocators so that a value one
+  // holds can be placed against a value the other holds. A list is the shape
+  // whose comparison reads through both sides, so it is the one that says
+  // whether that signature is honest.
+  using pmr_t = memgraph::storage::pmr::PropertyValue;
+
+  auto const held_by_one = pmr_t{pmr_t::list_t{pmr_t{int64_t{1}}, pmr_t{int64_t{2}}}};
+  auto const held_by_the_other =
+      PropertyValue{std::vector<PropertyValue>{PropertyValue{int64_t{1}}, PropertyValue{int64_t{2}}}};
+
+  EXPECT_TRUE(std::is_eq(held_by_one <=> held_by_the_other));
+
+  auto const longer = PropertyValue{
+      std::vector<PropertyValue>{PropertyValue{int64_t{1}}, PropertyValue{int64_t{2}}, PropertyValue{int64_t{3}}}};
+  EXPECT_TRUE(std::is_lt(held_by_one <=> longer));
+
+  // An element that is no number is placed by where its type sits, which is the
+  // one path in the comparison that reads a whole value from each side rather
+  // than a number from each.
+  auto const holds_a_string = PropertyValue{std::vector<PropertyValue>{PropertyValue{int64_t{1}}, PropertyValue{"a"}}};
+  EXPECT_TRUE(std::is_gt(held_by_one <=> holds_a_string));
+  EXPECT_TRUE(std::is_lt(holds_a_string <=> held_by_one));
 }
 
 TEST(PMRPropertyValue, InteropWithPropertyValue) {
@@ -1200,6 +1276,35 @@ TEST(PropertyValue, PlaceAVectorCoordinateThatIsANaN) {
   EXPECT_TRUE(vector_of({1.0f, 2.0f, 3.0f}) < vector_of({1.0f, 2.5f, 3.0f}));
 }
 
+TEST(PropertyValue, HashesAListAlikeWhicheverFormHoldsIt) {
+  // A list of numbers is packed into one of three narrower forms, and the order
+  // compares all four as one value. A container keyed by the hash therefore has
+  // to reach one bucket for all of them, or a list stored one way is looked for
+  // where the other way filed it.
+  auto const hash = std::hash<PropertyValue>{};
+  auto const elements = std::vector<PropertyValue>{PropertyValue(2.5), PropertyValue(int64_t{1})};
+
+  auto const boxed = PropertyValue(elements);
+  auto const packed = PropertyValue(NumericListTag{}, elements);
+  ASSERT_TRUE(std::is_eq(boxed <=> packed));
+  EXPECT_EQ(hash(boxed), hash(packed));
+
+  auto const whole = std::vector<PropertyValue>{PropertyValue(int64_t{1}), PropertyValue(int64_t{2})};
+  EXPECT_EQ(hash(PropertyValue(whole)), hash(PropertyValue(IntListTag{}, whole)));
+  EXPECT_EQ(hash(PropertyValue(whole)), hash(PropertyValue(DoubleListTag{}, whole)));
+}
+
+TEST(PropertyValue, HashesAPointHoldingANaNAlikeWhateverBitsTheNaNCarries) {
+  // The order places two points holding a NaN alongside each other, and more
+  // than one arrangement of bits spells a NaN.
+  auto const hash = std::hash<PropertyValue>{};
+  auto const one = PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, std::nan(""), 1.0});
+  auto const other = PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, -std::nan(""), 1.0});
+
+  ASSERT_TRUE(std::is_eq(one <=> other));
+  EXPECT_EQ(hash(one), hash(other));
+}
+
 TEST(PropertyValue, EqualValuesHashAlike) {
   // A container keyed by the hash puts an entry in one bucket and looks for it
   // in another when two values compare equal and hash apart. The order holds two
@@ -1226,4 +1331,50 @@ TEST(PropertyValue, EqualValuesHashAlike) {
   // has not collapsed everything to one bucket.
   EXPECT_NE(hash(PropertyValue(1.0)), hash(PropertyValue(quiet)));
   EXPECT_NE(hash(PropertyValue(1.0)), hash(PropertyValue(2.0)));
+}
+
+TEST(PropertyValue, KeepsAnIntegerWiderThanThePackedFormOutOfAPackedList) {
+  // A packed list holds its integers narrower than a boxed list does. One that
+  // does not fit has to stay boxed, because narrowing it stores a different
+  // number from the one handed over and nothing later can tell that it did.
+  auto const too_wide = int64_t{std::numeric_limits<int>::max()} + 1;
+  auto const too_small = int64_t{std::numeric_limits<int>::min()} - 1;
+
+  EXPECT_FALSE(FitsAPackedList(too_wide));
+  EXPECT_FALSE(FitsAPackedList(too_small));
+  EXPECT_TRUE(FitsAPackedList(std::numeric_limits<int>::max()));
+  EXPECT_TRUE(FitsAPackedList(std::numeric_limits<int>::min()));
+
+  auto wide_list = PropertyValue::list_t{PropertyValue(too_wide)};
+  EXPECT_THROW(PropertyValue(IntListTag{}, wide_list), PropertyValueException);
+
+  auto mixed_list = PropertyValue::list_t{PropertyValue(too_wide), PropertyValue(1.5)};
+  EXPECT_THROW(PropertyValue(NumericListTag{}, mixed_list), PropertyValueException);
+
+  // The boxed list holds it at the width it was given.
+  auto const boxed = PropertyValue(std::vector<PropertyValue>{PropertyValue(too_wide)});
+  EXPECT_EQ(boxed.ValueList()[0].ValueInt(), too_wide);
+}
+
+TEST(PropertyValue, OrdersAListHeldEitherWayAlike) {
+  // A list of numbers is packed, and the same list with one element of another
+  // type is not, so one list arrives as either representation according to what
+  // is in it. A range whose bounds are written the two ways describes the pair
+  // of values it names, and an index entry stored one way is found by the other.
+  auto const boxed = [](std::vector<PropertyValue> elements) { return PropertyValue(std::move(elements)); };
+  auto const packed_ints = [](std::vector<int64_t> elements) {
+    auto list = PropertyValue::list_t{};
+    for (auto const element : elements) list.emplace_back(element);
+    return PropertyValue(IntListTag{}, std::move(list));
+  };
+
+  EXPECT_TRUE(AreComparable(boxed({PropertyValue(int64_t{1})}), packed_ints({1})));
+  EXPECT_EQ(boxed({PropertyValue(int64_t{1})}), packed_ints({1}));
+  EXPECT_TRUE(boxed({PropertyValue(int64_t{1})}) < packed_ints({2}));
+  EXPECT_TRUE(packed_ints({1}) < boxed({PropertyValue(int64_t{2})}));
+
+  // The empty list packs too, so the two ends of a range over lists can differ
+  // in representation without either naming anything unusual.
+  EXPECT_TRUE(AreComparable(packed_ints({}), boxed({PropertyValue(int64_t{1}), PropertyValue("a")})));
+  EXPECT_TRUE(packed_ints({}) < boxed({PropertyValue(int64_t{1}), PropertyValue("a")}));
 }

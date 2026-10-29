@@ -16,30 +16,47 @@
 
 namespace memgraph::glue {
 
+void QueryUserOrRole::RefreshPrincipal(const auth::Auth &auth) const {
+  if (dropped_) return;  // latched: a same-named user created later must not revive the session
+  if (user_) {
+    auto user = auth.GetUser(user_->username());
+    if (!user) {
+      dropped_ = true;
+      return;
+    }
+    user_ = std::move(*user);
+  }
+  if (roles_) {
+    std::unordered_set<auth::Role> updated_roles;
+    for (const auto &rolename : roles_->rolenames()) {
+      if (auto role = auth.GetRole(rolename)) updated_roles.insert(std::move(*role));
+    }
+    if (updated_roles.empty()) {
+      dropped_ = true;
+      return;
+    }
+    roles_ = auth::Roles(std::move(updated_roles));
+  }
+}
+
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                                    std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
-  auto locked_auth = auth_->Lock();
-  // Check policy and update if behind (and policy permits it)
-  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
-    if (user_) user_ = locked_auth->GetUser(user_->username());
-    if (roles_) {
-      // For backward compatibility, update the first role
-      auto rolenames = roles_->rolenames();
-      std::unordered_set<auth::Role> updated_roles;
-      for (const auto &rolename : rolenames) {
-        auto role = locked_auth->GetRole(rolename);
-        if (role) {
-          updated_roles.insert(*role);
-        }
-      }
-      roles_ = auth::Roles(std::move(updated_roles));
-    }
+  if (internal_system_user_) return true;
+  // The session-long policy only consults the cached principal; a dropped session only checks if auth is on.
+  if (!policy->DoUpdate()) {
+    if (dropped_) return !auth_->ReadLock()->AccessControlled();
+    if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
+    if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
+    return true;
   }
+  auto locked_auth = auth_->ReadLock();
+  if (!locked_auth->UpToDate(auth_epoch_)) RefreshPrincipal(*locked_auth);
+  if (dropped_) return !locked_auth->AccessControlled();  // auth off: same access as a fresh connection
 
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
-  return !policy->DoUpdate() || !locked_auth->AccessControlled();
+  return !locked_auth->AccessControlled();
 }
 
 std::shared_ptr<query::QueryUserOrRole> QueryUserOrRole::clone() const {
@@ -68,23 +85,10 @@ std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string
 #ifdef MG_ENTERPRISE
 bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
                                      std::optional<std::string_view> db_name) const {
-  auto locked_auth = auth_->Lock();
-  // Check policy and update if behind (and policy permits it)
-  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
-    if (user_) user_ = locked_auth->GetUser(user_->username());
-    if (roles_) {
-      // For backward compatibility, update the first role
-      auto rolenames = roles_->rolenames();
-      std::unordered_set<auth::Role> updated_roles;
-      for (const auto &rolename : rolenames) {
-        auto role = locked_auth->GetRole(rolename);
-        if (role) {
-          updated_roles.insert(*role);
-        }
-      }
-      roles_ = auth::Roles(std::move(updated_roles));
-    }
-  }
+  if (internal_system_user_) return false;
+  auto locked_auth = auth_->ReadLock();
+  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) RefreshPrincipal(*locked_auth);
+  if (dropped_) return false;
 
   auto user_to_impersonate = locked_auth->GetUser(target);
   if (!user_to_impersonate) {

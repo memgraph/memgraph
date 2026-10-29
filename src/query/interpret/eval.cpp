@@ -435,16 +435,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        if (!property_lookup_cache_.contains(symbol_pos)) {
-          property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
-        }
-
-        auto property_id = ctx_->properties[property_lookup.property_.ix];
-        if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
-        }
-        return TypedValue(ctx_->memory);
+        return CachedPropertyValue<RecordIdentity::Kind::Vertex>(expression_result_ptr->ValueVertex(), property_lookup);
       } else {
         return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
                 GetNameIdMapper(),
@@ -452,16 +443,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-        if (!property_lookup_cache_.contains(symbol_pos)) {
-          property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
-        }
-
-        auto property_id = ctx_->properties[property_lookup.property_.ix];
-        if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
-        }
-        return TypedValue(ctx_->memory);
+        return CachedPropertyValue<RecordIdentity::Kind::Edge>(expression_result_ptr->ValueEdge(), property_lookup);
       } else {
         return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
                 GetNameIdMapper(),
@@ -565,15 +547,5 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
           "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
   }
 }
-
-#ifdef MG_ENTERPRISE
-bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
-  return PropertyReadAllowed(auth_checker_, accessor, view_, prop);
-}
-
-bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
-  return PropertyReadAllowed(auth_checker_, accessor, prop);
-}
-#endif
 
 }  // namespace memgraph::query

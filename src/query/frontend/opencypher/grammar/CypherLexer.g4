@@ -50,6 +50,7 @@ LTE       : '<=' ;
 GTE       : '>=' ;
 NEQ1      : '<>' ;
 NEQ2      : '!=' ;
+EXCLAMATION : '!' ;
 SIM       : '=~' ;
 
 PLUS      : '+' ;

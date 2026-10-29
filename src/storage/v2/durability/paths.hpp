@@ -22,6 +22,8 @@ namespace memgraph::storage::durability {
 static constexpr std::string_view kSnapshotDirectory{"snapshots"};
 static constexpr std::string_view kWalDirectory{"wal"};
 static constexpr std::string_view kBackupDirectory{".backup"};
+// Temporary copies of the current WAL while they are shipped to a replica.
+static constexpr std::string_view kReplicationTmpDirectory{".replication_tmp"};
 static constexpr std::string_view kLockFile{".lock"};
 static constexpr std::string_view kReplicaDurabilityDirectory{"durability"};
 

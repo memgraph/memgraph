@@ -35,7 +35,7 @@ on:
           - both
       fips:
         type: boolean
-        description: "Build the FIPS 140-3 variant (Python-less package + prod-fips image). Requires build_docker_image 'none' or 'prod'."
+        description: "Build the FIPS 140-3 variant. Requires build_docker_image 'none' or 'prod'."
         default: false
       push_to_s3:
         type: boolean
@@ -96,7 +96,7 @@ on:
         default: none
       fips:
         type: boolean
-        description: "Build the FIPS 140-3 variant (Python-less package + prod-fips image). Requires build_docker_image 'none' or 'prod'."
+        description: "Build the FIPS 140-3 variant. Requires build_docker_image 'none' or 'prod'."
         default: false
       push_to_s3:
         type: boolean

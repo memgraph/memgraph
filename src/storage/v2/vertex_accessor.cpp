@@ -11,6 +11,7 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 #include <range/v3/all.hpp>
+#include <ranges>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -41,6 +42,11 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
+/// An expansion is read more than once, by a traversal that reaches the same vertex again, and it
+/// is asked how many edges it found without being walked to count them.
+static_assert(std::ranges::forward_range<ExpandedEdges>);
+static_assert(std::ranges::sized_range<ExpandedEdges>);
+
 namespace {
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
   throw TypeConstraintViolationException("IS TYPED {} violation on {}({})",
@@ -51,7 +57,11 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
 
 std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
                                                              const PropertyValue &value) {
+  // An older main sends [] as a tag with no vector; store it as the plain list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) return PropertyValue(std::vector<double>{});
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  // An empty list has no vector to index; keep it as a plain list so the vertex leaves the index.
+  if (value.ListSize() == 0) return std::nullopt;
   auto vector_index_ids = storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property);
   if (vector_index_ids.empty()) return std::nullopt;
   return PropertyValue(
@@ -357,6 +367,30 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
+Result<bool> VertexAccessor::HasAnyLabel(View view) const {
+  bool deleted = false;
+  bool has_any_label = false;
+  Delta const *delta = nullptr;
+  VertexReadLock read_lock{vertex_};
+  {
+    auto const guard = read_lock.AcquireLock();
+    deleted = vertex_->deleted();
+    has_any_label = !vertex_->labels.empty();
+    delta = vertex_->delta();
+  }
+
+  // A delta adds or removes one named label, so which labels survive it decides whether any does: there is
+  // no answer short of the set itself.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    auto labels = Labels(view);
+    if (!labels) return std::unexpected{labels.error()};
+    return !labels->empty();
+  }
+
+  if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  return has_any_label;
+}
+
 Result<VertexKey> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
@@ -592,7 +626,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
                             &id_old_new_change,
                             skip_duplicate_update,
                             &schema_acc]() {
-    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+    // Decoded old values: undo must restore the floats, which live only in the vector index.
+    id_old_new_change.emplace(vertex->properties.UpdateProperties(
+        properties,
+        IndexedPropertyDecoder<Vertex>{
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
     if (!id_old_new_change) {
       return;
     }
@@ -645,7 +683,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock(
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
-        properties.emplace(vertex->properties.Properties());
+        properties.emplace(vertex->properties.Properties(IndexedPropertyDecoder<Vertex>{
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
         if (!properties) {
           return;
         }
@@ -924,7 +963,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
     if (view == View::OLD && !edges_modified_in_tx) {
-      return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
+      // Counted before the move, because the move leaves nothing to count.
+      auto const expanded_count = static_cast<int64_t>(disk_edges.size());
+      return EdgesVertexAccessorResult{.edges = ExpandedEdges{std::move(disk_edges)}, .expanded_count = expanded_count};
     }
   }
 
@@ -957,7 +998,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resInEdges = cache.GetInEdges(view, vertex_, destination_vertex, edge_types); resInEdges)
-        return EdgesVertexAccessorResult{.edges = BuildResultInEdges(*resInEdges), .expanded_count = expanded_count};
+        return EdgesVertexAccessorResult{
+            .edges = ExpandedEdges{*resInEdges, vertex_, storage_, transaction_, EdgeDirection::IN},
+            .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -988,11 +1031,13 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     return std::unexpected{Error::DELETED_OBJECT};
 
   if (transaction_->IsDiskStorage()) [[unlikely]] {
-    return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(in_edges, disk_edges, view, "IN"),
+    return EdgesVertexAccessorResult{.edges = ExpandedEdges{BuildResultWithDisk(in_edges, disk_edges, view, "IN")},
                                      .expanded_count = expanded_count};
   }
 
-  return EdgesVertexAccessorResult{.edges = BuildResultInEdges(in_edges), .expanded_count = expanded_count};
+  return EdgesVertexAccessorResult{
+      .edges = ExpandedEdges{std::move(in_edges), vertex_, storage_, transaction_, EdgeDirection::IN},
+      .expanded_count = expanded_count};
 }
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
@@ -1013,7 +1058,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view, hops_limit);
 
     if (view == View::OLD && !edges_modified_in_tx) {
-      return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
+      // Counted before the move, because the move leaves nothing to count.
+      auto const expanded_count = static_cast<int64_t>(disk_edges.size());
+      return EdgesVertexAccessorResult{.edges = ExpandedEdges{std::move(disk_edges)}, .expanded_count = expanded_count};
     }
   }
 
@@ -1047,7 +1094,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
       if (auto resOutEdges = cache.GetOutEdges(view, vertex_, dst_vertex, edge_types); resOutEdges)
-        return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(*resOutEdges), .expanded_count = expanded_count};
+        return EdgesVertexAccessorResult{
+            .edges = ExpandedEdges{*resOutEdges, vertex_, storage_, transaction_, EdgeDirection::OUT},
+            .expanded_count = expanded_count};
     }
 
     auto const n_processed = ApplyDeltasForRead(
@@ -1075,11 +1124,13 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     return std::unexpected{Error::DELETED_OBJECT};
 
   if (transaction_->IsDiskStorage()) [[unlikely]] {
-    return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(out_edges, disk_edges, view, "OUT"),
+    return EdgesVertexAccessorResult{.edges = ExpandedEdges{BuildResultWithDisk(out_edges, disk_edges, view, "OUT")},
                                      .expanded_count = expanded_count};
   }
   /// InMemoryStorage
-  return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(out_edges), .expanded_count = expanded_count};
+  return EdgesVertexAccessorResult{
+      .edges = ExpandedEdges{std::move(out_edges), vertex_, storage_, transaction_, EdgeDirection::OUT},
+      .expanded_count = expanded_count};
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
@@ -1222,6 +1273,12 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
 
+  // Growing a doubling at a time reallocates and copies a high-degree list repeatedly, each new
+  // buffer being pages the kernel has to fault in. Reserving the whole edge list costs an
+  // over-allocation where the filter is selective and saves all of that where it is not, which is
+  // the case whenever a query names the only edge type its vertices have.
+  result_edges.reserve(edges.size());
+
   uint64_t expanded_count = 0;
   for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
@@ -1233,6 +1290,13 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
     if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type)) continue;
     result_edges.emplace_back(edge_type, vertex, edge);
   }
+
+  // The reservation is for the whole edge list, and this is the result rather than a working
+  // buffer, so a filter that kept few would leave room for the rest of them held for as long as
+  // the expansion. Shrinking declines where the room left over is small, so the case the
+  // reservation is for keeps it.
+  result_edges.shrink_to_fit();
+
   return static_cast<int64_t>(expanded_count);
 }
 }  // namespace memgraph::storage

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/slk.hpp"
+#include "wire_format/property_tag.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -89,60 +90,37 @@ void Load(storage::Gid *gid, slk::Reader *reader) {
 }
 
 void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::ExternalPropertyValue::Type>;
-  PVTypeUnderlyingType value{};
-  slk::Load(&value, reader);
-  bool valid;
-  switch (value) {
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Null):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Bool):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Int):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Double):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::String):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::List):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::IntList):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::DoubleList):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::NumericList):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Map):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::TemporalData):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::ZonedTemporalData):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Enum):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Point2d):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::Point3d):
-    case std::to_underlying(storage::ExternalPropertyValue::Type::VectorIndexId):
-      valid = true;
-      break;
-    default:
-      valid = false;
-      break;
+  auto number = std::underlying_type_t<wire_format::PropertyTag>{};
+  slk::Load(&number, reader);
+  if (!wire_format::IsATag(number)) {
+    throw slk::SlkDecodeException("Trying to load unknown storage::ExternalPropertyValue!");
   }
-  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::ExternalPropertyValue!");
-  *type = static_cast<storage::ExternalPropertyValue::Type>(value);
+  *type = wire_format::TypeOf(static_cast<wire_format::PropertyTag>(number));
 }
 
 void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
   switch (value.type()) {
     case storage::ExternalPropertyValue::Type::Null:
-      slk::Save(storage::ExternalPropertyValue::Type::Null, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Null), builder);
       return;
     case storage::ExternalPropertyValue::Type::Bool:
-      slk::Save(storage::ExternalPropertyValue::Type::Bool, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Bool), builder);
       slk::Save(value.ValueBool(), builder);
       return;
     case storage::ExternalPropertyValue::Type::Int:
-      slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Int), builder);
       slk::Save(value.ValueInt(), builder);
       return;
     case storage::ExternalPropertyValue::Type::Double:
-      slk::Save(storage::ExternalPropertyValue::Type::Double, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Double), builder);
       slk::Save(value.ValueDouble(), builder);
       return;
     case storage::ExternalPropertyValue::Type::String:
-      slk::Save(storage::ExternalPropertyValue::Type::String, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::String), builder);
       slk::Save(value.ValueString(), builder);
       return;
     case storage::ExternalPropertyValue::Type::List: {
-      slk::Save(storage::ExternalPropertyValue::Type::List, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::List), builder);
       const auto &values = value.ValueList();
       const auto size = values.size();
       slk::Save(size, builder);
@@ -152,7 +130,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       return;
     }
     case storage::ExternalPropertyValue::Type::IntList: {
-      slk::Save(storage::ExternalPropertyValue::Type::IntList, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::IntList), builder);
       const auto &values = value.ValueIntList();
       const auto size = values.size();
       slk::Save(size, builder);
@@ -162,7 +140,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       return;
     }
     case storage::ExternalPropertyValue::Type::DoubleList: {
-      slk::Save(storage::ExternalPropertyValue::Type::DoubleList, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::DoubleList), builder);
       const auto &values = value.ValueDoubleList();
       const auto size = values.size();
       slk::Save(size, builder);
@@ -172,23 +150,23 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       return;
     }
     case storage::ExternalPropertyValue::Type::NumericList: {
-      slk::Save(storage::ExternalPropertyValue::Type::NumericList, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::NumericList), builder);
       const auto &values = value.ValueNumericList();
       const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         if (std::holds_alternative<int>(v)) {
-          slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
+          slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Int), builder);
           slk::Save(std::get<int>(v), builder);
         } else {
-          slk::Save(storage::ExternalPropertyValue::Type::Double, builder);
+          slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Double), builder);
           slk::Save(std::get<double>(v), builder);
         }
       }
       return;
     }
     case storage::ExternalPropertyValue::Type::Map: {
-      slk::Save(storage::ExternalPropertyValue::Type::Map, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Map), builder);
       const auto &map = value.ValueMap();
       const auto size = map.size();
       slk::Save(size, builder);
@@ -198,43 +176,43 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       return;
     }
     case storage::ExternalPropertyValue::Type::TemporalData: {
-      slk::Save(storage::ExternalPropertyValue::Type::TemporalData, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::TemporalData), builder);
       const auto temporal_data = value.ValueTemporalData();
       slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
       return;
     }
     case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
-      slk::Save(storage::ExternalPropertyValue::Type::ZonedTemporalData, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::ZonedTemporalData), builder);
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       slk::Save(zoned_temporal_data.type, builder);
       slk::Save(zoned_temporal_data.IntMicroseconds(), builder);
       if (zoned_temporal_data.timezone.InTzDatabase()) {
-        slk::Save(storage::ExternalPropertyValue::Type::String, builder);
+        slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::String), builder);
         slk::Save(zoned_temporal_data.timezone.TimezoneName(), builder);
       } else {
-        slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
+        slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Int), builder);
         slk::Save(zoned_temporal_data.timezone.DefiningOffset(), builder);
       }
       return;
     }
     case storage::ExternalPropertyValue::Type::Enum: {
-      slk::Save(storage::ExternalPropertyValue::Type::Enum, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Enum), builder);
       slk::Save(value.ValueEnum(), builder);
       return;
     }
     case storage::ExternalPropertyValue::Type::Point2d: {
-      slk::Save(storage::ExternalPropertyValue::Type::Point2d, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Point2d), builder);
       slk::Save(value.ValuePoint2d(), builder);
       return;
     }
     case storage::ExternalPropertyValue::Type::Point3d: {
-      slk::Save(storage::ExternalPropertyValue::Type::Point3d, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::Point3d), builder);
       slk::Save(value.ValuePoint3d(), builder);
       return;
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
-      slk::Save(storage::ExternalPropertyValue::Type::VectorIndexId, builder);
+      slk::Save(wire_format::TagOf(storage::ExternalPropertyValue::Type::VectorIndexId), builder);
       slk::Save(value.ValueVectorIndexIds(), builder);
       slk::Save(value.ValueVectorIndexList(), builder);
       return;

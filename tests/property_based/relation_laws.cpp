@@ -63,6 +63,12 @@ constexpr std::int64_t kExactlyRepresentable = std::int64_t{1} << 53;
 /// Equivalence has to hold such a pair alike and the hash has to agree, which
 /// together are what lets a hash container find a key stored by one route when
 /// it is looked up by the other.
+/// The same NaN, spelled with other bits.
+///
+/// Equivalence holds every NaN alike, so respelling one is how a law reaches a
+/// pair that is one value built two ways.
+double ANaNSpeltOtherwise(double held) { return std::isnan(held) ? -std::numeric_limits<double>::quiet_NaN() : held; }
+
 TypedValue BuiltAnotherWay(TypedValue const &value) {
   switch (value.type()) {
     case TypedValue::Type::Double: {
@@ -83,10 +89,13 @@ TypedValue BuiltAnotherWay(TypedValue const &value) {
     }
     case TypedValue::Type::Point2d: {
       auto const point = value.ValuePoint2d();
-      auto const respelled = [](double coordinate) {
-        return std::isnan(coordinate) ? -std::numeric_limits<double>::quiet_NaN() : coordinate;
-      };
-      return TypedValue(memgraph::storage::Point2d{point.crs(), respelled(point.x()), respelled(point.y())});
+      return TypedValue(
+          memgraph::storage::Point2d{point.crs(), ANaNSpeltOtherwise(point.x()), ANaNSpeltOtherwise(point.y())});
+    }
+    case TypedValue::Type::Point3d: {
+      auto const point = value.ValuePoint3d();
+      return TypedValue(memgraph::storage::Point3d{
+          point.crs(), ANaNSpeltOtherwise(point.x()), ANaNSpeltOtherwise(point.y()), ANaNSpeltOtherwise(point.z())});
     }
     case TypedValue::Type::List: {
       auto rebuilt = std::vector<TypedValue>{};
@@ -117,10 +126,10 @@ bool SharesAPosition(TypedValue const &a, TypedValue const &b) { return !Before(
 
 /// The types orderability places without any chance of refusing a pair.
 ///
-/// The two containers are left out. A map it refuses outright, and a list is
-/// ordered by its elements, so a pair of lists can still reach a pair of
-/// elements it refuses; each has properties of its own rather than a place in a
-/// law that may not throw.
+/// The two containers are left out, because a pair of either may be refused: a
+/// pair of maps outright, and a pair of lists once it reaches a pair of elements
+/// that is. Each has properties of its own rather than a place in a law that may
+/// not throw.
 std::vector<TypedValue::Type> PlaceableScalarTypes() {
   auto types = generators::GraphFreeTypes();
   std::erase_if(types, [](auto type) { return type == TypedValue::Type::List || type == TypedValue::Type::Map; });
@@ -245,6 +254,105 @@ TEST(RelationLaws, ReachesTheAntecedentsTheConditionalLawsRestOn) {
   // values are carrying a law stated over all of them.
   EXPECT_GT(by_type_ordered.size(), 1U) << "only one type ever puts three values in order";
   EXPECT_GT(by_type_shared.size(), 1U) << "only one type ever shares a position three ways";
+}
+
+TEST(RelationLaws, ReachesTheAntecedentOverTriplesOfUnlikeTypes) {
+  // The same measurement for the law asked with each type drawn on its own. A
+  // chain of three there turns on where the types sit rather than on the values,
+  // so a run meeting it rarely would leave the seating unchecked.
+  constexpr auto kTriples = 20'000;
+  constexpr auto kLeastShare = 0.02;
+
+  auto const types = PlaceableScalarTypes();
+  auto ordered_chains = 0;
+
+  for (auto draw = 0; draw < kTriples; ++draw) {
+    auto const at = [&](int offset) {
+      // The type is drawn the way the property draws it rather than stepped
+      // through by hand, so that what is measured is what is asked.
+      auto const seed = static_cast<std::uint64_t>(draw) * 3 + static_cast<std::uint64_t>(offset);
+      auto const type = rc::gen::elementOf(types)(rc::Random(seed), rc::kNominalSize).value();
+      return generators::TypedValueOfType(type, 0)(rc::Random(seed), rc::kNominalSize).value();
+    };
+    auto const a = at(0);
+    auto const b = at(1);
+    auto const c = at(2);
+
+    if (Before(a, b) && Before(b, c)) ++ordered_chains;
+  }
+
+  auto const ordered_share = static_cast<double>(ordered_chains) / kTriples;
+  EXPECT_GT(ordered_share, kLeastShare) << "the transitivity law over unlike types is asked on " << ordered_share * 100
+                                        << "% of draws, which is too few to establish it";
+}
+
+RC_GTEST_PROP(Orderability, KeepsBothLawsOverValuesOfUnlikeTypes, ()) {
+  // Every law above, asked again with each value's type drawn on its own. The
+  // laws before this one fix one type and draw three values of it, so none of
+  // them reads where the types sit relative to each other, which is the half of
+  // the order a column holding more than one type is sorted by.
+  //
+  // Sharing a position is the exception and stays with the numbers property: two
+  // unlike types share one only where they are Int and Double, which three
+  // independent draws reach in well under one case in a hundred.
+  auto const types = PlaceableScalarTypes();
+  auto const value = [&types] {
+    return rc::gen::mapcat(rc::gen::elementOf(types), [](auto type) { return generators::TypedValueOfType(type, 0); });
+  };
+  auto const a = *value();
+  auto const b = *value();
+  auto const c = *value();
+
+  RC_ASSERT(!Before(a, a));
+  if (Before(a, b)) RC_ASSERT(!Before(b, a));
+  if (Before(a, b) && Before(b, c)) RC_ASSERT(Before(a, c));
+}
+
+RC_GTEST_PROP(Orderability, PutsAnIntegerAndADoubleOnOneSideOfEveryOtherValue, ()) {
+  // The law the seating has to obey whatever order the types are put in: an
+  // integer and a double holding the same number are equal, so a third value
+  // cannot fall between them. One that did would sort a column into an order a
+  // comparison over the same column contradicts.
+  //
+  // Asked here rather than left to the property above, where it would be asked
+  // almost never. Breaking it costs transitivity only on a triple drawn as a
+  // double, then a value seated between the two numeric types, then an integer,
+  // which three free draws reach about once in two thousand. The pair is built
+  // equal for the same reason: two free draws are almost never the same number.
+  auto const whole = *rc::gen::inRange<int64_t>(-1'000, 1'000);
+  auto const as_integer = TypedValue(whole);
+  auto const as_double = TypedValue(static_cast<double>(whole));
+
+  auto const types = PlaceableScalarTypes();
+  auto const third =
+      *rc::gen::mapcat(rc::gen::elementOf(types), [](auto type) { return generators::TypedValueOfType(type, 0); });
+
+  RC_ASSERT(Before(as_integer, third) == Before(as_double, third));
+  RC_ASSERT(Before(third, as_integer) == Before(third, as_double));
+}
+
+RC_GTEST_PROP(Orderability, TellsApartTwoIntegersThatReachOneDouble, ()) {
+  // Above the point where the doubles stop being spaced one apart, an integer and its
+  // neighbour reach the same double. Both relations have to keep the two apart and place
+  // each against that double, or a value equality holds equal to one of them is held equal
+  // to the other, and sharing a position stops being transitive.
+  //
+  // Drawn at the boundary on purpose. A value drawn freely is almost never large enough, so
+  // this law asked over the broad generator would be asked about nothing at all.
+  auto const step = *rc::gen::inRange<int64_t>(0, 1 << 20);
+  auto const whole = kExactlyRepresentable + step * 2;  // even, so still exactly a double
+  auto const lower = TypedValue(whole);
+  auto const higher = TypedValue(whole + 1);  // odd, so no double carries it
+  auto const reached = TypedValue(static_cast<double>(whole));
+
+  RC_ASSERT(std::is_eq(orderability::Compare(lower, reached)));
+  RC_ASSERT(std::is_gt(orderability::Compare(higher, reached)));
+  RC_ASSERT(std::is_lt(orderability::Compare(reached, higher)));
+  RC_ASSERT(std::is_lt(orderability::Compare(lower, higher)));
+
+  // Equality answers the same pair, and has to answer it the same way.
+  RC_ASSERT(equality::Equal(lower, reached).ValueBool());
+  RC_ASSERT(!equality::Equal(higher, reached).ValueBool());
 }
 
 RC_GTEST_PROP(Orderability, AgreesWithComparabilityWhereverComparabilityAnswers, ()) {

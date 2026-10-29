@@ -39,6 +39,7 @@ namespace {
 constexpr auto kFirstShotAfter = std::chrono::seconds{60};
 constexpr auto kEventStartup = "startup";
 constexpr auto kEventShutdown = "shutdown";
+constexpr auto kProduct = "memgraph-db";
 }  // namespace
 
 namespace memgraph::telemetry {
@@ -112,6 +113,7 @@ Telemetry::~Telemetry() noexcept {
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
   nlohmann::json payload = {{"run_id", uuid_},
                             {"type", "telemetry"},
+                            {"product", kProduct},
                             {"machine_id", machine_id_},
                             {"event", event},
                             {"data", data},
@@ -212,8 +214,11 @@ void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::a
                                     memgraph::parameters::Parameters const &parameters) {
   AddCollector("storage", [&dbms_handler, &auth, &parameters]() -> nlohmann::json {
     auto stats = dbms_handler.Stats();
-    stats.users = auth->AllUsers().size();
-    stats.roles = auth->AllRoles().size();
+    {
+      auto const locked_auth = auth.ReadLock();
+      stats.users = locked_auth->AllUsernames().size();
+      stats.roles = locked_auth->AllRolenames().size();
+    }
     stats.num_parameters = parameters.CountParameters();
     return ToJson(stats);
   });

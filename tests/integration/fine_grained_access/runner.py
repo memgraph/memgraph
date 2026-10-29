@@ -102,18 +102,21 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     def setup_user():
         execute_admin_queries(
             [
-                "CREATE USER admin IDENTIFIED BY 'admin'",
-                "GRANT ALL PRIVILEGES TO admin",
-                "CREATE USER user IDENTIFIED BY 'user'",
-                "GRANT ALL PRIVILEGES TO user",
-                "GRANT LABELS :label1, :label2, :label3 TO user",
-                "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user",
+                "CREATE USER IF NOT EXISTS admin IDENTIFIED BY 'admin'",
+                "GRANT ALL PRIVILEGES TO USER admin",
+                "CREATE USER IF NOT EXISTS user IDENTIFIED BY 'user'",
+                "GRANT ALL PRIVILEGES TO USER user",
+                "GRANT DATABASE * TO user",
+                "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3 TO user",
+                "GRANT READ ON EDGES OF TYPE :edgeType1, READ ON EDGES OF TYPE :edgeType2 TO user",
             ]
         )
 
-    def db_setup():
+    def db_setup(db):
+        # Each tester call is its own session, so the database must be selected in the same batch.
         execute_admin_queries(
             [
+                f"USE DATABASE {db}",
                 "MERGE (l1:label1 {name: 'test1'})",
                 "MERGE (l2:label2  {name: 'test2'})",
                 "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2)",
@@ -124,22 +127,26 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
             ]
         )
 
-    db_setup()  # default db setup
-    execute_admin_queries(["CREATE DATABASE db1", "USE DATABASE db1"])
-    db_setup()  # db1 setup
+    db_setup("memgraph")
+    execute_admin_queries(["CREATE DATABASE db1"])
+    db_setup("db1")
 
     print("\033[1;36m~~ Starting edge filtering test ~~\033[0m")
     for db in ["memgraph", "db1"]:
         setup_user()
         # Run the test with all combinations of permissions
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 3, "user", "user", db)
-        execute_admin_queries(["DENY EDGE_TYPES :edgeType1 TO user"])
+        execute_admin_queries(["DENY * ON EDGES OF TYPE :edgeType1 TO user"])
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 2, "user", "user", db)
-        execute_admin_queries(["GRANT EDGE_TYPES :edgeType1 TO user", "DENY LABELS :label3 TO user"])
+        execute_admin_queries(
+            ["GRANT READ ON EDGES OF TYPE :edgeType1 TO user", "DENY * ON NODES CONTAINING LABELS :label3 TO user"]
+        )
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 1, "user", "user", db)
-        execute_admin_queries(["DENY LABELS :label1 TO user"])
+        execute_admin_queries(["DENY * ON NODES CONTAINING LABELS :label1 TO user"])
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user", db)
-        execute_admin_queries(["REVOKE LABELS * FROM user", "REVOKE EDGE_TYPES * FROM user"])
+        execute_admin_queries(
+            ["REVOKE * ON NODES CONTAINING LABELS * FROM user", "REVOKE * ON EDGES OF TYPE * FROM user"]
+        )
         execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user", db)
 
     print("\033[1;36m~~ Finished edge filtering test ~~\033[0m\n")
@@ -155,8 +162,8 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
 
 if __name__ == "__main__":
     memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
-    tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "lba", "tester")
-    filtering_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "lba", "filtering")
+    tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "fine_grained_access", "tester")
+    filtering_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "fine_grained_access", "filtering")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

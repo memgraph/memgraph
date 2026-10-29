@@ -12,7 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <climits>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -198,6 +201,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Conditional &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
   PRE_VISIT(CallProcedure);
 
   bool PreVisit(RollUpApply &op) override {
@@ -260,6 +269,54 @@ using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
+
+/// `ExpectScanAll` accepts any derived scan, `ScanAllByLabel` included, so it cannot tell a full scan
+/// from an index scan. Use this where the point of the test is that no index was used.
+class ExpectScanAllAndNoIndex : public OpChecker<ScanAll> {
+ public:
+  void ExpectOp(ScanAll &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.GetTypeInfo().name, std::string_view{ScanAll::kType.name})
+        << "expected a plain ScanAll, got '" << scan_all.GetTypeInfo().name << "'";
+  }
+};
+
+/// `ExpectFilter` checks none of what a filter tests. This checks its OR label groups, each as a set of
+/// label names, for tests about which groups survive planning.
+class ExpectFilterOrLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterOrLabels(std::vector<std::set<std::string>> groups) : groups_(std::move(groups)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::vector<std::set<std::string>> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &group : filter_info.or_labels) {
+        auto &names = actual.emplace_back();
+        for (const auto &label : group) names.insert(label.name);
+      }
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(groups_));
+  }
+
+ private:
+  std::vector<std::set<std::string>> groups_;
+};
+
+/// Checks the labels a filter demands of every row, as a set of label names.
+class ExpectFilterLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterLabels(std::set<std::string> labels) : labels_(std::move(labels)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::set<std::string> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &label : filter_info.labels) actual.insert(label.name);
+    }
+    EXPECT_EQ(actual, labels_);
+  }
+
+ private:
+  std::set<std::string> labels_;
+};
 
 class ExpectScanAllByEdgeId : public OpChecker<ScanAllByEdgeId> {
  public:
@@ -484,6 +541,23 @@ class ExpectUnion : public OpChecker<Union> {
  private:
   std::list<BaseOpChecker *> left_;
   std::list<BaseOpChecker *> right_;
+};
+
+/// One checker list per branch, in source order; predicates' pattern filters are not checked.
+class ExpectConditional : public OpChecker<Conditional> {
+ public:
+  explicit ExpectConditional(std::vector<std::list<BaseOpChecker *>> branches) : branches_(std::move(branches)) {}
+
+  void ExpectOp(Conditional &op, const SymbolTable &symbol_table) override {
+    ASSERT_EQ(op.branches_.size(), branches_.size());
+    for (size_t i = 0; i < branches_.size(); ++i) {
+      PlanChecker check_branch(branches_[i], symbol_table);
+      op.branches_[i].plan->Accept(check_branch);
+    }
+  }
+
+ private:
+  std::vector<std::list<BaseOpChecker *>> branches_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
@@ -1200,5 +1274,40 @@ class FakeDbAccessor {
   std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
   std::unordered_map<memgraph::storage::PropertyId, int64_t> vertex_property_index_;
 };
+
+/// Every operator type in the plan, through every branch, fold and subquery.
+inline std::vector<std::string> OpNames(LogicalOperator *root) {
+  std::vector<std::string> names;
+  std::vector<LogicalOperator *> stack{root};
+  while (!stack.empty()) {
+    auto *op = stack.back();
+    stack.pop_back();
+    if (!op) continue;
+    names.emplace_back(op->GetTypeInfo().name);
+    if (auto *conditional = dynamic_cast<Conditional *>(op)) {
+      for (const auto &branch : conditional->branches_) {
+        for (const auto &fold : branch.pattern_filters) stack.push_back(fold.get());
+        stack.push_back(branch.plan.get());
+      }
+    } else if (auto *apply = dynamic_cast<Apply *>(op)) {
+      stack.push_back(apply->subquery_.get());
+    } else if (auto *filter = dynamic_cast<Filter *>(op)) {
+      for (const auto &fold : filter->pattern_filters_) stack.push_back(fold.get());
+    } else if (auto *union_op = dynamic_cast<Union *>(op)) {
+      stack.push_back(union_op->left_op_.get());
+      stack.push_back(union_op->right_op_.get());
+    } else if (auto *rollup = dynamic_cast<RollUpApply *>(op)) {
+      stack.push_back(rollup->list_collection_branch_.get());
+    } else if (auto *join = dynamic_cast<HashJoin *>(op)) {
+      stack.push_back(join->left_op_.get());
+      stack.push_back(join->right_op_.get());
+    } else if (auto *cartesian = dynamic_cast<Cartesian *>(op)) {
+      stack.push_back(cartesian->left_op_.get());
+      stack.push_back(cartesian->right_op_.get());
+    }
+    if (op->HasSingleInput()) stack.push_back(op->input().get());
+  }
+  return names;
+}
 
 }  // namespace memgraph::query::plan

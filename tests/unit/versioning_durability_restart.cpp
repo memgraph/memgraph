@@ -116,7 +116,7 @@ bool HasEdge(ms::Storage::Accessor &acc, ms::Gid from, ms::Gid edge) {
   if (!v) return false;
   auto out = v->OutEdges(ms::View::OLD);
   if (!out) return false;
-  for (auto &e : out->edges) {
+  for (auto e : out->edges) {
     if (e.Gid() == edge) return true;
   }
   return false;

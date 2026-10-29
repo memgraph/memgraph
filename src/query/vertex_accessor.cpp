@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "query/edge_accessor.hpp"
@@ -27,6 +29,9 @@
 #include "versioning/main_constraints.hpp"
 
 namespace memgraph::query {
+
+static_assert(std::ranges::forward_range<ExpandedEdges>);
+static_assert(std::ranges::sized_range<ExpandedEdges>);
 
 namespace {
 
@@ -140,6 +145,12 @@ std::optional<storage::Error> CheckTypesOnAddLabel(versioning::BranchContext &ct
   return std::nullopt;
 }
 
+/// The same expansion as the accessors this layer deals in. The edges move across whole, so this
+/// changes their type and not what was found.
+auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(result.edges)}, .expanded_count = result.expanded_count};
+}
+
 }  // namespace
 
 bool VertexAccessor::IsDeleted() const {
@@ -166,6 +177,15 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
     return MergedHasLabel(*branch_ctx_, impl_, view, label);
   }
   return impl_.HasLabel(label, view);
+}
+
+storage::Result<bool> VertexAccessor::HasAnyLabel(storage::View view) const {
+  if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) && branch_ctx_->MayHaveLabelChange(impl_.Gid())) {
+    auto labels = MergedLabels(*branch_ctx_, impl_, view);
+    if (!labels) return std::unexpected{labels.error()};
+    return !labels->empty();
+  }
+  return impl_.HasAnyLabel(view);
 }
 
 auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
@@ -296,210 +316,93 @@ void VertexAccessor::RecordPropertyFieldChanges(
   }
 }
 
-// ResolveEdges is unfiltered, so hops are charged before the edge_types filter.
-storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
-                                                                  const std::vector<storage::EdgeTypeId> &edge_types,
-                                                                  storage::HopsLimit *hops_limit) const {
-  if (branch_ctx_ != nullptr) {
-    // Deleting an edge or vertex flags the edge bit (DeleteForkEdge/OverlayMarkDeleted), sending it to ResolveEdges.
-    // A neighbour of a deleted vertex is not flagged; the fast path filters its edges via IsForkVertexDeleted.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
-        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
-      auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
-      if (!maybe_result) return std::unexpected{maybe_result.error()};
+// A fork vertex whose edges the branch left alone reads straight from main@fork_ts; deleting an edge or vertex flags
+// the edge bit (DeleteForkEdge/OverlayMarkDeleted), sending it to ResolveEdges. A neighbour of a deleted vertex is not
+// flagged; the fast path filters its edges via IsForkVertexDeleted.
+bool VertexAccessor::BranchEdgesUnchanged() const {
+  return impl_.storage_ != &branch_ctx_->diff_engine() &&
+         (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()));
+}
 
-      std::vector<EdgeAccessor> edges;
-      edges.reserve((*maybe_result).edges.size());
-      for (auto const &edge : (*maybe_result).edges) {
-        if (branch_ctx_->IsForkVertexDeleted(edge.FromVertex(), view)) continue;
-        edges.emplace_back(edge, branch_ctx_);
-      }
-
-      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
-    }
-
-    bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, &vertex_deleted);
-    if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-    std::vector<EdgeAccessor> edges;
-    int64_t expanded_count = 0;
-    for (auto const &edge : resolved) {
-      if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;
-      }
-      ++expanded_count;
-      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
-      edges.emplace_back(edge, branch_ctx_);
-    }
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
-  }
-
-  auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
+// ResolveEdges is unfiltered, so hops are charged before the edge_types (and dest) filters. Destination filter is
+// client-side by gid. Never pass `dest` to impl_.{In,Out}Edges: a COW'd dest.impl_ is in another transaction
+// (storage DMG_ASSERT).
+storage::Result<ExpandedEdgesResult> VertexAccessor::BranchEdges(storage::EdgeDirection direction, storage::View view,
+                                                                 const std::vector<storage::EdgeTypeId> &edge_types,
+                                                                 const VertexAccessor *dest,
+                                                                 storage::HopsLimit *hops_limit) const {
+  auto const dest_gid = dest != nullptr ? dest->Gid() : storage::kInvalidGid;
+  auto const far_end = [direction](auto const &edge) {
+    return direction == storage::EdgeDirection::IN ? edge.FromVertex() : edge.ToVertex();
+  };
 
   std::vector<EdgeAccessor> edges;
-  edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
+  if (BranchEdgesUnchanged()) {
+    auto maybe_result = direction == storage::EdgeDirection::IN
+                            ? impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit)
+                            : impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
+    if (!maybe_result) return std::unexpected{maybe_result.error()};
 
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
-}
-
-// Destination filter is client-side by gid; hops are charged before the dest/type filters.
-storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
-                                                                  const std::vector<storage::EdgeTypeId> &edge_types,
-                                                                  const VertexAccessor &dest,
-                                                                  storage::HopsLimit *hops_limit) const {
-  if (branch_ctx_ != nullptr) {
-    // Never pass `dest` to impl_.InEdges: a COW'd dest.impl_ is in another transaction (storage DMG_ASSERT).
-    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
-        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
-      auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
-      if (!maybe_result) return std::unexpected{maybe_result.error()};
-
-      auto const dest_gid = dest.Gid();
-      std::vector<EdgeAccessor> edges;
-      edges.reserve((*maybe_result).edges.size());
-      for (auto const &edge : (*maybe_result).edges) {
-        if (edge.FromVertex().Gid() != dest_gid) continue;
-        if (branch_ctx_->IsForkVertexDeleted(edge.FromVertex(), view)) continue;
-        edges.emplace_back(edge, branch_ctx_);
-      }
-      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
-    }
-
-    bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, &vertex_deleted);
-    if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-    auto const dest_gid = dest.Gid();
-    std::vector<EdgeAccessor> edges;
-    int64_t expanded_count = 0;
-    for (auto const &edge : resolved) {
-      if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;
-      }
-      ++expanded_count;
-      if (edge.FromVertex().Gid() != dest_gid) continue;
-      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
+    edges.reserve((*maybe_result).edges.size());
+    for (auto const &edge : (*maybe_result).edges) {
+      auto const other = far_end(edge);
+      if (dest != nullptr && other.Gid() != dest_gid) continue;
+      if (branch_ctx_->IsForkVertexDeleted(other, view)) continue;
       edges.emplace_back(edge, branch_ctx_);
     }
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
+    return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(edges)},
+                               .expanded_count = (*maybe_result).expanded_count};
   }
 
-  auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-
-  std::vector<EdgeAccessor> edges;
-  edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
-}
-
-storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view) const {
-  return InEdges(view, {});
-}
-
-storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
-                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
-                                                                   storage::HopsLimit *hops_limit) const {
-  if (branch_ctx_ != nullptr) {
-    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
-        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
-      auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
-      if (!maybe_result) return std::unexpected{maybe_result.error()};
-
-      std::vector<EdgeAccessor> edges;
-      edges.reserve((*maybe_result).edges.size());
-      for (auto const &edge : (*maybe_result).edges) {
-        if (branch_ctx_->IsForkVertexDeleted(edge.ToVertex(), view)) continue;
-        edges.emplace_back(edge, branch_ctx_);
-      }
-
-      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
+  bool vertex_deleted = false;
+  auto resolved = branch_ctx_->ResolveEdges(Gid(), direction, view, &vertex_deleted);
+  if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
+  int64_t expanded_count = 0;
+  for (auto const &edge : resolved) {
+    if (hops_limit != nullptr && hops_limit->IsUsed()) {
+      if (hops_limit->IncrementHopsCount() == 0) break;
     }
-
-    bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, &vertex_deleted);
-    if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-    std::vector<EdgeAccessor> edges;
-    int64_t expanded_count = 0;
-    for (auto const &edge : resolved) {
-      if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;
-      }
-      ++expanded_count;
-      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
-      edges.emplace_back(edge, branch_ctx_);
-    }
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
+    ++expanded_count;
+    if (dest != nullptr && far_end(edge).Gid() != dest_gid) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
+    edges.emplace_back(edge, branch_ctx_);
   }
-
-  auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-
-  std::vector<EdgeAccessor> edges;
-  edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(edges)}, .expanded_count = expanded_count};
 }
 
-storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
-                                                                   std::vector<storage::EdgeTypeId> const &edge_types,
-                                                                   VertexAccessor const &dest,
-                                                                   storage::HopsLimit *hops_limit) const {
-  if (branch_ctx_ != nullptr) {
-    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
-        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
-      auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
-      if (!maybe_result) return std::unexpected{maybe_result.error()};
+storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view) const { return InEdges(view, {}); }
 
-      auto const dest_gid = dest.Gid();
-      std::vector<EdgeAccessor> edges;
-      edges.reserve((*maybe_result).edges.size());
-      for (auto const &edge : (*maybe_result).edges) {
-        if (edge.ToVertex().Gid() != dest_gid) continue;
-        if (branch_ctx_->IsForkVertexDeleted(edge.ToVertex(), view)) continue;
-        edges.emplace_back(edge, branch_ctx_);
-      }
-      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
-    }
-
-    bool vertex_deleted = false;
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, &vertex_deleted);
-    if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
-    auto const dest_gid = dest.Gid();
-    std::vector<EdgeAccessor> edges;
-    int64_t expanded_count = 0;
-    for (auto const &edge : resolved) {
-      if (hops_limit != nullptr && hops_limit->IsUsed()) {
-        if (hops_limit->IncrementHopsCount() == 0) break;
-      }
-      ++expanded_count;
-      if (edge.ToVertex().Gid() != dest_gid) continue;
-      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
-      edges.emplace_back(edge, branch_ctx_);
-    }
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
-  }
-
-  auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
-  if (!maybe_result) return std::unexpected{maybe_result.error()};
-
-  std::vector<EdgeAccessor> edges;
-  edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform(
-      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
+storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view,
+                                                             const std::vector<storage::EdgeTypeId> &edge_types,
+                                                             storage::HopsLimit *hops_limit) const {
+  if (branch_ctx_ != nullptr) return BranchEdges(storage::EdgeDirection::IN, view, edge_types, nullptr, hops_limit);
+  return impl_.InEdges(view, edge_types, nullptr, hops_limit).transform(AsQueryResult);
 }
 
-storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view) const {
-  return OutEdges(view, {});
+storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view,
+                                                             const std::vector<storage::EdgeTypeId> &edge_types,
+                                                             const VertexAccessor &dest,
+                                                             storage::HopsLimit *hops_limit) const {
+  if (branch_ctx_ != nullptr) return BranchEdges(storage::EdgeDirection::IN, view, edge_types, &dest, hops_limit);
+  return impl_.InEdges(view, edge_types, &dest.impl_, hops_limit).transform(AsQueryResult);
 }
+
+storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view,
+                                                              const std::vector<storage::EdgeTypeId> &edge_types,
+                                                              storage::HopsLimit *hops_limit) const {
+  if (branch_ctx_ != nullptr) return BranchEdges(storage::EdgeDirection::OUT, view, edge_types, nullptr, hops_limit);
+  return impl_.OutEdges(view, edge_types, nullptr, hops_limit).transform(AsQueryResult);
+}
+
+storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view,
+                                                              const std::vector<storage::EdgeTypeId> &edge_types,
+                                                              const VertexAccessor &dest,
+                                                              storage::HopsLimit *hops_limit) const {
+  if (branch_ctx_ != nullptr) return BranchEdges(storage::EdgeDirection::OUT, view, edge_types, &dest, hops_limit);
+  return impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit).transform(AsQueryResult);
+}
+
+storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view) const { return OutEdges(view, {}); }
 
 storage::Result<size_t> VertexAccessor::InDegree(storage::View view) const {
   if (branch_ctx_ != nullptr) {

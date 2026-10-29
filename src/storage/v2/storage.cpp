@@ -101,10 +101,12 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {
-        // Default safe factory - returns a dummy protector used for test usage
-        // This ensures async operations never get nullptr in test environments
+        // Default safe factory for a storage built without one (storage-level tests): a dummy protector
+        // that is never null and never sealed. A dbms::Database never reaches this default: it always passes
+        // its own factory, which returns nullptr until the Database is bound to a Gatekeeper.
         struct DefaultDatabaseProtector : DatabaseProtector {
           auto clone() const -> DatabaseProtectorPtr override { return std::make_unique<DefaultDatabaseProtector>(); }
+          bool sealed() const override { return false; }
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
@@ -581,12 +583,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
           return !set_for_erasure.contains(edge_gid);
         });
 
-    // Process edges one-by-one to ensure MVCC checks happen with locks held.
-    // Deltas are created per edge, but erasing edges from the vector happens at
-    // the end. If OOM occurs, some edges may have deltas created but remain in
-    // the vector.
-    for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
-      auto const &[edge_type, opposing_vertex, edge_ref] = *it;
+    // Process edges one-by-one to ensure MVCC checks happen with locks held. Each edge leaves the vector in the
+    // same step that creates its delta, so failing part-way (e.g. on a serialization error) leaves the vector and
+    // the delta chain consistent: abort restores exactly the edges that were removed.
+    auto const kept_edges = std::distance(edges_attached_to_vertex->begin(), mid);
+    while (std::ssize(*edges_attached_to_vertex) > kept_edges) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = edges_attached_to_vertex->back();
 
       std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.salient.items.properties_on_edges) {
@@ -596,6 +598,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       }
 
       utils::AtomicMemoryBlock([&, edge_type = edge_type, opposing_vertex = opposing_vertex, edge_ref = edge_ref]() {
+        edges_attached_to_vertex->pop_back();
         if (storage_->config_.salient.items.properties_on_edges) {
           auto edge_ptr = edge_ref.ptr;
           // this can happen only if we marked edges for deletion with no nodes,
@@ -626,8 +629,6 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         }
       });
     }
-
-    edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
 
     return std::make_optional<ReturnType>();
   };

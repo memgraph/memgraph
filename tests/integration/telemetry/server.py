@@ -246,6 +246,16 @@ if __name__ == "__main__":
 
     storage = drop_resends(storage)
 
+    # A client that sent nothing has nothing here to split, and reading the
+    # first of none names the reader rather than the reason. The client spends
+    # its first seconds starting a coordinator and electing a leader, so on a
+    # machine slow enough at that it is still starting when the run is over.
+    assert storage, (
+        f"No telemetry arrived. The client ran for {args.duration}s at an interval of "
+        f"{args.interval}s and nothing reached this server: the client was still starting when the run "
+        "ended, or it failed before sending, or what it sent never arrived."
+    )
+
     # Split the data into individual startups.
     startups = [[storage[0]]]
     for item in storage[1:]:

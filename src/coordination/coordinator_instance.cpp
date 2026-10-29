@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "auth/system_user.hpp"
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
@@ -341,7 +342,6 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
-  metrics::Metrics().global.show_instances->Increment();
   if (auto leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
     return leader_results;
   }
@@ -908,33 +908,32 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
 
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
+  // The Raft configuration and the application context are updated in two steps, so a removal that timed out
+  // locally may have left the coordinator in only one of them. Each step runs only where the coordinator still is,
+  // which lets a retry finish the removal.
+  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+  bool const in_context = std::erase_if(coordinator_instances_context, [coordinator_id](auto const &coordinator) {
+                            return coordinator.id == coordinator_id;
+                          }) == 1;
+  bool const in_raft_config =
+      std::ranges::contains(raft_state_->GetCoordinatorInstancesAux(), coordinator_id, &CoordinatorInstanceAux::id);
 
-  auto const existing_coord = std::ranges::find_if(
-      coordinator_instances_aux, [coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
-
-  if (existing_coord == coordinator_instances_aux.end()) {
+  if (!in_context && !in_raft_config) {
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
   }
 
-  if (auto const res = raft_state_->RemoveCoordinatorInstance(coordinator_id);
-      res != RemoveCoordinatorInstanceStatus::SUCCESS) {
-    return res;
+  if (in_raft_config) {
+    if (auto const res = raft_state_->RemoveCoordinatorInstance(coordinator_id);
+        res != RemoveCoordinatorInstanceStatus::SUCCESS) {
+      return res;
+    }
+  } else {
+    spdlog::info("Coordinator {} is already gone from the Raft configuration, finishing the application-level removal.",
+                 coordinator_id);
   }
 
-  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-
-  auto const num_removed = std::erase_if(coordinator_instances_context, [coordinator_id](auto const &coordinator) {
-    return coordinator.id == coordinator_id;
-  });
-
-  if (num_removed == 1) {
-    spdlog::info("Removed coordinator {} from local coordinator instance.", coordinator_id);
-  } else {
-    LOG_FATAL(
-        "Couldn't find coordinator {} in local application logs, there was a mistake when starting cluster. Please "
-        "remove all your coordinator data directories and reconnect the cluster.",
-        coordinator_id);
+  if (!in_context) {
+    return RemoveCoordinatorInstanceStatus::SUCCESS;
   }
 
   // NOLINTNEXTLINE
@@ -944,6 +943,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     LOG_FATAL("Couldn't append application log when removing coordinator {} from the cluster. ", coordinator_id);
   }
+  spdlog::info("Removed coordinator {} from local coordinator instance.", coordinator_id);
 
   return RemoveCoordinatorInstanceStatus::SUCCESS;
 }
@@ -1180,8 +1180,9 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 
 auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
   // Validated before forwarding, so a malformed name is rejected on whichever coordinator received the query without
-  // an RPC round trip, and again on the leader when the request does arrive over RPC.
-  if (!RoleNameIsWellFormed(role_name)) {
+  // an RPC round trip, and again on the leader when the request does arrive over RPC. The reserved name is refused here
+  // too, not only by the interpreter, because a follower on an older version forwards it unchecked.
+  if (!RoleNameIsWellFormed(role_name) || auth::IsInternalSystemUsername(role_name)) {
     return CreateRoleStatus::INVALID_ROLE_NAME;
   }
 
@@ -1258,6 +1259,8 @@ auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<Coordina
 
   return std::nullopt;
 }
+
+auto CoordinatorInstance::GetLocalRoles() const -> std::vector<CoordinatorRole> { return raft_state_->GetRoles(); }
 
 auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> GrantPrivilegeStatus {
@@ -1885,6 +1888,9 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UpdateConfigStatus::NOT_LEADER;
   }
+
+  // The whole context is read, modified and committed, so other whole-context writers must not interleave.
+  auto lock = std::scoped_lock{coord_instance_lock_};
 
   if (std::holds_alternative<int32_t>(config.data)) {
     // Need to update coordinator's bolt server

@@ -143,7 +143,7 @@ void ExpectStateAtT(ms::Storage::Accessor &acc, Names const &n, BaseGids const &
   auto const out_edge = [&](ms::VertexAccessor &from, ms::Gid gid) -> std::optional<ms::EdgeAccessor> {
     auto out = from.OutEdges(kView);
     if (!out.has_value()) return std::nullopt;
-    for (auto &e : out->edges) {
+    for (auto e : out->edges) {
       if (e.Gid() == gid) return e;
     }
     return std::nullopt;
@@ -326,7 +326,7 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
   uint64_t const pin = b->RegisterForkPin();
 
   // ---- Step 4: replay main's WAL files in sequence-number order through ReplayWalFile. ----
-  memgraph::rpc::ProgressHeartbeat heartbeat{nullptr, std::chrono::hours{24}};
+  memgraph::rpc::ProgressHeartbeat heartbeat;
   for (auto const &info : *wal_files) {  // GetWalFiles is ordered by sequence number
     ASSERT_TRUE(memgraph::dbms::InMemoryReplicationHandlers::ReplayWalFile(info.path, b, heartbeat))
         << "ReplayWalFile failed for " << info.path;

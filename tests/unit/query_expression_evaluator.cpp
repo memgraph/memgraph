@@ -26,6 +26,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/graph.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
@@ -34,6 +35,7 @@
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_edge.hpp"
+#include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/enum.hpp"
@@ -41,6 +43,7 @@
 #include "storage/v2/storage.hpp"
 #include "tests/unit/timezone_handler.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/memory.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"
@@ -472,6 +475,71 @@ TYPED_TEST(ExpressionEvaluatorTest, GreaterOperatorIncompatibleOperands) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorAnswersEachSpecifiedPairing) {
+  // The membership operator has a specified answer for every pairing of a sought value and a list
+  // that involves a Null, and the rule behind them is that a value known to be present is present
+  // whatever else the list holds, a value not present is undecided if the list holds a Null, and
+  // the empty list holds nothing and so decides against everything.
+  //
+  // The operator reaches these two ways, filling the cached set on the first row and reading an
+  // already-filled one on every row after, and the answers have to agree. Both are taken here,
+  // which is why the pairings are listed in one place rather than left spread over the tests that
+  // reach them incidentally.
+  auto const literal = [this](int64_t value) { return this->storage.template Create<PrimitiveLiteral>(value); };
+  auto const null_literal = [this] {
+    return this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue());
+  };
+  auto const list_of = [this](std::vector<Expression *> elements) {
+    return this->storage.template Create<ListLiteral>(std::move(elements));
+  };
+  auto const in = [this](Expression *probe, Expression *list) {
+    return this->storage.template Create<InListOperator>(probe, list);
+  };
+
+  enum class Answer { kTrue, kFalse, kNull };
+
+  auto const check = [this](InListOperator *op, Answer expected, std::string_view what) {
+    auto const matches = [expected, what](TypedValue const &value) {
+      switch (expected) {
+        case Answer::kTrue:
+          ASSERT_TRUE(value.IsBool()) << what;
+          EXPECT_TRUE(value.ValueBool()) << what;
+          break;
+        case Answer::kFalse:
+          ASSERT_TRUE(value.IsBool()) << what;
+          EXPECT_FALSE(value.ValueBool()) << what;
+          break;
+        case Answer::kNull:
+          EXPECT_TRUE(value.IsNull()) << what;
+          break;
+      }
+    };
+    // Without a tracked key the list is read element by element on every row.
+    matches(this->Eval(op));
+
+    // With one, the first row fills the set and the second reads it.
+    FrameChangeCollector collector;
+    collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+    ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+    matches(op->Accept(caching));
+    matches(op->Accept(caching));
+  };
+
+  check(in(literal(2), list_of({literal(1), literal(2), literal(3)})), Answer::kTrue, "2 IN [1, 2, 3]");
+  check(in(literal(2), list_of({literal(1), null_literal(), literal(3)})), Answer::kNull, "2 IN [1, null, 3]");
+  check(in(literal(2), list_of({literal(1), literal(2), null_literal()})), Answer::kTrue, "2 IN [1, 2, null]");
+  // A value sitting past the Null is still found, so the Null does not end the part of the list
+  // that has to be searched.
+  check(in(literal(5), list_of({literal(1), literal(2), null_literal(), literal(5)})),
+        Answer::kTrue,
+        "5 IN [1, 2, null, 5]");
+  check(in(literal(2), list_of({literal(1)})), Answer::kFalse, "2 IN [1]");
+  check(in(literal(2), list_of({})), Answer::kFalse, "2 IN []");
+  check(in(null_literal(), list_of({literal(1), literal(2), literal(3)})), Answer::kNull, "null IN [1, 2, 3]");
+  check(in(null_literal(), list_of({literal(1), null_literal(), literal(3)})), Answer::kNull, "null IN [1, null, 3]");
+  check(in(null_literal(), list_of({})), Answer::kFalse, "null IN []");
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
   // A membership test asks equality of each element, so it inherits equality's
   // answer: undecided against anything holding a Null that it does not
@@ -570,8 +638,9 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
   auto const literal = [this](int value) { return this->storage.template Create<PrimitiveLiteral>(value); };
 
   {
-    // A top-level Null element keeps the set exact: the explicit lookup for a Null answers it, so
-    // the sought value the list does hold is still found by one lookup.
+    // A top-level Null element keeps the set exact: whether the list holds one is answered from
+    // what was recorded when it was cached, so the sought value the list does hold is still found
+    // by the one lookup.
     auto *op = in(literal(1), list_of({literal(1), null_literal()}));
     EXPECT_EQ(this->Eval(op).ValueBool(), true);
     EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), true);
@@ -1224,6 +1293,70 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   }
 }
 
+// `%` asks whether the node carries any label at all, and says nothing about which.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
+  auto labelled = this->dba.InsertVertex();
+  ASSERT_TRUE(labelled.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto eval_on = [&](const TypedValue &value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(LabelsTest::Make(this->storage, identifier, LabelTerm{LabelTerm::Wildcard{}}));
+  };
+  EXPECT_TRUE(eval_on(TypedValue(labelled)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(bare)).ValueBool());
+
+  // A vertex of this command does not exist under the OLD view the evaluator reads, so `%` reads it under NEW.
+  auto fresh = this->dba.InsertVertex();
+  ASSERT_TRUE(fresh.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  EXPECT_TRUE(eval_on(TypedValue(fresh)).ValueBool());
+}
+
+// A term held whole is evaluated against the one vertex its subject gives.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
+  auto animal_ix = this->storage.GetLabelIx("ANIMAL");
+  auto plant_ix = this->storage.GetLabelIx("PLANT");
+  auto animal = this->dba.InsertVertex();
+  ASSERT_TRUE(animal.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto plant = this->dba.InsertVertex();
+  ASSERT_TRUE(plant.AddLabel(this->dba.NameToLabel("PLANT")).has_value());
+  auto both = this->dba.InsertVertex();
+  ASSERT_TRUE(both.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  ASSERT_TRUE(both.AddLabel(this->dba.NameToLabel("PLANT")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto leaf = [](LabelIx label) { return LabelTerm{LabelTerm::Label{label}}; };
+  auto test_of = [&](LabelTerm term) { return LabelsTest::Make(this->storage, identifier, std::move(term)); };
+  // (ANIMAL|PLANT)&!(ANIMAL&PLANT): each of `|`, `&` and `!` read as another operator changes a row below.
+  auto term = LabelTerm{
+      LabelTerm::And{{LabelTerm{LabelTerm::Or{{leaf(animal_ix), leaf(plant_ix)}}},
+                      LabelTerm{LabelTerm::Not{LabelTerm{LabelTerm::And{{leaf(animal_ix), leaf(plant_ix)}}}}}}}};
+  // An empty `$p` under an operator: an `And` of nothing.
+  auto empty_conjunction = LabelTerm{LabelTerm::And{}};
+
+  auto eval_on = [&](const TypedValue &value, LabelsTest *op) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(op);
+  };
+  EXPECT_TRUE(eval_on(TypedValue(animal), test_of(term)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(plant), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(both), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(bare), test_of(term)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(bare), test_of(empty_conjunction)).ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
   // Setup: Create edge with TYPE_A
   auto from_vertex = this->dba.InsertVertex();
@@ -1860,6 +1993,29 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
     auto *op = this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(property.first));
     return this->Eval(op);
   }
+
+  /// `{age: element.age, height: element.height}`. Two lookups on one identifier are what earn the
+  /// evaluation mode that loads the properties in one read.
+  auto MapOfAgeAndHeight() -> MapLiteral * {
+    auto *map = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+        {this->storage.GetPropertyIx(prop_age.first),
+         this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(prop_age.first))},
+        {this->storage.GetPropertyIx(prop_height.first),
+         this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(prop_height.first))}});
+    memgraph::query::SetEvaluationModeOnPropertyLookups(*map);
+    return map;
+  }
+
+  template <typename TRecord>
+  void SetAgeAndHeight(TRecord &record, int64_t age, int64_t height) {
+    ASSERT_TRUE(record.SetProperty(prop_age.second, memgraph::storage::PropertyValue(age)).has_value());
+    ASSERT_TRUE(record.SetProperty(prop_height.second, memgraph::storage::PropertyValue(height)).has_value());
+  }
+
+  void ExpectAgeAndHeight(const TypedValue &map, int64_t age, int64_t height) {
+    EXPECT_EQ(map.ValueMap().at("age").ValueInt(), age);
+    EXPECT_EQ(map.ValueMap().at("height").ValueInt(), height);
+  }
 };
 
 TYPED_TEST_SUITE(ExpressionEvaluatorPropertyLookup, StorageTypes);
@@ -1872,6 +2028,23 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   frame_writer.Write(this->symbol, TypedValue(v1));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralOverVertexFollowsRebinding) {
+  auto v1 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v1, 10, 100);
+  auto v2 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v2, 20, 200);
+  this->dba.AdvanceCommand();
+
+  auto *map = this->MapOfAgeAndHeight();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  frame_writer.Write(this->symbol, TypedValue(v1));
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
+
+  frame_writer.Write(this->symbol, TypedValue(v2));
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
@@ -2085,6 +2258,72 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   frame_writer.Write(this->symbol, TypedValue(*e12));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralOverEdgeFollowsRebinding) {
+  auto v1 = this->dba.InsertVertex();
+  auto v2 = this->dba.InsertVertex();
+  auto edge_type = this->dba.NameToEdgeType("edge_type");
+
+  auto e1 = this->dba.InsertEdge(&v1, &v2, edge_type);
+  ASSERT_TRUE(e1.has_value());
+  this->SetAgeAndHeight(*e1, 10, 100);
+
+  auto e2 = this->dba.InsertEdge(&v2, &v1, edge_type);
+  ASSERT_TRUE(e2.has_value());
+  this->SetAgeAndHeight(*e2, 20, 200);
+  this->dba.AdvanceCommand();
+
+  auto *map = this->MapOfAgeAndHeight();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  frame_writer.Write(this->symbol, TypedValue(*e1));
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
+
+  frame_writer.Write(this->symbol, TypedValue(*e2));
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralInsideListComprehension) {
+  auto v1 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v1, 10, 100);
+  auto v2 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v2, 20, 200);
+  this->dba.AdvanceCommand();
+
+  // `[element IN [v1, v2] | {age: element.age, height: element.height}]`, where one evaluation binds
+  // `element` to each vertex in turn.
+  auto *list = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->CreateIdentifierWithValue("v1", TypedValue(v1)), this->CreateIdentifierWithValue("v2", TypedValue(v2))});
+  auto *comprehension =
+      this->storage.template Create<ListComprehension>(this->identifier, list, nullptr, this->MapOfAgeAndHeight());
+
+  auto result = this->Eval(comprehension);
+  ASSERT_EQ(result.ValueList().size(), 2);
+  this->ExpectAgeAndHeight(result.ValueList()[0], 10, 100);
+  this->ExpectAgeAndHeight(result.ValueList()[1], 20, 200);
+}
+
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, MapLiteralDistinguishesVertexFromEdge) {
+  // One symbol holds a vertex and then an edge, where `UNWIND [n, e] AS x` binds both to it.
+  auto v1 = this->dba.InsertVertex();
+  this->SetAgeAndHeight(v1, 10, 100);
+
+  auto v2 = this->dba.InsertVertex();
+  auto e1 = this->dba.InsertEdge(&v1, &v2, this->dba.NameToEdgeType("edge_type"));
+  ASSERT_TRUE(e1.has_value());
+  this->SetAgeAndHeight(*e1, 20, 200);
+  this->dba.AdvanceCommand();
+  ASSERT_TRUE(v1.Gid() == e1->Gid()) << "the test only says anything while the two ids collide";
+
+  auto *map = this->MapOfAgeAndHeight();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+
+  frame_writer.Write(this->symbol, TypedValue(v1));
+  this->ExpectAgeAndHeight(this->Eval(map), 10, 100);
+
+  frame_writer.Write(this->symbol, TypedValue(*e1));
+  this->ExpectAgeAndHeight(this->Eval(map), 20, 200);
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
@@ -2873,6 +3112,14 @@ TYPED_TEST(FunctionTest, ValueType) {
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Enum{EnumTypeId{0}, EnumValueId{0}})).ValueString(), "ENUM");
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Point2d(Cartesian_2d, 1, 2))).ValueString(), "POINT");
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Point3d(Cartesian_3d, 1, 2, 3))).ValueString(), "POINT");
+  auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
+  auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(*vn1)).ValueString(), "VIRTUAL_NODE");
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(memgraph::query::VirtualEdge(vn1, vn2, "ET"))).ValueString(),
+            "VIRTUAL_RELATIONSHIP");
+  ASSERT_EQ(
+      this->EvaluateFunction("VALUETYPE", TypedValue(VirtualGraph(memgraph::utils::NewDeleteResource()))).ValueString(),
+      "VIRTUAL_GRAPH");
 }
 
 TYPED_TEST(FunctionTest, Labels) {

@@ -1,0 +1,55 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <optional>
+
+#include "query/frontend/ast/query/query_traits.hpp"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage_mode.hpp"
+
+namespace memgraph::query {
+
+class Query;
+
+/// What an interpreter takes on the graph in order to prepare one query.
+struct StorageAccessRequirement {
+  /// Absent means the query is prepared with no storage accessor at all.
+  std::optional<HeldAccess> access{};
+  bool could_commit{false};
+  /// Whether the storage mode fed `access` or `isolation_override`. Only then is the answer
+  /// invalidated by a mode change between reading the mode and the accessor taking its hold, so
+  /// only then is a retry worth its cost.
+  bool mode_dependent{false};
+  std::optional<storage::IsolationLevel> isolation_override{};
+
+  friend bool operator==(StorageAccessRequirement const &, StorageAccessRequirement const &) = default;
+};
+
+/// The hold to take for an access a query asked for. Total, because every `HeldAccess` names a hold.
+storage::StorageAccessType ToStorageAccessType(HeldAccess access);
+
+/// Resolves what the query states it needs against the two runtime inputs a statement can need: the
+/// access the planner settled on for a Cypher statement, absent where it settled on none, and the
+/// storage mode in force.
+///
+/// Only a Cypher statement is ever settled as needing no hold, so only a `CypherQuery` reaches this
+/// with an absent access. Any query answering that the planner decides is given the same answer for
+/// it, since which queries the caller can decide that about is not a property of this rule.
+///
+/// Throws `DatabaseContextRequiredException` where the storage mode settles the access and no mode is
+/// given, which is the caller having reached DDL with no current database.
+StorageAccessRequirement RequiredStorageAccess(Query const &query, std::optional<HeldAccess> cypher_access,
+                                               std::optional<storage::StorageMode> storage_mode);
+
+}  // namespace memgraph::query

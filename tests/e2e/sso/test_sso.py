@@ -1,6 +1,8 @@
 import base64
 import os
+import resource
 import sys
+import tempfile
 
 import interactive_mg_runner
 import neo4j.exceptions
@@ -20,11 +22,24 @@ INSTANCE_NAME = "test_instance"
 
 file = "test_sso"
 
+INTERNAL_SYSTEM_USER = "memgraph_internal"
+INTERNAL_SYSTEM_USER_PASSWORD = "word"
+# bcrypt hash of "word": the same literal tests/e2e/auth/auth_queries.py creates a user with. Every test in this file
+# runs with the internal system user configured, so the SSO tests also show it changes nothing for anyone else.
+INTERNAL_SYSTEM_USER_HASH_FILE = os.path.join(tempfile.mkdtemp(), "system_user_internal_hash")
+with open(INTERNAL_SYSTEM_USER_HASH_FILE, "w") as hash_file:
+    hash_file.write("bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy\n")
+
 
 def get_instances(test_name: str):
     return {
         INSTANCE_NAME: {
-            "args": ["--bolt-port=7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "args": [
+                "--bolt-port=7687",
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                f"--system-user-internal-hash-file={INTERNAL_SYSTEM_USER_HASH_FILE}",
+            ],
             "log_file": f"{get_logs_path(file, test_name)}/test_instance.log",
             "data_directory": f"{get_data_path(file, test_name)}",
             "setup_queries": [],
@@ -59,7 +74,7 @@ def wrapper(request):
     interactive_mg_runner.start_all(instances)
 
     # 3. Run test
-    yield None
+    yield instances
 
     # 4. Stop intance
     interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
@@ -87,6 +102,31 @@ def test_sso_successful():
             session.run("MATCH (n) RETURN n;").consume()
             current_user_result = list(session.run("SHOW CURRENT USER;"))
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
+
+
+def test_sso_module_inherits_no_sockets():
+    response = base64.b64encode(b"no_inherited_sockets").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        client.verify_connectivity()
+
+
+def test_sso_module_gets_original_nofile_limit(wrapper):
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    lowered = min(4096, hard - 1)
+    interactive_mg_runner.stop(wrapper, INSTANCE_NAME)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (lowered, hard))
+    try:
+        interactive_mg_runner.start_all(wrapper)
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+    response = base64.b64encode(f"nofile_soft:{lowered}".encode()).decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        client.verify_connectivity()
 
 
 def test_sso_show_current_role_with_architect_role():
@@ -201,6 +241,46 @@ def test_sso_multiple_users_show_active_users_info():
     session1.close()
     client1.close()
     client2.close()
+
+
+def test_internal_system_user_with_sso():
+    # SSO is configured and the identity provider knows nothing about the internal system user: it still logs in with
+    # its password, with every privilege, without being a stored user.
+    with GraphDatabase.driver(MG_URI, auth=(INTERNAL_SYSTEM_USER, INTERNAL_SYSTEM_USER_PASSWORD)) as client:
+        client.verify_connectivity()
+        with client.session() as session:
+            assert [record["user"] for record in session.run("SHOW CURRENT USER;")] == [INTERNAL_SYSTEM_USER]
+            session.run("CREATE (:InternalSystemUser);").consume()
+            session.run("SHOW DATABASE SETTINGS;").consume()
+            session.run("SHOW ROLES;").consume()
+
+    with GraphDatabase.driver(MG_URI, auth=(INTERNAL_SYSTEM_USER, "wrong")) as client:
+        with pytest.raises(
+            (neo4j.exceptions.ServiceUnavailable, neo4j.exceptions.ClientError), match=CLIENT_ERROR_MESSAGE
+        ):
+            client.verify_connectivity()
+
+    # SSO users are unaffected.
+    response = base64.b64encode(b"dummy_value").decode("utf-8")
+    with GraphDatabase.driver(MG_URI, auth=Auth(scheme="saml-entra-id", credentials=response, principal="")) as client:
+        client.verify_connectivity()
+
+
+def test_internal_system_user_name_is_reserved_with_sso():
+    # Neither an identity provider nor an SSO administrator can claim or create the internal system user.
+    response = base64.b64encode(b"internal_system_user").decode("utf-8")
+    with GraphDatabase.driver(MG_URI, auth=Auth(scheme="saml-entra-id", credentials=response, principal="")) as client:
+        with pytest.raises(
+            (neo4j.exceptions.ServiceUnavailable, neo4j.exceptions.ClientError), match=CLIENT_ERROR_MESSAGE
+        ):
+            client.verify_connectivity()
+
+    response = base64.b64encode(b"admin_user").decode("utf-8")
+    with GraphDatabase.driver(MG_URI, auth=Auth(scheme="saml-entra-id", credentials=response, principal="")) as client:
+        with client.session() as session:
+            for query in (f"CREATE USER {INTERNAL_SYSTEM_USER};", f"CREATE ROLE {INTERNAL_SYSTEM_USER};"):
+                with pytest.raises(neo4j.exceptions.ClientError, match="reserved"):
+                    session.run(query).consume()
 
 
 if __name__ == "__main__":

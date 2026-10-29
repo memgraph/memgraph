@@ -23,7 +23,9 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -538,6 +540,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) override;
 
   /**
+   * @return SessionQuery*
+   */
+  antlrcpp::Any visitSessionQuery(MemgraphCypher::SessionQueryContext *ctx) override;
+
+  /**
    * @return ShowTransactions*
    */
   antlrcpp::Any visitShowTransactions(MemgraphCypher::ShowTransactionsContext *ctx) override;
@@ -551,6 +558,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return TransactionIdList*
    */
   antlrcpp::Any visitTransactionIdList(MemgraphCypher::TransactionIdListContext *ctx) override;
+
+  /**
+   * @return TerminateSessions*
+   */
+  antlrcpp::Any visitTerminateSessions(MemgraphCypher::TerminateSessionsContext *ctx) override;
+
+  /**
+   * @return TransactionQueueQuery*
+   */
+  antlrcpp::Any visitShowSessions(MemgraphCypher::ShowSessionsContext *ctx) override;
+
+  /**
+   * @return SessionIdList*
+   */
+  antlrcpp::Any visitSessionIdList(MemgraphCypher::SessionIdListContext *ctx) override;
 
   /**
    * @return VersionQuery*
@@ -899,9 +921,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) override;
 
   /**
-   * @return vector<LabelIx>
+   * @return LabelTerm
    */
-  antlrcpp::Any visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) override;
+  antlrcpp::Any visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) override;
+
+  antlrcpp::Any visitPatternLabelExpression(MemgraphCypher::PatternLabelExpressionContext *ctx) override;
+
+  /// The label term a ':'-separated run of segments names. Shared by the two label-expression rules, which
+  /// carry the same segments and differ only in how their '|' loop decides to leave.
+  template <typename TSegment>
+  LabelTerm LabelExpressionFrom(const std::vector<TSegment *> &segments);
 
   /**
    * @return unordered_map<PropertyIx, Expression*>
@@ -1298,6 +1327,18 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
+  /// What a WHEN body yields. All branches of one conditional must agree.
+  enum class ConditionalKind : uint8_t { kReturns, kUpdates, kStandaloneCall };
+
+  struct ConditionalQuery {
+    CypherQuery *query;
+    ConditionalKind kind;
+  };
+
+  /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
+  ConditionalQuery VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  ConditionalQuery VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+
   /**
    * @return MultiDatabaseQuery*
    */
@@ -1524,6 +1565,28 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // Never use parameters_->AtTokenPosition here: stripped literals are not in parameters_ at parse time.
   Expression *MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal);
 
+  /// The labels one `labelName` leaf stands for. A `$param` bound to a list stands for several, read as a
+  /// conjunction, which is what the colon form has always done with such a parameter.
+  std::vector<QueryLabelType> LabelsFromLabelName(MemgraphCypher::LabelNameContext *ctx);
+  std::vector<LabelIx> LabelsFromLabelLeaf(MemgraphCypher::LabelLeafContext *ctx);
+  std::vector<LabelIx> LabelsFromParameter(MemgraphCypher::ParameterContext *ctx);
+
+  /// A `variable.prop` label, which only CREATE accepts.
+  Expression *PropertyLookupLabel(MemgraphCypher::VariableContext *variable_ctx,
+                                  const std::vector<MemgraphCypher::PropertyLookupContext *> &lookups);
+  Expression *DynamicLabelFrom(MemgraphCypher::DynamicLabelContext *ctx);
+
+  /// Build the label term one parsed operator expression stands for, flattening nested `&`/`|` and
+  /// dropping parentheses. Nothing else is simplified: `!!A` and `A&!A` survive as written.
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::ParenLabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelAndContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelConjunctContext *ctx);
+
   ParsingContext context_;
   AstStorage *storage_;
 
@@ -1542,6 +1605,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // Flag to indicate if we are parsing an EXISTS subquery
   bool parsing_subquery_body_ = false;
   Parameters *parameters_;
+  // Token positions of `$name` parameters, mapped to their unescaped names. Stripped literals are not in here.
+  std::unordered_map<int32_t, std::string> parameter_names_;
 
   QueryInfo query_info_;
 };

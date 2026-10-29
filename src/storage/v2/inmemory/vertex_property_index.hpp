@@ -25,6 +25,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/errors.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/vertex_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
@@ -87,9 +88,7 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
              utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, PropertyId property,
-             std::optional<utils::Bound<PropertyValue>> const &lower_bound,
-             std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view, Storage *storage,
-             Transaction *transaction, Gid max_gid);
+             PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, Gid max_gid);
 
     class Iterator {
      public:
@@ -128,6 +127,8 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    /// Checked on every entry in range; null when the bounds suffice.
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -139,9 +140,8 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
    public:
     ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
                     utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, PropertyId property,
-                    std::optional<utils::Bound<PropertyValue>> const &lower_bound,
-                    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view, Storage *storage,
-                    Transaction *transaction, size_t num_chunks, Gid max_gid);
+                    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                    size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
@@ -196,6 +196,8 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    /// Checked on every entry in range; null when the bounds suffice.
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -228,10 +230,17 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
                       std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view, Storage *storage,
                       Transaction *transaction);
 
+    Iterable Vertices(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                      PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction);
+
     ChunkedIterable ChunkedVertices(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                                     std::optional<utils::Bound<PropertyValue>> const &lower_bound,
                                     std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view,
                                     Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    ChunkedIterable ChunkedVertices(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                    PropertyValueRange const &range, View view, Storage *storage,
+                                    Transaction *transaction, size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;

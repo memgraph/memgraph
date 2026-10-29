@@ -77,6 +77,20 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       auto const durable_start_idx_value = std::stoull(maybe_start_idx.value());
       start_idx_.store(durable_start_idx_value, std::memory_order_release);
 
+      // Older versions didn't advance the last log entry when a snapshot compacted past it, leaving an empty store
+      // with the start index beyond the last log entry.
+      if (durable_start_idx_value > last_log_entry + 1) {
+        auto const repaired_last_log_entry = durable_start_idx_value - 1;
+        logger_.Log(nuraft_log_level::WARNING,
+                    fmt::format("Start index {} is beyond last log entry {}, treating the log store as empty and "
+                                "repairing last log entry to {}.",
+                                durable_start_idx_value,
+                                last_log_entry,
+                                repaired_last_log_entry));
+        durability_->Put(kLastLogEntry, std::to_string(repaired_last_log_entry));
+        return true;
+      }
+
       // Compaction might have happened so we might be missing some logs.
       for (auto const id : std::ranges::iota_view{durable_start_idx_value, last_log_entry + 1}) {
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
@@ -325,11 +339,12 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 }
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
-// NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
   auto lock = std::lock_guard{logs_lock_};
   auto const old_start_idx = start_idx_.load(std::memory_order_acquire);
+  // A snapshot received from the leader can compact past our last entry, leaving the store empty.
+  bool const compacts_past_last_entry = last_log_index >= GetNextSlot() - 1;
 
   std::vector<std::string> del_batch;
 
@@ -348,6 +363,9 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     auto const new_idx = last_log_index + 1;
     start_idx_.store(new_idx, std::memory_order_release);
     put_batch.emplace(kStartIdx, std::to_string(new_idx));
+    if (compacts_past_last_entry) {
+      put_batch.emplace(kLastLogEntry, std::to_string(last_log_index));
+    }
   }
 
   durability_->PutAndDeleteMultiple(put_batch, del_batch);

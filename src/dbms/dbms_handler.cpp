@@ -447,7 +447,31 @@ std::optional<DbmsHandler::DeleteResult> DbmsHandler::TryDeleteColdFastPath_(std
   return DeleteResult{};
 }
 
-DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
+// Returns the DeleteError to propagate when the tenant is not live (name absent from items_):
+// ALREADY_DROPPING if a husk with this name is still draining (IsPending), else NON_EXISTENT.
+// A name erased from items_ by DeferDelete but still draining is a known husk (its DROPPING row
+// shows in SHOW DATABASES); report that rather than the misleading NON_EXISTENT. Safe under lock_:
+// IsPending() takes pending_mutex_ (lock_ -> pending_mutex_ is the only nesting direction).
+// Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
+DeleteError DbmsHandler::NotLiveDeleteError_(std::string_view db_name) const {
+  return db_handler_.IsPending(db_name) ? DeleteError::ALREADY_DROPPING : DeleteError::NON_EXISTENT;
+}
+
+void DbmsHandler::NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log) {
+  if (!on_uuid_retired_) return;
+  // The retirement is already committed. An exception from the hook must
+  // NOT surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
+  // stay orphaned — nothing reclaims them.
+  try {
+    on_uuid_retired_(uuid);
+  } catch (const std::exception &e) {
+    spdlog::error("on_uuid_retired_ threw after committed drop of '{}': {}", name_for_log, e.what());
+  } catch (...) {
+    spdlog::error("on_uuid_retired_ threw (non-std) after committed drop of '{}'", name_for_log);
+  }
+}
+
+DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
@@ -462,9 +486,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
-  if (!conf) {
-    return std::unexpected{DeleteError::NON_EXISTENT};
-  }
+  if (!conf) return std::unexpected{NotLiveDeleteError_(db_name)};
   const auto &storage_path = conf->durability.storage_directory;
   const auto &uuid = conf->salient.uuid;
 
@@ -487,6 +509,8 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
   }
 
+  NotifyUuidRetired_(uuid, db_name);
+
   // Success
   // Save delta
   if (transaction) {
@@ -506,12 +530,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
-  if (!conf) {
-    return std::unexpected{DeleteError::NON_EXISTENT};
-  }
+  if (!conf) return std::unexpected{NotLiveDeleteError_(db_name)};
 
   // Force delete
-  const auto res = Delete_(db_name);
+  const auto res = Delete_(std::string{db_name});
   if (res) {
     // Success; save delta
     if (transaction) {
@@ -526,7 +548,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   if (auto cold_res = TryDeleteColdFastPath_(db_name, /*transaction=*/nullptr)) {
     return *cold_res;
   }
-  return Delete_(db_name);
+  return Delete_(std::string{db_name});
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
@@ -585,7 +607,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   // Update current db config
   auto new_db = db_handler_.Get(new_name);
   MG_ASSERT(new_db, "Database {} not found after rename.", new_name);
-  (*new_db)->storage()->config_.salient.name = new_name;
+  (*new_db)->Rename(new_name);
 
   // Update durability metadata
   if (durability_) {
@@ -612,7 +634,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
         // old_name to undo the in-memory rename above (arg/param names legitimately mismatch).
         // NOLINTNEXTLINE(readability-suspicious-call-argument)
         [[maybe_unused]] auto rolled_back = db_handler_.Rename(new_name, old_name);
-        (*new_db)->storage()->config_.salient.name = old_name;
+        (*new_db)->Rename(old_name);
         return std::unexpected{RenameError::FAIL};
       }
     }
@@ -816,11 +838,12 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   if (ec) {
     spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name_copy, data_dir.string());
   }
+  NotifyUuidRetired_(uuid, name_copy);
   UpdateColdGauge_();
   return uuid;
 }
 
-DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
+DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string db_name) {
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return std::unexpected{DeleteError::DEFAULT_DB};
@@ -829,6 +852,10 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   const auto storage_path = StorageDir_(db_name);
   if (!storage_path) return std::unexpected{DeleteError::NON_EXISTENT};
 
+  // Capture the tenant's UUID inside the accessor scope (before the accessor is released).
+  // Database::uuid() is const and does not re-acquire lock_ — safe to call while lock_ is held.
+  // Reused below both to announce the retired uuid (uuid-keyed stores) and to key the dropping_ row.
+  std::optional<utils::UUID> db_uuid;
   {
     auto db = db_handler_.Get(db_name);
     if (!db) {
@@ -839,28 +866,45 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
       if (gk && gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
       return std::unexpected{DeleteError::NON_EXISTENT};
     }
-    // TODO: ATM we assume REPLICA won't have streams,
-    //       this is a best effort approach just in case they do
-    //       there is still subtle data race we stream manipulation
-    //       can occur while we are dropping the database
-    db->prepare_for_deletion();
-    auto &database = *db->get();
-    database.StopAllBackgroundTasks();
-    database.streams()->DropAll();
-  }
+    db_uuid = db->get()->uuid();
+    // No early seal here (late-seal model). The seal happens after all fallible work has succeeded so
+    // that an exception leaves the gatekeeper fully HOT in items_ — the tenant is intact and no
+    // rollback of any kind is ever needed.
+  }  // release our accessor so the worker can reach sole access
 
+  // Fallible, point-of-no-return. If it throws, nothing is sealed and the gatekeeper is still HOT in
+  // items_ — the tenant is fully intact; because the seal has not happened yet, no rollback is needed.
   DetachProfileAndRetireDurabilityKey_(db_name);
 
-  // Check if db exists
-  // Low level handlers
-  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name = std::string{db_name}]() {
-    // Delete disk storage
+  // Build the deferred-worker arguments BEFORE the advisory seal so the post-seal suffix is genuinely
+  // non-throwing: an allocation failure while building them leaves the tenant HOT and unsealed
+  // (retriable), never sealed-but-still-in-items_.
+  auto husk_id = std::string{*db_uuid};
+  std::move_only_function<void(Database &)> stop_step = [](Database &db) {
+    db.StopAllBackgroundTasks();
+    db.streams()->DropAll();
+  };
+  std::move_only_function<void()> post_delete_step = [storage_path = *storage_path, db_name = db_name]() {
     std::error_code ec;
     (void)std::filesystem::remove_all(storage_path, ec);
     if (ec) {
       spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
     }
-  });
+  };
+  // Build the owned name copy BEFORE the seal so the post-seal suffix contains no allocations:
+  // a bad_alloc here leaves the tenant HOT and unsealed (retriable), never sealed-but-stranded.
+  auto husk_name = db_name;
+  // Advisory seal — the last step before the nothrow handoff. Every argument to DeferDelete is
+  // already an owned value (std::string by value, move_only_function by move — all noexcept moves),
+  // so no allocation or copy occurs after this point.
+  auto *gk = db_handler_.GetGatekeeper(db_name);
+  MG_ASSERT(gk, "Delete_: gatekeeper for '{}' vanished under lock_", db_name);
+  gk->seal();
+  db_handler_.DeferDelete(std::move(husk_name), std::move(husk_id), std::move(stop_step), std::move(post_delete_step));
+
+  // Announce the retired uuid. Placed after the point of no return (seal + DeferDelete): any earlier
+  // failure leaves the tenant HOT and unsealed, so a not-actually-dropped tenant never loses its rows.
+  NotifyUuidRetired_(*db_uuid, db_name);
 
   return {};  // Success
 }
@@ -1245,7 +1289,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // scheduler + async indexer) HERE — while the gatekeeper mutex is NOT held. finish_suspend() below
   // takes that mutex and holds it across ~Database -> ~InMemoryStorage, whose StopAllBackgroundTasks()
   // JOINS the TTL / async-indexer threads. Those threads call make_database_protector() ->
-  // DatabaseHandler::Get() -> Gatekeeper::access(), which blocks acquiring the very mutex finish_suspend()
+  // Gatekeeper::Ref::access(), which blocks acquiring the very mutex finish_suspend()
   // holds -> the join would deadlock (joiner holds the lock the joinee waits on). By stopping them now,
   // that in-destructor join is a no-op. The WAL-finalize-under-mutex suspend->resume directory handoff
   // that finish_suspend() protects is unaffected: only the thread joins move earlier; FinalizeWal still
@@ -1437,16 +1481,17 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       // pointer-aliases `fresh`'s not-yet-freed metrics (heap-UAF), or let DeleteCold_ remove_all() the
       // data dir while `fresh` still holds it open.
       auto rollback_to_cold = [&] {
-        acc.reset();  // drop our accessor: fresh.count_ -> 0
-        // ~Gatekeeper<Database> runs now (count==0, HOT => no wait): ~Database -> RemoveDatabase(uuid)
-        // + storage teardown complete.
+        acc.reset();  // drop our accessor
+        // ~Gatekeeper<Database> runs now: it seals `fresh`, so its background workers
+        // mint no new protectors, waits for the ones they hold to drain, then ~Database ->
+        // RemoveDatabase(uuid) + storage teardown complete.
         {
           auto dying = std::move(fresh);
         }
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
       };
       try {
-        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams/TTL re-arm)
+        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams re-arm)
         {
           // PUBLISH — move-assign the fresh HOT gatekeeper over the RESUMING shell, under lock_.
           // `acc` survives the move (it points at fresh's pimpl, which the unique_ptr move transfers
@@ -1459,7 +1504,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
           // cold entry carries no epoch to restore (cold-tenant epoch machinery was intentionally removed).
           auto it = suspended_.find(name);  // valid across the move below (it touches db_handler_, not suspended_)
           // Overwriting the RESUMING shell here is deadlock-free because Gatekeeper's move-assign tears
-          // the old state down via ~GKInternals (non-blocking), NOT the count-waiting ~Gatekeeper — see
+          // the old state down via ~GKInternals (which never waits), NOT the count-waiting ~Gatekeeper — see
           // the load-bearing note on Gatekeeper::operator=(Gatekeeper&&) in utils/gatekeeper.hpp.
           *gk = std::move(fresh);
           if (it != suspended_.end()) suspended_.erase(it);
@@ -1548,6 +1593,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       best_effort("recording the resume system action (may not replicate until the next system sync)", [&] {
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid, acc);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
+      });
+      best_effort("post-publish resume arm", [&] {
+        if (on_published_) on_published_(acc);
       });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
       if (already_hot) *already_hot = false;

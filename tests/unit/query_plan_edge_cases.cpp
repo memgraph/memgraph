@@ -234,3 +234,53 @@ TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
   EXPECT_EQ(results[0][0].ValueInt(), 1);
   EXPECT_EQ(results[1][0].ValueInt(), 0);
 }
+
+TYPED_TEST(QueryExecution, EqualityWithinOnePatternSurvivesAnUnrelatedPrecedingMatch) {
+  // An equality between two variables of one pattern constrains that pattern alone. Pairing it with a second
+  // pattern that matches once leaves the count unchanged.
+  this->Execute("CREATE (:Meta), ({v: 1})-[:R]->({v: 1})");
+
+  auto alone = this->Execute("MATCH (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
+  ASSERT_EQ(alone.size(), 1U);
+  ASSERT_EQ(alone[0][0].ValueInt(), 1);
+
+  auto with_preceding_match = this->Execute("MATCH (x:Meta) MATCH (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
+  ASSERT_EQ(with_preceding_match.size(), 1U);
+  EXPECT_EQ(with_preceding_match[0][0].ValueInt(), 1);
+
+  // Writing the two patterns as one clause is the same question.
+  auto as_one_clause = this->Execute("MATCH (x:Meta), (a)-->(b) WHERE a.v = b.v RETURN count(*) AS c");
+  ASSERT_EQ(as_one_clause.size(), 1U);
+  EXPECT_EQ(as_one_clause[0][0].ValueInt(), 1);
+}
+
+TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
+  // The stack of one expansion per depth is grown several times over by a walk this deep, and how
+  // far the walk has got into each depth has to survive that. Starting in the middle and going
+  // undirected makes each step away follow a relationship against its direction on one side and
+  // along it on the other, so the direction an edge was found in decides which end the walk
+  // arrives at. From an end of the path, uniqueness would reject the one backward relationship
+  // before its direction mattered.
+  constexpr auto kReach = 8;
+
+  this->Execute("CREATE (:P {id: 0})");
+  for (auto i = 1; i <= 2 * kReach; ++i) {
+    this->Execute("MATCH (prev:P {id: " + std::to_string(i - 1) +
+                  "}) CREATE (prev)-[:R]->(:P {id: " + std::to_string(i) + "})");
+  }
+
+  auto const results = this->Execute("MATCH (:P {id: 8})-[*1..8]-(other) RETURN other.id AS id ORDER BY id");
+
+  // Where the walk arrives, rather than how far it went. The lengths alone would be the same
+  // whichever end of a relationship the walk took, so they do not say that it took the right one.
+  auto expected = std::vector<int64_t>{};
+  for (auto id = int64_t{0}; id <= 2 * kReach; ++id) {
+    if (id != kReach) expected.push_back(id);
+  }
+
+  auto reached = std::vector<int64_t>{};
+  reached.reserve(results.size());
+  for (auto const &row : results) reached.push_back(row[0].ValueInt());
+
+  EXPECT_EQ(reached, expected);
+}

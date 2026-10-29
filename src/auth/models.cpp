@@ -1136,15 +1136,17 @@ void Databases::Deny(const std::string &db) {
   grants_dbs_.erase(db);
 }
 
-void Databases::Revoke(const std::string &db) {
-  denies_dbs_.erase(db);
+bool Databases::Revoke(const std::string &db) {
+  bool changed = denies_dbs_.erase(db) > 0;
   if (!allow_all_) {
-    grants_dbs_.erase(db);
+    changed |= grants_dbs_.erase(db) > 0;
   }
   // Reset if default deleted
   if (main_db_ == db) {
     main_db_ = "";
+    changed = true;
   }
+  return changed;
 }
 
 void Databases::GrantAll() {

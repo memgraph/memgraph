@@ -20,10 +20,12 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
+#include "auth/system_user.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/coordinator_state.hpp"
 #endif
 #include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -34,6 +36,7 @@
 #include "glue/coordinator_sso_authenticator.hpp"
 #endif
 #include "glue/communication.hpp"
+#include "glue/query_user.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -260,6 +263,7 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                                                  utils::Downcast<query::SettingQuery>(query) ||
                                                  utils::Downcast<query::VersionQuery>(query) ||
                                                  utils::Downcast<query::TransactionQueueQuery>(query) ||
+                                                 utils::Downcast<query::SessionQuery>(query) ||
                                                  utils::Downcast<query::UseDatabaseQuery>(query) ||
                                                  utils::Downcast<query::ShowDatabaseQuery>(query) ||
                                                  utils::Downcast<query::ShowDatabasesQuery>(query) ||
@@ -304,42 +308,59 @@ void SessionHL::TryDefaultDB() {
 std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
                                                                               const std::string &password) {
   interpreter_.ResetUser();
-  {
-    auto locked_auth = auth_->Lock();
-    if (locked_auth->AccessControlled()) {
-      auto const user_or_role = std::invoke([&]() -> std::optional<auth::UserOrRole> {
-        try {
-          return locked_auth->Authenticate(username, password);
-        } catch (const auth::AuthException &e) {
-          spdlog::warn("Couldn't authenticate user '{}': {}", username, e.what());
-          return std::nullopt;
-        }
-      });
-      if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
-      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
-      DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
+  switch (auth::AuthenticateInternalSystemUser(username, password)) {
+    case auth::InternalSystemUserLogin::kAccepted:
+      // Unrestricted, like a session on an instance without users. The principal has no name; SHOW SESSIONS, the audit
+      // log and the query logs get it from the session info set below.
+      session_user_or_role_ = std::make_shared<QueryUserOrRole>(QueryUserOrRole::InternalSystemUser(auth_));
 #ifdef MG_ENTERPRISE
-      // Setup user-related resource monitoring
-      user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for the system user */});
+#else
+      interpreter_.SetUser(session_user_or_role_);
+#endif
+      interpreter_.SetSessionInfo(UUID(), std::string{auth::kInternalSystemUsername}, GetLoginTimestamp());
+      TryDefaultDB();
+      return {};
+    case auth::InternalSystemUserLogin::kRejected:
+      return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+    case auth::InternalSystemUserLogin::kNotInternal:
+      break;
+  }
+  bool const access_controlled = auth_->ReadLock()->AccessControlled();
+  // Auth lock is not held past this point; bcrypt and module calls run outside the lock.
+  if (access_controlled) {
+    auto const user_or_role = std::invoke([&]() -> std::optional<auth::UserOrRole> {
       try {
-        interpreter_.SetUser(session_user_or_role_, user_resource_);
-      } catch (const auth::AuthException & /*unused*/) {
-        return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
+        return auth::Authenticate(*auth_, username, password);
+      } catch (const auth::AuthException &e) {
+        spdlog::warn("Couldn't authenticate user '{}': {}", username, e.what());
+        return std::nullopt;
       }
-#else
-      interpreter_.SetUser(session_user_or_role_);
-#endif
-      interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
-    } else {
-      // No access control -> give empty user
-      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+    });
+    if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
+    session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
+    DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 #ifdef MG_ENTERPRISE
-      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
-#else
-      interpreter_.SetUser(session_user_or_role_);
-#endif
-      interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
+    // Setup user-related resource monitoring
+    user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+    try {
+      interpreter_.SetUser(session_user_or_role_, user_resource_);
+    } catch (const auth::AuthException & /*unused*/) {
+      return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
     }
+#else
+    interpreter_.SetUser(session_user_or_role_);
+#endif
+    interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
+  } else {
+    // No access control -> give empty user
+    session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+#ifdef MG_ENTERPRISE
+    interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
+#else
+    interpreter_.SetUser(session_user_or_role_);
+#endif
+    interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
   }
 
   TryDefaultDB();
@@ -350,9 +371,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
     const std::string &scheme, const std::string &identity_provider_response) {
   interpreter_.ResetUser();
 
-  auto locked_auth = auth_->Lock();
-
-  const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
+  const auto user_or_role = auth::SSOAuthenticate(*auth_, scheme, identity_provider_response);
   if (!user_or_role) {
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
   }
@@ -407,8 +426,7 @@ std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
 
   auto module_runner = [this](std::string const &sso_scheme,
                               std::string const &response) -> std::optional<auth::SSOIdentity> {
-    auto locked_auth = auth_->Lock();
-    return locked_auth->SSOGetIdentity(sso_scheme, response);
+    return auth::SSOGetIdentity(*auth_, sso_scheme, response);
   };
 
   CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
@@ -452,6 +470,24 @@ std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
   return {};
 }
 
+std::optional<bool> SessionHL::CoordinatorInternalSystemUserAuthenticate(const std::string &username,
+                                                                         const std::string &password) {
+  switch (auth::AuthenticateInternalSystemUser(username, password)) {
+    case auth::InternalSystemUserLogin::kNotInternal:
+      return std::nullopt;
+    case auth::InternalSystemUserLogin::kRejected:
+      return false;
+    case auth::InternalSystemUserLogin::kAccepted:
+      break;
+  }
+  // Role-less, so the login-time mask is authoritative: full coordinator privileges, independent of the role set.
+  interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                                        static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
+  interpreter_.SetCoordinatorRoles({});
+  interpreter_.SetSessionInfo(UUID(), std::string{auth::kInternalSystemUsername}, GetLoginTimestamp());
+  return true;
+}
+
 void SessionHL::CoordinatorPassthroughAuthenticate() {
   interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
                                         static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
@@ -481,12 +517,20 @@ std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {
 
 void SessionHL::LogOff() {
   Abort();
+  // LOGOFF is the identity boundary on a pooled connection: session state set by the previous user
+  // must not reach the next LOGON. The RuntimeConfig cache is also dropped because matching
+  // run_time_info metadata would skip Configure() and carry over the prior user's db/imp_user.
+  interpreter_.ResetForConnectionReuse();
 #ifdef MG_ENTERPRISE
+  runtime_config_.ResetForConnectionReuse();
   interpreter_.ResetDB();
   // Defense-in-depth: a logged-off session carries no coordinator privileges until the next LOGON re-establishes
   // them (SSO or basic passthrough).
   interpreter_.SetCoordinatorPrivileges(0);
   interpreter_.SetCoordinatorRoles({});
+  // A LOGON without a stored user (the internal system user, or no access control) doesn't set it, and Configure would
+  // otherwise charge that session to the previous user's limits.
+  user_resource_.reset();
 #endif
   interpreter_.ResetUser();
   session_user_or_role_.reset();
@@ -742,6 +786,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
+    runtime_config_.OnUseDatabase();
   });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
@@ -783,21 +828,27 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 }
 
 #ifdef MG_ENTERPRISE
+bool RuntimeConfig::BoundDbMatches(const bolt_map_t &run_time_info) const {
+  const auto it = run_time_info.find("db");
+  // On a cache hit, a database chosen with USE is kept even when it is no longer live.
+  if (it == run_time_info.end() && db_selected_by_use_) return true;
+  const auto &db_acc = session_->interpreter_.current_db_.db_acc_;
+  if (!db_acc || db_acc->is_marked_for_deletion()) return false;
+  if (it == run_time_info.end()) return true;
+  if (!it->second.IsString()) return false;
+  return *db_acc->get()->name_view() == it->second.ValueString();
+}
+
 void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
-  if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
-
-  session_->interpreter_.ResetCachedFga();
-
-  db_explicit_ = false;
-  user_explicit_ = false;
+  if (in_explicit_tx) return;
+  if (previous_run_time_info_ && run_time_info == *previous_run_time_info_ && BoundDbMatches(run_time_info)) return;
 
   // Step 1: Handle user configuration first
   // NOTE: This must be called first because it defines the default database for the user
   std::shared_ptr<query::QueryUserOrRole> user;
   if (run_time_info.contains("imp_user")) {
-    user_explicit_ = true;
     const auto &info = run_time_info.at("imp_user");
     if (!info.IsString()) {
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
@@ -808,9 +859,10 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   }
 
   // Step 2: Handle database configuration with consideration for user impersonation
+  bool db_explicit = false;
   std::optional<std::string> defined_db;
   if (run_time_info.contains("db")) {
-    db_explicit_ = true;
+    db_explicit = true;
     const auto &info = run_time_info.at("db");
     if (!info.IsString()) {
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
@@ -829,40 +881,38 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     }
   }
 
-  // Handle user impersonation (check privileges based on target database)
+  // Validate everything before mutating the session, so a failure leaves it untouched.
   if (user) {
-    spdlog::trace("Trying to impersonate user '{}' on database '{}'...",
-                  user->username().value_or("----"),
-                  defined_db.value_or("----"));
-    // Check impersonation privileges with the target database
+    spdlog::trace(
+        "Trying to impersonate user '{}' on database '{}'...", user->username().value_or("----"), *defined_db);
     ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), defined_db);
-    // Setup user-related resource monitoring
-    auto user_resource = ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring);
-    session_->interpreter_.SetUser(user, std::move(user_resource));
-    session_->TryDefaultDB();
-  } else {
-    // Set our default user/role
-    session_->interpreter_.SetUser(session_->session_user_or_role_, session_->user_resource_);
-    session_->TryDefaultDB();
   }
+  const auto &target = user ? user : session_->session_user_or_role_;
+  MultiDatabaseAuth(target.get(), *defined_db);
 
-  // Handle database configuration (check access with current user)
-  if (defined_db) {  // Db connection
-    MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
+  auto db_acc = [&]() -> std::optional<memgraph::dbms::DatabaseAccess> {
     try {
-      session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
-    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
-      // The explicitly-requested database is known but currently suspended
-      // (cold). Retrying will not help — surface as ClientError so the driver
-      // does not treat this as a transient failure.
+      return session_->interpreter_context_->dbms_handler->Get(*defined_db);
+    } catch (const memgraph::dbms::UnknownDatabaseException &e) {
+      // ClientError, as a plain BasicException would reach the driver as a retryable Transient. An unchanged request
+      // without db/imp_user whose home db is gone behaves as a cache hit; Prepare releases the db (ReleaseDbIfMarked).
+      if (!db_explicit && !user && previous_run_time_info_ && run_time_info == *previous_run_time_info_) {
+        return std::nullopt;
+      }
       throw memgraph::communication::bolt::ClientError(e.what());
     }
-  } else {  // Non-db connection
-    session_->interpreter_.ResetDB();
-  }
+  }();
+  if (!db_acc) return;
 
-  // Update the previous run_time_info for next comparison
+  auto resource =
+      user ? ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring) : session_->user_resource_;
+  session_->interpreter_.SetUser(target, std::move(resource));
+  // The session changes from here on; a failure below must not leave the old entry cached.
+  previous_run_time_info_.reset();
+  session_->interpreter_.SetCurrentDB(std::move(*db_acc), db_explicit);
+
   previous_run_time_info_ = run_time_info;
+  db_selected_by_use_ = false;
 }
 #endif
 }  // namespace memgraph::glue

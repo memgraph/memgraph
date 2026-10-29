@@ -2408,13 +2408,18 @@ def test_show_instance(test_name):
     res = execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCE")
     assert res == [("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "leader")]
 
+    # Followers learn their bolt server from a log entry that may commit on them after the leader returns.
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    res = execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCE")
-    assert res == [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "follower")]
+    mg_sleep_and_assert(
+        [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "follower")],
+        partial(execute_and_fetch_all, coord_cursor_1, "SHOW INSTANCE"),
+    )
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
-    res = execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCE")
-    assert res == [("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "follower")]
+    mg_sleep_and_assert(
+        [("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "follower")],
+        partial(execute_and_fetch_all, coord_cursor_2, "SHOW INSTANCE"),
+    )
 
     data_1_cursor = connect(host="localhost", port=7687).cursor()
     with pytest.raises(Exception) as e:

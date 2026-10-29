@@ -78,7 +78,7 @@ def cleanup(memgraph):
             os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False
-        time.sleep(1)
+        memgraph.wait(timeout=30)
 
 
 def execute_without_user(queries, should_fail=False, failure_message="", check_failure=True):
@@ -127,7 +127,7 @@ def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     return_to_prev_state = {}
     if "MEMGRAPH_USER" in os.environ:
         return_to_prev_state["MEMGRAPH_USER"] = os.environ["MEMGRAPH_USER"]
-        del os.environ["MG_USER"]
+        del os.environ["MEMGRAPH_USER"]
     if "MEMGRAPH_PASSWORD" in os.environ:
         return_to_prev_state["MEMGRAPH_PASSWORD"] = os.environ["MEMGRAPH_PASSWORD"]
         del os.environ["MEMGRAPH_PASSWORD"]

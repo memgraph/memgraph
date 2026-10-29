@@ -521,7 +521,7 @@ TEST_F(VersioningBranchEngineTest, DeleteForkEdgeHiddenPerViewThenCommitted) {
   auto m_res = hist_m->OutEdges(ms::View::OLD);
   ASSERT_TRUE(m_res.has_value());
   ASSERT_EQ(m_res->edges.size(), 2u);
-  std::vector<ms::EdgeAccessor> m_edges = m_res->edges;
+  std::vector<ms::EdgeAccessor> m_edges(m_res->edges.begin(), m_res->edges.end());
   std::ranges::sort(m_edges, [](const auto &l, const auto &r) { return l.Gid() > r.Gid(); });
   ASSERT_TRUE(m_edges[0].Gid() > m_edges[1].Gid());
   EXPECT_FALSE(fork_loop.MaybeBranchedHint()) << "an untouched fork edge is not branched";

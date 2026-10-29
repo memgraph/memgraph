@@ -19,10 +19,11 @@
 /// answer Null. No pair raises: incomparability is an answer the relation gives
 /// rather than a question it refuses.
 ///
-/// A list is among the values it does not place. Placing one means ordering it
-/// by its elements, and an index scan standing in for a filter over a list
-/// column orders by what the store holds, which is not that order. Until the
-/// two agree, the same query would answer differently once an index existed.
+/// Lists compare lexicographically: the first unequal element decides, and a
+/// shorter prefix sorts first. An undecided element pair makes the lists
+/// undecided, so `[1, 2] >= [1, null]` is Null, while `[1] < [1, null]` is true
+/// because the null is never compared. A NaN element also makes them undecided:
+/// `[1] < [NaN]` is Null, although `1 < NaN` is false.
 #pragma once
 
 #include <cmath>
@@ -37,11 +38,11 @@ namespace memgraph::query::relations::comparability {
 /**
  * Whether comparability places values of a type at all.
  *
- * This is the same set ComparePayload answers for. Neither switch names a
- * default, so a type added to the enumeration fails to compile in both rather
- * than silently gaining an answer in one.
+ * This is the same set Compare answers for: ComparePayload's, plus List. Neither
+ * switch names a default, so a type added to the enumeration fails to compile in
+ * both rather than silently gaining an answer in one.
  */
-constexpr bool Admits(TypedValue::Type type) {
+constexpr bool ValidFor(TypedValue::Type type) {
   switch (type) {
     using enum TypedValue::Type;
     case Bool:
@@ -53,13 +54,13 @@ constexpr bool Admits(TypedValue::Type type) {
     case LocalDateTime:
     case ZonedDateTime:
     case Duration:
+    case List:  // compared by CompareOfLists, not ComparePayload
       return true;
 
     case Null:
     case Enum:
     case Point2d:
     case Point3d:
-    case List:
     case Map:
     case Vertex:
     case Edge:
@@ -73,26 +74,52 @@ constexpr bool Admits(TypedValue::Type type) {
   }
 }
 
+/// Lexicographic order: the first unequal element decides; a shorter prefix sorts first.
+/// Never answers `unordered`: a NaN element leaves the lists undecided.
+/// Out of line: Compare recurses through it for nested lists, and a self-recursive
+/// Compare would not be inlined into the comparison operators.
+/// Takes the vectors so both arguments are lists by type.
+std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
+
 /**
  * Whether comparability places a value against the values of its own type.
  *
- * Admitting a type is not enough to say this, because one admitted type holds a
+ * A type being valid is not enough to say this, because one admitted type holds a
  * value with no order: a NaN is unordered against every number and against
  * itself, so all four comparisons answer false for a pair holding one and a
- * filter keeps no row. Ask this of a value a scan is about to be fenced by,
- * since a band drawn around a value the relation cannot place holds whatever
- * the stored order happens to put there.
+ * filter keeps no row.
  */
-inline bool Places(const TypedValue &value) {
-  if (!Admits(value.type())) return false;
+inline bool ValidFor(const TypedValue &value) {
+  if (!ValidFor(value.type())) return false;
   return value.type() != TypedValue::Type::Double || !std::isnan(value.UnsafeValueDouble());
+}
+
+/**
+ * Whether an index range bounded by this value returns exactly the rows the filter keeps.
+ *
+ * False for a list. The index sorts `[1, null]` above `[1, 2]`, but the filter
+ * `> [1, 2]` answers Null for it and drops it. Rows kept and dropped interleave
+ * on the same side of the bound, so no range separates them; the scan must
+ * evaluate the comparison per row instead.
+ *
+ * False for a value ValidFor rejects, such as NaN: every comparison against it
+ * fails, while the index still places it somewhere.
+ */
+inline bool AnIndexCanFence(const TypedValue &bound) {
+  return ValidFor(bound) && bound.type() != TypedValue::Type::List;
+}
+
+/// The same question where the type is already known at compile time.
+template <TypedValue::Type T>
+constexpr bool ValidFor() {
+  return ValidFor(T);
 }
 
 /**
  * Orders two values of one type by what they hold, for the types
  * comparability admits.
  *
- * Nothing is returned for a type it does not admit, which is every type
+ * Nothing is returned for a type it is not valid for, which is every type
  * carrying no order of its own plus enums and the two point types, which
  * orderability places and this relation does not.
  *
@@ -163,6 +190,9 @@ inline bool Places(const TypedValue &value) {
 inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const TypedValue &b) {
   // Two values of one admitted type are the common case and the whole answer.
   if (a.type() == b.type()) {
+    // A list compares by its elements, which ComparePayload cannot do.
+    if (a.type() == TypedValue::Type::List) return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
+
     if (auto const order = ComparePayload(a, b)) return order;
 
     // A Null orders against nothing, itself included, and a type carrying no
@@ -202,9 +232,9 @@ namespace memgraph::query {
 // Each answers true, false or Null, carrying the memory resource its left
 // operand was allocated from. Null is the answer wherever the relation has none
 // to give, which is a Null operand, a pair of unlike types, and a pair of one
-// type that carries no order of its own. A NaN has no order against anything,
-// itself included, so all four answer false for a pair holding one. None of
-// them raises.
+// type that carries no order of its own. A scalar NaN has no order against
+// anything, itself included, so all four answer false for a pair holding one;
+// inside a list it makes the pair Null. None of them raises.
 
 inline TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   return relations::comparability::FromComparison(

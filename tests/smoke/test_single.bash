@@ -66,14 +66,15 @@ if [[ "$MODE" != "fips" ]]; then
   test_kerberos_auth_setup
   test_kerberos_auth
 else
-  echo "SKIP FEATURE: Kerberos SSO (its auth module is Python, absent from the FIPS image)"
+  echo "SKIP FEATURE: Kerberos SSO (MG_FIPS omits kerberos.py: Ubuntu krb5 does its own crypto, not the validated OpenSSL)"
 fi
 
 # Refusing to start on a non-approved password algorithm is a startup-time
 # guarantee, so it needs its own container rather than the running one.
 if [[ "$MODE" == "fips" ]]; then
   test_fips_refuses_non_approved_algorithm
-  test_fips_requires_enterprise_licence
+  test_fips_unlicensed_accepts_only_license_settings
+  test_fips_unlicensed_refuses_init_queries
 fi
 
 # End timing and calculate execution time

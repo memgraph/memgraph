@@ -212,6 +212,9 @@ class PrometheusMetrics {
     /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
     void Rebind(utils::UUID const &new_uuid);
 
+    /// Presents this entry under `new_name`. The metric objects and the handles into them stay put.
+    void Rename(std::string_view new_name);
+
    private:
     friend class PrometheusMetrics;
 
@@ -226,7 +229,13 @@ class PrometheusMetrics {
   };
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
-  void RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Relabels the default database's entry onto @p new_uuid. The metric objects stay put, so
+  /// every outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
+  DatabaseMetricHandles RebindDefaultDatabaseUUID(utils::UUID const &new_uuid);
+
+  /// Refresh any gauges whose values are pulled from current storage state,
+  /// rather than updated at point of use.
   void UpdateGauges();
 
   /// Thread-safe update of the global peak_memory_res_bytes gauge.
@@ -259,7 +268,10 @@ class PrometheusMetrics {
 
   nlohmann::json GetTelemetryCounters() const;
 
-  prometheus::Registry &registry() { return registry_; }
+  /// Collects every family for a scrape, substituting each per-database entry's current name and uuid
+  /// for the internal entry-id label. This is the only way out of the registry, because the entry-id label
+  /// keys the families internally and must never be exposed.
+  std::vector<prometheus::MetricFamily> CollectForScrape();
 
   GlobalMetricHandles global;
 
@@ -268,6 +280,11 @@ class PrometheusMetrics {
     // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
     // change while registrations are outstanding.
     uint64_t id;
+    // Substituted into the scrape output by CollectForScrape. AddDatabase matches on both to share an
+    // entry, and UpdateGauges and GetDbMetricsInfo find the entry by uuid. The default database's uuid
+    // changes when the instance joins a cluster, and a tenant's name changes on rename. The metric
+    // objects must outlive both changes, so they are presented at collection time rather than baked
+    // into the family key.
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
@@ -280,6 +297,14 @@ class PrometheusMetrics {
   void ReleaseRegistration(uint64_t entry_id);
 
   void RebindRegistration(uint64_t entry_id, utils::UUID const &new_uuid);
+
+  void RenameRegistration(uint64_t entry_id, std::string_view new_name);
+
+  // Caller must hold databases_.mutex.
+  DatabaseMetricHandles CreateHandles(uint64_t entry_id);
+  void RemoveHandlesFromFamilies(DatabaseMetricHandles const &h);
+  void RemoveEntryAt(std::list<DatabaseEntry>::iterator it);
+  DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
@@ -366,6 +391,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &indexed_join_operator_family_;
   prometheus::Family<prometheus::Counter> &hash_join_operator_family_;
   prometheus::Family<prometheus::Counter> &roll_up_apply_operator_family_;
+  prometheus::Family<prometheus::Counter> &conditional_operator_family_;
   prometheus::Family<prometheus::Counter> &periodic_commit_operator_family_;
   prometheus::Family<prometheus::Counter> &periodic_subquery_operator_family_;
   prometheus::Family<prometheus::Counter> &set_nested_property_operator_family_;

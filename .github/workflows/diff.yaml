@@ -72,6 +72,10 @@ on:
         type: string
         default: ''
         description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
+      profile_build:
+        type: boolean
+        default: false
+        description: "Profile every memgraph build"
   workflow_call:
     inputs:
       community_core:
@@ -138,6 +142,10 @@ on:
         type: string
         default: ''
         description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
+      profile_build:
+        type: boolean
+        default: false
+        description: "Profile every memgraph build"
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -187,6 +195,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
     secrets: inherit
 
   Coverage:
@@ -200,6 +209,7 @@ jobs:
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
     secrets: inherit
 
   Debug:
@@ -213,6 +223,7 @@ jobs:
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
     secrets: inherit
 
   Jepsen:
@@ -221,6 +232,7 @@ jobs:
     with:
       ref: ${{ inputs.ref || github.ref }}
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
+      profile_build: ${{ inputs.profile_build == true }}
     secrets: inherit
 
   Release:
@@ -236,6 +248,7 @@ jobs:
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       python_build_version: ${{ inputs.python_build_version }}
       python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
     secrets: inherit
 
   Mage:

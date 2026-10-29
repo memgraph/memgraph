@@ -10,6 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+
+#include <algorithm>
+#include <iterator>
+#include <variant>
+
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -18,6 +23,7 @@
 #include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
 #include "range/v3/all.hpp"
 namespace r = ranges;
@@ -396,12 +402,18 @@ constexpr utils::TypeInfo query::TransactionQueueQuery::kType{.id = utils::TypeI
                                                               .name = "TransactionQueueQuery",
                                                               .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::SessionQuery::kType{
+    .id = utils::TypeId::AST_SESSION_QUERY, .name = "SessionQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::SubqueryExpression::kType{.id = utils::TypeId::AST_SUBQUERY_EXPRESSION,
                                                            .name = "SubqueryExpression",
                                                            .superclass = &query::Expression::kType};
 
 constexpr utils::TypeInfo query::CallSubquery::kType{
     .id = utils::TypeId::AST_CALL_SUBQUERY, .name = "CallSubquery", .superclass = &query::Clause::kType};
+
+constexpr utils::TypeInfo query::ConditionalBranches::kType{
+    .id = utils::TypeId::AST_CONDITIONAL_BRANCHES, .name = "ConditionalBranches", .superclass = &query::Clause::kType};
 
 constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{
     .id = utils::TypeId::AST_MULTI_DATABASE_QUERY, .name = "MultiDatabaseQuery", .superclass = &query::Query::kType};

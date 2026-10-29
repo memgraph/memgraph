@@ -79,3 +79,13 @@ TEST_F(GetDirDiskUsageTest, IgnoresSymlinksByDefault) {
 
   EXPECT_EQ(memgraph::utils::GetDirDiskUsage(scan_dir), 0U);
 }
+
+TEST_F(GetDirDiskUsageTest, DiskAvailableReportsFilesystemSpace) {
+  const auto available = memgraph::utils::GetDiskAvailable(root_);
+  ASSERT_TRUE(available.has_value());
+  EXPECT_LE(*available, static_cast<uint64_t>(std::filesystem::space(root_).capacity));
+}
+
+TEST_F(GetDirDiskUsageTest, DiskAvailableNonExistentPathReturnsNullopt) {
+  EXPECT_FALSE(memgraph::utils::GetDiskAvailable(root_ / "does_not_exist").has_value());
+}

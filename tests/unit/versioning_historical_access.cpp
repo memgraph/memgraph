@@ -429,6 +429,81 @@ TEST_F(VersioningHistoricalAccessGcTest, GcFloorIsOldestPinAndAdvancesWhenOlderP
   EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
 }
 
+// Full GC under a live fork pin must not sweep the vertex deltas or the label+property index entries that the
+// fork-state needs: every GC horizon (unlink gate, chain trim, index sweep) is clamped to the oldest pin.
+TEST_F(VersioningHistoricalAccessGcTest, FullGcUnderForkPinKeepsForkStateVisibleAndIndexed) {
+  namespace st = memgraph::storage;
+  auto *mem_storage = static_cast<st::InMemoryStorage *>(storage.get());
+  const auto label = storage->NameToLabel("Person");
+  const auto age_prop = storage->NameToProperty("age");
+
+  {
+    auto index_acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(index_acc->CreateIndex(label, {st::PropertyPath{age_prop}}, st::IndexOrder::ASC).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  st::Gid v10_gid;
+  st::Gid v20_gid;
+  {
+    auto acc = storage->Access(st::WRITE);
+    auto v10 = acc->CreateVertex();
+    ASSERT_TRUE(v10.AddLabel(label).has_value());
+    ASSERT_TRUE(v10.SetProperty(age_prop, st::PropertyValue(10)).has_value());
+    v10_gid = v10.Gid();
+    auto v20 = acc->CreateVertex();
+    ASSERT_TRUE(v20.AddLabel(label).has_value());
+    ASSERT_TRUE(v20.SetProperty(age_prop, st::PropertyValue(20)).has_value());
+    v20_gid = v20.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  {
+    auto acc = storage->Access(st::WRITE);
+    auto v10 = acc->FindVertex(v10_gid, st::View::OLD);
+    ASSERT_TRUE(v10.has_value());
+    ASSERT_TRUE(v10->SetProperty(age_prop, st::PropertyValue(999)).has_value());
+    auto v20 = acc->FindVertex(v20_gid, st::View::OLD);
+    ASSERT_TRUE(v20.has_value());
+    ASSERT_TRUE(acc->DetachDeleteVertex(&*v20).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+
+  auto historical = mem_storage->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  {
+    auto &hist_acc = **historical;
+
+    auto v10 = hist_acc.FindVertex(v10_gid, st::View::OLD);
+    ASSERT_TRUE(v10.has_value());
+    auto prop = v10->GetProperty(age_prop, st::View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    EXPECT_EQ(*prop, st::PropertyValue(10)) << "GC must keep the pre-fork property value";
+    EXPECT_TRUE(hist_acc.FindVertex(v20_gid, st::View::OLD).has_value())
+        << "GC must keep the vertex that was deleted after the fork";
+
+    std::vector<int64_t> ages;
+    for (auto v : hist_acc.Vertices(label,
+                                    std::array{st::PropertyPath{age_prop}},
+                                    std::array{st::PropertyValueRange::IsNotNull()},
+                                    st::View::OLD,
+                                    st::IndexOrder::ASC)) {
+      auto p = v.GetProperty(age_prop, st::View::OLD);
+      ASSERT_TRUE(p.has_value());
+      ages.push_back(p->ValueInt());
+    }
+    EXPECT_THAT(ages, ::testing::ElementsAre(10, 20)) << "GC must not sweep index entries the fork still needs";
+  }
+  historical->reset();
+  mem_storage->ReleaseForkPin(fork_ts);
+}
+
 // Pre-fork ages are created out of order (gid order != age order); the post-fork edit (20->999),
 // create (5) and delete (40) must not leak. A fresh storage per order because DESC needs its own index.
 TEST(VersioningHistoricalAccess, HistoricalLabelPropertyIndexScanReturnsForkStateInIndexOrder) {
@@ -565,7 +640,7 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
     auto out_edges = a->OutEdges(ms::View::OLD, {knows_type});
     ASSERT_TRUE(out_edges.has_value());
     bool deleted_ab = false;
-    for (auto &edge : out_edges->edges) {
+    for (auto edge : out_edges->edges) {
       if (edge.ToVertex().Gid() == b_gid) {
         ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
         deleted_ab = true;

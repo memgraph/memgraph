@@ -9,8 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/resource.h>
+
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -25,6 +29,7 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
+#include "auth/system_user.hpp"
 #include "communication/cluster_tls.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
@@ -32,6 +37,7 @@
 #include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -70,12 +76,14 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/nofile_limit.hpp"
 #include "utils/page_cache_releaser.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -89,6 +97,7 @@
 #include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
@@ -103,6 +112,7 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 524'288;
+constexpr uint64_t kMgMinOpenFiles = 65'536;
 
 void WarnDeprecatedFlags() {
   [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
@@ -245,6 +255,10 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
   auto const mg_db_tmp = data_directory / "tmp";
   spdlog::trace("Deleting dir: {}", mg_db_tmp);
   memgraph::utils::DeleteDir(mg_db_tmp);
+  // Main copies the current WAL here before sending it to a replica; a crash mid-transfer leaves the copy behind.
+  auto const mg_db_repl_tmp = data_directory / memgraph::storage::durability::kReplicationTmpDirectory;
+  spdlog::trace("Deleting dir: {}", mg_db_repl_tmp);
+  memgraph::utils::DeleteDir(mg_db_repl_tmp);
   // Optionally clean .old directories if flag set to false
   if (!FLAGS_storage_backup_dir_enabled) {
     // Delete .old for snapshots of the default db
@@ -261,6 +275,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
   std::error_code ec;
   for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
     memgraph::utils::DeleteDir(db.path() / "tmp");
+    memgraph::utils::DeleteDir(db.path() / memgraph::storage::durability::kReplicationTmpDirectory);
     if (!FLAGS_storage_backup_dir_enabled) {
       auto const db_snp_old = db.path() / "snapshots" / ".old";
       auto const db_wal_old = db.path() / "wal" / ".old";
@@ -286,6 +301,9 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
+
+  // Raise before startup opens files (Python init, recovery).
+  const auto nofile_result = memgraph::utils::RaiseNoFileSoftLimit();
 
   // Publish worker count early so allocators can pre-size thread-local structures
   memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
@@ -454,15 +472,49 @@ int main(int argc, char **argv) {
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
+  // Logged as an error as well as printed: once the process reaches the limit, the allocator can no longer return
+  // memory to the OS and resident memory only grows, and the log is what reaches log collectors.
   const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
   if (vm_max_map_count) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
-      std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
-                << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
+      auto const message =
+          fmt::format("Max virtual memory areas vm.max_map_count {} is too low, increase to at least {}",
+                      vm_max_map_count.value(),
+                      kMgVmMaxMapCount);
+      std::cout << message << '\n';
+      spdlog::error("{}", message);
     }
   } else {
-    std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
-              << kMgVmMaxMapCount << std::endl;
+    auto const message =
+        fmt::format("Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least {}",
+                    kMgVmMaxMapCount);
+    std::cout << message << '\n';
+    spdlog::warn("{}", message);
+  }
+
+  if (nofile_result) {
+    const auto &nofile = nofile_result->limit;
+    const auto fmt_limit = [](rlim_t v) { return v == RLIM_INFINITY ? std::string{"unlimited"} : std::to_string(v); };
+    spdlog::info(
+        "Open files limit (RLIMIT_NOFILE): soft {}, hard {}.", fmt_limit(nofile.rlim_cur), fmt_limit(nofile.rlim_max));
+    if (nofile_result->raise_errno != 0) {
+      spdlog::warn("Failed to raise the soft open files limit (RLIMIT_NOFILE): {} ({}).",
+                   std::strerror(nofile_result->raise_errno),
+                   nofile_result->raise_errno);
+    }
+    if (nofile.rlim_cur < kMgMinOpenFiles) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Open files limit is too low (soft {}, hard {}), increase it to at least {} (systemd LimitNOFILE, docker "
+          "--ulimit nofile; the limit cannot exceed fs.nr_open). Connections and storage files will fail with "
+          "\"Too many open files\" once it is exhausted.",
+          fmt_limit(nofile.rlim_cur),
+          fmt_limit(nofile.rlim_max),
+          kMgMinOpenFiles,
+          "https://memgraph.com/docs/database-management/"
+          "system-configuration#handle-numerous-open-files-simultaneously"));
+    }
+  } else {
+    spdlog::warn("Can't get info on the open files limit (RLIMIT_NOFILE).");
   }
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
@@ -512,13 +564,31 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // FIPS mode engages much earlier (it has to precede the first SSL context and
   // password hash), but the license cannot be evaluated until here — it may come
-  // from settings, which need the data directory. Both are still well before the
-  // Bolt server starts, so no traffic is ever served in approved mode without a
-  // valid licence.
+  // from settings, which need the data directory. An unlicensed instance still
+  // starts, because the license may only arrive over Bolt (a Kubernetes operator
+  // delivers it that way, so a fresh pod has none at startup), but until it does
+  // the interpreter accepts nothing except the license info, reading the
+  // settings and setting the license and organization name, so no data is
+  // served in approved mode without a valid licence.
   if (FLAGS_fips_mode) {
     if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
-      memgraph::utils::FailStartup(memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
-                                   memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"));
+      // The init queries run once, below, before a license can arrive over Bolt, so every one of them would be refused
+      // and lost -- users an init file creates among them, leaving the instance open once it is licensed.
+      if (!FLAGS_init_file.empty() || !FLAGS_init_data_file.empty() || std::getenv(kMgHaClusterInitQueries)) {
+        memgraph::utils::FailStartup(
+            memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
+            fmt::format("The init queries (--init-file, --init-data-file, {}) run at startup, before a license can "
+                        "be set over Bolt. Provide the license at startup (--license-key and --organization-name, or "
+                        "MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME), or start without the init "
+                        "queries.",
+                        kMgHaClusterInitQueries));
+      }
+      spdlog::warn(
+          "{}\nUntil a valid license is set, only SHOW LICENSE INFO, SHOW DATABASE SETTINGS, SET DATABASE SETTING '{}' "
+          "and SET DATABASE SETTING '{}' are accepted.",
+          memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"),
+          memgraph::license::kOrganizationNameSettingKey,
+          memgraph::license::kEnterpriseLicenseSettingKey);
     }
   }
 #endif
@@ -580,6 +650,8 @@ int main(int argc, char **argv) {
                      .release_sent_snapshot_page_cache = FLAGS_storage_release_sent_snapshot_page_cache,
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
+      .experimental_commit_lock_narrowing =
+          memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING),
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
@@ -720,11 +792,11 @@ int main(int argc, char **argv) {
 #else
         if (maybe_username && maybe_password) {
 #endif
-          ah->CreateUser(maybe_username, maybe_password, nullptr);
+          ah->CreateUser(maybe_username, maybe_password, nullptr, nullptr);
         } else if (maybe_pass_file) {
           const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
           if (!username.empty() && !password.empty()) {
-            ah->CreateUser(username, password, nullptr);
+            ah->CreateUser(username, password, nullptr, nullptr);
           }
         }
       };
@@ -748,7 +820,54 @@ int main(int argc, char **argv) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
     return EXIT_FAILURE;
   }
-  auth_glue(auth_.get(), auth_handler, auth_checker);
+  try {
+    auth_glue(auth_.get(), auth_handler, auth_checker);
+  } catch (std::exception const &e) {
+    spdlog::error(
+        "Couldn't create the user given by {} or {}, shutting down Memgraph. {}", kMgUser, kMgPassfile, e.what());
+    return EXIT_FAILURE;
+  }
+
+  // Only a version from before the name was reserved can have stored a user or role under it. Coordinators keep their
+  // roles in the Raft state, not the auth store, and are checked once that is restored.
+  if (!is_coordinator_instance) {
+    auto const reserved_name = std::string{memgraph::auth::kInternalSystemUsername};
+    auto const stored_kind = std::invoke([&]() -> std::optional<std::string_view> {
+      auto const locked = auth_->ReadLock();
+      if (locked->GetUser(reserved_name)) return "user";
+      if (locked->GetRole(reserved_name)) return "role";
+      return std::nullopt;
+    });
+    if (stored_kind) {
+      if (!FLAGS_system_user_internal_hash_file.empty()) {
+        spdlog::error(
+            "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Rename the "
+            "stored {} (create one under another name with the same privileges and drop this one) or leave "
+            "--system-user-internal-hash-file empty. Shutting down Memgraph.",
+            *stored_kind,
+            reserved_name,
+            *stored_kind);
+        return EXIT_FAILURE;
+      }
+      spdlog::warn(
+          "A {} named {} exists in the auth store, but the name is reserved for the internal system user. Rename it: "
+          "create a {} under another name with the same privileges and drop this one. Until then Memgraph won't start "
+          "with --system-user-internal-hash-file set.",
+          *stored_kind,
+          reserved_name,
+          *stored_kind);
+    }
+  }
+
+  if (!FLAGS_system_user_internal_hash_file.empty()) {
+    try {
+      memgraph::auth::LoadInternalSystemUser(FLAGS_system_user_internal_hash_file);
+    } catch (memgraph::auth::AuthException const &e) {
+      spdlog::error("{} Shutting down Memgraph.", e.what());
+      return EXIT_FAILURE;
+    }
+    spdlog::info("Internal system user {} is enabled.", memgraph::auth::kInternalSystemUsername);
+  }
 
 #ifdef MG_ENTERPRISE
   if (FLAGS_fips_mode) {
@@ -857,12 +976,48 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
+  // The coordinator counterpart of the auth store check above: its roles live in the Raft state, restored from disk by
+  // now. The role set is shared, so every coordinator started with the flag refuses alike.
+  if (is_coordinator_instance && std::ranges::any_of(coordinator_state->GetLocalRoles(),
+                                                     memgraph::auth::IsInternalSystemUsername,
+                                                     &memgraph::coordination::CoordinatorRole::name)) {
+    if (!FLAGS_system_user_internal_hash_file.empty()) {
+      spdlog::error(
+          "A coordinator role named {} exists, but the name is reserved for the internal system user. Start the "
+          "coordinators without --system-user-internal-hash-file and rename the role (create one under another name "
+          "with the same privileges and drop this one), then restart them with it. Shutting down Memgraph.",
+          memgraph::auth::kInternalSystemUsername);
+      return EXIT_FAILURE;
+    }
+    spdlog::warn(
+        "A coordinator role named {} exists, but the name is reserved for the internal system user. Rename it: create "
+        "a role under another name with the same privileges and drop this one. Until then the coordinators won't start "
+        "with --system-user-internal-hash-file set.",
+        memgraph::auth::kInternalSystemUsername);
+  }
+
 #endif
+
+  // Owns the process-wide 2PC commit-accessor slot. Declared BEFORE dbms_handler so it is destroyed
+  // AFTER it: ~DbmsHandler runs every ~Database, each draining its own tenant's cached 2PC while its
+  // storage is still alive, leaving an empty slot for this Owner to free. Unconditional: harmless on
+  // a coordinator, which never populates the replica-only slot.
+  const memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
 
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
   }
+
+#ifdef MG_ENTERPRISE
+  // Wired before the replication RPC server and the init file, either of which can drop a database:
+  // an unwired arm is an empty std::function, so the drop leaves the parameters behind for good.
+  if (dbms_handler.has_value()) {
+    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = parameters->DeleteScope(uuid);
+    });
+  }
+#endif
 
   memgraph::metrics::Metrics().SetStorageSnapshotResolver(
       [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
@@ -1020,15 +1175,19 @@ int main(int argc, char **argv) {
   //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
   //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
   //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
+  //  - on_published_: once the resumed tenant is published, let TTL run (it commits, so it must not run
+  //    on an unpublished tenant).
   if (dbms_handler.has_value()) {
     auto *dh = &*dbms_handler;
     auto *ic = &interpreter_context_;
     dh->SetOnSuspend(
         [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
     dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
-    dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnResume([dh, ic](memgraph::dbms::DatabaseAccess db_acc) {
       memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
+    });
+    dh->SetOnPublished([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();
@@ -1269,6 +1428,8 @@ int main(int argc, char **argv) {
 
   if (worker_pool_) worker_pool_->AwaitShutdown();
   server.AwaitShutdown();
+  // ~Server destroys the Bolt io_context; the drain hook must not be able to reach a session after that.
+  interpreter_context_.UnregisterDropDrainHook();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE

@@ -1032,6 +1032,65 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
   }
 }
 
+// Whether a vertex carries any label is what the `%` label wildcard asks. It answers for the label set of the
+// view it is given, so an uncommitted change is visible under NEW and not under OLD.
+TYPED_TEST(StorageV2Test, VertexHasAnyLabel) {
+  memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+
+  // Whatever the answer, it is the one the label set gives: the two must not drift apart.
+  auto agrees_with_the_label_set = [](const auto &vertex, memgraph::storage::View view) {
+    auto any = vertex.HasAnyLabel(view);
+    auto labels = vertex.Labels(view);
+    ASSERT_EQ(any.has_value(), labels.has_value());
+    if (any.has_value()) EXPECT_EQ(*any, !labels->empty());
+  };
+
+  {
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+
+    EXPECT_FALSE(vertex.HasAnyLabel(memgraph::storage::View::NEW).value());
+    agrees_with_the_label_set(vertex, memgraph::storage::View::NEW);
+
+    ASSERT_TRUE(vertex.AddLabel(acc->NameToLabel("label5")).has_value());
+
+    EXPECT_TRUE(vertex.HasAnyLabel(memgraph::storage::View::NEW).value());
+    agrees_with_the_label_set(vertex, memgraph::storage::View::NEW);
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::OLD).value());
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::NEW).value());
+
+    // Dropping the only label empties the set under NEW, while OLD still reads the committed one.
+    ASSERT_TRUE(vertex->RemoveLabel(acc->NameToLabel("label5")).has_value());
+
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::OLD).value());
+    EXPECT_FALSE(vertex->HasAnyLabel(memgraph::storage::View::NEW).value());
+    agrees_with_the_label_set(*vertex, memgraph::storage::View::OLD);
+    agrees_with_the_label_set(*vertex, memgraph::storage::View::NEW);
+
+    acc->Abort();
+  }
+  {
+    // The abort put the label back, so the committed answer is the one that stands.
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::OLD).value());
+    EXPECT_TRUE(vertex->HasAnyLabel(memgraph::storage::View::NEW).value());
+
+    acc->Abort();
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, VertexLabelAbort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
@@ -3109,6 +3168,32 @@ class StorageTryAccessTest : public ::testing::Test {
       .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
 };
 
+// Snapshot creation is multi-threaded and single-pass, so it depends on the cache staying off unless
+// a caller asks for it.
+TEST_F(StorageTryAccessTest, DeltaChainCacheIsOffUntilACallerAsksForIt) {
+  using namespace memgraph::storage;
+
+  auto acc = store.TryAccess(READ);
+  ASSERT_NE(acc, nullptr);
+  auto *transaction = acc->GetTransaction();
+  ASSERT_EQ(transaction->isolation_level, IsolationLevel::SNAPSHOT_ISOLATION)
+      << "the cache is only ever eligible under snapshot isolation, so the rest of this test is vacuous";
+
+  EXPECT_FALSE(transaction->UseCache()) << "a transaction must not cache before a caller asks for it";
+
+  transaction->EnableDeltaChainCache();
+  EXPECT_TRUE(transaction->UseCache());
+
+  transaction->DisableDeltaChainCache();
+  EXPECT_FALSE(transaction->UseCache()) << "a caller must be able to take the cache away again";
+
+  transaction->EnableDeltaChainCache();
+  EXPECT_FALSE(transaction->UseCache())
+      << "once several threads have read a transaction, a later statement must not cache it again";
+
+  acc->Abort();
+}
+
 TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
   using namespace memgraph::storage;
 
@@ -3197,4 +3282,67 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   auto write_acc = store.TryAccess(WRITE);
   ASSERT_NE(write_acc, nullptr);
   EXPECT_NO_THROW(write_acc->Abort());
+}
+
+// In analytical mode an expansion is only ever the copy taken under the vertex's lock, with no
+// deltas to replay over it afterwards.
+//
+// The filtered collect reserves room for the whole edge list before it starts. These pin that the
+// reservation changes how much room is asked for and nothing else: a selective filter still hands
+// back only what matches, and an unfiltered expansion still hands back everything.
+TEST(StorageV2Analytical, ExpansionFiltersByEdgeType) {
+  memgraph::storage::InMemoryStorage store;
+  store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto const wanted = acc->NameToEdgeType("wanted");
+  auto const other = acc->NameToEdgeType("other");
+
+  // Deliberately lopsided: the type asked for is the rare one, which is the case the reservation
+  // over-allocates for.
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, wanted).has_value());
+  for (int i = 0; i != 32; ++i) ASSERT_TRUE(acc->CreateEdge(&from, &to, other).has_value());
+
+  auto const all = from.OutEdges(memgraph::storage::View::NEW);
+  ASSERT_TRUE(all.has_value());
+  EXPECT_EQ(all->edges.size(), 33);
+  EXPECT_EQ(all->expanded_count, 33);
+
+  auto const filtered = from.OutEdges(memgraph::storage::View::NEW, {wanted});
+  ASSERT_TRUE(filtered.has_value());
+  ASSERT_EQ(filtered->edges.size(), 1);
+  EXPECT_EQ(filtered->edges.At(0).EdgeType(), wanted);
+  // Every edge is walked to decide, whether or not it is kept.
+  EXPECT_EQ(filtered->expanded_count, 33);
+
+  auto const none = from.OutEdges(memgraph::storage::View::NEW, {acc->NameToEdgeType("absent")});
+  ASSERT_TRUE(none.has_value());
+  EXPECT_EQ(none->edges.size(), 0);
+
+  auto const incoming = to.InEdges(memgraph::storage::View::NEW, {wanted});
+  ASSERT_TRUE(incoming.has_value());
+  ASSERT_EQ(incoming->edges.size(), 1);
+  EXPECT_EQ(incoming->edges.At(0).EdgeType(), wanted);
+}
+
+TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
+  memgraph::storage::InMemoryStorage store;
+  store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto const type = acc->NameToEdgeType("type");
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, type).has_value());
+
+  // Without deltas there is nothing to replay, so a write is visible because it is in the record
+  // rather than because a chain says so.
+  auto const edges = from.OutEdges(memgraph::storage::View::NEW);
+  ASSERT_TRUE(edges.has_value());
+  ASSERT_EQ(edges->edges.size(), 1);
+  EXPECT_EQ(edges->edges.At(0).EdgeType(), type);
+  EXPECT_EQ(edges->edges.At(0).ToVertex(), to);
+  EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
 }

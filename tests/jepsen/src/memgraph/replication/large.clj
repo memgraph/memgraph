@@ -22,10 +22,10 @@
 (dbclient/defquery create-nodes
   (str "UNWIND range(1, " node-num ") AS i CREATE (n:Node {id: i, property1: 0, property2: 1, property3: 2});"))
 
-(defrecord Client [nodes-config]
+(defrecord Client [nodes-config replicas-ready]
   client/Client
   (open! [this _test node]
-    (repl-utils/replication-open-connection this node nodes-config))
+    (repl-utils/replication-open-connection this node nodes-config replicas-ready))
   (setup! [this _test]
     (when (= (:replication-role this) :main)
       (loop [attempts 10]
@@ -65,6 +65,7 @@
       :register
       (if (= (:replication-role this) :main)
         (try
+          (repl-utils/wait-for-replicas nodes-config replicas-ready)
           (doseq [[name node-config] (filter #(= (:replication-role (val %)) :replica) nodes-config)]
             (utils/with-session (:conn this) session
               ((mgquery/create-register-replica-query name node-config) session)))
@@ -193,7 +194,7 @@
 
 (defn workload
   [opts]
-  {:client (Client. (:nodes-config opts))
+  {:client (Client. (:nodes-config opts) (atom #{}))
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})

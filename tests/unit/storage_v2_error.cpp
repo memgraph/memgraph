@@ -22,7 +22,6 @@ using memgraph::storage::ReplicationError;
 
 TEST(ReplicaFailureReasonToStringTest, AllReasonsProduceNonEmptyStrings) {
   for (auto reason : {ReplicaFailureReason::NOT_IN_SYNC,
-                      ReplicaFailureReason::FAILED_TO_GET_LOCK,
                       ReplicaFailureReason::RPC_ERROR,
                       ReplicaFailureReason::DIVERGED,
                       ReplicaFailureReason::TIMEOUT}) {
@@ -62,15 +61,6 @@ TEST(FormatReplicationErrorTest, SingleReplicaDiverged) {
   };
   auto msg = FormatReplicationError(error);
   EXPECT_NE(msg.find("replica has diverged from main"), std::string::npos);
-}
-
-TEST(FormatReplicationErrorTest, SingleReplicaFailedToGetLock) {
-  ReplicationError error{
-      .failures = {{"replica_1", "ASYNC", ReplicaFailureReason::FAILED_TO_GET_LOCK}},
-      .transaction_committed = true,
-  };
-  auto msg = FormatReplicationError(error);
-  EXPECT_NE(msg.find("failed to obtain RPC lock"), std::string::npos);
 }
 
 // --- FormatReplicationError: timeout-specific suffix ---

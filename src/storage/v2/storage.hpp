@@ -36,6 +36,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -288,9 +289,14 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  std::string name() const { return config_.salient.name.str(); }
+  std::string name() const { return name_source_ ? name_source_->name() : config_.salient.name.str(); }
 
-  auto name_view() const { return config_.salient.name.str_view(); }
+  utils::SafeString::ConstSafeWrapper name_view() const {
+    return name_source_ ? name_source_->name_view() : config_.salient.name.str_view();
+  }
+
+  // Reports `parent`'s name, so a later rename of `parent` is visible here. `parent` must outlive this storage.
+  void ReportNameOf(const Storage &parent) noexcept { name_source_ = &parent; }
 
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
@@ -471,12 +477,23 @@ class Storage {
   // shared_ptr so a branch diff engine can share this instance; see GetSharedNameIdMapper().
   std::shared_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
+  const Storage *name_source_{nullptr};
 
   // Transaction engine
   mutable utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
+  // EXPERIMENTAL (commit-lock-narrowing); only taken on the ON path. Serializes committers across
+  // mint->durability->publish and guards the WAL group.
+  // LOCK ORDER: main_lock_ -> commit_mutex_ -> engine_lock_. Never acquire commit_mutex_ while holding
+  // engine_lock_ (non-recursive SpinLock: inversion also risks self-deadlock). Enforced by convention: the
+  // committer holds commit_mutex_ while releasing/re-taking engine_lock_ (3-phase commit), so no RAII guard fits.
+  // The DMG_ASSERT in PublishCommit catches mint order != publish order, which would corrupt the watermark.
+  mutable std::mutex commit_mutex_;
+  // Runtime-only watermark: the last fully-published LOCAL MVCC commit timestamp (from timestamp_). Not
+  // commit_ts_info_.ldt_, which tracks MAIN's durable timestamp so a replica stays in sync with main.
+  std::atomic<uint64_t> last_committed_mvcc_ts_{kTimestampInitialId};
   // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
   // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
   // re-read. Within a transaction read what the accessor pinned instead, transaction_.storage_mode
@@ -528,7 +545,8 @@ class Storage {
 
   /// Creates a database protector for async operations
   /// @return DatabaseProtector instance for committing async transactions
-  /// @note Never returns nullptr - always provides a valid protector
+  /// @note May return nullptr while the tenant is not live: not yet bound to its gatekeeper, dropped,
+  ///       suspended, or being destroyed. Callers must abort the async operation on a nullptr result.
   auto make_database_protector() const -> std::unique_ptr<DatabaseProtector> { return database_protector_factory_(); }
 
   /// Gets the database protector factory for copying to new storage instances
@@ -653,6 +671,12 @@ class Accessor {
   virtual VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
                                     std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) = 0;
 
+  /// As the bounds overload, and also applies the range's value predicate to every entry.
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, PropertyValueRange const &range, View view,
+                                                  size_t num_chunks) = 0;
+
   virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
@@ -663,35 +687,29 @@ class Accessor {
 
   virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) = 0;
 
-  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
-                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
-
   virtual EdgesIterable Edges(PropertyId property, View view) = 0;
 
   virtual EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) = 0;
 
-  virtual EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                              View view) = 0;
+
+  virtual EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                            View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view,
                                             size_t num_chunks) = 0;
 
-  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                            size_t num_chunks) = 0;
-
   virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, View view, size_t num_chunks) = 0;
 
   virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, const PropertyValue &value, View view,
-                                            size_t num_chunks) = 0;
-
-  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                             size_t num_chunks) = 0;
 
   virtual auto DeleteVertex(VertexAccessor *vertex) -> Result<std::optional<VertexAccessor>>;

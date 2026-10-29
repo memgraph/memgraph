@@ -24,6 +24,7 @@
 #include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/expanded_edges.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/graph_access.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
@@ -1002,12 +1003,20 @@ struct mgp_edges_iterator {
   // single-valued cursor; chosen once at iterator setup based on whether the source vertex is real or virtual.
   // monostate is the default; real construction assigns one of the two live arms.
   struct RealCursor {
-    std::vector<memgraph::query::EdgeAccessor> edges;
-    std::vector<memgraph::query::EdgeAccessor>::iterator it;
+    memgraph::query::ExpandedEdges edges;
+    memgraph::query::ExpandedEdges::Iterator it;
     bool for_in{false};  // enterprise NextPermittedEdge needs to know the direction
 
-    RealCursor(std::vector<memgraph::query::EdgeAccessor> edges, bool for_in)
+    RealCursor(memgraph::query::ExpandedEdges edges, bool for_in)
         : edges(std::move(edges)), it(this->edges.begin()), for_in(for_in) {}
+
+    /// `it` refers to `edges` beside it, so this has to stay where it was built, which it does:
+    /// the object holding it is only ever handed out by pointer.
+    RealCursor(RealCursor const &) = delete;
+    RealCursor(RealCursor &&) = delete;
+    RealCursor &operator=(RealCursor const &) = delete;
+    RealCursor &operator=(RealCursor &&) = delete;
+    ~RealCursor() = default;
   };
 
   struct VirtualCursor {

@@ -17,12 +17,18 @@ workloads:
   - name: "Drop broken database"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/drop_broken_database.py"]
+  - name: "Snapshot creation on a full disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/snapshot_no_space.py"]
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]
   - name: "Recover snapshot (light edge)"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/snapshot_recovery_light_edge.py"]
+  - name: "Light edge recovery under memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/light_edge_recovery_memory_limit.py"]
   - name: "Periodic snapshot (light edge)"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot_light_edge.py"]

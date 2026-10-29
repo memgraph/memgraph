@@ -13,11 +13,14 @@
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <map>
 #include <set>
 #include <sstream>
 #include <thread>
 
+#include "auth_query_handler_fixture.hpp"
+#include "auth_test_utils.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "disk_test_utils.hpp"
@@ -27,6 +30,7 @@
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -153,6 +157,104 @@ class InterpreterTest : public ::testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
+
+// A rejected nested BEGIN must leave the open transaction as it was. An auth transaction buffers its writes in the
+// interpreter, so clearing the interpreter on the way to the rejection would lose them and let COMMIT succeed.
+TYPED_TEST(InterpreterTest, NestedBeginKeepsAnOpenAuthTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  EXPECT_THROW(this->default_interpreter.Interpret("BEGIN"), memgraph::query::ExplicitTransactionUsageException);
+  this->default_interpreter.Interpret("COMMIT");
+
+  EXPECT_TRUE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
+// A statement refused for mixing auth and data fails the transaction like any other error, so COMMIT cannot land
+// the statements before it.
+TYPED_TEST(InterpreterTest, MixingAuthThenDataFailsTheTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  EXPECT_THROW(this->default_interpreter.Interpret("MATCH (n) RETURN n"), memgraph::query::MixedAuthAndDataTxException);
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
+// A failed auth COMMIT leaves the transaction open until ROLLBACK, as a failed statement does: still active, still
+// listed, and refusing a second COMMIT.
+TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollback) {
+  // Licensed, so the commit has replication actions and takes the system transaction it must then give back.
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  ASSERT_TRUE(AddUser(*auth.auth.Lock(), "alice").has_value());
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::TransactionSerializationException);
+
+  EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(),
+            memgraph::query::TransactionStatus::ACTIVE);
+  EXPECT_TRUE(this->default_interpreter.interpreter.GetTransactionId().has_value());
+  EXPECT_EQ(this->default_interpreter.interpreter.system_transaction_ptr(), nullptr)
+      << "a failed commit kept the system mutex";
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+
+  this->default_interpreter.Interpret("ROLLBACK");
+  EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(), memgraph::query::TransactionStatus::IDLE);
+}
+
+#ifdef MG_ENTERPRISE
+// An auth COMMIT that cannot take the system transaction loses every buffered statement, so it reports a
+// serialization error, which a driver retries, rather than a client error it does not.
+TYPED_TEST(InterpreterTest, AnAuthCommitBlockedBySystemQueryIsRetryable) {
+  // Licensed, so the commit has replication actions and needs the system transaction.
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  {
+    // Another session's system query, held on its own thread: the system mutex is not recursive.
+    std::promise<bool> held;
+    std::promise<void> release;
+    std::jthread const holder([&] {
+      auto const tx = this->system_state.TryCreateTransaction();
+      held.set_value(tx.has_value());
+      release.get_future().wait();
+    });
+    bool const holding = held.get_future().get();
+    if (holding) {
+      EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::TransactionSerializationException);
+    }
+    release.set_value();
+    ASSERT_TRUE(holding);
+  }
+  this->default_interpreter.Interpret("ROLLBACK");
+
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+#endif
+
+TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE (:Node)");
+  EXPECT_THROW(this->default_interpreter.Interpret("CREATE USER alice"), memgraph::query::MixedAuthAndDataTxException);
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+  this->default_interpreter.Interpret("ROLLBACK");
+
+  EXPECT_EQ(this->Interpret("MATCH (n) RETURN count(n)").GetResults()[0][0].ValueInt(), 0);
+}
 
 // Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
 // path; presence of "graph_free" in the summary marks that no storage transaction was opened.
@@ -1851,9 +1953,11 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
   EXPECT_TRUE(values.contains("memory_limit"));
   EXPECT_TRUE(values.contains("license_memory_limit"));
   EXPECT_TRUE(values.contains("disk_usage"));
+  EXPECT_TRUE(values.contains("disk_available"));
   EXPECT_TRUE(values.contains("query+graph_memory_tracked"));
 
   EXPECT_TRUE(values.at("memory_tracked").IsString());
+  EXPECT_TRUE(values.at("disk_available").IsString());
   EXPECT_TRUE(values.at("license_memory_limit").IsString());
   EXPECT_TRUE(values.at("query+graph_memory_tracked").IsString());
 }
@@ -1963,6 +2067,32 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->AstCacheSize(), 2U);
+}
+
+// A cached plan whose index lives only inside a WHEN branch is dropped with the index.
+TYPED_TEST(InterpreterTest, ConditionalBranchIndexDropInvalidatesCachedPlan) {
+  this->Interpret("CREATE INDEX ON :L;");
+  this->Interpret("CREATE (:L {k: 1}), (:L {k: 2});");
+  auto const query =
+      "UNWIND [1, 2] AS i CALL (i) { WHEN i = 1 THEN MATCH (n:L) RETURN count(n) AS c ELSE RETURN 0 AS c } "
+      "RETURN i, c ORDER BY i;";
+  auto const explain_has_label_scan = [&] {
+    auto stream = this->Interpret(std::string("EXPLAIN ") + query);
+    return std::ranges::any_of(stream.GetResults(), [](const auto &row) {
+      return row.front().ValueString().find("ScanAllByLabel") != std::string::npos;
+    });
+  };
+  auto const rows = [&] {
+    std::vector<std::pair<int64_t, int64_t>> out;
+    for (const auto &row : this->Interpret(query).GetResults()) out.emplace_back(row[0].ValueInt(), row[1].ValueInt());
+    return out;
+  };
+  auto const expected = std::vector<std::pair<int64_t, int64_t>>{{1, 2}, {2, 0}};
+  EXPECT_EQ(rows(), expected);
+  EXPECT_TRUE(explain_has_label_scan());
+  this->Interpret("DROP INDEX ON :L;");
+  EXPECT_EQ(rows(), expected);
+  EXPECT_FALSE(explain_has_label_scan());
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
@@ -3145,6 +3275,57 @@ TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
   }
 }
 
+// A query the AST cache never holds is handed out as the parser built it. Where ORDER BY repeated a projected item,
+// the parser left the replaced subtree in the AST storage with its identifiers unresolved, so whatever reads the
+// storage rather than walking the tree meets an identifier that symbol generation never reached.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListTest) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {x: 1, list: [1, 2]}), (:Node {x: 3, list: [1, 2]}), (:Node {x: 3, list: [1, 2]})");
+
+  auto stream = this->Interpret("MATCH (n:$label) RETURN n.x IN n.list AS found, COUNT(*) AS c ORDER BY n.x IN n.list",
+                                {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
+// A list named by an identifier is keyed for caching on the symbol that holds it, so reading the key at all requires
+// the identifier to have one. A detached subtree keeps whatever identifiers it was built with, and those were never
+// reached by symbol generation.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListOverAnIdentifier) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {x: 1}), (:Node {x: 3}), (:Node {x: 3})");
+
+  auto stream = this->Interpret(
+      "MATCH (n:$label) UNWIND [[1, 2]] AS lst RETURN n.x IN lst AS found, COUNT(*) AS c ORDER BY n.x IN lst",
+      {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
+// A regex is keyed for caching the same way a list is, so detaching one reaches the same key.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingARegexMatchOverAnIdentifier) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {name: 'aa'}), (:Node {name: 'bb'}), (:Node {name: 'bb'})");
+
+  auto stream = this->Interpret(
+      "MATCH (n:$label) UNWIND ['a.*'] AS pat RETURN n.name =~ pat AS m, COUNT(*) AS c ORDER BY n.name =~ pat",
+      {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};
@@ -3184,4 +3365,85 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   }
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
+}
+
+// Server-side parameters are evaluated by PrimitiveLiteralExpressionEvaluator, so they exercise it directly.
+class ParameterQueryTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  ParameterQueryTest() { interpreter_context.parameters = &server_parameters; }
+
+  memgraph::parameters::Parameters server_parameters{data_directory / "parameters"};
+
+  std::optional<std::string> GetParameter(std::string_view name) const {
+    return server_parameters.GetParameter(name, memgraph::parameters::kGlobalScope);
+  }
+};
+
+TEST_F(ParameterQueryTest, SignedNumbersInMapAndListLiteralValues) {
+  Interpret("SET GLOBAL PARAMETER p = {a: -1, b: -2.5, c: +3}");
+  EXPECT_EQ(GetParameter("p"), R"({"a":-1,"b":-2.5,"c":3})");
+
+  // The query stripper folds a sign at the start of a list element into the number literal,
+  // so the parentheses are what route -1 through the unary operator.
+  Interpret("SET GLOBAL PARAMETER q = [(-1)]");
+  EXPECT_EQ(GetParameter("q"), "[-1]");
+}
+
+TEST_F(ParameterQueryTest, UnarySignAcceptedForms) {
+  constexpr std::pair<std::string_view, std::string_view> kCases[] = {
+      {"{a: --1}", R"({"a":1})"},
+      {"{a: - -1}", R"({"a":1})"},
+      {"{a: -(-1)}", R"({"a":1})"},
+      {"{a: +-1}", R"({"a":-1})"},
+      {"{a: -null}", R"({"a":null})"},
+      {"{a: -9223372036854775807}", R"({"a":-9223372036854775807})"},
+      {"{a: {b: [(-1), +2, {c: -3}]}}", R"({"a":{"b":[-1,2,{"c":-3}]}})"},
+  };
+  for (auto const &[value, expected] : kCases) {
+    SCOPED_TRACE(value);
+    Interpret("SET GLOBAL PARAMETER p = " + std::string(value));
+    EXPECT_EQ(GetParameter("p"), expected);
+  }
+}
+
+TEST_F(ParameterQueryTest, UnarySignOnQueryParameter) {
+  Interpret("SET GLOBAL PARAMETER p = {a: -$x}", {{"x", memgraph::storage::ExternalPropertyValue(5)}});
+  EXPECT_EQ(GetParameter("p"), R"({"a":-5})");
+
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER r = {a: -$x}",
+                         {{"x", memgraph::storage::ExternalPropertyValue(std::string("s"))}}),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(GetParameter("r"), std::nullopt);
+}
+
+TEST_F(ParameterQueryTest, MalformedSignIsSyntaxError) {
+  for (std::string_view const query :
+       {"SET GLOBAL PARAMETER p = -1", "SET GLOBAL PARAMETER p = {a: 1-}", "SET GLOBAL PARAMETER p = {a: -}"}) {
+    SCOPED_TRACE(query);
+    EXPECT_THROW(Interpret(std::string(query)), memgraph::query::SyntaxException);
+    EXPECT_EQ(GetParameter("p"), std::nullopt);
+  }
+}
+
+TEST_F(ParameterQueryTest, UnsupportedExpressionInLiteralValueIsRejected) {
+  for (std::string_view const value : {"{a: -'s'}",
+                                       "{a: +'s'}",
+                                       "{a: -true}",
+                                       "{a: -[1]}",
+                                       "{a: -{b: 1}}",
+                                       "{a: -a}",
+                                       "{a: +a}",
+                                       "{a: -(1+1)}",
+                                       "{a: -n.x}",
+                                       "{a: 1 - 1}",
+                                       "{a: 1+1}"}) {
+    SCOPED_TRACE(value);
+    EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = " + std::string(value)), memgraph::query::QueryRuntimeException);
+    EXPECT_EQ(GetParameter("p"), std::nullopt);
+  }
+}
+
+TEST_F(ParameterQueryTest, MinInt64LiteralExceedsRange) {
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = {a: -9223372036854775808}"), memgraph::query::SemanticException);
+  EXPECT_EQ(GetParameter("p"), std::nullopt);
 }

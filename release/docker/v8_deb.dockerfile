@@ -11,10 +11,30 @@
 # common memgraph install isn't redone — we only add the symbols and the
 # debugging tooling. Build the variant you want with `docker build --target`.
 
+FROM ubuntu:24.04 AS ubuntu-updated
+ARG CUSTOM_MIRROR=false
+
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
+  fi && \
+  /mirrors/retry.sh -- apt-get update && \
+  DEBIAN_FRONTEND=noninteractive /mirrors/retry.sh -- apt-get upgrade -y && \
+  rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
+  fi
+
 ###############################################################################
 # python-base: shared runtime venv for both image flavours.
 ###############################################################################
-FROM ubuntu:24.04 AS python-base
+FROM ubuntu-updated AS python-base
 ARG CUSTOM_MIRROR=false
 ARG TARGETARCH
 ARG CACHE_PRESENT=false
@@ -52,7 +72,7 @@ RUN pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels
 ###############################################################################
 # prod: shipping image. Stripped memgraph binary + runtime dependencies only.
 ###############################################################################
-FROM ubuntu:24.04 AS prod
+FROM ubuntu-updated AS prod
 # NOTE: If you change the base distro update release/package as well.
 
 ARG BINARY_NAME
@@ -174,6 +194,51 @@ COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
 USER memgraph
 
 ###############################################################################
+# python-fips: site-packages for the FIPS image.
+#
+# The main difference to `python-base` is that we install custom-built packages
+# which link dynamically to OpenSSl, rather than statically.
+#
+###############################################################################
+FROM ubuntu-updated AS python-fips
+ARG CUSTOM_MIRROR=false
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive
+
+USER root
+COPY auth-module-requirements.txt /tmp/auth-module-requirements.txt
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
+  fi && \
+  /mirrors/retry.sh -- apt-get update && /mirrors/retry.sh -- apt-get install -y \
+  python3 libpython3.12 python3-pip \
+  libxml2 libxslt1.1 libxmlsec1t64 libxmlsec1t64-openssl \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
+  fi
+
+COPY fips-wheels /tmp/fips-wheels
+
+# The order of these installs matters: custom packages first
+RUN pip3 install --no-cache-dir --break-system-packages --no-index --no-deps /tmp/fips-wheels/*.whl && \
+    pip3 install --no-cache-dir --break-system-packages --only-binary :all: -r /tmp/auth-module-requirements.txt && \
+    pip3 install --no-cache-dir --break-system-packages --only-binary :all: numpy==1.26.4 scipy==1.13.0 networkx==3.4.2
+
+# This script runs on interpreter init - overriding _md5 when in approved mode
+# so that hashlib can't fallback to it.
+COPY fips-python/memgraph_fips_hashlib.py fips-python/zz-memgraph-fips.pth \
+     /usr/local/lib/python3.12/dist-packages/
+
+###############################################################################
 # prod-fips: FIPS 140-3 variant.
 #
 # Differs from prod in three ways, all of which force a parallel stage rather
@@ -182,14 +247,17 @@ USER memgraph
 #   1. OpenSSL. The openssl-fips-provider package Depends on an exact
 #      libssl3t64 version (…+fipsN.N.N) that differs from the stock one prod
 #      installs, so it cannot be layered on top.
-#   2. Python. The Python auth-module wheels (cryptography, xmlsec) embed their
-#      own statically linked OpenSSL — a second, unvalidated crypto module
-#      inside the image, on the SAML/JWT auth path. prod COPYs them in as a
-#      layer, and a layer cannot be removed by a descendant stage.
-#   3. The Memgraph package itself is a -DMG_PYTHON_SUPPORT=OFF build, so its
-#      dependency set and postinst differ from prod's.
+#   2. Python. The PyPI wheels for cryptography and xmlsec embed their own
+#      statically linked OpenSSL — a second, unvalidated crypto module inside
+#      the image, on the SAML/JWT auth path. prod COPYs those in as a layer,
+#      and a layer cannot be removed by a descendant stage, so the FIPS image
+#      builds its own site-packages from python-fips instead.
+#   3. The Memgraph package itself is a -DMG_FIPS=ON build. It has the embedded
+#      interpreter like prod's, but omits the pieces whose crypto cannot come
+#      from the validated OpenSSL - today the Kerberos auth module, because
+#      Ubuntu's MIT krb5 uses its own builtin crypto rather than OpenSSL's.
 ###############################################################################
-FROM ubuntu:24.04 AS prod-fips
+FROM ubuntu-updated AS prod-fips
 
 ARG BINARY_NAME
 ARG EXTENSION
@@ -199,18 +267,22 @@ ARG CUSTOM_MIRROR
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   --mount=type=bind,source="./${BINARY_NAME}${TARGETARCH}.${EXTENSION}",target=/${BINARY_NAME}${TARGETARCH}.${EXTENSION},ro \
   --mount=type=bind,source="./openssl",target=/openssl,ro \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
   fi && \
-  apt-get update && \
-  apt-get upgrade -y && \
-  apt-get install -y \
+  /mirrors/retry.sh -- apt-get update && \
+  /mirrors/retry.sh -- apt-get install -y \
     /openssl/openssl*.deb \
     /openssl/libssl3t64*.deb \
     --no-install-recommends && \
-  apt-get install -y \
+  /mirrors/retry.sh -- apt-get install -y \
     libcurl4 libseccomp2 libatomic1 adduser ca-certificates \
+    python3 libpython3.12 \
+    libxml2 libxslt1.1 libxmlsec1t64 libxmlsec1t64-openssl \
     --no-install-recommends && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
@@ -221,12 +293,14 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     echo "# Include all memgraph documentation files (licenses, etc.)" >> /etc/dpkg/dpkg.cfg.d/excludes && \
     echo "path-include=/usr/share/doc/memgraph/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
   fi && \
-  dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
+  MG_SKIP_PYTHON_DEPS=1 dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
   apt remove adduser -y && \
   apt autoremove -y && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
   fi
 
 # Approved mode is opt-in per process via OPENSSL_CONF; the provider package
@@ -277,6 +351,8 @@ VOLUME /var/lib/memgraph
 VOLUME /etc/memgraph
 
 ENV MEMGRAPH_TELEMETRY_ID=DOCKER
+
+COPY --from=python-fips /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
 USER memgraph
 WORKDIR /usr/lib/memgraph

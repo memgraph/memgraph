@@ -1595,31 +1595,30 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return value.ValueBool() == bool_v;
     }
     case Type::INT: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // A number of either numeric type can equal a stored integer, so both are
+      // accepted and the pair is answered the way the decoded values answer it.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto int_v = reader->ReadInt(payload_size);
       if (!int_v) return false;
       if (value.IsInt()) {
-        return value.ValueInt() == int_v;
+        return value.ValueInt() == *int_v;
       }
-      return value.ValueDouble() == int_v;
+      // The stored integer is read at its full width rather than as a double,
+      // which is what stops two integers answering true against one double.
+      return std::is_eq(PlaceIntegerAgainstDouble(*int_v, value.ValueDouble()));
     }
     case Type::DOUBLE: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // As above, a number of either numeric type can equal a stored double.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto double_v = ReadDoubleAs(reader, payload_size);
       if (!double_v) return false;
+      if (value.IsInt()) {
+        return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), *double_v));
+      }
       // Read through the one comparison the decoded values use, so this answers
       // as `operator==` does. IEEE equality would part from it over a NaN, which
       // it holds equal to nothing and an index holds alike.
-      auto const lhs = value.IsDouble() ? value.ValueDouble() : static_cast<double>(value.ValueInt());
-      return CompareDoublesNaNLast(lhs, *double_v) == std::weak_ordering::equivalent;
+      return CompareDoublesNaNLast(value.ValueDouble(), *double_v) == std::weak_ordering::equivalent;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -3025,10 +3024,16 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   return true;
 }
 
-std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties) {
+namespace {
+struct NoDecode {
+  void DecodeProperty(PropertyValue & /*value*/) const {}
+};
+}  // namespace
+
+template <typename TDecoder>
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::DoUpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder) {
   auto old_properties = Properties();
-  ClearProperties();
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
   id_old_new_change.reserve(properties.size() + old_properties.size());
@@ -3038,17 +3043,35 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
     }
   }
 
-  for (const auto &[old_key, old_value] : old_properties) {
+  for (auto &[old_key, old_value] : old_properties) {
     auto [it, inserted] = properties.emplace(old_key, old_value);
     if (!inserted) {
       auto &new_value = it->second;
-      id_old_new_change.emplace_back(it->first, old_value, new_value);
+      decoder.DecodeProperty(old_value);
+      id_old_new_change.emplace_back(it->first, std::move(old_value), new_value);
     }
   }
 
+  ClearProperties();
   MG_ASSERT(InitProperties(properties));
   return id_old_new_change;
 }
+
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties) {
+  return DoUpdateProperties(properties, NoDecode{});
+}
+
+template <typename T>
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder) {
+  return DoUpdateProperties(properties, decoder);
+}
+
+template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Vertex> &);
+template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Edge> &);
 
 template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
     const std::map<PropertyId, PropertyValue> &);

@@ -58,7 +58,8 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
-    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
+    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION &&
+         transaction->CommittedBeforeSnapshot(ts)) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
       if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
@@ -123,7 +124,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  if (ts < transaction->start_timestamp) {
+  if (transaction->CommittedBeforeSnapshot(ts)) {
     if constexpr (requires { object->has_uncommitted_non_sequential_deltas(); }) {
       if (object->has_uncommitted_non_sequential_deltas()) {
         transaction->has_serialization_error = true;
@@ -147,6 +148,8 @@ enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR 
 /// delta could be, but can also be prepended onto non-sequential deltas from
 /// other in-flight transactions, or to a CREATE_*_EDGE for an in-flight
 /// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
+/// On `NON_SEQUENTIAL`, `CreateEdgeInternal` sets the vertex's
+/// `has_uncommitted_non_sequential_deltas` once the delta is linked.
 template <typename TObj>
 inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
   DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE);
@@ -156,7 +159,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
   auto const ts = object->delta()->commit_info->timestamp.load(std::memory_order_acquire);
 
   if (ts != transaction->transaction_id) {
-    if (ts < transaction->start_timestamp) {
+    if (transaction->CommittedBeforeSnapshot(ts)) {
       // Its possible that the commited delta we are looking at is part of a NonSequential block
       // Use the has_uncommitted_non_sequential_deltas flag as our indicator
       if constexpr (requires { object->has_uncommitted_non_sequential_deltas(); }) {
@@ -178,9 +181,6 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // non-sequential delta.
     if (IsDeltaNonSequential(*object->delta())) {
       transaction->has_non_sequential_deltas = true;
-      if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
-        object->set_has_uncommitted_non_sequential_deltas(true);
-      }
       return WriteResult::NON_SEQUENTIAL;
     }
 
@@ -198,7 +198,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
 
       if (delta_ts == transaction->transaction_id) continue;
 
-      if (delta_ts < transaction->start_timestamp) break;
+      if (transaction->CommittedBeforeSnapshot(delta_ts)) break;
 
       // Optimization: Once we encounter a non-sequential delta, we can break early
       // because blocking deltas can only exist BEFORE non-sequential deltas in the
@@ -214,9 +214,6 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     }
 
     transaction->has_non_sequential_deltas = true;
-    if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
-      object->set_has_uncommitted_non_sequential_deltas(true);
-    }
     return WriteResult::NON_SEQUENTIAL;
   }
 
@@ -225,9 +222,6 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
   // then only another edge creation delta can be prepended.
   if (IsDeltaNonSequential(*object->delta())) {
     transaction->has_non_sequential_deltas = true;
-    if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
-      object->set_has_uncommitted_non_sequential_deltas(true);
-    }
     return WriteResult::NON_SEQUENTIAL;
   }
   // Head delta from same transaction is not non-sequential - allow any new delta

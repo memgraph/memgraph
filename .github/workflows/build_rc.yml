@@ -24,7 +24,7 @@ on:
         default: true
       run_stress_large:
         type: boolean
-        description: "Run stress test large."
+        description: "Run stress test large (dispatched as a separate Stress Test Large RC run)."
         default: true
       run_stress_tests:
         type: boolean
@@ -134,19 +134,28 @@ jobs:
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
-  StressTestLarge:
+  # Dispatched as a separate run so the ~8h stress test doesn't block
+  # re-running other (flaky) jobs in this workflow.
+  TriggerStressTestLarge:
     if: ${{ inputs.run_stress_large }}
-    name: Stress Test Large
+    name: Trigger Stress Test Large
     needs: PrepareReleaseBranch
-    uses: ./.github/workflows/reusable_release_tests.yaml
-    with:
-      os: ubuntu-24.04
-      arch: "amd"
-      build_type: RelWithDebInfo
-      run_stress_large: 'true'
-      run_release_tests: 'false'
-      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-    secrets: inherit
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Stress Test Large RC workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+        run: |
+          gh workflow run stress_test_large_rc.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            -f tag="$TAG"
+          runs_url="${{ github.server_url }}/${{ github.repository }}/actions/workflows/stress_test_large_rc.yml"
+          echo "Dispatched Stress Test Large for $TAG: $runs_url"
+          echo "Stress Test Large for \`$TAG\` was dispatched as a separate run: [Stress Test Large RC]($runs_url)" >> "$GITHUB_STEP_SUMMARY"
 
   PackageArtifact:
     if: ${{ inputs.build_memgraph }}
@@ -313,6 +322,8 @@ jobs:
 
       - name: Set last image version
         id: set_last_image_version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           echo "Setting last image version"
           last_image_version=$(./tools/ci/get_latest_tag.sh)

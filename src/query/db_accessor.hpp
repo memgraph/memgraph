@@ -532,6 +532,14 @@ class DbAccessor final {
     return key;
   }
 
+  // Single-property range as the storage scan applies it: bounds, IS_NOT_NULL and the planner's value predicate.
+  static bool BranchValueInRange(storage::PropertyValueRange const &range, storage::PropertyValue const &value) {
+    if (!range.IsValueInRange(value)) return false;
+    if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL && value.IsNull()) return false;
+    auto const &pred = range.GetValuePredicate();
+    return !pred || (*pred)(value);
+  }
+
   // Mirrors the storage index: `property_ranges` constrains only a leading prefix of the key, IS_NOT_NULL excludes
   // null, the planner's value predicate applies to the leading property, and an all-null key is never indexed.
   static bool BranchKeyInRange(BranchKey const &key, std::span<storage::PropertyValueRange const> property_ranges) {
@@ -1036,7 +1044,9 @@ class DbAccessor final {
   // query).
   versioning::BranchContext *branch_context() const { return branch_ctx_; }
 
-  void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
+  void EnableDeltaChainCache() { accessor_->GetTransaction()->EnableDeltaChainCache(); }
+
+  void DisableDeltaChainCache() { accessor_->GetTransaction()->DisableDeltaChainCache(); }
 
   bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {
     return accessor_->CheckIndicesAreReady(required_indices);
@@ -1232,6 +1242,19 @@ class DbAccessor final {
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
   }
 
+  VerticesIterable Vertices(storage::View view, storage::PropertyId property,
+                            storage::PropertyValueRange const &range) {
+    if (branch_ctx_ != nullptr) {
+      return BranchPropertyScan(
+          view,
+          property,
+          [&] { return branch_ctx_->historical().Vertices(property, range, storage::View::OLD); },
+          [&] { return accessor_->Vertices(property, range, view); },
+          [&range](storage::PropertyValue const &v) { return BranchValueInRange(range, v); });
+    }
+    return VerticesIterable(accessor_->Vertices(property, range, view));
+  }
+
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
     RejectBranchChunkedVertexScan();
     return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
@@ -1270,6 +1293,12 @@ class DbAccessor final {
     return VerticesChunkedIterable{accessor_->ChunkedVertices(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          storage::PropertyValueRange const &range, size_t num_chunks) {
+    RejectBranchChunkedVertexScan();
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, range, view, num_chunks)};
+  }
+
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
     RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, view, num_chunks)};
@@ -1281,15 +1310,6 @@ class DbAccessor final {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, view, num_chunks)};
   }
 
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
-                                    size_t num_chunks) {
-    RejectBranchChunkedEdgeScan();
-    return EdgesChunkedIterable{
-        accessor_->ChunkedEdges(edge_type, property, lower_bound, upper_bound, view, num_chunks)};
-  }
-
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property, size_t num_chunks) {
     RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, view, num_chunks)};
@@ -1299,14 +1319,6 @@ class DbAccessor final {
                                     const storage::PropertyValue value, size_t num_chunks) {
     RejectBranchChunkedEdgeScan();
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
-  }
-
-  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
-                                    const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
-                                    size_t num_chunks) {
-    RejectBranchChunkedEdgeScan();
-    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
@@ -1392,29 +1404,26 @@ class DbAccessor final {
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+                      storage::PropertyValueRange const &range) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgeTypePropertyIndexReady(edge_type, property)) {
-        auto range = storage::PropertyValueRange::Bounded(lower, upper);
         return EdgesIterable(MaterializeSortedBranchEdgePropertyScan(
-            view, property, [edge_type, property, range, view](EdgeAccessor &e) {
+            view, property, [edge_type, property, &range, view](EdgeAccessor &e) {
               if (e.EdgeType() != edge_type) return false;
               auto prop = e.GetProperty(view, property);
-              return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
+              return prop.has_value() && !prop->IsNull() && BranchValueInRange(range, *prop);
             }));
       }
-      auto const range = storage::PropertyValueRange::Bounded(lower, upper);
-      return EdgesIterable(
-          MergeBranchEdgePropertyScan(view,
-                                      property,
-                                      edge_type,
-                                      accessor_->Edges(edge_type, property, lower, upper, view),
-                                      historical.Edges(edge_type, property, lower, upper, storage::View::OLD),
-                                      [&range](storage::PropertyValue const &v) { return range.IsValueInRange(v); }));
+      return EdgesIterable(MergeBranchEdgePropertyScan(
+          view,
+          property,
+          edge_type,
+          accessor_->Edges(edge_type, property, range, view),
+          historical.Edges(edge_type, property, range, storage::View::OLD),
+          [&range](storage::PropertyValue const &v) { return BranchValueInRange(range, v); }));
     }
-    return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
+    return EdgesIterable(accessor_->Edges(edge_type, property, range, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
@@ -1456,29 +1465,37 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::PropertyId property,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+  EdgesIterable Edges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();
       if (!historical.EdgePropertyIndexReady(property)) {
-        auto range = storage::PropertyValueRange::Bounded(lower, upper);
         return EdgesIterable(
-            MaterializeSortedBranchEdgePropertyScan(view, property, [property, range, view](EdgeAccessor &e) {
+            MaterializeSortedBranchEdgePropertyScan(view, property, [property, &range, view](EdgeAccessor &e) {
               auto prop = e.GetProperty(view, property);
-              return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
+              return prop.has_value() && !prop->IsNull() && BranchValueInRange(range, *prop);
             }));
       }
-      auto const range = storage::PropertyValueRange::Bounded(lower, upper);
-      return EdgesIterable(
-          MergeBranchEdgePropertyScan(view,
-                                      property,
-                                      std::nullopt,
-                                      accessor_->Edges(property, lower, upper, view),
-                                      historical.Edges(property, lower, upper, storage::View::OLD),
-                                      [&range](storage::PropertyValue const &v) { return range.IsValueInRange(v); }));
+      return EdgesIterable(MergeBranchEdgePropertyScan(
+          view,
+          property,
+          std::nullopt,
+          accessor_->Edges(property, range, view),
+          historical.Edges(property, range, storage::View::OLD),
+          [&range](storage::PropertyValue const &v) { return BranchValueInRange(range, v); }));
     }
-    return EdgesIterable(accessor_->Edges(property, lower, upper, view));
+    return EdgesIterable(accessor_->Edges(property, range, view));
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    RejectBranchChunkedEdgeScan();
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, range, view, num_chunks)};
+  }
+
+  EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
+                                    storage::PropertyValueRange const &range, size_t num_chunks) {
+    RejectBranchChunkedEdgeScan();
+    return EdgesChunkedIterable{accessor_->ChunkedEdges(property, range, view, num_chunks)};
   }
 
   // On a branch the gid comes from main's counter (BranchContext::CreateNativeVertex), disjoint from every fork and

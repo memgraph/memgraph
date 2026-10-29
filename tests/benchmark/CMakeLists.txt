@@ -30,6 +30,12 @@ target_link_libraries(${test_prefix}ring_buffer mg-utils)
 add_benchmark(query/eval.cpp)
 target_link_libraries(${test_prefix}eval mg-query)
 
+add_benchmark(query/reduce_string.cpp)
+target_link_libraries(${test_prefix}reduce_string mg-query)
+
+add_benchmark(query/label_wildcard.cpp)
+target_link_libraries(${test_prefix}label_wildcard mg-query)
+
 add_benchmark(query/execution.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}execution mg-query mg-communication)
 
@@ -38,6 +44,14 @@ target_link_libraries(${test_prefix}aggregation mg-query)
 
 add_benchmark(query/typed_value_ops.cpp)
 target_link_libraries(${test_prefix}typed_value_ops mg-query)
+
+add_benchmark(query/expression_lowering.cpp)
+target_link_libraries(${test_prefix}expression_lowering mg-query)
+
+if(MG_ENTERPRISE)
+    add_benchmark(query/property_permission.cpp)
+    target_link_libraries(${test_prefix}property_permission mg-query mg-glue mg-auth)
+endif()
 
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-query)
@@ -58,6 +72,9 @@ set_tests_properties(${test_prefix}accessor_free_dispatch PROPERTIES DISABLED TR
 
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
+
+add_benchmark(query/parsing.cpp)
+target_link_libraries(${test_prefix}parsing mg-query)
 
 if (MG_ENTERPRISE)
 add_benchmark(rpc.cpp)
@@ -96,6 +113,9 @@ target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
 
 add_benchmark(storage_v2_edge_index_scan.cpp)
 target_link_libraries(${test_prefix}storage_v2_edge_index_scan mg::storage)
+
+add_benchmark(storage_v2_label_property_index_predicate.cpp)
+target_link_libraries(${test_prefix}storage_v2_label_property_index_predicate mg::storage)
 
 add_benchmark(thread_safe_memory.cpp)
 target_link_libraries(${test_prefix}thread_safe_memory mg-utils)

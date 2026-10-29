@@ -370,7 +370,8 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
 // pair of two types describes an empty range.
 inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
                                 utils::Bound<PropertyValue> const &upper_bound) {
-  return AreComparable(lower_bound.value(), upper_bound.value()) || BoundsMarkAWholeStretch(lower_bound, upper_bound);
+  return AreComparable(lower_bound.value(), upper_bound.value()) ||
+         BoundsRunToTheEndOfAStretch(lower_bound, upper_bound);
 }
 
 // `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
@@ -422,7 +423,7 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
   if (range.type_ == PropertyRangeType::INVALID) {
     return {std::nullopt, std::nullopt, false};
   } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    lower_bound = LowerBoundForType(PropertyValueType::Bool);
+    upper_bound = UpperBoundForNonNulls();
   } else if (range.type_ == PropertyRangeType::BOUNDED) {
     // We have to fix the bounds that the user provided to us. If the user
     // provided only one bound we should make sure that only values of that type

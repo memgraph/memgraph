@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/progress_heartbeat.hpp"
@@ -26,6 +27,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 #include "versioning/version_store.hpp"
 
 #include <spdlog/spdlog.h>
@@ -160,10 +162,17 @@ void ProcessOldDurableFiles(bool const reset_needed, std::filesystem::path const
   }
 }
 
+// Size of a durability file received from main, for logging. Unknown when the file cannot be stat'ed.
+std::string ReceivedFileSize(std::filesystem::path const &path) {
+  std::error_code ec;
+  auto const size = std::filesystem::file_size(path, ec);
+  if (ec) return "unknown size";
+  return fmt::format("{} ({} bytes)", utils::GetReadableSize(static_cast<double>(size)), size);
+}
+
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
-    spdlog::trace("       Timestamp {}", timestamp);
     auto delta = ReadWalDeltaData(decoder, version);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
@@ -242,14 +251,13 @@ void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_
 
 }  // namespace
 
-TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
-
 void InMemoryReplicationHandlers::Register(
     dbms::DbmsHandler *dbms_handler,
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     replication::RoleReplicaData &data) {
   auto &server = *data.server;
   auto const &current_main_uuid = data.uuid_;
+  auto &heartbeat = server.progress_heartbeat_;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&current_main_uuid, dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
@@ -260,13 +268,13 @@ void InMemoryReplicationHandlers::Register(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&current_main_uuid, dbms_handler, &repl_state](
+      [&current_main_uuid, dbms_handler, &repl_state, &heartbeat](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
           auto *req_reader,
           auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(
-            repl_state, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+            repl_state, dbms_handler, current_main_uuid, heartbeat, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
       [&current_main_uuid, dbms_handler](
@@ -278,16 +286,22 @@ void InMemoryReplicationHandlers::Register(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
-      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                                         uint64_t const request_version,
-                                         auto *req_reader,
-                                         auto *res_builder) {
+      [&current_main_uuid, dbms_handler, &heartbeat](
+          std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for SnapshotHandler");
-        InMemoryReplicationHandlers::SnapshotHandler(
-            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::SnapshotHandler(*file_replication_handler,
+                                                     dbms_handler,
+                                                     current_main_uuid,
+                                                     heartbeat,
+                                                     request_version,
+                                                     req_reader,
+                                                     res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&current_main_uuid, dbms_handler, &repl_state](
+      [&current_main_uuid, dbms_handler, &repl_state, &heartbeat](
           std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
           uint64_t const request_version,
           auto *req_reader,
@@ -297,12 +311,13 @@ void InMemoryReplicationHandlers::Register(
                                                      *file_replication_handler,
                                                      dbms_handler,
                                                      current_main_uuid,
+                                                     heartbeat,
                                                      request_version,
                                                      req_reader,
                                                      res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&current_main_uuid, dbms_handler, &repl_state](
+      [&current_main_uuid, dbms_handler, &repl_state, &heartbeat](
           std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
           uint64_t const request_version,
           auto *req_reader,
@@ -312,6 +327,7 @@ void InMemoryReplicationHandlers::Register(
                                                        *file_replication_handler,
                                                        dbms_handler,
                                                        current_main_uuid,
+                                                       heartbeat,
                                                        request_version,
                                                        req_reader,
                                                        res_builder);
@@ -417,8 +433,8 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
 void InMemoryReplicationHandlers::PrepareCommitHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t const request_version,
-    slk::Reader *req_reader, slk::Builder *res_builder) {
+    dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat,
+    uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after committing is finished.
@@ -484,14 +500,16 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
   storage::replication::PrepareCommitRes res{false};
   {
     // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
-    // the first tick only fires one interval after construction. Scoped so the heartbeat is joined before the final
-    // response is written, since both write to res_builder and the socket behind it has no internal locking.
-    rpc::ProgressHeartbeat heartbeat{res_builder};
+    // the first tick only fires one interval after activation. The scope guard deactivates the reusable worker if an
+    // exception escapes; normal paths stop it before writing the final response because the socket has no locking.
+    heartbeat.Start(res_builder);
+    utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
 
     // Abort prev txn if needed
     // It could happen that the main instance died before sending finalize for the previous commit and then
-    // the new instance becomes main and sends prepare
-    DestroyReplAccessor(&heartbeat);
+    // the new instance becomes main and sends prepare. Scoped to this tenant so an RPC for storage A cannot
+    // abort a different tenant's still-pending 2PC (that would strand it and reply commit-OK falsely).
+    AbortTwoPCForTenant(storage->uuid(), &heartbeat);
     auto &repl_storage_state = storage->repl_storage_state_;
 
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
@@ -501,6 +519,9 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
         storage->wal_file_.reset();
       }
 
+      // A snapshot being created copies the epoch and history under this lock, so it sees them as one unit. The lock
+      // is taken only now so the WAL file's disk I/O above runs outside it.
+      auto const engine_guard = std::scoped_lock{storage->engine_lock_};
       repl_storage_state.SaveLatestHistory();
       repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
     }
@@ -521,8 +542,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     heartbeat.Stop();
 
     if (deltas_res) {
-      two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
-      two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
+      dbms::TwoPCCommitCache::Store(
+          std::move(deltas_res->commit_acc), req.durability_commit_timestamp, storage->uuid());
       res.success = true;
     }
   }
@@ -552,27 +573,34 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
 
+  // Extract the cached accessor out of the slot; everything that walks its deltas or touches
+  // engine_lock_ happens below, on the local, with the cache's internal lock already released --
+  // see TwoPCCommitCache::TakeMatching's declaration comment for the mismatch-leaves-it-populated
+  // contract.
+  auto extracted = dbms::TwoPCCommitCache::TakeMatching(req.durability_commit_timestamp);
+
   // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
   // because replying to prepare happens after assignment to the accessor
   // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
   // safely return here OK because it means that the abort already happened while destructing accessor during
   // ReadAndApplyDeltasSingleTxn
-  if (!two_pc_cache_.commit_accessor_) {
+  if (!extracted.accessor && !extracted.mismatched_durability_commit_timestamp) {
     spdlog::warn("Cached commit accessor became invalid between two phases");
-    storage::replication::FinalizeCommitRes const res(true);
+    storage::replication::FinalizeCommitRes const res(!req.decision);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
-  if (req.durability_commit_timestamp != two_pc_cache_.durability_commit_timestamp_) {
+  if (extracted.mismatched_durability_commit_timestamp) {
     spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
                  req.durability_commit_timestamp,
-                 two_pc_cache_.durability_commit_timestamp_);
-    storage::replication::FinalizeCommitRes const res(true);
+                 *extracted.mismatched_durability_commit_timestamp);
+    storage::replication::FinalizeCommitRes const res(!req.decision);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
+  auto commit_accessor = std::move(extracted.accessor);
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   if (req.decision) {
@@ -585,20 +613,22 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // This has another consequence. A WAL file will contain deltas with commit ts e.g 100 although the last durable
     // timestamp for the transaction which commits these deltas will be different because of the fact that we are
     // taking here another commit timestamp.
-    auto &commit_ts = two_pc_cache_.commit_accessor_->GetCommitTimestamp();
+    auto &commit_ts = commit_accessor->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
-    auto guard = std::lock_guard{mem_storage->engine_lock_};
+    // Same committer serialization as the local commit path (see Storage::commit_mutex_).
+    auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+    auto guard = std::unique_lock{mem_storage->engine_lock_};
     // Mark the old commit ts as finished before emplacing the new one
     mem_storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.emplace(mem_storage->GetCommitTimestamp());
-    two_pc_cache_.commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp, guard);
     spdlog::trace("Finalized txn on replica");
   } else {
-    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
+    commit_accessor->AbortAndResetCommitTs();
     spdlog::trace("Aborted txn on replica");
   }
 
-  two_pc_cache_.commit_accessor_.reset();
+  commit_accessor.reset();
   if (mem_storage->wal_file_) {
     mem_storage->FinalizeWalFile();
   }
@@ -607,28 +637,35 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-void InMemoryReplicationHandlers::DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat) {
-  if (two_pc_cache_.commit_accessor_) {
+void InMemoryReplicationHandlers::DestroyReplAccessor() {
+  // Extract under the cache's internal lock, then abort the local outside it -- AbortAndResetCommitTs()
+  // walks the transaction's deltas and must not run with the cache mutex held.
+  auto accessor = dbms::TwoPCCommitCache::TakeAny();
+  if (accessor) {
+    accessor->AbortAndResetCommitTs();
+  }
+}
+
+void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid, rpc::ProgressHeartbeat *heartbeat) {
+  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
+  // pending 2PC for a different tenant would be wrongly dropped. See TwoPCCommitCache::TakeForTenant's
+  // declaration comment for why the comparison uses the uuid captured at populate time, not one
+  // re-derived from the accessor.
+  auto accessor = dbms::TwoPCCommitCache::TakeForTenant(uuid);
+  if (accessor) {
+    // on_progress is reported per delta undone: an interrupted 2PC's abort is O(deltas), and the RPC
+    // pre-abort callers run it inside a handler whose peer is timing them.
     auto const on_progress = [heartbeat]() -> storage::ProgressCallback {
       if (heartbeat == nullptr) return {};
       return [heartbeat] { heartbeat->RecordProgress(); };
     }();
-    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs(on_progress);
-    two_pc_cache_.commit_accessor_.reset();
-  }
-}
-
-void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
-  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
-  // pending 2PC for a different tenant would be wrongly dropped. uuid() == storage_->uuid().
-  if (two_pc_cache_.commit_accessor_ && two_pc_cache_.commit_accessor_->uuid() == uuid) {
-    DestroyReplAccessor();
+    accessor->AbortAndResetCommitTs(on_progress);
   }
 }
 
 void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage,
                                                        rpc::ProgressHeartbeat *heartbeat) {
-  DestroyReplAccessor(heartbeat);
+  AbortTwoPCForTenant(storage->uuid(), heartbeat);
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();
@@ -640,8 +677,8 @@ void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage 
 // signal to the caller that it shouldn't update the commit timestamp value.
 void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
                                                   DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                                                  uint64_t const request_version, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+                                                  rpc::ProgressHeartbeat &heartbeat, uint64_t const request_version,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
@@ -671,9 +708,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is O(deltas), and
-  // the first tick only fires one interval after construction. It also covers the Clear() further down, which takes
+  // the first tick only fires one interval after activation. It also covers the Clear() further down, which takes
   // long enough on a large tenant to exhaust the peer's budget on its own.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
+  heartbeat.Start(res_builder);
+  utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
   // Progress only, never cancellation: if the peer goes away mid-recovery this must not abort. Unlike delta
   // application, whose work sits in a transaction that can no longer be reported as committed and will simply be
   // resent, the snapshot is already loaded here. Finishing the derived state advances the commit timestamp, so a
@@ -696,15 +734,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
-  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
-    spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    heartbeat.Stop();
-    rpc::SendFinalResponse(
-        storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
-    return;
-  }
-
-  spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {
     DropBranchesBeforeClear(*db_acc->get());
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
@@ -718,6 +747,18 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // Acquiring a contended lock is a completed step, so it counts. Recorded on success only -- recording while still
     // blocked would tell the peer we are advancing when we are not.
     record_progress();
+
+    // Moved only once the snapshot is about to be loaded; until then it stays in tmp/, where the request's
+    // FileReplicationHandler deletes it if this handler returns early.
+    if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
+      spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
+      heartbeat.Stop();
+      rpc::SendFinalResponse(
+          storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
+      return;
+    }
+    spdlog::info(
+        "Received snapshot file {} from main, saved to {}", ReceivedFileSize(dst_snapshot_file), dst_snapshot_file);
 
     spdlog::info("Clearing database {} before recovering from snapshot.", storage->name());
 
@@ -747,7 +788,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
-      storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+      storage->SetTimestampQuiescent(std::max(storage->timestamp_, recovery_info.next_timestamp));
       storage::CommitTsInfo const new_info{.ldt_ = snapshot_info.durable_timestamp,
                                            .num_committed_txns_ = snapshot_info.num_committed_txns};
       storage->repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
@@ -839,8 +880,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 void InMemoryReplicationHandlers::WalFilesHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-    utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
-    slk::Builder *res_builder) {
+    utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t const request_version,
+    slk::Reader *req_reader, slk::Builder *res_builder) {
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after loading WAL files is finished.
@@ -883,8 +924,9 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
-  // O(deltas), and the first tick only fires one interval after construction.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
+  // O(deltas), and the first tick only fires one interval after activation.
+  heartbeat.Start(res_builder);
+  utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
   auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
@@ -941,6 +983,12 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   spdlog::debug("Received {} WAL files.", wal_file_number);
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
+  for (auto const &wal_file : active_files) {
+    spdlog::info("Received WAL file {} from main for db {}: {}",
+                 wal_file.filename(),
+                 storage->name(),
+                 ReceivedFileSize(wal_file));
+  }
 
   // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
   // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
@@ -1003,8 +1051,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 void InMemoryReplicationHandlers::CurrentWalHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-    utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
-    slk::Builder *res_builder) {
+    utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t const request_version,
+    slk::Reader *req_reader, slk::Builder *res_builder) {
   // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
   // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
   // take the read lock on repl state, main promotion will start after loading the current WAL is finished.
@@ -1046,8 +1094,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   // Started before the abort below, not after: an interrupted 2PC leaves a transaction whose abort is
-  // O(deltas), and the first tick only fires one interval after construction.
-  rpc::ProgressHeartbeat heartbeat{res_builder};
+  // O(deltas), and the first tick only fires one interval after activation.
+  heartbeat.Start(res_builder);
+  utils::OnScopeExit const stop_heartbeat{[&heartbeat] { heartbeat.Stop(); }};
   auto const record_progress = [&heartbeat] { heartbeat.RecordProgress(); };
 
   AbortPrevTxnIfNeeded(storage, &heartbeat);
@@ -1101,6 +1150,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // When loading a single WAL file, we don't care about saving number of deltas
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
+  spdlog::info("Received current WAL file {} from main for db {}: {}",
+               active_files[0].filename(),
+               storage->name(),
+               ReceivedFileSize(active_files[0]));
   auto const load_wal_res = LoadWal(active_files[0], storage, heartbeat);
   heartbeat.Stop();
   if (!load_wal_res.success) {
@@ -1175,6 +1228,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   // We trust only WAL files which contain changes we are interested in (newer changes)
   if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != repl_epoch.id()) {
     spdlog::info("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
+    auto const engine_guard = std::scoped_lock{storage->engine_lock_};
     storage->repl_storage_state_.SaveLatestHistory();
     repl_epoch.SetEpoch(wal_info.epoch_id);
   }
@@ -1344,6 +1398,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   uint64_t num_committed_txns{0};
   uint64_t current_delta_idx{0};  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas{0};     // Non-skipped deltas
+  uint64_t skipped_deltas{0};     // Already present on the replica
   auto max_delta_timestamp = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 
   auto current_durable_commit_timestamp = max_delta_timestamp;
@@ -1431,7 +1486,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     transaction_complete = IsWalDeltaDataTransactionEnd(delta, version);
 
     if (delta_timestamp <= current_durable_commit_timestamp) {
-      spdlog::trace("Skipping delta with timestamp: {}", delta_timestamp);
+      ++skipped_deltas;
       continue;
     }
 
@@ -2250,7 +2305,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   // by the time the loop exits.
   MG_ASSERT(pending_edge_deletes.empty(), "Buffered edge deletions were never applied");
 
-  spdlog::debug("Applied {} deltas. Committed {} txns.", applied_deltas, num_committed_txns);
+  spdlog::debug("Applied {} deltas, skipped {} already applied deltas. Committed {} txns.",
+                applied_deltas,
+                skipped_deltas,
+                num_committed_txns);
 
   return storage::SingleTxnDeltasProcessingResult{.commit_acc = std::move(commit_accessor),
                                                   .current_delta_idx = current_delta_idx,

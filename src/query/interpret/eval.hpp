@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <optional>
@@ -23,10 +24,12 @@
 #include <variant>
 #include <vector>
 
+#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/query/label_term.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
@@ -42,6 +45,44 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
+
+/// Test a label term against one already-fetched vertex. `has_label` answers for a single label and
+/// `has_any_label` for the `%` wildcard; both read the vertex the caller evaluated once.
+/// An `And` with no operands comes from a `$param` bound to an empty list and holds.
+template <typename HasLabel, typename HasAnyLabel>
+bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAnyLabel &has_any_label) {
+  auto holds = [&](const LabelTerm &operand) { return EvalLabelTerm(operand, has_label, has_any_label); };
+  return std::visit(
+      utils::Overloaded{
+          [&](const LabelTerm::Label &leaf) -> bool { return has_label(leaf.label); },
+          [](const LabelTerm::Dynamic &) -> bool {
+            throw QueryRuntimeException(
+                "A label named by an expression can only be written by CREATE, not matched or tested. For a "
+                "label whose name contains a dot, put the name in backticks.");
+          },
+          [&](const LabelTerm::Wildcard &) -> bool { return has_any_label(); },
+          [&](const LabelTerm::Not &negation) -> bool { return !holds(*negation.operand); },
+          [&](const LabelTerm::And &conjunction) -> bool { return std::ranges::all_of(conjunction.operands, holds); },
+          [&](const LabelTerm::Or &disjunction) -> bool { return std::ranges::any_of(disjunction.operands, holds); },
+      },
+      term.node);
+}
+
+/// Throws the query error for a vertex whose labels could not be read. Kept out of line: the per-row label
+/// test only calls it on failure.
+[[noreturn, gnu::cold, gnu::noinline]] inline void ThrowLabelReadError(storage::Error error) {
+  switch (error) {
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to access labels on a deleted node.");
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+    case storage::Error::SERIALIZATION_ERROR:
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Unexpected error when accessing labels.");
+  }
+  LOG_FATAL("Unexpected storage::Error");
+}
 
 class VirtualNode;
 class VirtualEdge;
@@ -152,6 +193,16 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
   const EvaluationContext *ctx_;
 };
 
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
+  TypedValue Visit(OP_NODE &op) override {                                              \
+    auto val = op.expression_->Accept(*this);                                           \
+    try {                                                                               \
+      return CPP_OP val;                                                                \
+    } catch (const TypedValueException &) {                                             \
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), #CYPHER_OP); \
+    }                                                                                   \
+  }
+
 class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx, DbAccessor *dba = nullptr)
@@ -221,10 +272,10 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
     return res;
   }
 
-#define INVALID_VISIT(expr_name)                                                             \
-  TypedValue Visit(expr_name & /*expr*/) override {                                          \
-    DLOG_FATAL("Invalid expression type visited with PrimitiveLiteralExpressionEvaluator."); \
-    return {};                                                                               \
+#define INVALID_VISIT(expr_name)                                                                              \
+  TypedValue Visit(expr_name & /*expr*/) override {                                                           \
+    throw QueryRuntimeException("Expression of type {} is not supported here; use a literal or a parameter.", \
+                                #expr_name);                                                                  \
   }
 
   INVALID_VISIT(NamedExpression)
@@ -249,8 +300,8 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
   INVALID_VISIT(IfOperator)
-  INVALID_VISIT(UnaryPlusOperator)
-  INVALID_VISIT(UnaryMinusOperator)
+  UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +, +);
+  UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -, -);
   INVALID_VISIT(IsNullOperator)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
@@ -293,7 +344,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         triggering_user_(context.triggering_user.get())
 #ifdef MG_ENTERPRISE
         ,
-        auth_checker_(context.auth_checker)
+        auth_checker_(context.auth_checker),
+        // Whether any property is restricted is fixed for the query, so every property read can be
+        // waved through on one flag instead of asking the checker again.
+        property_restrictions_(auth_checker_ != nullptr && auth_checker_->HasPropertyRestrictions())
 #endif
   {
   }
@@ -340,16 +394,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     } catch (const TypedValueException &) {                                                                    \
       throw QueryRuntimeException("Invalid types: {} and {} for '{}'.", val1.type(), val2.type(), #CYPHER_OP); \
     }                                                                                                          \
-  }
-
-#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
-  TypedValue Visit(OP_NODE &op) override {                                              \
-    auto val = op.expression_->Accept(*this);                                           \
-    try {                                                                               \
-      return CPP_OP val;                                                                \
-    } catch (const TypedValueException &) {                                             \
-      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), #CYPHER_OP); \
-    }                                                                                   \
   }
 
   BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);
@@ -489,12 +533,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           if (cached_value.Contains(literal)) {
             return TypedValue(true, ctx_->memory);
           }
-          // has null
-          if (cached_value.Contains(TypedValue(ctx_->memory))) {
+          // A list holding a Null answers Null rather than false for anything not in it. That is
+          // a property of the list, settled once when it was cached, rather than a second probe
+          // on every row that misses, which on a filter is every row it keeps out.
+          if (cached_value.HasNull()) {
             return TypedValue(ctx_->memory);
           }
           return TypedValue(false, ctx_->memory);
         }
+        // The set cannot answer for this pair, so the general comparison below does.
       }
     }
     // When caching is not an option, we need to evaluate list literal every time
@@ -634,66 +681,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
-        for (const auto &label : labels_test.labels_) {
-          auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-            // This is a very nasty and temporary hack in order to make MERGE
-            // work. The old storage had the following logic when returning an
-            // `OLD` view: `return old ? old : new`. That means that if the
-            // `OLD` view didn't exist, it returned the NEW view. With this hack
-            // we simulate that behavior.
-            // TODO: Remove once MERGE is
-            // reimplemented.
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-          }
-          if (!has_label) {
-            switch (has_label.error()) {
-              case storage::Error::DELETED_OBJECT:
-                throw QueryRuntimeException("Trying to access labels on a deleted node.");
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-              case storage::Error::SERIALIZATION_ERROR:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
-                throw QueryRuntimeException("Unexpected error when accessing labels.");
-            }
-          }
-          if (!*has_label) {
+        if (const auto *term = labels_test.Term()) {
+          // The closures are built here only: the plain labels below call the helpers directly, so their rows
+          // do not store captures to the stack for EvalLabelTerm to read.
+          return TypedValue(EvalLabelTerm(
+                                *term,
+                                [&](const LabelIx &label) { return HasLabel(vertex, label); },
+                                [&] { return HasAnyLabel(vertex); }),
+                            ctx_->memory);
+        }
+        const auto &cnf = *labels_test.Cnf();
+        for (const auto &label : cnf.labels) {
+          if (!HasLabel(vertex, label)) {
             return TypedValue(false, ctx_->memory);
           }
         }
-        for (const auto &or_labels_pattern : labels_test.or_labels_) {
-          bool has_at_least_one_label = false;
-          for (const auto &label : or_labels_pattern) {
-            auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-              // This is a very nasty and temporary hack in order to make MERGE
-              // work. The old storage had the following logic when returning an
-              // `OLD` view: `return old ? old : new`. That means that if the
-              // `OLD` view didn't exist, it returned the NEW view. With this hack
-              // we simulate that behavior.
-              // TODO: Remove once MERGE is
-              // reimplemented.
-              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-            }
-            if (!has_label) {
-              switch (has_label.error()) {
-                case storage::Error::DELETED_OBJECT:
-                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
-                case storage::Error::NONEXISTENT_OBJECT:
-                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-                case storage::Error::SERIALIZATION_ERROR:
-                case storage::Error::VERTEX_HAS_EDGES:
-                case storage::Error::PROPERTIES_DISABLED:
-                  throw QueryRuntimeException("Unexpected error when accessing labels.");
-              }
-            }
-            if (*has_label) {
-              has_at_least_one_label = true;
-              break;
-            }
-          }
-          if (!has_at_least_one_label) {
+        for (const auto &or_labels_pattern : cnf.or_labels) {
+          if (!std::ranges::any_of(or_labels_pattern, [&](const LabelIx &label) { return HasLabel(vertex, label); })) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -873,7 +877,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
     for (auto &element : list) {
-      frame_writer_.WriteAt(accumulator_symbol, accumulator);
+      // `accumulator` is reassigned below without being read again, so the frame can take it.
+      frame_writer_.WriteAt(accumulator_symbol, std::move(accumulator));
       frame_writer_.WriteAt(element_symbol, std::move(element));
       accumulator = reduce.expression_->Accept(*this);
     }
@@ -1173,8 +1178,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
 #ifdef MG_ENTERPRISE
-  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
-  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+    if (!property_restrictions_) [[likely]]
+      return true;
+    return PropertyReadAllowed(auth_checker_, accessor, view_, prop);
+  }
+
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+    if (!property_restrictions_) [[likely]]
+      return true;
+    return PropertyReadAllowed(auth_checker_, accessor, prop);
+  }
 #else
   template <typename T>
     requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
@@ -1243,6 +1257,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
+  /// Which record a cache entry was read from. Vertex and edge ids come from separate sequences, so one
+  /// number can name one of each, and `UNWIND [n, e] AS x` binds both kinds to a single symbol.
+  struct RecordIdentity {
+    enum class Kind : uint8_t { Vertex, Edge };
+    Kind kind;
+    storage::Gid gid;
+    friend bool operator==(RecordIdentity const &, RecordIdentity const &) = default;
+  };
+
+  struct CachedProperties {
+    RecordIdentity record;
+    std::map<storage::PropertyId, storage::PropertyValue> properties;
+  };
+
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
     auto maybe_props = record_accessor.Properties(view_);
@@ -1278,7 +1306,49 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_props);
   }
 
+  template <RecordIdentity::Kind kind, class TRecordAccessor>
+  TypedValue CachedPropertyValue(const TRecordAccessor &record_accessor, const PropertyLookup &property_lookup) {
+    auto const record = RecordIdentity{kind, record_accessor.Gid()};
+    DMG_ASSERT(property_lookup.expression_->GetTypeInfo() == Identifier::kType,
+               "The evaluation mode that loads every property is only assigned to a lookup on an identifier");
+    auto const symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+    auto it = property_lookup_cache_.find(symbol_pos);
+    if (it == property_lookup_cache_.end() || it->second.record != record) {
+      it = property_lookup_cache_
+               .insert_or_assign(symbol_pos, CachedProperties{record, GetAllProperties(record_accessor)})
+               .first;
+    }
+
+    auto const property_id = ctx_->properties[property_lookup.property_.ix];
+    auto const property = it->second.properties.find(property_id);
+    if (property == it->second.properties.end()) {
+      return TypedValue(ctx_->memory);
+    }
+    return {property->second, GetNameIdMapper(), ctx_->memory};
+  }
+
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+
+  // This is a very nasty and temporary hack in order to make MERGE work. The old storage had the following logic
+  // when returning an `OLD` view: `return old ? old : new`. That means that if the `OLD` view didn't exist, it
+  // returned the NEW view. With this hack we simulate that behavior.
+  // TODO: Remove once MERGE is reimplemented.
+  bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) const {
+    auto result = vertex.HasLabel(view_, GetLabel(label));
+    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+      result = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+    }
+    if (!result) ThrowLabelReadError(result.error());
+    return *result;
+  }
+
+  /// Whether the vertex carries any label, which is what `%` asks. The same MERGE hack applies.
+  bool HasAnyLabel(const VertexAccessor &vertex) const {
+    auto result = vertex.HasAnyLabel(view_);
+    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) result = vertex.HasAnyLabel(storage::View::NEW);
+    if (!result) ThrowLabelReadError(result.error());
+    return *result;
+  }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
@@ -1290,14 +1360,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
   FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
-  /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
-  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+
+  /// Properties loaded in one read, so that several lookups on one symbol share that read. A list
+  /// comprehension steps its element through a list, and an operator whose evaluator outlives a row rebinds
+  /// on each one, neither reaching this cache. An entry therefore answers for the record it names, which is
+  /// not the same as answering for that record's current properties.
+  std::unordered_map<int32_t, CachedProperties> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;
   const QueryUserOrRole *triggering_user_;
 #ifdef MG_ENTERPRISE
   FineGrainedAuthChecker const *auth_checker_{nullptr};
+  bool property_restrictions_{false};
 #endif
 };  // namespace memgraph::query
 

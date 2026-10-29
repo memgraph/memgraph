@@ -84,7 +84,7 @@ jmespath==1.1.0
     # via
     #   boto3
     #   botocore
-kafka-python==2.0.2
+kafka-python==3.0.11
     # via -r requirements.txt
 ldap3==2.6
     # via -r requirements.txt
@@ -110,8 +110,6 @@ neo4j==5.14.1
     # via
     #   -r requirements.txt
     #   gqlalchemy
-neo4j-driver==4.1.1
-    # via -r requirements.txt
 networkx==2.5.1
     # via
     #   -r requirements.txt
@@ -162,7 +160,7 @@ pyflakes==3.4.0
     # via flake8
 pygments==2.21.0
     # via pytest
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via
     #   -r requirements.txt
     #   msal
@@ -193,7 +191,6 @@ pytz==2023.3
     # via
     #   -r requirements.txt
     #   neo4j
-    #   neo4j-driver
     #   pandas
 pyyaml==6.0.1
     # via -r requirements.txt

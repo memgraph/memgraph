@@ -271,9 +271,9 @@ TEST(HoldsANaN, FindsANaNWhereverAValueCarriesOne) {
 
 TEST(TypeBands, PlaceAPackedListWhereABoxedListGoes) {
   // The three packed representations are numbered above the points rather than
-  // beside the list, so nothing about the numbering says where they belong. Each
-  // holds what a boxed list holds, so a range over one has to read the band a
-  // list is kept in.
+  // beside the list, and the numbering is not what places a type. Each holds
+  // what a boxed list holds, so a range over one has to read the band a list is
+  // kept in.
   for (auto const type : {PropertyValueType::IntList, PropertyValueType::DoubleList, PropertyValueType::NumericList}) {
     EXPECT_EQ(LowerBoundForType(type), LowerBoundForType(PropertyValueType::List))
         << "packed type " << static_cast<unsigned>(type) << " starts somewhere a list does not";
@@ -329,4 +329,15 @@ TEST(ComparableBounds, AreComparableTellsTheTemporalKindsApart) {
   EXPECT_TRUE(AreComparable(PropertyValue("a"), PropertyValue("b")));
   EXPECT_FALSE(AreComparable(PropertyValue(int64_t{1}), PropertyValue("a")));
   EXPECT_FALSE(AreComparable(Temporal(TemporalType::Date, 0), kSmallestZonedTemporalData));
+}
+
+TEST(EndOfStretchMarker, HoldsForAPrefixScanWithNoSuccessor) {
+  auto const lower = memgraph::utils::MakeBoundInclusive(PropertyValue(std::string("\xFF\xFF", 2)));
+  auto const upper = *UpperBoundForType(PropertyValueType::String);
+
+  EXPECT_FALSE(BoundsMarkAWholeStretch(lower, upper));
+  EXPECT_TRUE(BoundsRunToTheEndOfAStretch(lower, upper));
+
+  EXPECT_FALSE(BoundsRunToTheEndOfAStretch(
+      lower, memgraph::utils::MakeBoundExclusive(PropertyValue(std::string("\xFF\xFF\xFF", 3)))));
 }

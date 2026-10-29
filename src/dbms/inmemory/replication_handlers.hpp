@@ -35,11 +35,6 @@ class ProgressHeartbeat;
 
 namespace memgraph::dbms {
 
-struct TwoPCCache {
-  std::unique_ptr<storage::ReplicationAccessor> commit_accessor_;
-  uint64_t durability_commit_timestamp_;
-};
-
 class InMemoryReplicationHandlers {
  public:
   // Although it seems a bit unintuitive this is ok. The logic is following:
@@ -55,22 +50,25 @@ class InMemoryReplicationHandlers {
 
   // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
   // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
-  // preventing therefore processing of CurrentWalRpc, WalFilesRpc, SnapshotRpc.
+  // preventing therefore processing of CurrentWalRpc, WalFilesRpc, SnapshotRpc. Scoped to `storage`'s own uuid
+  // (via AbortTwoPCForTenant) because the cached accessor holds main_lock_ on its own storage, so it can only
+  // ever block that same tenant's recovery -- nothing is lost by not aborting other tenants' pending 2PCs here.
   // It should also be invoked during the promote
   static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage, rpc::ProgressHeartbeat *heartbeat = nullptr);
 
-  // Destroys repl accessor needed for 2PC
-  // `on_progress` is reported per delta undone: an interrupted 2PC leaves an abort that is O(deltas), and
-  // callers run it inside an RPC handler whose peer is timing them.
-  static void DestroyReplAccessor(rpc::ProgressHeartbeat *heartbeat = nullptr);
+  // Aborts + destroys whatever accessor is cached, regardless of tenant. Deliberately tenant-oblivious,
+  // so only safe once the replica RPC listener pool is joined (process shutdown, main promotion) -- otherwise
+  // it can steal another tenant's still-pending accessor and abort it concurrently with that tenant's teardown.
+  static void DestroyReplAccessor();
 
-  // TD-3': abort + reset the cached 2PC commit accessor ONLY if it belongs to the given tenant's
-  // storage. Invoked by the replica SuspendDatabaseRpc apply path before the tenant is torn down:
-  // the cached accessor is storage-level (not gatekeeper-counted), so the suspend freeze does not
-  // drain it, and destroying the storage with the accessor still cached would dangle it. The slot
-  // is a single global (not per-UUID), so the UUID check prevents wrongly aborting a pending 2PC for
-  // a different tenant.
-  static void AbortTwoPCForTenant(utils::UUID const &uuid);
+  // Abort + reset the cached 2PC commit accessor ONLY if it belongs to `uuid`. The slot is a single
+  // global, not per-tenant, so this is what every tenant-aware call site (AbortPrevTxnIfNeeded,
+  // PrepareCommitHandler, the suspend path) uses instead of DestroyReplAccessor to avoid dropping a
+  // different tenant's pending 2PC. `heartbeat`, when set, is pinged per delta undone so a large abort
+  // (an interrupted 2PC's abort is O(deltas)) does not stall the RPC peer timing the handler. See
+  // TwoPCCommitCache (dbms/inmemory/two_pc_commit_cache.hpp) for why the uuid compared against is the
+  // one captured at Store time, not re-derived from the accessor.
+  static void AbortTwoPCForTenant(utils::UUID const &uuid, rpc::ProgressHeartbeat *heartbeat = nullptr);
 
   // Startup history replay: applies, as MVCC transactions, the transactions of the existing WAL file `wal_path` that
   // are newer than the storage's last durable timestamp. Unlike the replica's WAL loading it leaves the storage's uuid,
@@ -93,27 +91,28 @@ class InMemoryReplicationHandlers {
 
   static void PrepareCommitHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-      dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t request_version,
-      slk::Reader *req_reader, slk::Builder *res_builder);
+      dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat,
+      uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                                     uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
                               dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+                              rpc::ProgressHeartbeat &heartbeat, uint64_t request_version, slk::Reader *req_reader,
+                              slk::Builder *res_builder);
 
   static void WalFilesHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-      utils::UUID const &current_main_uuid, uint64_t request_version, slk::Reader *req_reader,
-      slk::Builder *res_builder);
+      utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t request_version,
+      slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void CurrentWalHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
-      utils::UUID const &current_main_uuid, uint64_t request_version, slk::Reader *req_reader,
-      slk::Builder *res_builder);
+      utils::UUID const &current_main_uuid, rpc::ProgressHeartbeat &heartbeat, uint64_t request_version,
+      slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SwapMainUUIDHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
@@ -133,8 +132,6 @@ class InMemoryReplicationHandlers {
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version,
       rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal,
       std::function<void(uint64_t)> const *on_txn_begin = nullptr);
-
-  static TwoPCCache two_pc_cache_;
 };
 
 }  // namespace memgraph::dbms

@@ -36,10 +36,12 @@ class EdgeImportModeCache final {
 
   InMemoryLabelIndex::Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction) const;
 
-  InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<1>> Vertices(
-      LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-      Transaction *transaction) const;
+  /// Reads the range's bounds and its value predicate, if any.
+  InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<1>> Vertices(LabelId label,
+                                                                                      PropertyId property,
+                                                                                      PropertyValueRange const &range,
+                                                                                      View view, Storage *storage,
+                                                                                      Transaction *transaction) const;
 
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = {});

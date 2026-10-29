@@ -134,14 +134,18 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
   CachedQuery result;
   bool is_cacheable = true;
 
-  auto get_information_from_cache = [&](const CachedQuery &cached_query) {
-    result.ast_storage.properties_ = cached_query.ast_storage.properties_;
-    result.ast_storage.labels_ = cached_query.ast_storage.labels_;
-    result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
-    result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
-    result.ast_storage.call_procedures_ = cached_query.ast_storage.call_procedures_;
+  auto clone_query = [&](const AstStorage &ast_storage, Query *query) {
+    result.ast_storage.properties_ = ast_storage.properties_;
+    result.ast_storage.labels_ = ast_storage.labels_;
+    result.ast_storage.edge_types_ = ast_storage.edge_types_;
+    result.ast_storage.user_functions_ = ast_storage.user_functions_;
+    result.ast_storage.call_procedures_ = ast_storage.call_procedures_;
 
-    result.query = cached_query.query->Clone(&result.ast_storage);
+    result.query = query->Clone(&result.ast_storage);
+  };
+
+  auto get_information_from_cache = [&](const CachedQuery &cached_query) {
+    clone_query(cached_query.ast_storage, cached_query.query);
     result.required_privileges = cached_query.required_privileges;
     result.is_cypher_read = cached_query.is_cypher_read;
     result.using_schema_assert = cached_query.using_schema_assert;
@@ -200,7 +204,6 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
       get_information_from_cache(*cached_query);
     } else {
-      // Carefully use the query we just built, preserving the ast_storage we used to build it
       result.required_privileges = query::GetRequiredPrivileges(visitor.query());
       result.query = visitor.query();
       result.ast_storage = std::move(ast_storage);

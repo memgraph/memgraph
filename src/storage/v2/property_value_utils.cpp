@@ -21,92 +21,46 @@ namespace memgraph::storage {
 
 namespace {
 
-/// The stretches of the stored order, in the order they run.
+/// The value a stretch begins at.
 ///
-/// A range fenced to one type runs from that type's own stretch up to the next,
-/// so the sequence below is the only statement of where each type sits: both
-/// bounds are read off it, and a type cannot move at one end of a range without
-/// moving at the other.
-enum class Stretch : std::uint8_t {
-  /// Nothing begins below this one, so a null has no lower bound.
-  Null,
-  Bool,
-  /// One stretch for both numeric types, which are ordered against each other
-  /// as the numbers they are rather than by their types.
-  Number,
-  /// A stretch nothing is stored in, naming where the numbers stop. Every
-  /// comparison against a NaN is false, so a range built from one must not
-  /// reach the NaNs, which sort above every other number.
-  AboveEveryNumber,
-  String,
-  List,
-  Map,
-  Temporal,
-  ZonedTemporal,
-  Enum,
-  Point2d,
-  Point3d,
-  VectorIndexId,
-  /// Nothing begins above the last stretch, so it has no upper bound.
-  Count,
-};
-
-/// The value each stretch begins at, written once in the order above.
+/// A switch rather than a table read by position, so that a stretch added to
+/// the sequence has to be given its first value before this compiles. A table
+/// would take the new one as a gap and hand back nothing to start it.
 ///
-/// The constants are defined by the header this file includes, so they are
-/// built before this array of their addresses is.
-const std::array<PropertyValue const *, static_cast<std::size_t>(Stretch::Count)> kStretchStarts = {
-    &kSmallestProperty,
-    &kSmallestBool,
-    &kSmallestNumber,
-    &kSmallestNaN,
-    &kSmallestString,
-    &kSmallestList,
-    &kSmallestMap,
-    &kSmallestTemporalData,
-    &kSmallestZonedTemporalData,
-    &kSmallestEnum,
-    &kSmallestPoint2d,
-    &kSmallestPoint3d,
-    &kSmallestVectorIndexId,
-};
-
-/// The stretch a type's values are kept in.
-Stretch StretchOf(PropertyValueType type) {
-  switch (type) {
-    using enum PropertyValueType;
-    case Null:
-      return Stretch::Null;
-    case Bool:
-      return Stretch::Bool;
-    case Int:
-    case Double:
-      return Stretch::Number;
-    case String:
-      return Stretch::String;
-    // The representations that pack a list's elements hold the same value a
-    // boxed list holds, so they are kept where a list is kept.
-    case List:
-    case NumericList:
-    case IntList:
-    case DoubleList:
-      return Stretch::List;
-    case Map:
-      return Stretch::Map;
-    case TemporalData:
-      return Stretch::Temporal;
-    case ZonedTemporalData:
-      return Stretch::ZonedTemporal;
-    case Enum:
-      return Stretch::Enum;
-    case Point2d:
-      return Stretch::Point2d;
-    case Point3d:
-      return Stretch::Point3d;
-    case VectorIndexId:
-      return Stretch::VectorIndexId;
+/// `Count` names the end of the sequence rather than a stretch, so it has no
+/// value to begin at and the caller asking what comes next answers for it.
+auto StretchStart(Stretch stretch) -> PropertyValue const & {
+  switch (stretch) {
+    case Stretch::Map:
+      return kSmallestMap;
+    case Stretch::List:
+      return kSmallestList;
+    case Stretch::Temporal:
+      return kSmallestTemporalData;
+    case Stretch::ZonedTemporal:
+      return kSmallestZonedTemporalData;
+    case Stretch::Enum:
+      return kSmallestEnum;
+    case Stretch::Point2d:
+      return kSmallestPoint2d;
+    case Stretch::Point3d:
+      return kSmallestPoint3d;
+    case Stretch::String:
+      return kSmallestString;
+    case Stretch::Bool:
+      return kSmallestBool;
+    case Stretch::Number:
+      return kSmallestNumber;
+    case Stretch::AboveEveryNumber:
+      return kSmallestNaN;
+    case Stretch::VectorIndexId:
+      return kSmallestVectorIndexId;
+    case Stretch::Null:
+      return kSmallestNull;
+    case Stretch::Count:
+      break;
   }
-  return Stretch::Null;
+  LOG_FATAL("Asked where the sequence of stretches begins past its end");
 }
 
 }  // namespace
@@ -114,14 +68,14 @@ Stretch StretchOf(PropertyValueType type) {
 auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
   auto const next = static_cast<std::size_t>(StretchOf(type)) + 1;
   if (next == static_cast<std::size_t>(Stretch::Count)) return std::nullopt;
-  return utils::MakeBoundExclusive(*kStretchStarts[next]);
+  return utils::MakeBoundExclusive(StretchStart(static_cast<Stretch>(next)));
 }
 
 auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
-  auto const stretch = StretchOf(type);
-  if (stretch == Stretch::Null) return std::nullopt;
-  return utils::MakeBoundInclusive(*kStretchStarts[static_cast<std::size_t>(stretch)]);
+  return utils::MakeBoundInclusive(StretchStart(StretchOf(type)));
 }
+
+auto UpperBoundForNonNulls() -> utils::Bound<PropertyValue> { return utils::MakeBoundExclusive(kSmallestNull); }
 
 namespace {
 

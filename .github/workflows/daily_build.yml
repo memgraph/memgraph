@@ -175,6 +175,8 @@ jobs:
           fetch-depth: 0
       - name: Resolve memgraph version
         id: version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # The version string includes "+" and "~" — both are legal in S3 keys and
           # stored verbatim, but "+" must be percent-encoded in URL paths or HTTP
@@ -368,6 +370,8 @@ jobs:
 
       - name: Set last image version
         id: set_last_image_version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           echo "Setting last image version"
           last_image_version=$(./tools/ci/get_latest_tag.sh)

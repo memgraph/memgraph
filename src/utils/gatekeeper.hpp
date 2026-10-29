@@ -173,14 +173,29 @@ inline constexpr cold_shell_t cold_shell{};
 template <typename T>
 struct GKInternals {
   template <typename... Args>
-  explicit GKInternals(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
+  explicit GKInternals(Args &&...args) : value_{std::make_unique<T>(std::forward<Args>(args)...)} {}
 
-  // COLD-shell construction: value_ stays nullopt, state_ starts COLD. Non-template so it is preferred
-  // over the variadic ctor for an exact cold_shell_t argument (which would otherwise try value_{in_place,
-  // cold_shell} and fail to compile for managed types with no such constructor).
+  // COLD-shell: value_ stays null, state_ starts COLD. Non-template so it wins over the variadic
+  // ctor for a cold_shell_t arg (otherwise make_unique<T>(cold_shell) fails for managed types).
   explicit GKInternals(cold_shell_t /*tag*/) : state_{GatekeeperState::COLD} {}
 
-  std::optional<T> value_;
+  // T is destroyed with mutex_ alive and released: threads that ~T joins may still call Ref::access(),
+  // which must then find value_ empty rather than lock a destroyed mutex.
+  ~GKInternals() {
+    auto dying = std::invoke([this] {
+      auto guard = std::unique_lock{mutex_};
+      return std::move(value_);
+    });
+  }
+
+  GKInternals(GKInternals const &) = delete;
+  GKInternals(GKInternals &&) = delete;
+  GKInternals &operator=(GKInternals const &) = delete;
+  GKInternals &operator=(GKInternals &&) = delete;
+
+  bool is_live() const { return value_ && state_ == GatekeeperState::HOT; }
+
+  std::unique_ptr<T> value_;
   uint64_t count_ = 0;
   std::atomic_bool is_marked_for_deletion = false;
   std::mutex mutex_;  // TODO change to something cheaper?
@@ -190,30 +205,40 @@ struct GKInternals {
 
 template <typename T>
 struct Gatekeeper {
+  struct Ref;
+
   template <typename... Args>
   explicit Gatekeeper(Args &&...args) {
     // Opt-in lifetime guard around object construction.
     // Types without a nested GatekeeperGuard get a zero-size no-op.
     [[maybe_unused]] typename GatekeeperGuardFor<T>::type guard;
     pimpl_ = std::make_unique<GKInternals<T>>(std::forward<Args>(args)...);
+    // Opt-in: a value that declares BindGatekeeper(Ref) receives a handle to its own gatekeeper.
+    if constexpr (requires(T &value) { value.BindGatekeeper(Ref{}); }) {
+      if (pimpl_->value_) pimpl_->value_->BindGatekeeper(Ref{pimpl_.get()});
+    }
   }
 
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = default;
   Gatekeeper &operator=(Gatekeeper const &) = delete;
   // LOAD-BEARING for hot/cold deadlock-freedom: the defaulted move-assign tears the OLD state down by
-  // resetting `pimpl_` (a unique_ptr), which runs ~GKInternals — a plain, NON-blocking destructor. It
-  // does NOT run ~Gatekeeper (whose teardown blocks until count == 0 + a terminal state). DbmsHandler's
-  // RESUME publish (`*gk = std::move(fresh)`) relies on this: it overwrites a RESUMING shell while
-  // holding the handler lock_, and would deadlock if overwriting instead invoked the blocking
-  // ~Gatekeeper. Keep this `= default` (and keep ~GKInternals non-blocking) or that publish path hangs.
+  // resetting `pimpl_` (a unique_ptr), which runs ~GKInternals. That destructor never waits on count_
+  // or state; it takes mutex_ only for the moment it moves value_ out. It does NOT run ~Gatekeeper
+  // (whose teardown blocks until count == 0 + a terminal state). DbmsHandler's RESUME publish
+  // (`*gk = std::move(fresh)`) relies on this: it overwrites a RESUMING shell while holding the handler
+  // lock_, and would deadlock if overwriting instead invoked the blocking ~Gatekeeper. Keep this
+  // `= default` (and keep ~GKInternals from waiting) or that publish path hangs.
+  // PRECONDITION: the overwritten gatekeeper has no live accessors (count_ == 0), since its internals are
+  // freed without waiting. The publish overwrites a value-less RESUMING shell, which refuses access().
   Gatekeeper &operator=(Gatekeeper &&) noexcept = default;
 
   struct Accessor {
     friend Gatekeeper;
+    friend Ref;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
+    explicit Accessor(GKInternals<T> *owner) : owner_{owner} { ++owner_->count_; }
 
    public:
     // CONTRACT: copying bumps count_ but does NOT re-check state_. Copying the *sole* live accessor
@@ -286,22 +311,22 @@ struct Gatekeeper {
 
     auto get() -> T * {
       if (owner_ == nullptr) return nullptr;
-      return std::addressof(*owner_->value_);
+      return owner_->value_.get();
     }
 
     auto get() const -> const T * {
       if (owner_ == nullptr) return nullptr;
-      return std::addressof(*owner_->value_);
+      return owner_->value_.get();
     }
 
     T *operator->() {
       if (owner_ == nullptr) return nullptr;
-      return std::addressof(*owner_->value_);
+      return owner_->value_.get();
     }
 
     const T *operator->() const {
       if (owner_ == nullptr) return nullptr;
-      return std::addressof(*owner_->value_);
+      return owner_->value_.get();
     }
 
     template <typename Func>
@@ -309,8 +334,9 @@ struct Gatekeeper {
       if (!owner_) return {not_run_t{}};
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
-      // Only invoke if we have exclusive access
-      if (owner_->count_ != 1) {
+      // Only invoke if we have exclusive access and there is still a value (try_delete()'s unlocked
+      // destruction window briefly holds count_ == 1 with value_ == nullptr).
+      if (owner_->count_ != 1 || !owner_->value_) {
         return {not_run_t{}};
       }
       // Invoke and hold result in wrapper type
@@ -335,26 +361,33 @@ struct Gatekeeper {
       return {run_t{}, std::forward<Func>(func), *owner_->value_};
     }
 
-    // Completely invalidated the accessor if return true
+    // Completely invalidates the accessor if it returns true.
+    // ~T runs AFTER mutex_ is released: ~Database->StopAllBackgroundTasks() joins threads that call
+    // access() — holding mutex_ here is an AB-BA deadlock. Do NOT move destruction back under lock.
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
                                   Func &&predicate = {}) {
       if (!owner_) return false;
-      // Prevent new access
-      auto guard = std::unique_lock{owner_->mutex_};
-      if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
-        return false;
-      }
-      // Already deleted
-      if (owner_->value_ == std::nullopt) return true;
-      // Delete value if ok
-      if (!predicate(*owner_->value_)) return false;
+      std::unique_ptr<T> dying;
+      {
+        auto guard = std::unique_lock{owner_->mutex_};
+        if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
+          return false;
+        }
+        // Already deleted
+        if (!owner_->value_) return true;
+        if (!predicate(*owner_->value_)) return false;
+        dying = std::move(owner_->value_);
+        owner_->cv_.notify_all();
+      }  // <-- mutex_ released here
       // Opt-in lifetime guard around object destruction.
       [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
-      owner_->value_ = std::nullopt;
+      dying.reset();  // ~T runs unlocked; its thread joins can now complete
       return true;
     }
 
+    // Unlocked, advisory: reads only the atomic is_marked_for_deletion (not value_, which would race
+    // try_delete()'s move-out). May report true while get()/operator->() return nullptr.
     explicit operator bool() const {
       return owner_ != nullptr                    // we have access
              && !owner_->is_marked_for_deletion;  // AND we are allowed to use it
@@ -379,16 +412,38 @@ struct Gatekeeper {
 
   std::optional<Accessor> access() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // Intentionally gated ONLY on state_ == HOT, NOT on is_marked_for_deletion: a tenant being deleted
-    // can still be HOT, and the marked-for-deletion guard is surfaced via Accessor::operator bool (the
-    // caller checks it and releases). access() minting on a marked-but-HOT shell is benign — the minted
-    // Accessor's operator bool is false, so callers won't use it, and the count returns to 0 so a
-    // waiting ~Gatekeeper proceeds. Adding a marked check here is NOT a correctness requirement.
-    if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT) {
-      return Accessor{this};
+    // Intentionally gated ONLY on state_ == HOT, NOT on is_marked_for_deletion. The deletion seal is an
+    // ADVISORY cooperative signal: holders that check Accessor::operator bool see it is false and retire
+    // gracefully — replication finalize and recovery bail-out paths use this to retire the RPC connection
+    // and stop driving recovery on a tenant that is going away. access() is NOT gated on the seal so
+    // the teardown worker can still mint an Accessor to run its own stop steps on a HOT-but-sealed shell,
+    // and so the accessor count drains to 0 allowing ~Gatekeeper to proceed.
+    if (pimpl_->is_live()) {
+      return Accessor{pimpl_.get()};
     }
     return std::nullopt;
   }
+
+  // Non-owning handle through which a value mints accessors to itself without a lookup. Valid for the
+  // value's whole life, because GKInternals never moves. Unlike access(), it refuses a sealed value:
+  // its users are the value's own background workers, which must stop once the value is dropped.
+  struct Ref {
+    Ref() = default;
+
+    std::optional<Accessor> access() const {
+      if (!owner_) return std::nullopt;
+      auto guard = std::unique_lock{owner_->mutex_};
+      if (!owner_->is_live() || owner_->is_marked_for_deletion) return std::nullopt;
+      return Accessor{owner_};
+    }
+
+   private:
+    friend Gatekeeper;
+
+    explicit Ref(GKInternals<T> *owner) : owner_{owner} {}
+
+    GKInternals<T> *owner_ = nullptr;
+  };
 
   std::optional<bool> is_marked_for_deletion() const {
     auto guard = std::unique_lock{pimpl_->mutex_};
@@ -396,6 +451,18 @@ struct Gatekeeper {
       return pimpl_->is_marked_for_deletion;
     }
     return std::nullopt;
+  }
+
+  // Sets the advisory is_marked_for_deletion flag without holding an Accessor.
+  // This is NOT a hard barrier: access() is gated only on state_ == HOT (not on
+  // is_marked_for_deletion), so new Accessors can still be minted on a sealed HOT
+  // gatekeeper. The seal is a cooperative signal — consumers such as replication
+  // (via DatabaseProtector::sealed()) observe Accessor::operator bool returning false
+  // and retire gracefully. Call only after all own Accessors are released and all
+  // fallible drop work has succeeded.
+  void seal() {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    pimpl_->is_marked_for_deletion = true;
   }
 
   // Returns the current lifecycle state (locks mutex_).
@@ -414,7 +481,8 @@ struct Gatekeeper {
   // the managed value, then call finish_suspend().
   bool try_begin_suspend(std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    if (pimpl_->state_ != GatekeeperState::HOT) return false;
+    // Also refuse null value_: try_delete()'s unlocked window holds count_==1/HOT with value_ moved out.
+    if (!pimpl_->value_ || pimpl_->state_ != GatekeeperState::HOT) return false;
     if (!pimpl_->cv_.wait_for(guard, timeout, [this] { return pimpl_->count_ == 1; })) {
       return false;
     }
@@ -446,22 +514,17 @@ struct Gatekeeper {
     {
       // Opt-in lifetime guard around object destruction (mirrors the dtor).
       [[maybe_unused]] typename GatekeeperGuardFor<T>::type arena_guard;
-      // INTENTIONAL: pimpl_->mutex_ is held across value_.reset() (Database destruction +
-      // WAL finalization).  This is the load-bearing suspend->resume directory handoff:
-      // begin_resume() (which transitions COLD->RESUMING) also runs under pimpl_->mutex_,
-      // so a concurrent Resume_ CANNOT start recovering from the on-disk directory until the
-      // old Database has finished finalizing its WAL and all its files are closed.
-      // Do NOT "optimize" this by releasing the mutex before destruction — doing so would
-      // open a window where a concurrent begin_resume() starts reading the directory while
-      // the old Database is still writing its final WAL segment.
+      // mutex_ held across value_.reset() intentionally — suspend->resume WAL handoff:
+      // begin_resume() also runs under mutex_, so a concurrent Resume_ cannot read the on-disk
+      // directory until the old Database finishes writing its final WAL. Do NOT release early.
       //
-      // INVARIANT (load-bearing): T's destructor (here ~Database -> ~InMemoryStorage) MUST NOT
-      // call any Gatekeeper method on the gatekeeper that owns it. pimpl_->mutex_ is non-recursive
-      // and held here, so re-entry (e.g. a pre-destruction hook calling access()/try_*()) would
-      // self-deadlock. Verified today: the ~Database/~InMemoryStorage chain takes no gatekeeper
-      // path. Anyone adding a destruction-time DBMS callback must preserve this.
+      // Destroying under the lock is safe ONLY because Suspend_ (dbms_handler.cpp) already ran
+      // StopAllBackgroundTasks() OUTSIDE this mutex before calling finish_suspend(): TTL/
+      // async-indexer threads that call access() (needing mutex_) are already joined — the
+      // in-destructor join is a no-op. try_delete() has no such pre-stop so it destroys UNLOCKED.
+      // Remove the caller's pre-stop and this deadlocks.
       DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
-      pimpl_->value_ = std::nullopt;
+      pimpl_->value_.reset();
     }
     pimpl_->state_ = GatekeeperState::COLD;
     pimpl_->cv_.notify_all();

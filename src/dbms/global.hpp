@@ -22,6 +22,7 @@ enum class DeleteError : uint8_t {
   DEFAULT_DB,
   USING,
   NON_EXISTENT,
+  ALREADY_DROPPING,  // tenant exists only as a draining husk (deferred DROP in progress)
   FAIL,
   DISK_FAIL,
 };

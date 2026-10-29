@@ -1,0 +1,13 @@
+property_lookup_caching_cluster: &property_lookup_caching_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges"]
+      log_file: "property_lookup_caching.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Property lookups follow the record their identifier is bound to"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["property_lookup_caching/test_property_lookup_caching.py"]
+    <<: *property_lookup_caching_cluster

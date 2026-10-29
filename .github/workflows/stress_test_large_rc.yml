@@ -1,0 +1,29 @@
+name: Stress Test Large RC
+# Runs separately from build_rc.yml so the ~8h stress test doesn't block
+# re-running flaky jobs in the RC workflow (and vice versa).
+concurrency:
+  group: Stress-Test-Large-RC-${{ inputs.tag }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        description: "Release candidate tag to test (e.g. vX.Y.Z-rc1)."
+        required: true
+
+run-name: "Stress Test Large RC (${{ inputs.tag }})"
+
+jobs:
+  StressTestLarge:
+    name: Stress Test Large
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ubuntu-24.04
+      arch: "amd"
+      build_type: RelWithDebInfo
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+      ref: ${{ inputs.tag }}
+    secrets: inherit

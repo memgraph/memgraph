@@ -11,12 +11,15 @@
 #include <mutex>
 #include <optional>
 #include <regex>
+#include <utility>
 #include <vector>
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "auth/ops.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/repository.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
@@ -33,6 +36,15 @@ namespace memgraph::auth {
 
 class Auth;
 using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
+
+/// What an auth transaction did, in the order it did it, waiting to be replicated. A system transaction is
+/// created only at COMMIT and these go into it as one batched action, so the system mutex is held for the flush
+/// rather than the whole transaction; holding one open would fail every other system query with
+/// ConcurrentSystemQueriesException.
+///
+/// One batch, rather than one action each, is what stops a replica applying part of a transaction: the whole
+/// sequence arrives in a single request or none of it does.
+using PendingActions = std::vector<replication::AuthOp>;
 
 static const constexpr char *const kAllDatabases = "*";
 
@@ -58,6 +70,15 @@ struct SSOIdentity {
   std::vector<std::string> roles;
 };
 
+// Free functions: take the auth lock internally; run the module/bcrypt with no lock held.
+std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &username, const std::string &password);
+std::optional<UserOrRole> SSOAuthenticate(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response);
+// Coordinator SSO: reports the module's identity with NO kvstore validation (coordinators keep no user/role records);
+// the caller checks role names against the Raft-replicated role set. Enterprise-license gated via the module lookup.
+std::optional<SSOIdentity> SSOGetIdentity(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response);
+
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.
@@ -82,6 +103,12 @@ class Auth final {
     std::string name_regex_str{glue::kDefaultUserRoleRegex};
     std::string password_regex_str{glue::kDefaultPasswordRegex};
     bool password_permit_null{true};
+
+    /// Throws AuthException if the password is null and nulls are not permitted, or fails the strength regex.
+    void ValidatePassword(std::optional<std::string> const &password) const;
+
+    /// Throws AuthException if a custom regex is set without an enterprise licence.
+    bool NameMatches(std::string const &user_or_role) const;
 
    private:
     friend class Auth;
@@ -135,52 +162,13 @@ class Auth final {
    */
   Config GetConfig() const { return config_; }
 
-  /**
-   * Calls the external auth module and validates its response.
-   *
-   * @param scheme
-   * @param module_params
-   * @param provided_username
-   *
-   * @return username + role if the module authenticated successfully and provided a valid response, nullopt otherwise
-   */
-  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, nlohmann::json module_params,
-                                               std::optional<std::string> provided_username = std::nullopt);
+  /// Returns the Module for `scheme`, nullptr if prerequisites fail. Callable under MutableSharedLock(); the pointer
+  /// outlives the lock (modules_ is written only in the constructor) and Module::Call serializes itself.
+  Module *GetAuthModule(const std::string &scheme);
 
-  /**
-   * Authenticates a user identified by username and password.
-   *
-   * @param username
-   * @param password
-   *
-   * @return a user when the username and password match, nullopt otherwise
-   * @throw AuthException if unable to authenticate for whatever reason.
-   */
-  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
-
-  /**
-   * Authenticates a user using the identity provider response/token. Requires an external auth module.
-   *
-   * @param response
-   *
-   * @return username + role if the identity provider response is valid, nullopt otherwise
-   */
-  std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
-
-  /**
-   * Runs the SSO auth module for a coordinator connection and returns the identity it reports on success.
-   *
-   * Unlike SSOAuthenticate, this performs NO validation against the auth kvstore (no GetRole lookup, no local-user
-   * collision check): coordinators keep no user/role records in the kvstore. The caller validates the returned role
-   * names against the Raft-replicated coordinator role set. Enterprise-license gated via HasAuthModulePrerequisites.
-   *
-   * @param scheme
-   * @param identity_provider_response
-   *
-   * @return the reported username + role names on a successful authentication, nullopt on any
-   *         module/authentication/parse failure
-   */
-  std::optional<SSOIdentity> SSOGetIdentity(const std::string &scheme, const std::string &identity_provider_response);
+  /// Validates a module response and resolves roles/user against the kvstore; callable under ReadLock().
+  std::optional<UserOrRole> ResolveModuleResponse(const nlohmann::json &ret,
+                                                  std::optional<std::string> provided_username) const;
 
   /**
    * Gets a user from the storage.
@@ -204,18 +192,6 @@ class Auth final {
   void SaveUser(const User &user, system::Transaction *system_tx = nullptr);
 
   /**
-   * Creates a user if the user doesn't exist.
-   *
-   * @param username
-   * @param password
-   *
-   * @return a user when the user is created, nullopt if the user exists
-   * @throw AuthException if unable to save the user.
-   */
-  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt,
-                              system::Transaction *system_tx = nullptr);
-
-  /**
    * Initializes the first user, which will be the super admin.
    */
   void InitialiseFirstUser(User &user, system::Transaction *system_tx = nullptr);
@@ -231,13 +207,17 @@ class Auth final {
    */
   bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
 
-  /**
-   * @brief
-   *
-   * @param user
-   * @param password
-   */
-  void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
+  /// Throws AuthException if the password violates the policy; pre-hashed literals are exempt.
+  void ValidatePassword(const std::optional<std::string> &password) const;
+
+  void ValidateName(const std::string &name) const;
+
+  /// Hashes password with no auth-state access; safe to call with no lock held.
+  static std::optional<HashedPassword> ComputePasswordHash(const std::optional<std::string> &password);
+
+  /// Creates a user with a precomputed hash; does NOT validate password policy — caller's responsibility.
+  std::optional<User> AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
+                                      system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all users from the storage.
@@ -291,8 +271,6 @@ class Auth final {
    * @throw AuthException if unable to load role data.
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
-
-  void LinkRole(Role &role) const;
 
   std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
                                           const std::vector<std::string> &rolenames) const {
@@ -470,6 +448,12 @@ class Auth final {
   }
 
 // user profiles
+//
+// These write through to the in-memory profile cache at once, while the durable write buffers in a
+// transaction's overlay. Nothing here rolls that back, so none of them may run inside an explicit
+// transaction. They do not check: the refusal lives at PrepareUserProfileQuery, which rejects every
+// profile write while `in_explicit_transaction_` holds, and no auth, dbms or storage method re-checks. Move
+// that guard and these become unsafe.
 #ifdef MG_ENTERPRISE
   bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
                      const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
@@ -482,7 +466,7 @@ class Auth final {
                              const std::unordered_set<std::string> &usernames = {},
                              system::Transaction *system_tx = nullptr);
 
-  bool DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
+  UserProfiles::DropResult DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
 
   std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
   std::vector<UserProfiles::Profile> AllProfiles() const;
@@ -510,7 +494,69 @@ class Auth final {
    */
   bool NameRegexMatch(const std::string &user_or_role) const;
 
-  void UpdateEpoch() { ++epoch_; }
+  // Durability updated -> new epoch, invalidating permissions cached against it. A transactional repository means
+  // nothing is durable yet, so the epoch must not move: bumping it would invalidate those caches against
+  // uncommitted state. Commit moves it once the flush lands.
+  void UpdateEpoch() {
+    if (!storage_.IsTransactional()) ++epoch_;
+  }
+
+  // Inside an auth transaction the action is held until COMMIT drains it, so the system mutex is taken for the
+  // flush rather than the transaction's whole life. Outside one it goes straight to the statement's system
+  // transaction. With neither, the action is dropped: that is how a password hash upgrade during login writes
+  // without replicating. A replica applying a batch collects its actions in a transaction, then commits with no
+  // system transaction, which drops them the same way.
+  //
+  // `make` runs only when there is somewhere to put the result, so no caller pays to build one that would be
+  // dropped.
+  template <typename Make>
+  void AddAuthAction(system::Transaction *system_tx, Make &&make) {
+    if (sink_) {
+      sink_->emplace_back(std::forward<Make>(make)());
+    } else if (system_tx) {
+      AddSystemAction(*system_tx, std::forward<Make>(make)());
+    }
+  }
+
+  // Outside a transaction there is no sink to collect into, so the one operation becomes a batch of one. That
+  // keeps a single statement on the same wire format and the same replica code as a transaction's batch.
+  // system::Transaction is only forward-declared here, so the push itself lives in the .cpp.
+  static void AddSystemAction(system::Transaction &system_tx, replication::AuthOp op);
+
+  // AuthLayer retargets this for the duration of a call inside an auth transaction, restoring it on scope exit, and
+  // needs the base store to build an overlay over. Deliberately private: pointing auth at buffered storage is the
+  // layer's business, and a transaction must never outlive the lock it was installed under.
+  friend class AuthLayer;
+
+  Repository &storage() { return storage_; }
+
+  PendingActions *&sink() { return sink_; }
+
+#ifdef MG_ENTERPRISE
+  std::vector<std::string> *&dropped_users() { return dropped_users_; }
+
+  // Releases the live limits a dropped user was holding. Deferred to COMMIT, because ResourceMonitoring is shared
+  // with every session and has no rollback of its own.
+  void ReleaseUserResources(std::string const &username) {
+    if (user_resources_) user_resources_->RemoveUser(username);
+  }
+#endif
+
+  kvstore::KVStore &durability() { return durability_; }
+
+  // Storage access. `storage_` routes to the durable KVStore or to a transaction's overlay; Auth cannot tell which.
+  std::optional<std::string> StorageGet(std::string_view key) const { return storage_.Get(key); }
+
+  bool StoragePutMultiple(std::map<std::string, std::string> const &items) { return storage_.PutMultiple(items); }
+
+  bool StoragePutAndDeleteMultiple(std::map<std::string, std::string> const &puts,
+                                   std::vector<std::string> const &deletes) {
+    return storage_.PutAndDeleteMultiple(puts, deletes);
+  }
+
+  bool StorageDelete(std::string_view key) { return storage_.Delete(key); }
+
+  bool StorageDeleteMultiple(std::vector<std::string> const &keys) { return storage_.DeleteMultiple(keys); }
 
   /**
    * Returns whether the prerequisites for authentication aided by external module are met:
@@ -545,7 +591,21 @@ class Auth final {
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
-  kvstore::KVStore storage_;
+  kvstore::KVStore durability_;
+
+  // Everything below reaches storage through this handle, never `durability_` directly, so an auth transaction can
+  // point it at an overlay instead. Auth itself has no idea which it holds.
+  Repository storage_{durability_};
+
+  // Where replication actions accumulate while an auth transaction is live, bound alongside `storage_` and null
+  // outside one. Read and written only under the exclusive lock that installs it.
+  PendingActions *sink_ = nullptr;
+
+#ifdef MG_ENTERPRISE
+  // Users whose resource limits are released at COMMIT rather than immediately. Bound and null on the same terms
+  // as `sink_`.
+  std::vector<std::string> *dropped_users_ = nullptr;
+#endif
 #ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;

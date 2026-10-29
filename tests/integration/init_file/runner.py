@@ -40,7 +40,7 @@ def terminate_memgraph(memgraph):
         os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
-    time.sleep(1)
+    memgraph.wait(timeout=30)
 
 
 def execute_test_restart_memgraph_with_init_file(memgraph_binary: str, tester_binary: str) -> None:

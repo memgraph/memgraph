@@ -64,6 +64,8 @@ class DiffSetup:
                 continue
             elif file.startswith(".github/workflows/") and not file.startswith(".github/workflows/diff"):
                 continue
+            elif file.startswith("tools/ci/pr-conflicts/"):
+                continue
             return True
         return False
 

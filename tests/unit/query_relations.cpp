@@ -109,8 +109,12 @@ std::optional<OrderedPair> PairOf(Type type) {
       return OrderedPair{TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 1.0}),
                          TypedValue(Point3d{Cartesian_3d, 1.0, 1.0, 2.0})};
 
-    case Type::Null:
     case Type::List:
+      // The spec's example: a prefix sorts first.
+      return OrderedPair{TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1})}),
+                         TypedValue(std::vector<TypedValue>{TypedValue(int64_t{1}), TypedValue(int64_t{0})})};
+
+    case Type::Null:
     case Type::Map:
     case Type::Vertex:
     case Type::Edge:
@@ -130,6 +134,46 @@ TypedValue MapOf(std::map<std::string, TypedValue> entries) { return TypedValue(
 
 TypedValue Int(int64_t value) { return TypedValue(value); }
 
+/// One value of the given type, for every type a test with no graph can build.
+///
+/// Wider than `PairOf`, which needs two values in a known order and so has nothing for a type
+/// carrying no order of its own. Placing such a type against a different one asks only where
+/// the two types sit, which is a question that has an answer for all of these.
+std::optional<TypedValue> AValueOfType(Type type) {
+  switch (type) {
+    case Type::Null:
+      return TypedValue();
+    case Type::List:
+      return ListOf({Int(1)});
+    case Type::Map:
+      return MapOf({{"a", Int(1)}});
+
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::ZonedDateTime:
+    case Type::Duration:
+    case Type::Enum:
+    case Type::Point2d:
+    case Type::Point3d:
+      return PairOf(type)->lesser;
+
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::Path:
+    case Type::Graph:
+    case Type::VirtualGraph:
+    case Type::Function:
+    case Type::VirtualEdge:
+    case Type::VirtualNode:
+      return std::nullopt;
+  }
+}
+
 }  // namespace
 
 // Comparability
@@ -140,31 +184,31 @@ TEST(Comparability, AdmitsExactlyTheTypesItCanPlace) {
     if (!pair) continue;
     // A type it admits has to be a type it can answer for, and the reverse. Two switches state
     // this separately, so nothing but a test holds them together.
-    EXPECT_EQ(comparability::Admits(type), comparability::ComparePayload(pair->lesser, pair->greater).has_value())
+    EXPECT_EQ(comparability::ValidFor(type), comparability::Compare(pair->lesser, pair->greater).has_value())
         << "type " << static_cast<unsigned>(type);
   }
 }
 
 TEST(Comparability, PlacesNoGraphElement) {
-  EXPECT_FALSE(comparability::Admits(Type::Vertex));
-  EXPECT_FALSE(comparability::Admits(Type::Edge));
-  EXPECT_FALSE(comparability::Admits(Type::Path));
-  EXPECT_FALSE(comparability::Admits(Type::Graph));
-  EXPECT_FALSE(comparability::Admits(Type::Function));
-  EXPECT_FALSE(comparability::Admits(Type::VirtualEdge));
-  EXPECT_FALSE(comparability::Admits(Type::VirtualNode));
-  EXPECT_FALSE(comparability::Admits(Type::VirtualGraph));
+  EXPECT_FALSE(comparability::ValidFor(Type::Vertex));
+  EXPECT_FALSE(comparability::ValidFor(Type::Edge));
+  EXPECT_FALSE(comparability::ValidFor(Type::Path));
+  EXPECT_FALSE(comparability::ValidFor(Type::Graph));
+  EXPECT_FALSE(comparability::ValidFor(Type::Function));
+  EXPECT_FALSE(comparability::ValidFor(Type::VirtualEdge));
+  EXPECT_FALSE(comparability::ValidFor(Type::VirtualNode));
+  EXPECT_FALSE(comparability::ValidFor(Type::VirtualGraph));
 }
 
-TEST(Comparability, PlacesNoContainerAndNoNull) {
-  EXPECT_FALSE(comparability::Admits(Type::Null));
-  EXPECT_FALSE(comparability::Admits(Type::List));
-  EXPECT_FALSE(comparability::Admits(Type::Map));
+TEST(Comparability, PlacesAListAndNeitherAMapNorANull) {
+  EXPECT_TRUE(comparability::ValidFor(Type::List));
+  EXPECT_FALSE(comparability::ValidFor(Type::Null));
+  EXPECT_FALSE(comparability::ValidFor(Type::Map));
 }
 
 TEST(Comparability, OrdersEveryTypeItAdmits) {
   for (auto const type : kEveryType) {
-    if (!comparability::Admits(type)) continue;
+    if (!comparability::ValidFor(type)) continue;
     auto const pair = PairOf(type);
     ASSERT_TRUE(pair.has_value()) << "an admitted type needs a pair here: " << static_cast<unsigned>(type);
     auto const order = comparability::Compare(pair->lesser, pair->greater);
@@ -197,19 +241,18 @@ TEST(Comparability, PlacesEveryValueOfATypeItAdmitsExceptANaN) {
   for (auto const type : kEveryType) {
     auto const pair = PairOf(type);
     if (!pair) continue;
-    EXPECT_EQ(comparability::Places(pair->lesser), comparability::Admits(type))
+    EXPECT_EQ(comparability::ValidFor(pair->lesser), comparability::ValidFor(type))
         << "type " << static_cast<unsigned>(type);
   }
 
   auto const nan = TypedValue(std::nan(""));
-  EXPECT_TRUE(comparability::Admits(nan.type()));
-  EXPECT_FALSE(comparability::Places(nan));
+  EXPECT_TRUE(comparability::ValidFor(nan.type()));
+  EXPECT_FALSE(comparability::ValidFor(nan));
 }
 
 TEST(Comparability, PlacesNoValueOfATypeItRefuses) {
-  EXPECT_FALSE(comparability::Places(TypedValue()));
-  EXPECT_FALSE(comparability::Places(ListOf({Int(1)})));
-  EXPECT_FALSE(comparability::Places(MapOf({{"a", Int(1)}})));
+  EXPECT_FALSE(comparability::ValidFor(TypedValue()));
+  EXPECT_FALSE(comparability::ValidFor(MapOf({{"a", Int(1)}})));
 }
 
 TEST(Comparability, AnswersFalseForEveryComparisonAgainstANaN) {
@@ -232,11 +275,168 @@ TEST(Comparability, LeavesAPairHoldingANaNUnordered) {
   EXPECT_EQ(*comparability::Compare(nan, nan), std::partial_ordering::unordered);
 }
 
+// Lists: lexicographic order
+
+TEST(Comparability, ComparesTwoListsInDictionaryOrder) {
+  // The first unequal element decides.
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(1), Int(3)}))));
+  EXPECT_TRUE(std::is_gt(*comparability::Compare(ListOf({Int(2)}), ListOf({Int(1), Int(9)}))));
+  EXPECT_TRUE(std::is_eq(*comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(1), Int(2)}))));
+}
+
+TEST(Comparability, PlacesAShorterListFirstWhereTheTwoAgreeUpToItsEnd) {
+  // Spec: "Elements missing in a shorter list are considered to be less than any other value
+  // (including null values)." In [1] < [1, null] the null is never compared, so the answer is true.
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1)}), ListOf({Int(1), Int(0)}))));
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1)}), ListOf({Int(1), TypedValue()}))));
+  EXPECT_TRUE(std::is_gt(*comparability::Compare(ListOf({Int(1), TypedValue()}), ListOf({Int(1)}))));
+}
+
+TEST(Comparability, AnswersNothingWherePlacingTwoListsReachesANull) {
+  // "If comparing two lists requires comparing at least a single null value to some other value,
+  // these lists are incomparable."
+  EXPECT_FALSE(comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(1), TypedValue()})).has_value());
+  // null vs null is undecided too. ORDER BY differs: it sorts [null, 1] before [null, 2].
+  EXPECT_FALSE(comparability::Compare(ListOf({TypedValue(), Int(1)}), ListOf({TypedValue(), Int(2)})).has_value());
+}
+
+TEST(Comparability, SettlesBeforeReachingANullThatWouldHaveDecidedNothing) {
+  // Position 0 decides; the later null is never compared.
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1), Int(2)}), ListOf({Int(3), TypedValue()}))));
+}
+
+TEST(Comparability, AnswersNothingForTwoListsHoldingUnlikeTypesWhereTheyPart) {
+  // Unlike element types are undecided, so the lists are undecided.
+  EXPECT_FALSE(comparability::Compare(ListOf({Int(1), TypedValue("a")}), ListOf({Int(1), Int(2)})).has_value());
+}
+
+TEST(Comparability, AnswersNothingWherePlacingTwoListsReachesANaN) {
+  // Spec: NaN is incomparable, so a list pair that compares one is Null, not false as for scalars.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_FALSE(comparability::Compare(ListOf({Int(1), nan}), ListOf({Int(1), TypedValue(2.0)})).has_value());
+  EXPECT_FALSE(comparability::Compare(ListOf({nan, Int(1)}), ListOf({nan, Int(2)})).has_value());
+  EXPECT_FALSE(comparability::Compare(ListOf({ListOf({nan})}), ListOf({ListOf({Int(1)})})).has_value());
+  // The scalar pair stays unordered.
+  EXPECT_EQ(*comparability::Compare(Int(1), nan), std::partial_ordering::unordered);
+}
+
+TEST(Comparability, SettlesBeforeReachingANaN) {
+  // Position 0 decides; the later NaN is never compared.
+  auto const nan = TypedValue(std::nan(""));
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({Int(1), nan}), ListOf({Int(2)}))));
+}
+
+TEST(Comparability, ReadsAListNestedInsideAList) {
+  EXPECT_TRUE(std::is_lt(*comparability::Compare(ListOf({ListOf({Int(1)})}), ListOf({ListOf({Int(1), Int(0)})}))));
+  EXPECT_FALSE(
+      comparability::Compare(ListOf({ListOf({Int(1), TypedValue()})}), ListOf({ListOf({Int(1), Int(2)})})).has_value());
+}
+
+TEST(Comparability, PlacesNoListAgainstAValueThatIsNotAList) {
+  EXPECT_FALSE(comparability::Compare(ListOf({Int(1)}), Int(1)).has_value());
+  EXPECT_FALSE(comparability::Compare(Int(1), ListOf({Int(1)})).has_value());
+}
+
+TEST(Comparability, AgreesWithEqualityWhereverItDecidesAPairOfLists) {
+  // Spec: a = b if and only if a >= b && a <= b.
+  auto const decided = std::vector<std::pair<TypedValue, TypedValue>>{
+      {ListOf({Int(1)}), ListOf({Int(1)})},
+      {ListOf({Int(1)}), ListOf({Int(1), Int(0)})},
+      {ListOf({Int(2)}), ListOf({Int(1), Int(9)})},
+  };
+  for (auto const &[a, b] : decided) {
+    auto const order = comparability::Compare(a, b);
+    ASSERT_TRUE(order.has_value());
+    EXPECT_EQ(equality::Equal(a, b).ValueBool(), std::is_eq(*order));
+    EXPECT_EQ((a >= b).ValueBool() && (a <= b).ValueBool(), std::is_eq(*order));
+  }
+}
+
+TEST(Comparability, LeavesAPairOfListsUndecidedExactlyWhereEqualityDoes) {
+  // A compared null makes both = and >= Null.
+  auto const a = ListOf({Int(1), Int(2)});
+  auto const b = ListOf({Int(1), TypedValue()});
+  EXPECT_TRUE(equality::Equal(a, b).IsNull());
+  EXPECT_FALSE(comparability::Compare(a, b).has_value());
+  EXPECT_TRUE((a >= b).IsNull());
+}
+
+TEST(Comparability, PartsFromEqualityWhereTwoListsHoldUnlikeTypesWhereTheyMeet) {
+  // Unlike types: = is false but >= is Null, so a = b iff a >= b && a <= b fails here.
+  // Scalars behave the same: 1 = 'a' is false, 1 >= 'a' is Null.
+  auto const a = ListOf({Int(1), TypedValue("a")});
+  auto const b = ListOf({Int(1), Int(2)});
+  EXPECT_FALSE(equality::Equal(a, b).ValueBool());
+  EXPECT_FALSE(comparability::Compare(a, b).has_value());
+  EXPECT_TRUE((a >= b).IsNull());
+}
+
+TEST(Comparability, LeavesAListBoundToTheFilterRatherThanFencingAnIndexByIt) {
+  // An index range above [1, 2] would include [1, null], which the filter drops.
+  EXPECT_TRUE(comparability::AnIndexCanFence(Int(1)));
+  EXPECT_FALSE(comparability::AnIndexCanFence(ListOf({Int(1)})));
+  EXPECT_FALSE(comparability::AnIndexCanFence(TypedValue(std::nan(""))));
+  EXPECT_FALSE(comparability::AnIndexCanFence(MapOf({{"a", Int(1)}})));
+}
+
 // Orderability, and where it has to agree with comparability
+
+TEST(Orderability, AdmitsExactlyTheTypesItPlacesAPairOf) {
+  // Which types a sort can order is stated by `Admits`, and `Compare` states it again by refusing
+  // the rest. Two switches, so nothing but this holds them together: a type added to one and not
+  // the other answers a query wrongly rather than failing to compile.
+  for (auto const type : kEveryType) {
+    auto const pair = PairOf(type);
+    if (!pair) continue;
+
+    auto placed = true;
+    try {
+      orderability::Compare(pair->lesser, pair->greater);
+    } catch (memgraph::query::QueryRuntimeException const &) {
+      placed = false;
+    }
+    EXPECT_EQ(orderability::ValidFor(type), placed) << "type " << static_cast<unsigned>(type);
+  }
+}
+
+TEST(Orderability, AdmitsNoTypeCarryingNoOrderOfItsOwn) {
+  // The types a sort refuses, named rather than counted, so that a type added to the value has to
+  // be placed on one side or the other rather than joining this set by default.
+  constexpr Type kRefused[] = {Type::Map,
+                               Type::Vertex,
+                               Type::Edge,
+                               Type::VirtualEdge,
+                               Type::VirtualNode,
+                               Type::Path,
+                               Type::Graph,
+                               Type::VirtualGraph,
+                               Type::Function};
+  for (auto const type : kRefused) {
+    EXPECT_FALSE(orderability::ValidFor(type)) << "type " << static_cast<unsigned>(type);
+  }
+
+  auto refused = 0;
+  for (auto const type : kEveryType) {
+    if (!orderability::ValidFor(type)) ++refused;
+  }
+  EXPECT_EQ(refused, std::ssize(kRefused)) << "a type joined or left the refused set without being named here";
+}
+
+TEST(Orderability, AnswersForAValueExactlyWhereEveryTypeWithinIsAdmitted) {
+  // The value-level question reads through a list, because a list is ordered by what it holds.
+  EXPECT_TRUE(orderability::ValidFor(TypedValue(int64_t{1})));
+  EXPECT_TRUE(orderability::ValidFor(ListOf({Int(1), Int(2)})));
+  EXPECT_FALSE(orderability::ValidFor(MapOf({{"a", Int(1)}})));
+  EXPECT_FALSE(orderability::ValidFor(ListOf({MapOf({{"a", Int(1)}})})));
+
+  // And it names the type that has no order, so a refusal can say which.
+  EXPECT_EQ(orderability::UnorderedTypeWithin(ListOf({Int(1), MapOf({{"a", Int(1)}})})), Type::Map);
+  EXPECT_EQ(orderability::UnorderedTypeWithin(TypedValue(int64_t{1})), std::nullopt);
+}
 
 TEST(Orderability, AgreesWithComparabilityWhereverComparabilityAnswers) {
   for (auto const type : kEveryType) {
-    if (!comparability::Admits(type)) continue;
+    if (!comparability::ValidFor(type)) continue;
     auto const pair = PairOf(type);
     ASSERT_TRUE(pair.has_value());
 
@@ -275,7 +475,7 @@ TEST(Orderability, PlacesANaNWhereComparabilityStillWillNot) {
 
   // A Double is a type comparability admits, so it answers rather than
   // declining, and what it answers is that it has no order for the pair.
-  EXPECT_FALSE(comparability::Places(nan));
+  EXPECT_FALSE(comparability::ValidFor(nan));
   EXPECT_EQ(comparability::Compare(nan, TypedValue(1.0)), std::partial_ordering::unordered);
   EXPECT_EQ(comparability::Compare(nan, nan), std::partial_ordering::unordered);
 
@@ -367,9 +567,173 @@ TEST(Orderability, PlacesTheTypesComparabilityRefuses) {
   for (auto const type : {Type::Enum, Type::Point2d, Type::Point3d}) {
     auto const pair = PairOf(type);
     ASSERT_TRUE(pair.has_value());
-    EXPECT_FALSE(comparability::Admits(type));
+    EXPECT_FALSE(comparability::ValidFor(type));
     EXPECT_TRUE(std::is_lt(orderability::Compare(pair->lesser, pair->greater)));
   }
+}
+
+// Where an integer stops fitting in a double
+
+/// The largest integer every larger integer's double no longer tells apart. Above it the
+/// doubles thin out, so distinct integers share one.
+constexpr int64_t kWidestExactInteger = int64_t{1} << 53;
+
+TEST(Orderability, HoldsTwoLargeIntegersApartAgainstTheDoubleBetweenThem) {
+  auto const rounds_to = TypedValue(static_cast<double>(kWidestExactInteger));
+  auto const lower = Int(kWidestExactInteger);
+  auto const higher = Int(kWidestExactInteger + 1);
+
+  EXPECT_TRUE(std::is_eq(orderability::Compare(lower, rounds_to)));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(higher, rounds_to)));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(rounds_to, higher)));
+}
+
+TEST(Orderability, KeepsSharingAPositionTransitiveOverLargeIntegers) {
+  // The law reading the pair through a double breaks: two values sharing a position with a
+  // third have to share one with each other, or a sort is handed a comparator that is not a
+  // strict weak ordering and its result is decided by the algorithm rather than the order.
+  auto const between = TypedValue(static_cast<double>(kWidestExactInteger));
+  auto const lower = Int(kWidestExactInteger);
+  auto const higher = Int(kWidestExactInteger + 1);
+
+  auto const shares = [](TypedValue const &a, TypedValue const &b) { return std::is_eq(orderability::Compare(a, b)); };
+
+  EXPECT_TRUE(shares(lower, between));
+  EXPECT_FALSE(shares(higher, between)) << "two integers one apart share a position with one double";
+  EXPECT_FALSE(shares(lower, higher));
+}
+
+TEST(Orderability, PlacesAnIntegerAgainstADoubleNoIntegerCanHold) {
+  // The exact comparison cannot reach these through a conversion, since turning a double
+  // outside the integer range into one is undefined rather than merely inexact.
+  auto const widest = Int(std::numeric_limits<int64_t>::max());
+  auto const narrowest = Int(std::numeric_limits<int64_t>::min());
+
+  EXPECT_TRUE(std::is_lt(orderability::Compare(widest, TypedValue(1e300))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(narrowest, TypedValue(-1e300))));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(widest, TypedValue(std::numeric_limits<double>::infinity()))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(narrowest, TypedValue(-std::numeric_limits<double>::infinity()))));
+}
+
+TEST(Orderability, PlacesAnIntegerEitherSideOfTheFractionBesideIt) {
+  EXPECT_TRUE(std::is_lt(orderability::Compare(Int(2), TypedValue(2.5))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(Int(3), TypedValue(2.5))));
+  EXPECT_TRUE(std::is_lt(orderability::Compare(Int(-3), TypedValue(-2.5))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(Int(-2), TypedValue(-2.5))));
+}
+
+TEST(Comparability, HoldsALargeIntegerApartFromTheDoubleItWouldRoundTo) {
+  auto const rounds_to = TypedValue(static_cast<double>(kWidestExactInteger));
+  auto const placed = comparability::Compare(Int(kWidestExactInteger + 1), rounds_to);
+  ASSERT_TRUE(placed.has_value());
+  ASSERT_NE(*placed, std::partial_ordering::unordered);
+  EXPECT_TRUE(std::is_gt(*placed));
+}
+
+TEST(Equality, HoldsALargeIntegerUnequalToTheDoubleItWouldRoundTo) {
+  // Equality has to move with the order, or a value a sort holds apart is one a grouping
+  // holds together, and the two answers are read off the same column.
+  auto const rounds_to = TypedValue(static_cast<double>(kWidestExactInteger));
+
+  EXPECT_FALSE(equality::Equal(Int(kWidestExactInteger + 1), rounds_to).ValueBool());
+  EXPECT_FALSE(equality::Equal(rounds_to, Int(kWidestExactInteger + 1)).ValueBool());
+  EXPECT_TRUE(equality::Equal(Int(kWidestExactInteger), rounds_to).ValueBool());
+  EXPECT_TRUE(equality::Equal(Int(1), TypedValue(1.0)).ValueBool());
+}
+
+TEST(Orderability, OrdersUnlikeTypesInTheOrderTheSpecificationFixes) {
+  // A map first, then a node, a relationship, a list, a path, a string, a boolean, a number,
+  // and a null last. The three holding a piece of the graph are left out here, since building
+  // one needs a database.
+  std::vector<TypedValue> const ascending{
+      MapOf({{"a", Int(1)}}), ListOf({Int(1)}), TypedValue("a"), TypedValue(true), Int(1), TypedValue()};
+
+  for (auto lesser = 0U; lesser != ascending.size(); ++lesser) {
+    for (auto greater = lesser + 1; greater != ascending.size(); ++greater) {
+      EXPECT_TRUE(std::is_lt(orderability::Compare(ascending[lesser], ascending[greater])))
+          << "the value at " << lesser << " did not come before the one at " << greater;
+      EXPECT_TRUE(std::is_gt(orderability::Compare(ascending[greater], ascending[lesser])))
+          << "the value at " << greater << " did not come after the one at " << lesser;
+    }
+  }
+}
+
+TEST(Orderability, PlacesNoTypeTheSpecificationDoesNotNameAboveANaN) {
+  // The specification names a map, a node, a relationship, a list, a path, a string, a boolean,
+  // a number and a null, and forbids seating any other type above a NaN. A NaN is the largest
+  // number, so the whole gap between the numbers and the null is closed to the rest, and each of
+  // them sits below the strings.
+  constexpr Type kNamed[] = {Type::Map,
+                             Type::Vertex,
+                             Type::Edge,
+                             Type::List,
+                             Type::Path,
+                             Type::String,
+                             Type::Bool,
+                             Type::Int,
+                             Type::Double,
+                             Type::Null};
+  auto const not_a_number = TypedValue(std::numeric_limits<double>::quiet_NaN());
+
+  for (auto const type : kEveryType) {
+    if (std::ranges::contains(kNamed, type)) continue;
+    auto const value = AValueOfType(type);
+    if (!value) continue;
+    EXPECT_TRUE(std::is_lt(orderability::Compare(*value, not_a_number)))
+        << "a value of type " << static_cast<unsigned>(type) << " was placed above a NaN";
+  }
+}
+
+TEST(Orderability, PlacesADateBelowAString) {
+  // The pair the rule above is most easily broken on, and the one the reference implementation
+  // answers this way.
+  auto const date = AValueOfType(Type::Date);
+  ASSERT_TRUE(date.has_value());
+  EXPECT_TRUE(std::is_lt(orderability::Compare(*date, TypedValue("a"))));
+  EXPECT_TRUE(std::is_gt(orderability::Compare(TypedValue("a"), *date)));
+}
+
+TEST(Orderability, PlacesAnIntegerAndADoubleAlikeAgainstAThirdType) {
+  // The two numeric types share one position. Were they to sit apart, a column holding 1 and
+  // 1.0 would put them on either side of every string, while a comparison holds them equal.
+  auto const text = TypedValue("a");
+  EXPECT_EQ(orderability::Compare(Int(1), text), orderability::Compare(TypedValue(1.0), text));
+  EXPECT_EQ(orderability::Compare(text, Int(1)), orderability::Compare(text, TypedValue(1.0)));
+}
+
+TEST(Orderability, PlacesEveryPairOfUnlikeTypesItCanBuild) {
+  // A sort has to be given somewhere to put every pair of rows, so a column holding two types
+  // is placed rather than refused. Throwing fails this test as surely as answering unordered.
+  for (auto const left : kEveryType) {
+    auto const a = AValueOfType(left);
+    if (!a) continue;
+    for (auto const right : kEveryType) {
+      if (left == right) continue;
+      auto const b = AValueOfType(right);
+      if (!b) continue;
+
+      EXPECT_NE(orderability::Compare(*a, *b), std::partial_ordering::unordered)
+          << "type " << static_cast<unsigned>(left) << " against type " << static_cast<unsigned>(right);
+    }
+  }
+}
+
+TEST(Orderability, RefusesTwoValuesOfATypeCarryingNoOrderOfItsOwn) {
+  // Placing a pair of unlike types settles nothing about two maps. Where the types are the
+  // same, where each sits no longer answers the question, and a map has no order of its own.
+  auto const map = MapOf({{"a", Int(1)}});
+  EXPECT_THROW(orderability::Compare(map, map), memgraph::query::QueryRuntimeException);
+}
+
+TEST(Orderability, SortsAColumnHoldingUnlikeTypes) {
+  std::vector<TypedValue> column{
+      TypedValue(), Int(2), TypedValue("a"), TypedValue(true), TypedValue(1.5), ListOf({Int(1)})};
+  std::ranges::sort(column,
+                    [](TypedValue const &a, TypedValue const &b) { return std::is_lt(orderability::Compare(a, b)); });
+
+  std::vector<Type> const settled{Type::List, Type::String, Type::Bool, Type::Double, Type::Int, Type::Null};
+  auto const types = column | std::views::transform([](auto const &value) { return value.type(); });
+  EXPECT_TRUE(std::ranges::equal(types, settled)) << "the column did not come out in the order the types sit in";
 }
 
 TEST(Orderability, OrdersAListByItsElements) {
@@ -432,10 +796,16 @@ TEST(Orderability, CompareOfListsPlacesAnElementComparabilityCannot) {
 }
 
 TEST(Orderability, CompareOfListsRefusesAnElementPairItHasNoOrderFor) {
+  // A walk answers with the relation, so it refuses exactly where the relation does: for two
+  // elements of one type carrying no order of its own. Two elements of unlike types it places,
+  // by where the two types sit, so a list is no harder to sort than what it holds.
+  auto const holds_a_map = ListOf({MapOf({{"a", Int(1)}})});
+  EXPECT_THROW(orderability::CompareOfLists(holds_a_map.ValueList(), holds_a_map.ValueList()),
+               memgraph::query::QueryRuntimeException);
+
   auto const number = ListOf({Int(1)});
   auto const text = ListOf({TypedValue("a")});
-  EXPECT_THROW(orderability::CompareOfLists(number.ValueList(), text.ValueList()),
-               memgraph::query::QueryRuntimeException);
+  EXPECT_TRUE(std::is_gt(orderability::CompareOfLists(number.ValueList(), text.ValueList())));
 }
 
 TEST(Equivalence, EquivalentOfListsWalksElementByElement) {
@@ -582,6 +952,19 @@ TEST(Equivalence, HoldsEveryValueEquivalentToItself) {
   }
 }
 
+TEST(Equivalence, HashesTheTwoInfinitiesApart) {
+  // An infinity is whole, so reading it as the integer it equals looks like the
+  // right move, and there is no such integer: the conversion is undefined, and
+  // on a machine that answers it at all both infinities arrive at the same
+  // number. Two values equivalence holds apart would then share a bucket, and a
+  // lookup for one would walk the other.
+  auto const above = TypedValue(std::numeric_limits<double>::infinity());
+  auto const below = TypedValue(-std::numeric_limits<double>::infinity());
+
+  ASSERT_FALSE(equivalence::Equivalent(above, below));
+  EXPECT_NE(equivalence::Hash(above), equivalence::Hash(below));
+}
+
 TEST(Equivalence, HoldsANaNEquivalentToItself) {
   // The one value the property above does not reach through a pair. Equality answers false for a
   // NaN against itself, and taking that answer would leave each NaN its own group under DISTINCT
@@ -654,6 +1037,34 @@ TEST(Equivalence, LeavesEqualityAnsweringAsItDidOverANaN) {
   ASSERT_EQ(equality_result.type(), TypedValue::Type::Bool);
   EXPECT_FALSE(equality_result.ValueBool());
   EXPECT_FALSE(equality::EqualsItself(nan));
+}
+
+TEST(Equivalence, HashesADoubleByWhatItHoldsPastThePoint) {
+  // A whole double hashes as the integer it equals, so that a column holding
+  // both finds one key. What the double carries past the point has to reach the
+  // hash as well: sending every double between two integers to the lower one
+  // puts a whole run of distinct keys in one bucket, and the probe that follows
+  // walks the run.
+  EXPECT_EQ(equivalence::Hash(TypedValue(2.0)), equivalence::Hash(TypedValue(int64_t{2})));
+
+  EXPECT_NE(equivalence::Hash(TypedValue(2.5)), equivalence::Hash(TypedValue(2.0)));
+  EXPECT_NE(equivalence::Hash(TypedValue(2.5)), equivalence::Hash(TypedValue(2.25)));
+}
+
+TEST(Equivalence, HashesADoubleNoIntegerCanHold) {
+  // Reading a double as an integer is only defined while it is in the integer's
+  // range. A double outside it, an infinity among them, has to be hashed as the
+  // double it is.
+  auto const vast = TypedValue(1e300);
+  auto const other = TypedValue(-1e300);
+  auto const endless = TypedValue(std::numeric_limits<double>::infinity());
+
+  // Asking at all is the test: reading either as an integer is undefined, and a
+  // sanitizer stops here.
+  EXPECT_EQ(equivalence::Hash(vast), equivalence::Hash(TypedValue(1e300)));
+  EXPECT_EQ(equivalence::Hash(endless), equivalence::Hash(TypedValue(std::numeric_limits<double>::infinity())));
+  EXPECT_NE(equivalence::Hash(vast), equivalence::Hash(other));
+  EXPECT_NE(equivalence::Hash(endless), equivalence::Hash(TypedValue(-std::numeric_limits<double>::infinity())));
 }
 
 TEST(Equivalence, HashesEquivalentValuesAlike) {

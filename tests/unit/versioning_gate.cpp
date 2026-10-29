@@ -50,4 +50,6 @@ TEST(VersioningGate, ErrorMessagesAreExact) {
   ASSERT_EQ(GateErrorMessage(GateError::kUnsupportedStorageMode),
             "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in "
             "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL.");
+  ASSERT_EQ(GateErrorMessage(GateError::kCommitLockNarrowing),
+            "Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing.");
 }

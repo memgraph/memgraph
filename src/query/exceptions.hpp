@@ -342,10 +342,25 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
-class UserModificationInMulticommandTxException : public MulticommandTxException {
+class UserProfileInMulticommandTxException : public MulticommandTxException {
  public:
-  UserModificationInMulticommandTxException() : MulticommandTxException("Managing users") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(UserModificationInMulticommandTxException)
+  UserProfileInMulticommandTxException() : MulticommandTxException("Managing user profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UserProfileInMulticommandTxException)
+};
+
+class TenantProfileInMulticommandTxException : public MulticommandTxException {
+ public:
+  TenantProfileInMulticommandTxException() : MulticommandTxException("Managing tenant profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TenantProfileInMulticommandTxException)
+};
+
+class MixedAuthAndDataTxException : public QueryException {
+ public:
+  MixedAuthAndDataTxException()
+      : QueryException(
+            "A transaction that runs an auth query can contain only auth queries. Run other queries in a separate "
+            "transaction.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(MixedAuthAndDataTxException)
 };
 
 class InvalidArgumentsException : public QueryException {
@@ -565,6 +580,12 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
  public:
   TransactionQueueInMulticommandTxException() : MulticommandTxException("Querying transaction status") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionQueueInMulticommandTxException)
+};
+
+class SessionQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  SessionQueryInMulticommandTxException() : MulticommandTxException("Session management") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionQueryInMulticommandTxException)
 };
 
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {

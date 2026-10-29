@@ -38,12 +38,19 @@ class RuntimeConfig {
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
-  bool db_explicit_ = false;
-  bool user_explicit_ = false;
+  // Invalidate Configure()'s "run_time_info unchanged => skip" cache on LOGOFF so re-used
+  // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
+  void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
+
+  void OnUseDatabase() { db_selected_by_use_ = true; }
 
  private:
+  // True if the bound database matches run_time_info's "db"; with no "db", a live one is required unless USE chose it.
+  bool BoundDbMatches(const bolt_map_t &run_time_info) const;
+
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
+  bool db_selected_by_use_{false};
 };
 #endif
 
@@ -124,6 +131,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // and the session carries the full coordinator privilege mask. Set explicitly so a LOGOFF -> LOGON passthrough
   // re-authentication restores the privileges LogOff cleared.
   void CoordinatorPassthroughAuthenticate();
+
+  // Called during Init on a coordinator for a basic login, before SSO or passthrough is considered. nullopt when the
+  // login isn't the internal system user's (or it isn't configured), so the usual rules apply; true when it is, with
+  // the right password, and the session then carries the full coordinator privilege mask; false when the password is
+  // wrong, which must close the connection rather than fall through to passthrough.
+  std::optional<bool> CoordinatorInternalSystemUserAuthenticate(const std::string &username,
+                                                                const std::string &password);
 
   // Whether the coordinator's committed role set contains a role holding COORDINATOR_WRITE, i.e. an identity that
   // could administer the cluster once basic/none auth is denied. Returns nullopt when the role set can't be read

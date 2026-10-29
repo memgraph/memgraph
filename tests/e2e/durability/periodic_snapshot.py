@@ -12,14 +12,14 @@
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from typing import Any, Dict
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -28,8 +28,25 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+FILE = "periodic_snapshot"
 
-def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def snapshots_path(file, test_name):
+    return os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name), "snapshots")
+
+
+def memgraph_instances(test_name, mode="IN_MEMORY_TRANSACTIONAL", file=FILE):
     assert mode == "IN_MEMORY_TRANSACTIONAL" or mode == "IN_MEMORY_ANALYTICAL"
     return {
         "no_flags": {
@@ -43,8 +60,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_no_flags.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/no_flags.log",
+            "data_directory": get_data_path(file, test_name),
         },
         "sec_flag": {
             "args": [
@@ -56,8 +73,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_sec_flag.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/sec_flag.log",
+            "data_directory": get_data_path(file, test_name),
         },
         "interval_flag": {
             "args": [
@@ -71,8 +88,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_interval_flag.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/interval_flag.log",
+            "data_directory": get_data_path(file, test_name),
         },
         "both_flags": {
             "args": [
@@ -86,8 +103,8 @@ def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
                 "--storage-mode",
                 mode,
             ],
-            "log_file": "periodic_snapshot_both_flags.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(file, test_name)}/both_flags.log",
+            "data_directory": get_data_path(file, test_name),
         },
     }
 
@@ -105,7 +122,10 @@ def number_of_snapshots(dir):
 # Need to constantly make changes to the database to trigger snapshots
 class StoppableThread(threading.Thread):
     def __init__(self):
-        super().__init__()
+        # A daemon, so that a writer somehow left running cannot by itself keep
+        # the interpreter from exiting. Stopping it remains the caller's job;
+        # this only bounds what a missed stop costs.
+        super().__init__(daemon=True)
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -117,6 +137,25 @@ class StoppableThread(threading.Thread):
         while not self._stop_event.is_set():
             cursor.execute("CREATE ()")
             time.sleep(0.25)
+
+
+@contextmanager
+def writing_in_the_background():
+    """Keep the database changing while the body runs, and stop on the way out.
+
+    The assertions the body makes are about wall-clock timing, so they fail on
+    a machine slow enough to miss a tick. Stopping the writer from here rather
+    than after the last assertion is what keeps such a failure to the seconds
+    it takes to reach: a writer still looping holds the interpreter open, and
+    the run then ends at the harness timeout instead.
+    """
+    thread = StoppableThread()
+    thread.start()
+    try:
+        yield thread
+    finally:
+        thread.stop()
+        thread.join(timeout=30)
 
 
 def main_test(snapshots_dir):
@@ -140,47 +179,42 @@ def main_test(snapshots_dir):
     # 3
     execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '*/1 * * * * *';")
 
-    thread = StoppableThread()
-    thread.start()
+    with writing_in_the_background():
+        # 4
+        time.sleep(5)
 
-    # 4
-    time.sleep(5)
+        # 5
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '5';")
 
-    # 5
-    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '5';")
+        # 6
+        n_snapshots2 = number_of_snapshots(snapshots_dir)
+        assert n_snapshots1 + 7 >= n_snapshots2 >= n_snapshots1 + 4, f"Expected {n_snapshots1 + 5} got {n_snapshots2}"
 
-    # 6
-    n_snapshots2 = number_of_snapshots(snapshots_dir)
-    assert n_snapshots1 + 7 >= n_snapshots2 >= n_snapshots1 + 4, f"Expected {n_snapshots1 + 5} got {n_snapshots2}"
+        # 7
+        tries = 0
+        n_snapshots3 = n_snapshots2 + 1
+        while n_snapshots3 > number_of_snapshots(snapshots_dir) and tries < 15:
+            tries = tries + 1
+            time.sleep(1)
+        assert 2 < tries < 15, "Failed to wait for the next snapshot"
+        # Test SHOW SNAPSHOTS (should return only existing snapshots)
+        all_snapshots = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
+        assert len(all_snapshots) == n_snapshots3  # Only existing snapshots
 
-    # 7
-    tries = 0
-    n_snapshots3 = n_snapshots2 + 1
-    while n_snapshots3 > number_of_snapshots(snapshots_dir) and tries < 15:
-        tries = tries + 1
-        time.sleep(1)
-    assert 2 < tries < 15, "Failed to wait for the next snapshot"
-    # Test SHOW SNAPSHOTS (should return only existing snapshots)
-    all_snapshots = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
-    assert len(all_snapshots) == n_snapshots3  # Only existing snapshots
+        # Test SHOW NEXT SNAPSHOT (should return only the next scheduled snapshot)
+        next_snapshot = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+        assert len(next_snapshot) == 1  # Should return exactly one row
 
-    # Test SHOW NEXT SNAPSHOT (should return only the next scheduled snapshot)
-    next_snapshot = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
-    assert len(next_snapshot) == 1  # Should return exactly one row
+        # Disable snapshots
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
 
-    # Disable snapshots
-    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
+        # Test SHOW SNAPSHOTS (should still return existing snapshots)
+        all_snapshots_after_disable = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
+        assert len(all_snapshots_after_disable) == n_snapshots3  # Still the same existing snapshots
 
-    # Test SHOW SNAPSHOTS (should still return existing snapshots)
-    all_snapshots_after_disable = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
-    assert len(all_snapshots_after_disable) == n_snapshots3  # Still the same existing snapshots
-
-    # Test SHOW NEXT SNAPSHOT (should return no rows when no next snapshot is scheduled)
-    next_snapshot_after_disable = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
-    assert len(next_snapshot_after_disable) == 0  # Should return no rows
-
-    thread.stop()
-    thread.join()
+        # Test SHOW NEXT SNAPSHOT (should return no rows when no next snapshot is scheduled)
+        next_snapshot_after_disable = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+        assert len(next_snapshot_after_disable) == 0  # Should return no rows
 
 
 def main_test_analytical(snapshots_dir, set):
@@ -207,75 +241,87 @@ def main_test_analytical(snapshots_dir, set):
     # 3
     execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
 
-    thread = StoppableThread()
-    thread.start()
+    with writing_in_the_background():
+        # 4
+        time.sleep(2)
+        assert (
+            number_of_snapshots(snapshots_dir) > n_snapshots1
+        ), "Didn't get new snapshots even though in transactional"
 
-    # 4
-    time.sleep(2)
-    assert number_of_snapshots(snapshots_dir) > n_snapshots1, "Didn't get new snapshots even though in transactional"
+        # 5
+        execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
 
-    # 5
-    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
-
-    # 6
-    n_snapshots2 = number_of_snapshots(snapshots_dir)
-    time.sleep(2)
-    assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
-
-    thread.stop()
-    thread.join()
+        # 6
+        n_snapshots2 = number_of_snapshots(snapshots_dir)
+        time.sleep(2)
+        assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
 
 
-def test_no_flags():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "no_flags")
-    main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_a_failed_assertion_leaves_no_writer_running(test_name):
+    """The writer stops however the body ends, so a failure costs seconds.
+
+    The assertions here are about wall-clock timing, so they fail on a machine
+    slow enough to miss a tick. A writer still looping when one does keeps the
+    interpreter alive, and the run then ends at the harness timeout rather than
+    at the assertion, spending the whole workload budget to report it.
+    """
+    interactive_mg_runner.start(memgraph_instances(test_name), "no_flags")
+    try:
+        writing = False
+        with pytest.raises(AssertionError):
+            with writing_in_the_background() as writer:
+                writing = writer.is_alive()
+                assert False, "as a missed tick would"
+
+        assert writing, "the writer never ran, so this asks nothing"
+        assert not writer.is_alive(), "the writer outlived the failure and would hold the interpreter open"
+    finally:
+        interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_sec_flag():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "sec_flag")
-    main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_no_flags(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "no_flags")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_interval_flag():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "interval_flag")
-    main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_sec_flag(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "sec_flag")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_no_flags_analytical():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "no_flags")
-    main_test_analytical(data_directory.name + "/snapshots", True)
-    interactive_mg_runner.kill_all()
+def test_interval_flag(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "interval_flag")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_no_flags_analytical(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "no_flags")
+    main_test_analytical(snapshots_path(FILE, test_name), True)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 @pytest.mark.parametrize("set", [True, False])
-def test_sec_flag_analytical(set):
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "sec_flag")
-    main_test_analytical(data_directory.name + "/snapshots", set)
-    interactive_mg_runner.kill_all()
+def test_sec_flag_analytical(set, test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "sec_flag")
+    main_test_analytical(snapshots_path(FILE, test_name), set)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 @pytest.mark.parametrize("set", [True, False])
-def test_interval_flag_analytical(set):
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "interval_flag")
-    main_test_analytical(data_directory.name + "/snapshots", set)
-    interactive_mg_runner.kill_all()
+def test_interval_flag_analytical(set, test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name, "IN_MEMORY_ANALYTICAL"), "interval_flag")
+    main_test_analytical(snapshots_path(FILE, test_name), set)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 # Interface doesn't support failure, so can't reliably test if both flags cause a fault
-# def test_both_flags():
-#     data_directory = tempfile.TemporaryDirectory()
-#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "both_flags")
-#     main_test(data_directory.name + "/snapshots")
-#     interactive_mg_runner.kill_all()
+# def test_both_flags(test_name):
+#     interactive_mg_runner.start(memgraph_instances(test_name), "both_flags")
+#     main_test(snapshots_path(FILE, test_name))
+#     interactive_mg_runner.kill_all(keep_directories=False)
 
 
 if __name__ == "__main__":

@@ -730,6 +730,28 @@ TEST(Parameters, LookupByTokenPosition) {
   EXPECT_EQ(params.AtTokenPosition(7).ValueInt(), 70);
 }
 
+// The label operators are stripped as themselves: they carry no literal, so two queries differing only in
+// a label expression must not collapse onto one cache key.
+TEST(QueryStripper, LabelOperators) {
+  EXPECT_EQ(StrippedQuery("MATCH (n:!A) RETURN n").stripped_query().str(), "MATCH ( n : ! A ) RETURN n");
+  EXPECT_EQ(StrippedQuery("MATCH (n:A&B) RETURN n").stripped_query().str(), "MATCH ( n : A & B ) RETURN n");
+  EXPECT_EQ(StrippedQuery("MATCH (n:A|B) RETURN n").stripped_query().str(), "MATCH ( n : A | B ) RETURN n");
+  EXPECT_EQ(StrippedQuery("MATCH (n:%) RETURN n").stripped_query().str(), "MATCH ( n : % ) RETURN n");
+  EXPECT_NE(StrippedQuery("MATCH (n:A&B) RETURN n").stripped_query().str(),
+            StrippedQuery("MATCH (n:A|B) RETURN n").stripped_query().str());
+}
+
+// `!` is a token in its own right and `!=` is a longer one. The tokeniser keeps the longest match, so adding
+// the shorter must not split the longer -- which would change the cache key of every inequality ever written.
+TEST(QueryStripper, InequalityIsOneTokenBesideTheNegationOperator) {
+  EXPECT_EQ(StrippedQuery("RETURN 1 != 2").stripped_query().str(),
+            "RETURN " + kStrippedIntToken + " != " + kStrippedIntToken);
+  EXPECT_EQ(StrippedQuery("RETURN !true").stripped_query().str(), "RETURN ! true");
+  // Spelling the negation and the comparison next to each other pins which way the longest match ran.
+  EXPECT_EQ(StrippedQuery("RETURN !(1 != 2)").stripped_query().str(),
+            "RETURN ! ( " + kStrippedIntToken + " != " + kStrippedIntToken + " )");
+}
+
 // force every key into one bucket so equality must disambiguate by text
 TEST(HashedString, DisambiguatesOnHashCollision) {
   struct AlwaysCollide {

@@ -19,6 +19,8 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -36,17 +38,44 @@ class Parser {
    *        the first step is to generate AST
    */
   explicit Parser(std::string query) : query_(std::move(query)) {
+    // Two-stage parsing. SLL prediction ignores the parser context, so an ambiguity is resolved without the
+    // full-context simulation LL runs for it. The grammar has no semantic predicates or actions, so SLL either
+    // returns the tree LL would or fails. Only a failure is parsed again with LL, which also words the syntax error.
     parser_.removeErrorListeners();
-    parser_.addErrorListener(&error_listener_);
-    tree_ = parser_.cypher();
-    if (parser_.getNumberOfSyntaxErrors()) {
-      throw query::SyntaxException(error_listener_.error_);
-    }
+    parser_.addErrorListener(&full_context_counter_);
+    tree_ = ParseSLL();
+    if (!tree_) tree_ = ParseLL();
   }
 
   auto tree() { return tree_; }
 
+  /// How many decisions needed full-context prediction. Only the LL pass makes one; zero means SLL parsed alone.
+  size_t FullContextPredictions() const { return full_context_counter_.count_; }
+
  private:
+  /// Returns nullptr when SLL cannot parse the query.
+  antlr4::tree::ParseTree *ParseSLL() {
+    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::SLL);
+    parser_.setErrorHandler(std::make_shared<antlr4::BailErrorStrategy>());
+    try {
+      return parser_.cypher();
+    } catch (const antlr4::ParseCancellationException &) {
+      return nullptr;
+    }
+  }
+
+  antlr4::tree::ParseTree *ParseLL() {
+    parser_.reset();
+    parser_.getInterpreter<antlr4::atn::ParserATNSimulator>()->setPredictionMode(antlr4::atn::PredictionMode::LL);
+    parser_.setErrorHandler(std::make_shared<antlr4::DefaultErrorStrategy>());
+    parser_.addErrorListener(&error_listener_);
+    auto *tree = parser_.cypher();
+    if (parser_.getNumberOfSyntaxErrors()) {
+      throw query::SyntaxException(error_listener_.error_);
+    }
+    return tree;
+  }
+
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
    public:
     explicit FirstMessageErrorListener(const std::string &query) : query_(query) {}
@@ -77,8 +106,20 @@ class Parser {
     std::string_view query_;
   };
 
+  class FullContextCounter : public antlr4::BaseErrorListener {
+   public:
+    void reportAttemptingFullContext(antlr4::Parser * /* unused */, const antlr4::dfa::DFA & /* unused */,
+                                     size_t /* unused */, size_t /* unused */, const antlrcpp::BitSet & /* unused */,
+                                     antlr4::atn::ATNConfigSet * /* unused */) override {
+      ++count_;
+    }
+
+    size_t count_{0};
+  };
+
   std::string query_;
   FirstMessageErrorListener error_listener_{query_};
+  FullContextCounter full_context_counter_;
   antlr4::ANTLRInputStream input_{query_};
   antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};

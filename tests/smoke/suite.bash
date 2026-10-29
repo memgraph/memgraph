@@ -18,10 +18,13 @@ done
 #   $1 - image type: memgraph|mage (only test_query_modules cares).
 #   $2 - deployment: docker|k8s. Almost every test only needs Bolt and runs
 #        under both; the exceptions are gated below.
-#   $3 - mode: normal|fips. The FIPS image is built without the embedded Python
-#        interpreter, so features that need in-container Python are skipped.
-#        Gated per-test rather than kept as a second list so there is one place
-#        to read, and so a new feature is covered by both modes by default.
+#   $3 - mode: normal|fips. The FIPS image has the embedded interpreter like the
+#        normal one; it is built with -DMG_FIPS=ON, which omits only the
+#        components whose crypto cannot come from the validated OpenSSL (today
+#        the Kerberos auth module). So the mode only selects which FIPS
+#        assertions run, not which features are available. Gated per-test rather
+#        than kept as a second list so there is one place to read, and so a new
+#        feature is covered by both modes by default.
 run_feature_tests() {
   __image_type="${1:-mage}"
   __deployment="${2:-docker}"
@@ -29,13 +32,12 @@ run_feature_tests() {
   # NOTE: test_auth_roles runs in run_auth_feature_tests, once the users exist.
   test_basic_auth
   test_query
-  # The expected procedure/function count comes from scanning the repo, which
-  # includes the Python modules; a Python-less image legitimately has fewer.
-  if [ "$__mode" != "fips" ]; then
-    test_query_modules $__image_type
+  if [ "$__deployment" == "docker" ]; then
+    test_binary_linkage
   else
-    echo "SKIP FEATURE: query modules (no embedded Python in the FIPS image)"
+    echo "SKIP FEATURE: binary linkage (needs a throwaway docker container)"
   fi
+  test_query_modules $__image_type
   test_session_trace
   test_show_schema_info
   test_spatial
@@ -87,6 +89,9 @@ run_fips_compliance_tests() {
   test_fips_drbg_from_provider
   test_fips_non_approved_algorithms_unavailable
   test_fips_no_bundled_openssl
+  test_fips_hashlib_gate
+  test_fips_saml_signature_path
+  test_fips_oidc_jwt_path
 }
 
 # NOTE: If the tested instance is NOT restarted (each test having their own

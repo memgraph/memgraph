@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <climits>
 #include <cstdio>
 #include <fstream>
@@ -26,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -376,11 +378,11 @@ class OutputFileSetPositionTest : public ::testing::Test {
 
 TEST_F(OutputFileSetPositionTest, BasicSetPositionAbsolute) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Write some data
   uint8_t data[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-  file.Write(data, 10);
+  std::ignore = file.Write(data, 10);
 
   // Seek to position 5
   auto pos = file.SetPosition(memgraph::utils::OutputFile::Position::SET, 5);
@@ -389,9 +391,9 @@ TEST_F(OutputFileSetPositionTest, BasicSetPositionAbsolute) {
 
   // Overwrite from position 5
   uint8_t new_data[] = {50, 51, 52};
-  file.Write(new_data, 3);
+  std::ignore = file.Write(new_data, 3);
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   // Verify file contents: 0,1,2,3,4,50,51,52,8,9
@@ -408,12 +410,12 @@ TEST_F(OutputFileSetPositionTest, BasicSetPositionAbsolute) {
 
 TEST_F(OutputFileSetPositionTest, SetPositionRelativeToCurrentAfterWrite) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Write 20 bytes
   uint8_t data[20];
   for (int i = 0; i < 20; ++i) data[i] = static_cast<uint8_t>(i);
-  file.Write(data, 20);
+  std::ignore = file.Write(data, 20);
 
   // Position should be 20
   EXPECT_EQ(file.GetPosition(), 20);
@@ -425,9 +427,9 @@ TEST_F(OutputFileSetPositionTest, SetPositionRelativeToCurrentAfterWrite) {
 
   // Overwrite at position 10
   uint8_t new_data[] = {100, 101, 102};
-  file.Write(new_data, 3);
+  std::ignore = file.Write(new_data, 3);
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   // Verify file contents
@@ -442,13 +444,13 @@ TEST_F(OutputFileSetPositionTest, SetPositionRelativeToCurrentAfterWrite) {
 
 TEST_F(OutputFileSetPositionTest, SetPositionRelativeToEnd) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Write 20 bytes
   uint8_t data[20];
   for (int i = 0; i < 20; ++i) data[i] = static_cast<uint8_t>(i);
-  file.Write(data, 20);
-  file.Sync();
+  std::ignore = file.Write(data, 20);
+  std::ignore = file.Sync();
 
   // Seek to 5 bytes before end
   auto pos = file.SetPosition(memgraph::utils::OutputFile::Position::RELATIVE_TO_END, -5);
@@ -457,9 +459,9 @@ TEST_F(OutputFileSetPositionTest, SetPositionRelativeToEnd) {
 
   // Overwrite
   uint8_t new_data[] = {150, 151};
-  file.Write(new_data, 2);
+  std::ignore = file.Write(new_data, 2);
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   auto contents = ReadFileContents(test_file_);
@@ -472,11 +474,11 @@ TEST_F(OutputFileSetPositionTest, SetPositionRelativeToEnd) {
 
 TEST_F(OutputFileSetPositionTest, SetPositionToZero) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Write some data
   uint8_t data[] = {10, 11, 12, 13, 14};
-  file.Write(data, 5);
+  std::ignore = file.Write(data, 5);
 
   // Seek to beginning
   auto pos = file.SetPosition(memgraph::utils::OutputFile::Position::SET, 0);
@@ -484,9 +486,9 @@ TEST_F(OutputFileSetPositionTest, SetPositionToZero) {
 
   // Overwrite from beginning
   uint8_t new_data[] = {100, 101};
-  file.Write(new_data, 2);
+  std::ignore = file.Write(new_data, 2);
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   auto contents = ReadFileContents(test_file_);
@@ -498,27 +500,27 @@ TEST_F(OutputFileSetPositionTest, SetPositionToZero) {
 
 TEST_F(OutputFileSetPositionTest, MultipleSeeksAndWrites) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Write initial 30 bytes
   uint8_t data[30];
   for (int i = 0; i < 30; ++i) data[i] = static_cast<uint8_t>(i);
-  file.Write(data, 30);
+  std::ignore = file.Write(data, 30);
 
   // Multiple seeks and writes
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, 5);
   uint8_t w1 = 55;
-  file.Write(&w1, 1);
+  std::ignore = file.Write(&w1, 1);
 
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, 15);
   uint8_t w2 = 155;
-  file.Write(&w2, 1);
+  std::ignore = file.Write(&w2, 1);
 
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, 25);
   uint8_t w3 = 255;
-  file.Write(&w3, 1);
+  std::ignore = file.Write(&w3, 1);
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   auto contents = ReadFileContents(test_file_);
@@ -533,21 +535,21 @@ TEST_F(OutputFileSetPositionTest, MultipleSeeksAndWrites) {
 
 TEST_F(OutputFileSetPositionTest, GetPositionAfterWrite) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   EXPECT_EQ(file.GetPosition(), 0);
 
   uint8_t data[50];
-  file.Write(data, 50);
+  std::ignore = file.Write(data, 50);
   EXPECT_EQ(file.GetPosition(), 50);
 
-  file.Write(data, 25);
+  std::ignore = file.Write(data, 25);
   EXPECT_EQ(file.GetPosition(), 75);
 
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, 10);
   EXPECT_EQ(file.GetPosition(), 10);
 
-  file.Write(data, 5);
+  std::ignore = file.Write(data, 5);
   EXPECT_EQ(file.GetPosition(), 15);
 
   file.Close();
@@ -555,12 +557,12 @@ TEST_F(OutputFileSetPositionTest, GetPositionAfterWrite) {
 
 TEST_F(OutputFileSetPositionTest, RelativeToCurrentMultipleTimes) {
   memgraph::utils::OutputFile file;
-  file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_file_, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Write 100 bytes
   uint8_t data[100];
   for (int i = 0; i < 100; ++i) data[i] = static_cast<uint8_t>(i);
-  file.Write(data, 100);
+  std::ignore = file.Write(data, 100);
 
   // Position is now 100
   EXPECT_EQ(file.GetPosition(), 100);
@@ -579,9 +581,9 @@ TEST_F(OutputFileSetPositionTest, RelativeToCurrentMultipleTimes) {
 
   // Write at position 60
   uint8_t mark = 0xAB;
-  file.Write(&mark, 1);
+  std::ignore = file.Write(&mark, 1);
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   auto contents = ReadFileContents(test_file_);
@@ -776,11 +778,11 @@ TEST_F(UtilsFileTest, OutputFileExisting) {
       if (memgraph::utils::EndsWith(dir, "000") || memgraph::utils::EndsWith(file, "000")) {
         ASSERT_FALSE(handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING));
       } else {
-        handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+        std::ignore = handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
         ASSERT_TRUE(handle.IsOpen());
         ASSERT_EQ(handle.path(), storage / dir / file);
-        handle.Write("hello world!\n", 13);
-        handle.Sync();
+        std::ignore = handle.Write("hello world!\n", 13);
+        std::ignore = handle.Sync();
         handle.Close();
       }
     }
@@ -794,11 +796,11 @@ TEST_F(UtilsFileTest, OutputFileNew) {
     if (memgraph::utils::EndsWith(dir, "000")) {
       ASSERT_FALSE(handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING));
     } else {
-      handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+      std::ignore = handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
       ASSERT_TRUE(handle.IsOpen());
       ASSERT_EQ(handle.path(), path);
-      handle.Write("hello world!\n");
-      handle.Sync();
+      std::ignore = handle.Write("hello world!\n");
+      std::ignore = handle.Sync();
       handle.Close();
     }
   }
@@ -806,48 +808,48 @@ TEST_F(UtilsFileTest, OutputFileNew) {
 
 TEST_F(UtilsFileTest, OutputFileInvalidUsage) {
   memgraph::utils::OutputFile handle;
-  ASSERT_DEATH(handle.Write("hello!"), "");
-  ASSERT_DEATH(handle.Sync(), "");
+  ASSERT_DEATH(std::ignore = handle.Write("hello!"), "");
+  ASSERT_DEATH(std::ignore = handle.Sync(), "");
   ASSERT_DEATH(handle.Close(), "");
-  handle.Open(storage / "existing_dir_777" / "existing_file_777",
-              memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
-  ASSERT_DEATH(handle.Open(storage / "existing_dir_770" / "existing_file_770",
-                           memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING),
+  std::ignore = handle.Open(storage / "existing_dir_777" / "existing_file_777",
+                            memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  ASSERT_DEATH(std::ignore = handle.Open(storage / "existing_dir_770" / "existing_file_770",
+                                         memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING),
                "");
-  handle.Write("hello!");
-  handle.Sync();
+  std::ignore = handle.Write("hello!");
+  std::ignore = handle.Sync();
   handle.Close();
 }
 
 TEST_F(UtilsFileTest, OutputFileMove) {
   memgraph::utils::OutputFile original;
-  original.Open(storage / "existing_dir_777" / "existing_file_777",
-                memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  std::ignore = original.Open(storage / "existing_dir_777" / "existing_file_777",
+                              memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
 
   memgraph::utils::OutputFile moved(std::move(original));
 
-  ASSERT_DEATH(original.Write("hello!"), "");
-  ASSERT_DEATH(original.Sync(), "");
+  ASSERT_DEATH(std::ignore = original.Write("hello!"), "");
+  ASSERT_DEATH(std::ignore = original.Sync(), "");
   ASSERT_DEATH(original.Close(), "");
   ASSERT_EQ(original.path(), "");
   ASSERT_FALSE(original.IsOpen());
 
   ASSERT_TRUE(moved.IsOpen());
   ASSERT_EQ(moved.path(), storage / "existing_dir_777" / "existing_file_777");
-  moved.Write("hello!");
-  moved.Sync();
+  std::ignore = moved.Write("hello!");
+  std::ignore = moved.Sync();
   moved.Close();
 
-  original.Open(storage / "existing_dir_770" / "existing_file_770",
-                memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  std::ignore = original.Open(storage / "existing_dir_770" / "existing_file_770",
+                              memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
   original.Close();
 }
 
 TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
   for (int i = 0; i < 100'000; ++i) {
     memgraph::utils::OutputFile handle;
-    handle.Open(storage / "existing_dir_777" / "existing_file_777",
-                memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+    std::ignore = handle.Open(storage / "existing_dir_777" / "existing_file_777",
+                              memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
   }
 }
 
@@ -869,7 +871,7 @@ struct FileSnapshot {
 TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   const auto file_path = storage / "existing_dir_777" / "existing_file_777";
   memgraph::utils::OutputFile handle;
-  handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // Disabling flushing locks the writer out, so the file and the buffer cannot change while both
   // are read. A break is returned rather than asserted on: an assertion would return without
@@ -985,10 +987,10 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
       size_t written = 0;
       // The writer cannot idle while it waits: readers only see the file grow while it is growing.
       while (written < min_writes || (!readers_saw_growth.try_wait() && written < max_writes)) {
-        handle.Write(&current_byte, 1);
+        std::ignore = handle.Write(&current_byte, 1);
         ++current_byte;
         ++written;
-        if (written % sync_every == 0) handle.Sync();
+        if (written % sync_every == 0) std::ignore = handle.Sync();
         // Without this the writer keeps the lock and the file jumps forward in bursts no reader
         // sees between.
         std::this_thread::yield();
@@ -1021,10 +1023,10 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   // buffer, and under load the readers empty it faster than the writer fills it. Joined, nothing
   // else touches the file, so this can be checked directly.
   static constexpr size_t seam_tail = 10;
-  handle.Sync();
+  std::ignore = handle.Sync();
   auto trailing_byte = static_cast<uint8_t>(total_written);
   for (size_t i = 0; i < seam_tail; ++i) {
-    handle.Write(&trailing_byte, 1);
+    std::ignore = handle.Write(&trailing_byte, 1);
     ++trailing_byte;
   }
   const auto seam_snapshot = read_snapshot();
@@ -1076,12 +1078,12 @@ class FileCacheHintTest : public ::testing::Test {
 
   static void WriteStreaming(const fs::path &path, const std::vector<uint8_t> &data, size_t window) {
     PacedFile file;
-    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
     file.EnableWritebackPacing(window);
     for (size_t offset = 0; offset < data.size(); offset += kChunk) {
-      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+      std::ignore = file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
     }
-    file.Sync();
+    std::ignore = file.Sync();
     file.Close();
   }
 
@@ -1092,13 +1094,13 @@ class FileCacheHintTest : public ::testing::Test {
   static size_t WindowsCompletedByPacedWrite(const fs::path &path, const std::vector<uint8_t> &data,
                                              PositionQueries queries) {
     PacedFile file;
-    file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
     file.EnableWritebackPacing(kWindow);
     for (size_t offset = 0; offset < data.size(); offset += kChunk) {
-      file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+      std::ignore = file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
       if (queries == PositionQueries::kEveryBatch) file.GetPosition();
     }
-    file.Sync();
+    std::ignore = file.Sync();
     auto const windows = file.PacingWindowsCompleted();
     file.Close();
     return windows;
@@ -1134,26 +1136,26 @@ TEST_F(FileCacheHintTest, PacingSurvivesTheWriterSeekingBackToPatch) {
   const auto path = test_dir_ / "patched.bin";
 
   PacedFile file;
-  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
   file.EnableWritebackPacing(kWindow);
 
   // A placeholder the writer comes back to fill in once it knows the value, as the snapshot encoder
   // does for each batch's size and for the offset table.
   const std::vector<uint8_t> placeholder(patched.size(), 0);
-  file.Write(placeholder.data(), placeholder.size());
+  std::ignore = file.Write(placeholder.data(), placeholder.size());
 
   for (size_t offset = 0; offset < body.size(); offset += kChunk) {
-    file.Write(body.data() + offset, std::min(kChunk, body.size() - offset));
+    std::ignore = file.Write(body.data() + offset, std::min(kChunk, body.size() - offset));
   }
 
   const auto end = file.GetPosition();
   ASSERT_EQ(file.SetPosition(PacedFile::Position::SET, 0), 0U);
-  file.Write(patched.data(), patched.size());
+  std::ignore = file.Write(patched.data(), patched.size());
 
   ASSERT_EQ(file.SetPosition(PacedFile::Position::SET, static_cast<ssize_t>(end)), end);
-  file.Write(tail.data(), tail.size());
+  std::ignore = file.Write(tail.data(), tail.size());
 
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 
   const auto contents = ReadFileContents(path);
@@ -1171,12 +1173,12 @@ TEST_F(FileCacheHintTest, SeekingRepositionsPacing) {
   const auto path = test_dir_ / "repositioned.bin";
 
   PacedFile file;
-  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
   file.EnableWritebackPacing(kWindow);
   for (size_t offset = 0; offset < data.size(); offset += kChunk) {
-    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+    std::ignore = file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
   }
-  file.Sync();
+  std::ignore = file.Sync();
   EXPECT_EQ(file.PacingOffset(), kTotal) << "pacing did not follow an append-only write";
 
   file.SetPosition(PacedFile::Position::SET, 0);
@@ -1205,14 +1207,14 @@ TEST_F(FileCacheHintTest, AppendingFromAnotherFileKeepsPacingAlignedWithTheFile)
 
   const auto path = test_dir_ / "appended.bin";
   PacedFile file;
-  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
   file.EnableWritebackPacing(kWindow);
-  file.Write(head.data(), head.size());
+  std::ignore = file.Write(head.data(), head.size());
 
   const auto copied = file.AppendFrom(src_fd, part.size());
   ASSERT_TRUE(copied.has_value());
   EXPECT_EQ(*copied, part.size());
-  file.Sync();
+  std::ignore = file.Sync();
 
   EXPECT_EQ(file.PacingOffset(), head.size() + part.size())
       << "pacing lost track of bytes that did not pass through Write";
@@ -1255,10 +1257,10 @@ TEST_F(FileCacheHintTest, EnablingPacingStartsFromTheBeginning) {
   const auto path = test_dir_ / "re_enabled.bin";
 
   PacedFile file;
-  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
   file.EnableWritebackPacing(kWindow);
-  file.Write(data.data(), data.size());
-  file.Sync();
+  std::ignore = file.Write(data.data(), data.size());
+  std::ignore = file.Sync();
   ASSERT_EQ(file.PacingOffset(), kTotal);
 
   file.EnableWritebackPacing(kWindow);
@@ -1273,18 +1275,18 @@ TEST_F(FileCacheHintTest, ReopeningAHandleStartsPacingFromTheNewFile) {
   const auto data = Pattern(kTotal);
 
   PacedFile file;
-  file.Open(test_dir_ / "first.bin", PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_dir_ / "first.bin", PacedFile::Mode::OVERWRITE_EXISTING);
   file.EnableWritebackPacing(kWindow);
-  file.Write(data.data(), data.size());
-  file.Sync();
+  std::ignore = file.Write(data.data(), data.size());
+  std::ignore = file.Sync();
   ASSERT_EQ(file.PacingOffset(), kTotal);
   file.Close();
 
-  file.Open(test_dir_ / "second.bin", PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(test_dir_ / "second.bin", PacedFile::Mode::OVERWRITE_EXISTING);
   EXPECT_EQ(file.PacingOffset(), 0U) << "pacing carried the previous file's offset into this one";
 
-  file.Write(data.data(), kChunk);
-  file.Sync();
+  std::ignore = file.Write(data.data(), kChunk);
+  std::ignore = file.Sync();
   EXPECT_EQ(file.PacingOffset(), kChunk);
 
   file.Close();
@@ -1303,12 +1305,12 @@ TEST_F(FileCacheHintTest, DroppingCachedPagesEvictsAnUnpacedFile) {
   const auto path = test_dir_ / "unpaced_release.bin";
 
   PacedFile file;
-  file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, PacedFile::Mode::OVERWRITE_EXISTING);
   for (size_t offset = 0; offset < data.size(); offset += kChunk) {
-    file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
+    std::ignore = file.Write(data.data() + offset, std::min(kChunk, data.size() - offset));
   }
   // Clean pages are the only ones DONTNEED can evict.
-  file.Sync();
+  std::ignore = file.Sync();
 
   const auto before = memgraph::test::ResidentFraction(path);
   ASSERT_TRUE(before.has_value());
@@ -1335,15 +1337,37 @@ TEST_F(FileCacheHintTest, PacingDisablesItselfOnADescriptorItCannotPace) {
 
   // Crossing the first window boundary is what issues the syscall, and what fails.
   const auto data = Pattern(kWindow * 2);
-  file.Write(data.data(), data.size());
+  std::ignore = file.Write(data.data(), data.size());
   const auto after_failure = file.PacingOffset();
   ASSERT_GT(after_failure, 0U) << "the write never reached a window boundary";
 
   // Pacing is off now, so further writes are neither tracked nor retried.
-  file.Write(data.data(), data.size());
+  std::ignore = file.Write(data.data(), data.size());
   EXPECT_EQ(file.PacingOffset(), after_failure) << "pacing kept running on a descriptor it cannot pace";
 
   file.Close();
+}
+
+// Whether the kernel took the advice is the one part of a release that does not depend on how much
+// memory the machine is under, and POSIX has a FIFO refuse with ESPIPE, so both answers are
+// reachable without an unusual filesystem. Acceptance is all that is claimed here, and it is weaker
+// than it sounds: a filesystem can answer zero and keep every page, which is why the tests that
+// measure eviction gate themselves on a probe rather than on this.
+TEST_F(FileCacheHintTest, DroppingReportsWhetherTheKernelTookTheAdvice) {
+  const auto path = test_dir_ / "advice.bin";
+  WriteStreaming(path, Pattern(kTotal), 0);
+
+  const int fd = ::open(path.c_str(), O_RDONLY);
+  ASSERT_NE(fd, -1);
+  const auto close_fd = memgraph::utils::OnScopeExit{[fd] { ::close(fd); }};
+  EXPECT_EQ(memgraph::utils::DropCachedPages(fd), 0) << "a regular file is a descriptor the advice applies to";
+
+  const auto fifo = test_dir_ / "fifo";
+  ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+  const int fifo_fd = ::open(fifo.c_str(), O_RDONLY | O_NONBLOCK);
+  ASSERT_NE(fifo_fd, -1);
+  const auto close_fifo = memgraph::utils::OnScopeExit{[fifo_fd] { ::close(fifo_fd); }};
+  EXPECT_EQ(memgraph::utils::DropCachedPages(fifo_fd), ESPIPE) << "a refusal must reach the caller unchanged";
 }
 
 // Recovery releases the snapshot through the same handle it read it with, once the load is done.
@@ -1373,4 +1397,80 @@ TEST_F(FileCacheHintTest, ReadingAFileThenDroppingItEvictsIt) {
 
   ASSERT_TRUE(after.has_value());
   EXPECT_LT(*after, 0.05) << "dropping left " << (*after * 100) << "% resident, was " << (*before * 100) << "%";
+}
+
+// Every write to /dev/full fails with ENOSPC, which stands in for a full disk.
+template <typename TFile>
+class OutputFileNoSpaceTest : public ::testing::Test {
+ protected:
+  static constexpr auto kDevFull = "/dev/full";
+  std::vector<uint8_t> more_than_buffer_ = std::vector<uint8_t>(memgraph::utils::kFileBufferSize + 1, 'a');
+};
+
+using OutputFileTypes = ::testing::Types<memgraph::utils::OutputFile, memgraph::utils::NonConcurrentOutputFile>;
+TYPED_TEST_SUITE(OutputFileNoSpaceTest, OutputFileTypes);
+
+TYPED_TEST(OutputFileNoSpaceTest, WriteReportsNoSpace) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  EXPECT_FALSE(file.WriteFailed());
+  auto const written = file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
+  ASSERT_FALSE(written.has_value());
+  EXPECT_TRUE(file.WriteFailed());
+  EXPECT_EQ(written.error(), memgraph::utils::FileWriteError::kNoSpace);
+  // The failure sticks: later writes and syncs report it without touching the file.
+  EXPECT_FALSE(file.Write("more").has_value());
+  EXPECT_FALSE(file.Sync().has_value());
+  file.Close();
+  EXPECT_FALSE(file.IsOpen());
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, SyncReportsNoSpace) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  ASSERT_TRUE(file.Write("hello").has_value());
+  auto const synced = file.Sync();
+  ASSERT_FALSE(synced.has_value());
+  EXPECT_EQ(synced.error(), memgraph::utils::FileWriteError::kNoSpace);
+  file.Close();
+  EXPECT_FALSE(file.IsOpen());
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, CloseWithUnflushedDataDoesNotCrash) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  ASSERT_TRUE(file.Write("hello").has_value());
+  file.Close();
+  EXPECT_FALSE(file.IsOpen());
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, HandleIsReusableAfterFailure) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  ASSERT_TRUE(file.Write("lost").has_value());
+  EXPECT_FALSE(file.Sync().has_value());
+  file.Close();
+  EXPECT_FALSE(file.WriteFailed());
+
+  auto const path = fs::temp_directory_path() / "MG_test_unit_utils_file_no_space_reuse";
+  auto const remove = memgraph::utils::OnScopeExit{[&path] { fs::remove(path); }};
+  ASSERT_TRUE(file.Open(path, TypeParam::Mode::OVERWRITE_EXISTING));
+  ASSERT_TRUE(file.Write("kept").has_value());
+  ASSERT_TRUE(file.Sync().has_value());
+  file.Close();
+
+  std::ifstream in(path);
+  std::string content;
+  std::getline(in, content);
+  EXPECT_EQ(content, "kept");
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, WriteCrashesByDefault) {
+  ASSERT_DEATH(
+      {
+        TypeParam file;
+        if (!file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING)) std::abort();
+        (void)file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
+      },
+      "No space left on device");
 }

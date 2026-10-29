@@ -245,6 +245,30 @@ TEST_F(VersioningInterpreterTest, GateRejectsWhenSinglePreconditionMissing) {
   }
 }
 
+// Overlay-only commits and fork_ts assume the classic commit path, so branches are refused under commit-lock narrowing.
+TEST_F(VersioningGatedTest, BranchCreationRefusedWithCommitLockNarrowing) {
+  memgraph::storage::Config narrowing_config{};
+  narrowing_config.durability.storage_directory = data_directory / "narrowing_db";
+  narrowing_config.disk.main_storage_directory = data_directory / "narrowing_db" / "disk";
+  narrowing_config.experimental_commit_lock_narrowing = true;
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> narrowing_gk{narrowing_config};
+  auto narrowing_acc = narrowing_gk.access();
+  ASSERT_TRUE(narrowing_acc);
+  InterpreterFaker narrowing_faker{&interpreter_context, *narrowing_acc};
+
+  for (const auto *q : {"CREATE BRANCH 'a' FROM 'main'", "CHECKOUT BRANCH 'a' FROM 'main'"}) {
+    try {
+      narrowing_faker.Interpret(q);
+      ADD_FAILURE() << "expected QueryRuntimeException: " << q;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(
+          std::string{e.what()},
+          std::string{memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kCommitLockNarrowing)})
+          << q;
+    }
+  }
+}
+
 // A replica must not mutate its local VersionStore: EnsureMainInstance rejects management queries. Uses the real
 // SetReplicationRoleReplica so IsReplica() is genuine.
 TEST_F(VersioningGatedTest, ManagementQueryRejectedOnReplica) {
@@ -616,6 +640,25 @@ TEST_F(VersioningInterpreterTest, SetCurrentDBOnlyResetsCurrentVersionOnADiffere
   // current_db holds an accessor into other_gk, whose destructor blocks until every accessor is released; release it
   // first, as locals destruct in reverse order.
   current_db.ResetDB();
+}
+
+// A branch's diff engine is a separate storage, but its database name is what auth, FGA, SHOW and DUMP see through
+// DbAccessor::DatabaseName(), so it must follow a RENAME of main, for a core built before and one built after.
+TEST_F(VersioningGatedTest, BranchSessionReportsRenamedDatabaseName) {
+  Fork("feature");
+  auto &live_engine = faker.interpreter.current_db_.branch_context()->diff_engine();
+  const auto old_name = db->name();
+  ASSERT_EQ(live_engine.name(), old_name);
+
+  db->Rename("renamed_db");
+
+  EXPECT_EQ(live_engine.name(), "renamed_db") << "core built before the rename kept the old name";
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CREATE BRANCH 'later' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'later'");
+  ASSERT_NE(faker.interpreter.current_db_.branch_context(), nullptr);
+  EXPECT_EQ(faker.interpreter.current_db_.branch_context()->diff_engine().name(), "renamed_db");
 }
 
 // Re-applying a same-database DatabaseAccess to a live interpreter must not disturb an active CHECKOUT.

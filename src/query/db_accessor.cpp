@@ -193,63 +193,39 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
 namespace {
 // Storage-level adjacency on a branch is one-sided and exposes raw stubs, so the branch-aware query-level
 // {In,Out}Edges is used and only membership is filtered; membership is by gid, so stamped edges match.
-storage::Result<EdgeVertexAccessorResult> FilterBranchEdgesBySubgraph(storage::Result<EdgeVertexAccessorResult> res,
-                                                                      const Graph &graph) {
+storage::Result<ExpandedEdgesResult> FilterBranchEdgesBySubgraph(storage::Result<ExpandedEdgesResult> res,
+                                                                 const Graph &graph) {
   if (!res) return res;
   const auto &graph_edges = graph.edges();
-  std::erase_if(res->edges, [&](const EdgeAccessor &edge) { return !graph_edges.contains(edge); });
+  res->edges = res->edges.Filtered([&](const EdgeAccessor &edge) { return graph_edges.contains(edge); });
   return res;
 }
+
+/// Narrows an expansion to the edges `graph` holds, keeping it a range that builds its accessors
+/// when they are looked at.
+auto KeptIn(Graph const *graph) {
+  return [graph](storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
+    auto const &graph_edges = graph->edges();
+    auto kept = result.edges.Filtered(
+        [&graph_edges](storage::EdgeAccessor const &edge) { return graph_edges.contains(EdgeAccessor{edge}); });
+    return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = result.expanded_count};
+  };
+}
+
 }  // namespace
 
-storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   if (impl_.branch_ctx_ != nullptr) {
     return FilterBranchEdgesBySubgraph(impl_.OutEdges(view), *graph_);
   }
-  auto maybe_edges = impl_.impl_.OutEdges(view, {});
-  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  auto edges = std::move(maybe_edges->edges);
-  const auto &graph_edges = graph_->edges();
-
-  std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
-    if (graph_edges.contains(edge_q)) {
-      filteredOutEdges.push_back(edge);
-    }
-  }
-
-  std::vector<EdgeAccessor> resulting_edges;
-  resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(
-      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+  return impl_.impl_.OutEdges(view, {}).transform(KeptIn(graph_));
 }
 
-storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
   if (impl_.branch_ctx_ != nullptr) {
     return FilterBranchEdgesBySubgraph(impl_.InEdges(view), *graph_);
   }
-  auto maybe_edges = impl_.impl_.InEdges(view, {});
-  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
-  auto edges = std::move(maybe_edges->edges);
-  const auto &graph_edges = graph_->edges();
-
-  std::vector<storage::EdgeAccessor> filteredOutEdges;
-  for (auto &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
-    if (graph_edges.contains(edge_q)) {
-      filteredOutEdges.push_back(edge);
-    }
-  }
-
-  std::vector<EdgeAccessor> resulting_edges;
-  resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(
-      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
-
-  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
+  return impl_.impl_.InEdges(view, {}).transform(KeptIn(graph_));
 }
 
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }

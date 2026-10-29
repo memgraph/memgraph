@@ -495,35 +495,8 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        /*try_lock_timeout*/ std::nullopt,
         /*guard*/ std::nullopt,
         std::forward<Args>(args)...);
-  }
-
-  /**
-   * Tries to obtain RPC stream by try locking RPC lock, otherwise returns std::nullopt
-   * @tparam TRequestResponse RPC type
-   * @tparam Args Type of arguments to propagate to StreamWithLoad
-   * @param try_lock_timeout Optional timeout for try lock on RPC lock
-   * @param args  Arguments to propagate to StreamWithLoad
-   * @return nullopt if couldn't try_lock, StreamHandler otherwise
-   */
-  template <class TRequestResponse, class... Args>
-  std::optional<StreamHandler<TRequestResponse>> TryStream(
-      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
-    try {
-      return StreamWithLoad<TRequestResponse>(
-          [](auto *reader) {
-            typename TRequestResponse::Response response;
-            TRequestResponse::Response::Load(&response, reader);
-            return response;
-          },
-          /*try_lock_timeout*/ try_lock_timeout,
-          /*guard*/ std::nullopt,
-          std::forward<Args>(args)...);
-    } catch (FailedToGetRpcStreamException const &) {
-      return std::nullopt;
-    }
   }
 
   template <class TRequestResponseNew, class TRequestResponseOld, class... Args>
@@ -535,7 +508,6 @@ class Client {
           TRequestResponseNew::Response::Load(&response, reader);
           return response;
         },
-        /*try_lock_timeout*/ std::nullopt,
         /*guard*/ std::move(old_stream_handler.guard_),
         std::forward<Args>(args)...);
   }
@@ -544,26 +516,13 @@ class Client {
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
-      std::optional<std::chrono::milliseconds> const &try_lock_timeout,
       std::optional<std::unique_lock<utils::ResourceLock>> guard_arg, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
     auto req_type_name = std::string_view{req_type.name};
 
-    auto guard = std::invoke([&]() -> std::unique_lock<utils::ResourceLock> {
-      // Upgrade stream with existing lock
-      if (guard_arg) {
-        return std::move(*guard_arg);
-      }
-      // New stream, new lock, maybe use try_lock_timeout
-      auto local_guard = std::unique_lock{conn_->mutex_, std::defer_lock};
-      if (!try_lock_timeout) {
-        local_guard.lock();
-      } else if (!local_guard.try_lock_for(*try_lock_timeout)) {
-        throw FailedToGetRpcStreamException();
-      }
-      return local_guard;  // RVO
-    });
+    // An upgraded stream carries the lock of the stream it replaces; a new stream waits for it.
+    auto guard = guard_arg ? std::move(*guard_arg) : std::unique_lock{conn_->mutex_};
 
     // The client has been aborted as part of shutdown. Refuse to open (or reconnect) a stream so a queued recovery
     // task, heartbeat, or commit can't revive the connection after Abort() already tore it down.

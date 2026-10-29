@@ -14,7 +14,6 @@ import mgp
 
 @mgp.transformation
 def simple(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
-
     result_queries = []
 
     for i in range(0, messages.total_messages()):
@@ -39,7 +38,6 @@ def simple(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=st
 
 @mgp.transformation
 def with_parameters(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
-
     result_queries = []
 
     for i in range(0, messages.total_messages()):
@@ -80,3 +78,11 @@ def query(
         result_queries.append(mgp.Record(query=payload_as_str, parameters=None))
 
     return result_queries
+
+
+@mgp.transformation
+def create_user(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
+    return [
+        mgp.Record(query=f"CREATE USER {messages.message_at(i).payload().decode('utf-8')}", parameters=None)
+        for i in range(messages.total_messages())
+    ]

@@ -14,10 +14,14 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <type_traits>
 
 #include "query/db_accessor.hpp"
+#include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
 #include "tests/unit/typed_value_shapes.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::query::TypedValue;
 
@@ -25,8 +29,47 @@ namespace shapes = memgraph::test::shapes;
 
 namespace {
 
+// Copying a value that owns nothing copies the whole union without knowing which member is live,
+// which reproduces the value only while every type it is done for is trivially copyable. Each of
+// these is declared elsewhere and could stop being so without anything here changing.
+static_assert(std::is_trivially_copyable_v<memgraph::query::VertexAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::query::EdgeAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::Date>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalDateTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::ZonedDateTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::Duration>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Enum>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Point2d>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Point3d>);
+
+// A value that owns nothing is written by constructing the union rather than by assigning to it,
+// because an assignment begins the lifetime of what it writes only where that type has a trivial
+// default constructor that is not deleted. A union has neither for as long as any one of its
+// members has a non-trivial default constructor of its own and no member carries a default member
+// initializer. Several of the types above initialize their members where they declare them, which
+// is what puts the union in that position, and what makes the destination of a copy or of a move
+// onto a Null an object whose lifetime an assignment would not have started.
+//
+// Were every one of them to become trivially default constructible, an assignment would be sound
+// again, and this is where that is noticed.
+static_assert(!std::conjunction_v<std::is_trivially_default_constructible<memgraph::query::VertexAccessor>,
+                                  std::is_trivially_default_constructible<memgraph::query::EdgeAccessor>,
+                                  std::is_trivially_default_constructible<memgraph::utils::Date>,
+                                  std::is_trivially_default_constructible<memgraph::utils::LocalTime>,
+                                  std::is_trivially_default_constructible<memgraph::utils::LocalDateTime>,
+                                  std::is_trivially_default_constructible<memgraph::utils::ZonedDateTime>,
+                                  std::is_trivially_default_constructible<memgraph::utils::Duration>,
+                                  std::is_trivially_default_constructible<memgraph::storage::Enum>,
+                                  std::is_trivially_default_constructible<memgraph::storage::Point2d>,
+                                  std::is_trivially_default_constructible<memgraph::storage::Point3d>>);
+
 bool IsUnshaped(TypedValue::Type type) {
   return std::ranges::find(shapes::kUnshapedTypedValueTypes, type) != shapes::kUnshapedTypedValueTypes.end();
+}
+
+bool Contains(std::ranges::range auto const &types, TypedValue::Type type) {
+  return std::ranges::find(types, type) != std::ranges::end(types);
 }
 
 class TypedValueShapes : public ::testing::Test {
@@ -47,6 +90,17 @@ TEST_F(TypedValueShapes, EveryTypeIsListedOnce) {
   for (auto index = std::size_t{0}; index < shapes::kEveryTypedValueType.size(); ++index) {
     EXPECT_EQ(static_cast<unsigned>(shapes::kEveryTypedValueType[index]), index)
         << "the list is out of step with the enum at position " << index;
+  }
+}
+
+TEST_F(TypedValueShapes, EveryTypeIsHandledTheWayItsValueNeeds) {
+  for (auto const type : shapes::kEveryTypedValueType) {
+    auto const owns_an_allocation = !Contains(shapes::kTypesWithoutAnAllocation, type);
+
+    EXPECT_EQ(TypedValue::OwnsAnAllocation(type), owns_an_allocation)
+        << "type " << static_cast<unsigned>(type) << " is "
+        << (owns_an_allocation ? "treated as holding its value outright, and is not listed that way"
+                               : "listed as holding its value outright, and is not treated that way");
   }
 }
 

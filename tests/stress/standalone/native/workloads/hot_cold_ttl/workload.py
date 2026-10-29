@@ -780,19 +780,34 @@ def main() -> None:
         resumed = False
         try:
             # Step A: resume the tenant HOT (bounded retry).
+            reported = False
+            last_exc = None
             for _attempt in range(MAX_RETRIES):
                 try:
                     resume_tenant_blocking(endpoint, username, password, tname, timeout=90.0)
                     resumed = True
                     break
                 except Exception as exc:
+                    last_exc = exc
                     if is_transient(exc):
                         time.sleep(RETRY_SLEEP)
                         continue
                     mismatches.append((tname, -1, expected_perm[tname], f"resume failed: {exc}"))
+                    reported = True
                     break
 
             if not resumed:
+                # Exhausting the retries leaves this tenant unverified: record it so the SKIP
+                # below has a matching entry in the mismatch log.
+                if not reported:
+                    mismatches.append(
+                        (
+                            tname,
+                            -1,
+                            expected_perm[tname],
+                            f"resume did not succeed within {MAX_RETRIES} retries: {last_exc}",
+                        )
+                    )
                 print(f"  SKIP {tname}: could not resume (see mismatch log)", flush=True)
                 continue
 

@@ -15,6 +15,7 @@ import base64
 import os
 import sys
 
+import common
 import interactive_mg_runner
 import pytest
 from neo4j import Auth, GraphDatabase
@@ -54,35 +55,37 @@ def sso_connection(request):
     test_name = request.function.__name__
     instances = get_instances(test_name)
 
-    # Start Memgraph without SSO first
-    interactive_mg_runner.start_all(instances)
+    # Teardown in `finally` so a failed setup also removes the instance's data directory
+    try:
+        # Start Memgraph without SSO first
+        interactive_mg_runner.start_all(instances)
 
-    # Create roles and users for SSO
-    with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
-        with client.session() as session:
-            session.run("CREATE ROLE architect;").consume()
-            session.run("GRANT ALL PRIVILEGES TO architect;").consume()
+        # Create roles and users for SSO
+        with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
+            with client.session() as session:
+                session.run("CREATE ROLE architect;").consume()
+                session.run("GRANT ALL PRIVILEGES TO architect;").consume()
 
-    interactive_mg_runner.stop(instances, INSTANCE_NAME)
+        interactive_mg_runner.stop(instances, INSTANCE_NAME)
 
-    # Restart with SSO enabled
-    instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
-    interactive_mg_runner.start_all(instances)
+        # Restart with SSO enabled
+        instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
+        interactive_mg_runner.start_all(instances)
 
-    # Create SSO authenticated connection
-    response = base64.b64encode(b"dummy_value").decode("utf-8")
-    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+        # Create SSO authenticated connection
+        response = base64.b64encode(b"dummy_value").decode("utf-8")
+        MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
-    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        # Verify current user
-        with client.session() as session:
-            current_user_result = list(session.run("SHOW CURRENT USER;"))
-            assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
+        with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+            # Verify current user
+            with client.session() as session:
+                current_user_result = list(session.run("SHOW CURRENT USER;"))
+                assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
 
-        yield client
+            yield client
 
-    # Cleanup
-    interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
+    finally:
+        interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
 
 
 @pytest.fixture(scope="function")
@@ -91,53 +94,55 @@ def multi_role_connection(request):
     test_name = request.function.__name__
     instances = get_instances(test_name)
 
-    # Start Memgraph without SSO first
-    interactive_mg_runner.start_all(instances)
+    # Teardown in `finally` so a failed setup also removes the instance's data directory
+    try:
+        # Start Memgraph without SSO first
+        interactive_mg_runner.start_all(instances)
 
-    # Create roles, databases, and permissions
-    with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
-        with client.session() as session:
-            # Create roles
-            session.run("CREATE ROLE admin;").consume()
-            session.run("CREATE ROLE architect;").consume()
-            session.run("CREATE ROLE user;").consume()
+        # Create roles, databases, and permissions
+        with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
+            with client.session() as session:
+                # Create roles
+                session.run("CREATE ROLE admin;").consume()
+                session.run("CREATE ROLE architect;").consume()
+                session.run("CREATE ROLE user;").consume()
 
-            # Grant privileges
-            session.run("GRANT ALL PRIVILEGES TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
-            session.run("GRANT ALL PRIVILEGES TO architect;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO architect;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO architect;").consume()
-            session.run("GRANT MATCH, CREATE, STREAM, MULTI_DATABASE_USE TO user;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;").consume()
-            session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO user;").consume()
+                # Grant privileges
+                session.run("GRANT ALL PRIVILEGES TO admin;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
+                session.run("GRANT ALL PRIVILEGES TO architect;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO architect;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO architect;").consume()
+                session.run("GRANT MATCH, CREATE, STREAM, MULTI_DATABASE_USE TO user;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;").consume()
+                session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO user;").consume()
 
-            # Create databases
-            session.run("CREATE DATABASE admin_db;").consume()
-            session.run("CREATE DATABASE architect_db;").consume()
-            session.run("CREATE DATABASE user_db;").consume()
+                # Create databases
+                session.run("CREATE DATABASE admin_db;").consume()
+                session.run("CREATE DATABASE architect_db;").consume()
+                session.run("CREATE DATABASE user_db;").consume()
 
-            # Grant database access to roles
-            session.run("GRANT DATABASE admin_db TO admin;").consume()
-            session.run("GRANT DATABASE architect_db TO architect;").consume()
-            session.run("GRANT DATABASE user_db TO user;").consume()
+                # Grant database access to roles
+                session.run("GRANT DATABASE admin_db TO admin;").consume()
+                session.run("GRANT DATABASE architect_db TO architect;").consume()
+                session.run("GRANT DATABASE user_db TO user;").consume()
 
-            # Set main databases for roles
-            session.run("SET MAIN DATABASE admin_db FOR admin;").consume()
-            session.run("SET MAIN DATABASE architect_db FOR architect;").consume()
-            session.run("SET MAIN DATABASE user_db FOR user;").consume()
+                # Set main databases for roles
+                session.run("SET MAIN DATABASE admin_db FOR admin;").consume()
+                session.run("SET MAIN DATABASE architect_db FOR architect;").consume()
+                session.run("SET MAIN DATABASE user_db FOR user;").consume()
 
-    interactive_mg_runner.stop(instances, INSTANCE_NAME)
+        interactive_mg_runner.stop(instances, INSTANCE_NAME)
 
-    # Restart with SSO enabled
-    instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
-    interactive_mg_runner.start_all(instances)
+        # Restart with SSO enabled
+        instances[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
+        interactive_mg_runner.start_all(instances)
 
-    yield instances
+        yield instances
 
-    # Cleanup
-    interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
+    finally:
+        interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
 
 
 def test_sso_kafka_stream_creation(kafka_topics, sso_connection):
@@ -150,7 +155,7 @@ def test_sso_kafka_stream_creation(kafka_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
-            BOOTSTRAP_SERVERS 'localhost:29092'"""
+            BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
         # Verify the stream was created and check its info
@@ -172,7 +177,7 @@ def test_sso_pulsar_stream_creation(pulsar_topics, sso_connection):
         session.run(
             f"""CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]}
             TRANSFORM pulsar_transform.simple
-            SERVICE_URL 'pulsar://127.0.0.1:6650'"""
+            SERVICE_URL '{common.PULSAR_SERVICE_URL}'"""
         ).consume()
 
         # Verify the stream was created and check its info
@@ -193,13 +198,14 @@ def test_sso_multiple_streams(kafka_topics, pulsar_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM sso_kafka_stream1 TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
-            BOOTSTRAP_SERVERS 'localhost:29092'"""
+            CONSUMER_GROUP sso_kafka_stream1_group
+            BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
         session.run(
             f"""CREATE PULSAR STREAM sso_pulsar_stream1 TOPICS {pulsar_topics[0]}
             TRANSFORM pulsar_transform.simple
-            SERVICE_URL 'pulsar://127.0.0.1:6650'"""
+            SERVICE_URL '{common.PULSAR_SERVICE_URL}'"""
         ).consume()
 
         # Verify both streams were created
@@ -225,7 +231,7 @@ def test_sso_stream_ownership_verification(kafka_topics, sso_connection):
         session.run(
             f"""CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]}
             TRANSFORM kafka_transform.simple
-            BOOTSTRAP_SERVERS 'localhost:29092'"""
+            BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
         ).consume()
 
         # Verify ownership
@@ -257,7 +263,8 @@ def test_multi_role_admin_stream_creation(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM admin_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP admin_kafka_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify stream was created
@@ -285,7 +292,8 @@ def test_multi_role_architect_stream_creation(kafka_topics, multi_role_connectio
             session.run(
                 f"""CREATE KAFKA STREAM architect_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP architect_kafka_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify stream was created
@@ -313,7 +321,8 @@ def test_multi_role_user_stream_creation(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM user_kafka_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP user_kafka_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify stream was created
@@ -463,6 +472,8 @@ def test_multi_role_wrong_types(multi_role_connection):
 
 def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
     """Test creating streams across different databases with different roles."""
+    # Each stream gets its own consumer group: unstarted streams sharing a group stall its rebalance for seconds,
+    # which makes the instance shutdown at teardown exceed the stop timeout.
     assert len(kafka_topics) > 0
 
     # Test admin user creating streams in different databases
@@ -476,7 +487,8 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM admin_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP admin_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Create stream in architect_db
@@ -484,7 +496,8 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM architect_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP architect_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Create stream in user_db
@@ -492,7 +505,8 @@ def test_multi_role_stream_cross_database(kafka_topics, multi_role_connection):
             session.run(
                 f"""CREATE KAFKA STREAM user_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP user_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Verify streams were created in each database
@@ -528,7 +542,8 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
                 session.run(
                     f"""CREATE KAFKA STREAM admin_stream TOPICS {kafka_topics[0]}
                     TRANSFORM kafka_transform.simple
-                    BOOTSTRAP_SERVERS 'localhost:29092'"""
+                    CONSUMER_GROUP admin_stream_group
+                    BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
                 ).consume()
                 assert False, "Architect should not be able to create stream in admin_db"
             except Exception:
@@ -539,7 +554,8 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
             session.run(
                 f"""CREATE KAFKA STREAM architect_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP architect_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
             # Should be able to create stream in user_db
@@ -547,7 +563,8 @@ def test_multi_role_architect_limited_access(kafka_topics, multi_role_connection
             session.run(
                 f"""CREATE KAFKA STREAM user_stream TOPICS {kafka_topics[0]}
                 TRANSFORM kafka_transform.simple
-                BOOTSTRAP_SERVERS 'localhost:29092'"""
+                CONSUMER_GROUP user_stream_group
+                BOOTSTRAP_SERVERS '{common.KAFKA_BOOTSTRAP_SERVERS}'"""
             ).consume()
 
 

@@ -12,19 +12,22 @@
 /// Observing the page cache from a test.
 ///
 /// Dropping pages is advisory, so a file's contents say nothing about whether it worked: residency
-/// is the only thing that distinguishes a release that happened from one the kernel ignored. Every
-/// assertion built on it has to be gated on the filesystem being one where it means anything.
+/// is the only sign of a release that happened rather than one the kernel ignored. Every assertion
+/// built on it has to be gated on the filesystem being one where it means anything, and paired with
+/// a file the release did not touch, because memory pressure empties a file just as thoroughly.
 #pragma once
 
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 #include "utils/file.hpp"
@@ -33,6 +36,12 @@
 namespace memgraph::test {
 
 /// Residency of `path` in the page cache, as a fraction of its pages, via mincore(2).
+///
+/// cachestat(2) would answer the sharper question, separating pages a release took from pages
+/// memory pressure took, and it cannot be used here: it reads the mapping belonging to the file it
+/// is given, and on overlayfs, which is what a container's filesystem is, reads and writes are
+/// served by the file underneath, so it reports an empty cache for a file that was just read.
+/// mmap is passed down to that same lower file, which is why mincore answers correctly there.
 /// std::nullopt when the file is empty or the mapping fails.
 inline std::optional<double> ResidentFraction(const std::filesystem::path &path) {
   const int fd = ::open(path.c_str(), O_RDONLY);
@@ -64,9 +73,9 @@ inline std::optional<double> ResidentFraction(const std::filesystem::path &path)
 inline bool PageCacheEvictionObservable(const std::filesystem::path &probe) {
   const std::vector<uint8_t> data(1U << 20, 0xAB);
   utils::NonConcurrentOutputFile file;
-  file.Open(probe, utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING);
-  file.Write(data.data(), data.size());
-  file.Sync();
+  std::ignore = file.Open(probe, utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Write(data.data(), data.size());
+  std::ignore = file.Sync();
   const auto before = ResidentFraction(probe);
   file.DropCachedPages();
   const auto after = ResidentFraction(probe);

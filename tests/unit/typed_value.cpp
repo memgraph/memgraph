@@ -13,6 +13,7 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -277,13 +278,17 @@ TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
   EXPECT_PROP_ISNULL(TypedValue(1) < TypedValue("a"));
   EXPECT_PROP_ISNULL(TypedValue("a") < TypedValue(1));
 
-  // A list and a map are placed by orderability alone, so a sort arranges two
-  // of them while all four comparisons answer Null. Placing a list here means
-  // ordering it by its elements, which is not the order the store keeps one in,
-  // and a scan reading that order stands in for this comparison.
-  EXPECT_PROP_ISNULL(List({TypedValue(1)}) < List({TypedValue(2)}));
-  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+  // Maps: ORDER BY sorts them, but all four comparisons answer Null.
   EXPECT_PROP_ISNULL(Map({{"k", TypedValue(1)}}) < Map({{"k", TypedValue(2)}}));
+
+  // Lists compare by their elements, and are Null where an element pair is.
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+
+  // A NaN element makes the pair Null, although a NaN scalar compares false.
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) < List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) >= List({TypedValue(1)}));
+  EXPECT_PROP_FALSE(TypedValue(std::nan("")) < TypedValue(1));
 }
 
 TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {
@@ -985,4 +990,73 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     }
   }
+}
+
+// A pmr resource that records how many blocks it handed out and how many it was asked to take
+// back. A balanced pair of counts is the invariant every allocator-aware type owes its resource.
+class BlockCountingResource final : public memgraph::utils::MemoryResource {
+ public:
+  int64_t outstanding() const { return allocations_ - deallocations_; }
+
+  int64_t allocations() const { return allocations_; }
+
+  int64_t deallocations() const { return deallocations_; }
+
+ private:
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    ++allocations_;
+    return upstream_->allocate(bytes, alignment);
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    ++deallocations_;
+    upstream_->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(memgraph::utils::MemoryResource const &other) const noexcept override { return this == &other; }
+
+  memgraph::utils::MemoryResource *upstream_{memgraph::utils::NewDeleteResource()};
+  int64_t allocations_{0};
+  int64_t deallocations_{0};
+};
+
+// Move-assigning a Path onto a TypedValue that already holds one must take its replacement from
+// the same resource it will later hand that replacement back to. Freeing a block the resource
+// never issued makes the resource's accounting drift down by one block per assignment, and the
+// resource behind a running query is the one its memory limit is read from.
+TYPED_TEST(AllTypesFixture, PathMoveAssignmentUsesTheValueAllocator) {
+  auto vertex = this->dba.InsertVertex();
+  BlockCountingResource memory;
+
+  TypedValue holder{memgraph::query::Path(vertex), &memory};
+  ASSERT_EQ(holder.type(), TypedValue::Type::Path);
+  auto const after_construction = memory.outstanding();
+  ASSERT_GT(memory.allocations(), 0) << "the Path itself should come from the value's resource";
+
+  holder = memgraph::query::Path(vertex);
+
+  EXPECT_EQ(memory.outstanding(), after_construction)
+      << "move-assigning a Path released a block the resource never issued: " << memory.allocations()
+      << " allocations against " << memory.deallocations() << " deallocations";
+}
+
+// Every operator that returns a TypedValue hands on the allocator its left operand carried, so a
+// value produced inside a query keeps allocating from the query's resource. Addition already does
+// this for the temporal types; subtraction is the same shape and owes the same.
+TYPED_TEST(AllTypesFixture, TemporalArithmeticKeepsTheOperandAllocator) {
+  BlockCountingResource memory;
+  TypedValue const date{memgraph::utils::Date(memgraph::utils::DateParameters{2026, 10, 15}), &memory};
+  TypedValue const day{memgraph::utils::Duration(memgraph::utils::DurationParameters{1}), &memory};
+
+  auto const sum = date + day;
+  ASSERT_EQ(sum.type(), TypedValue::Type::Date);
+  EXPECT_EQ(sum.get_allocator().resource(), &memory) << "addition dropped the operand's allocator";
+
+  auto const difference = date - day;
+  ASSERT_EQ(difference.type(), TypedValue::Type::Date);
+  EXPECT_EQ(difference.get_allocator().resource(), &memory) << "subtraction dropped the operand's allocator";
+
+  auto const between = date - date;
+  ASSERT_EQ(between.type(), TypedValue::Type::Duration);
+  EXPECT_EQ(between.get_allocator().resource(), &memory) << "date difference dropped the operand's allocator";
 }

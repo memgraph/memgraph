@@ -29,6 +29,7 @@
 import concurrent.futures
 import logging
 import os
+import re
 import readline
 import secrets
 import sys
@@ -37,6 +38,7 @@ from argparse import ArgumentParser
 from inspect import signature
 
 import yaml
+
 from memgraph import *
 
 log = logging.getLogger("memgraph.tests.e2e")
@@ -207,6 +209,14 @@ def wait_until_port_is_free(port: int) -> bool:
     return False
 
 
+_ENV_REF = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
+
+
+def expand_env_args(args):
+    """Expand ${VAR} and ${VAR:-default} in workload args, e.g. broker addresses that differ between CI and local runs."""
+    return [_ENV_REF.sub(lambda m: os.environ.get(m.group(1)) or m.group(2) or "", str(arg)) for arg in args]
+
+
 def _start(
     name,
     args,
@@ -231,6 +241,8 @@ def _start(
             return False
         log.info(f"Instance with name {name} is registered but not running, starting it again.")
         MEMGRAPH_INSTANCES.pop(name)
+
+    args = expand_env_args(args)
 
     # Under runner_parallel.py the ports move into this worker's window, see PortRemap in memgraph.py. An instance
     # without --bolt-port would otherwise bind the real default port.

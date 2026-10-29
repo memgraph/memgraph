@@ -16,10 +16,13 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 
 #include <algorithm>
+#include <map>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -63,6 +66,12 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   auto const &symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scopes_.back().symbols[name] = symbol;
   return symbol;
+}
+
+void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
+  for (auto &subquery : open_subqueries_) {
+    subquery.referenced.insert(symbol);
+  }
 }
 
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
@@ -229,9 +238,10 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
     throw SemanticException("All subqueries in an UNION must have the same column names.");
   }
 
-  // create new symbols for the result of the union
+  // The union's columns are the user's RETURN names, so a later `*` sees them. A column named like a scoped CALL
+  // import stays a column, so a distinct UNION keys on it, but is hidden: after the CALL that name is the import.
   for (const auto &name : scope.curr_return_names) {
-    auto symbol = CreateSymbol(name, false);
+    auto symbol = CreateSymbol(name, !scope.call_subquery_imports.contains(name));
     cypher_union.union_symbols_.push_back(symbol);
   }
 
@@ -339,6 +349,97 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
   return true;
 }
 
+namespace {
+
+/// The columns a body's RETURN writes. `all` also holds every import, which each RETURN re-injects; `*` writes none.
+std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const std::unordered_set<std::string> &all,
+                                               const std::map<std::string, Symbol> &imports) {
+  const auto *last = query.single_query_->clauses_.back();
+  if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) {
+    return WrittenColumns(*nested->branches_.front().body, all, imports);
+  }
+  const auto *ret = utils::Downcast<const Return>(last);
+  if (!ret) return all;
+  if (ret->body_.all_identifiers) {
+    return all | std::views::filter([&](const auto &name) { return !imports.contains(name); }) |
+           std::ranges::to<std::unordered_set<std::string>>();
+  }
+  return ret->body_.named_expressions | std::views::transform([](const auto *expr) { return expr->name_; }) |
+         std::ranges::to<std::unordered_set<std::string>>();
+}
+
+}  // namespace
+
+bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
+  // A trigger that is not cacheable analyses the same AST again on every firing.
+  branches.output_symbols_.clear();
+  // The predicates, and each branch, get a scope of their own above the CALL body's, which holds the imports, so
+  // nothing they bind reaches the CALL body, and no branch sees another's variables, as no UNION part does.
+  // Scopes are re-read by index: a body can push scopes and reallocate the stack.
+  auto const call_scope = scopes_.size() - 1;
+  auto const push_imports_scope = [&] {
+    auto const &outer = scopes_[call_scope];
+    scopes_.push_back(Scope{.in_subquery_body = outer.in_subquery_body,
+                            .in_call_subquery = outer.in_call_subquery,
+                            .symbols = outer.call_subquery_imports,
+                            .call_subquery_imports = outer.call_subquery_imports,
+                            .call_subquery_base = outer.call_subquery_base});
+  };
+
+  // Each predicate is a `Where`, so it gets the WHERE rules.
+  push_imports_scope();
+  for (auto const &branch : branches.branches_) {
+    if (branch.predicate) branch.predicate->Accept(*this);
+  }
+  scopes_.pop_back();
+
+  // The parser checked that all branches agree on whether they return rows.
+  std::unordered_set<std::string> first_names;
+  std::unordered_set<std::string> first_written;
+  bool has_return = false;
+  // Only a single branch reads its own column symbols.
+  std::map<std::string, Symbol> single_branch_symbols;
+  for (auto *body : branches.branches_ | std::views::transform(&ConditionalBranches::Branch::body)) {
+    push_imports_scope();
+    body->Accept(*this);
+    auto &branch = scopes_.back();
+    auto written = WrittenColumns(*body, branch.curr_return_names, scopes_[call_scope].call_subquery_imports);
+    if (body == branches.branches_.front().body) {
+      first_names = std::move(branch.curr_return_names);
+      first_written = std::move(written);
+      has_return = branch.has_return;
+    } else if (written.size() != first_written.size()) {
+      throw SemanticException("All WHEN branches must return the same number of columns.");
+    } else if (written != first_written) {
+      throw SemanticException("All WHEN branches must have the same column names.");
+    }
+    if (branches.branches_.size() == 1) single_branch_symbols = std::move(branch.symbols);
+    scopes_.pop_back();
+  }
+
+  auto &scope = scopes_.back();
+  scope.has_return = has_return;
+  if (!scope.has_return) return false;
+  // The columns a branch writes, not every import its RETURN puts back in scope; a `RETURN *` that sees only the
+  // imports returns them. Sorted, so the order does not depend on the hash set's.
+  auto const &written = first_written.empty() ? first_names : first_written;
+  auto columns = std::vector<std::string>(written.begin(), written.end());
+  std::ranges::sort(columns);
+  scope.curr_return_names = std::move(first_names);
+  for (const auto &name : columns) {
+    // A column named after an import is the import: the caller keeps its own value, as after a plain `CALL`.
+    if (auto const import = scope.call_subquery_imports.find(name); import != scope.call_subquery_imports.end()) {
+      branches.output_symbols_.push_back(import->second);
+      continue;
+    }
+    // One branch needs no union. Several share a user symbol per column, so a later `*` sees it.
+    auto const symbol = branches.branches_.size() == 1 ? single_branch_symbols.at(name) : CreateSymbol(name, true);
+    scope.symbols[name] = symbol;
+    branches.output_symbols_.push_back(symbol);
+  }
+  return false;
+}
+
 bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }
 
 bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
@@ -440,10 +541,13 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
+  // Same boundary as `Visit(Identifier &)`: inside `CALL {}` an un-imported outer name is not visible.
+  auto const from = scope.call_subquery_base.value_or(0);
   for (auto &ident : scope.identifiers_in_match) {
-    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+    if (!HasSymbol(ident->name_, from) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
-    ident->MapTo(scope.symbols[ident->name_]);
+    auto const &symbol = GetOrCreateSymbol(ident->name_, ident->user_declared_, Symbol::Type::ANY);
+    ident->MapTo(symbol);
   }
   scope.identifiers_in_match.clear();
   return true;
@@ -554,6 +658,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
+    // Resolved in `PostVisit(Match &)`. `symbol` is unset, so skip the shared tail.
+    return true;
   } else if (scope.in_call_subquery && !scope.in_with) {
     // Currently only CALL uses WITH to import symbols from outer scope
     // EXISTS implicitly imports outer scope symbols
@@ -577,6 +683,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
+  RecordSubqueryReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -599,15 +706,10 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
         "Using aggregation functions inside aggregation functions is not "
         "allowed.");
   }
-  if (scope.num_if_operators) {
-    // Neo allows aggregations here and produces very interesting behaviors.
-    // To simplify implementation at this moment we decided to completely
-    // disallow aggregations inside of the CASE.
-    // However, in some cases aggregation makes perfect sense, for example:
-    //    CASE count(n) WHEN 10 THEN "YES" ELSE "NO" END.
-    // TODO: Rethink of allowing aggregations in some parts of the CASE
-    // construct.
-    throw SemanticException("Using aggregation functions inside of CASE is not allowed.");
+  if (scope.element_lambda_depth > 0) {
+    // The body runs once per element of a list, and an aggregation answers for a whole group of rows. The identifier
+    // the lambda binds is not on the frame the Aggregate writes, so nothing here can carry an element to it.
+    throw SemanticException("Using aggregation functions inside an expression over a list is not allowed.");
   }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
@@ -620,16 +722,6 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
 
 bool SymbolGenerator::PostVisit(Aggregation &) {
   scopes_.back().in_aggregation = false;
-  return true;
-}
-
-bool SymbolGenerator::PreVisit(IfOperator &) {
-  ++scopes_.back().num_if_operators;
-  return true;
-}
-
-bool SymbolGenerator::PostVisit(IfOperator &) {
-  --scopes_.back().num_if_operators;
   return true;
 }
 
@@ -733,7 +825,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
     throw utils::NotYetImplemented("{} cannot be used within REDUCE!", subquery.FoldName());
   }
 
-  // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
+  // A CASE holds no position of its own, so it is not consulted here.
   // The fold does not change which positions work; only what is written into the frame slot differs.
   if (!IsSupportedSubqueryPosition(scope)) {
     throw utils::NotYetImplemented("{} is not supported in this position yet!", subquery.FoldName());
@@ -751,11 +843,21 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
+  open_subqueries_.emplace_back(OpenSubquery{.first_own_position = symbol_table_->max_position()});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
+  const auto &body = open_subqueries_.back();
+  // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
+  subquery.external_symbols_.clear();
+  for (const auto &symbol : body.referenced) {
+    if (symbol.position() < body.first_own_position) {
+      subquery.external_symbols_.insert(symbol);
+    }
+  }
+  open_subqueries_.pop_back();
   scopes_.pop_back();
   return true;
 }
@@ -893,6 +995,12 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
+  const auto labels = node_atom.LabelConjunction();
+  if ((scope.in_create || scope.in_merge) && !labels) {
+    throw SemanticException(
+        "Only label conjunctions are allowed when creating or merging a node; '|', '!' and '%' are for MATCH and "
+        "expressions.");
+  }
   auto check_node_semantic = [&node_atom, &scope, this]() {
     const auto &node_name = node_atom.identifier_->name_;
     if ((scope.in_create || scope.in_merge) && node_atom.HasLabelsOrProperties() && HasSymbol(node_name)) {
@@ -907,14 +1015,16 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   scope.in_node_atom = true;
 
   bool has_expressions = false;
-  for (auto &label : node_atom.labels_) {
-    if (auto *expression = std::get_if<Expression *>(&label)) {
+  for (const auto &label : labels.value_or(std::vector<QueryLabelType>{})) {
+    if (auto *const *expression = std::get_if<Expression *>(&label)) {
       (*expression)->Accept(*this);
       has_expressions = true;
     }
   }
   if (!scope.in_create && has_expressions) {
-    throw SemanticException("You can use expressions with labels only with CREATE!");
+    throw SemanticException(
+        "A label named by an expression can only be written by CREATE, not matched or tested. For a label "
+        "whose name contains a dot, put the name in backticks.");
   }
 
   check_node_semantic();

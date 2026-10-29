@@ -1285,3 +1285,204 @@ Feature: Subqueries
             | optional | scaled |
             | 1        | 10     |
             | 2        | 20     |
+
+    Scenario Outline: A RETURN-less CALL whose body has a UNION keeps every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            <call>
+            RETURN i
+            """
+        Then the result should be:
+            | i |
+            | 1 |
+            | 2 |
+        When executing control query:
+            """
+            MATCH (t:T) WITH count(t) AS t MATCH (u:U) RETURN t, count(u) AS u
+            """
+        Then the result should be:
+            | t | u |
+            | 2 | 2 |
+
+        Examples:
+            | call                                                                        |
+            | CALL (i) { CREATE (:T) UNION ALL CREATE (:U) }                              |
+            | CALL (i) { CREATE (:T) UNION CREATE (:U) }                                  |
+            | CALL { WITH i CREATE (:T {v: i}) UNION ALL WITH i CREATE (:U {v: i}) }      |
+            | CALL (i) { CREATE (:T) UNION ALL CREATE (:U) } IN TRANSACTIONS OF 1 ROWS    |
+
+    Scenario Outline: A CALL whose UNION parts end in CALL ... YIELD drops a row its body does not produce
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) {
+              UNWIND [] AS k CREATE (:T) CALL mg.procedures() YIELD name
+              <union>
+              UNWIND [] AS k CREATE (:U) CALL mg.procedures() YIELD name
+            }
+            RETURN i
+            """
+        Then the result should be empty
+
+        Examples:
+            | union     |
+            | UNION ALL |
+            | UNION     |
+
+    Scenario Outline: A write in any UNION part of a CALL body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { <body> }
+            MATCH (w:W)
+            WITH i, x, count(w) AS c
+            RETURN count(*) AS rows, collect(DISTINCT c) AS cs
+            """
+        Then the result should be:
+            | rows   | cs   |
+            | <rows> | [3]  |
+
+        Examples:
+            | body                                                                                  | rows |
+            | CREATE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                              | 6    |
+            | MERGE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                               | 6    |
+            | FOREACH (k IN [1] \| CREATE (:W {v: i})) RETURN 1 AS x UNION ALL RETURN 2 AS x         | 6    |
+            | CREATE (:W {v: i}) CALL () { RETURN 1 AS y } RETURN y AS x                            | 3    |
+            | CALL (i) { CREATE (:W {v: i}) RETURN 1 AS y UNION ALL RETURN 2 AS y } RETURN y AS x   | 6    |
+            | CALL (i) { CREATE (:W {v: i}) } WITH 1 AS a RETURN a AS x                             | 3    |
+
+    Scenario: A MERGE before a WITH in a CALL body is visible to every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            CALL (*) {
+              MERGE (n:R {id: 1}) ON CREATE SET n.k = 0 ON MATCH SET n.k = 1
+              WITH n
+              RETURN n
+            }
+            RETURN i, n.k AS k
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | k |
+            | 0 | 1 |
+            | 1 | 1 |
+
+    Scenario: A write in the first UNION part of a CALL IN TRANSACTIONS body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { CREATE (:W) RETURN 1 AS x UNION ALL RETURN 2 AS x } IN TRANSACTIONS OF 1 ROWS
+            MATCH (w:W)
+            RETURN i, x, count(w) AS c
+            ORDER BY i, x
+            """
+        Then the result should be:
+            | i | x | c |
+            | 1 | 1 | 2 |
+            | 1 | 2 | 2 |
+            | 2 | 1 | 2 |
+            | 2 | 2 | 2 |
+
+    Scenario Outline: A read-only CALL after a write keeps the write barrier
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) AS i
+            CREATE (:Q)
+            CALL () { RETURN 1 AS x }
+            <tail>
+            """
+        When executing query:
+            """
+            MATCH (q:Q) RETURN count(q) AS c
+            """
+        Then the result should be:
+            | c   |
+            | 100 |
+
+        Examples:
+            | tail                     |
+            | RETURN i LIMIT 1         |
+            | WITH i LIMIT 1 RETURN i  |
+
+    Scenario: A write procedure in a CALL body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { CALL example_c.write_procedure('v') YIELD created_vertex RETURN 1 AS x }
+            MATCH (n)
+            WITH i, x, count(n) AS c
+            RETURN count(*) AS rows, collect(DISTINCT c) AS cs
+            """
+        Then the result should be:
+            | rows | cs  |
+            | 3    | [3] |
+
+    Scenario: RETURN * after a CALL whose body has a UNION includes the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a | i |
+            | 1 | 1 |
+            | 2 | 1 |
+            | 1 | 2 |
+            | 2 | 2 |
+
+    Scenario: CALL (*) after a CALL whose body has a UNION imports the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            CALL (*) { RETURN a + 10 AS b }
+            RETURN a, b
+            """
+        Then the result should be:
+            | a | b  |
+            | 1 | 11 |
+            | 2 | 12 |
+
+    Scenario Outline: A UNION column that rebinds a scoped import still keeps its rows distinct
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { UNWIND [1, 2, 3] AS k <rebind> UNION RETURN 5 AS i }
+            RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c   |
+            | <c> |
+
+        Examples:
+            | rebind               | c |
+            | RETURN k AS i        | 8 |
+            | WITH k AS i RETURN i | 8 |
+
+    Scenario: RETURN * after a UNION body that returns a scoped import lists the import once
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN i, 1 AS a UNION ALL RETURN i, 2 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a | i |
+            | 1 | 1 |
+            | 2 | 1 |
+            | 1 | 2 |
+            | 2 | 2 |

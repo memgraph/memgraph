@@ -238,12 +238,51 @@ struct Transaction {
     manyDeltasCache.Invalidate(vertex);
   }
 
-  void SetParallelExecution() { parallel_execution_ = true; }
+  // Only sound when one thread reads the transaction: manyDeltasCache is a set of unsynchronised hash
+  // maps. Only worth it when the transaction re-reads a vertex, since a single pass pays to fill a
+  // cache it never reads back. A transaction can check neither, so it caches nothing until asked.
+  // Disabling is permanent for the transaction. A later statement cannot establish that an earlier
+  // one's workers have finished, and the protocol rule that keeps two statements from overlapping on
+  // one transaction is not storage's to lean on, so a transaction read from several threads once is
+  // never cached again.
+  void EnableDeltaChainCache() { delta_chain_cache_enabled_ = !delta_chain_cache_withdrawn_; }
 
-  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
+  void DisableDeltaChainCache() {
+    delta_chain_cache_enabled_ = false;
+    delta_chain_cache_withdrawn_ = true;
+  }
+
+  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && delta_chain_cache_enabled_; }
+
+  // Shared by the read path and the write path, so neither can disagree with the other about what is
+  // visible. An uncommitted delta carries its writer's transaction id here rather than a commit
+  // stamp, which this reports as outside the snapshot, since ids are handed out above every
+  // timestamp. Narrowing moves an SI transaction's boundary down to snapshot_ts, which is where the
+  // test becomes inclusive.
+  [[nodiscard]] bool CommittedBeforeSnapshot(uint64_t ts) const noexcept {
+    return commit_lock_narrowing ? ts <= snapshot_ts : ts < start_timestamp;
+  }
+
+  // Exclusive bound for deferred delta reconstruction: in the snapshot iff ts < bound. Narrowing
+  // passes snapshot_ts + 1 so this names the same set the inclusive test above does.
+  [[nodiscard]] uint64_t SchemaReconstructionBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts + 1 : start_timestamp;
+  }
+
+  // The bound the snapshot writer hands to index and constraint listings, which admit an entry whose
+  // own commit stamp is at or below it. Inclusive, where the bound above excludes its endpoint, so
+  // narrowing passes snapshot_ts here and one more there. Adding one here instead would admit a
+  // commit the snapshot must not carry, and WAL recovery would refuse the duplicate.
+  [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts : start_timestamp;
+  }
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  // Last-published MVCC ts frozen at BEGIN (<= start_timestamp); the SI visibility boundary when narrowing is ON.
+  uint64_t snapshot_ts{};
+  // True only for SI txns with commit-lock-narrowing ON; otherwise visibility is ts < start_timestamp.
+  bool commit_lock_narrowing{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
   // Read-only accessor at a past, pinned fork_ts (InMemoryStorage::HistoricalAccess). That tick is later
@@ -344,7 +383,8 @@ struct Transaction {
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;
 
-  bool parallel_execution_{false};  // For now just disable for the whole query
+  bool delta_chain_cache_enabled_{false};
+  bool delta_chain_cache_withdrawn_{false};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

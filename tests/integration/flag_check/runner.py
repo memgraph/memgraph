@@ -61,11 +61,20 @@ def execute_flag_check(binary: str, queries: List[str], expected: int, username:
     args.extend(queries)
     args.append(str(expected))
 
-    subprocess.run(args).check_returncode()
+    # --init-data-file is applied after the Bolt server is up, so retry until the data has landed.
+    deadline = time.time() + 30
+    while True:
+        result = subprocess.run(args)
+        if result.returncode == 0 or time.time() > deadline:
+            break
+        time.sleep(0.5)
+    result.check_returncode()
 
 
 def start_memgraph(memgraph_args: List[any]) -> subprocess:
-    memgraph = subprocess.Popen(list(map(str, memgraph_args)))
+    storage_directory = tempfile.TemporaryDirectory()
+    memgraph = subprocess.Popen(list(map(str, memgraph_args)) + ["--data-directory", storage_directory.name])
+    memgraph.storage_directory = storage_directory
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
     wait_for_server(BOLT_PORT)
@@ -96,7 +105,7 @@ def cleanup(memgraph: subprocess):
             os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False
-        time.sleep(1)
+        memgraph.wait(timeout=30)
 
 
 def test_without_any_files(tester_binary: str, memgraph_args: List[str]):
@@ -127,11 +136,8 @@ def test_init_and_init_data_file(flag_checker_binary: str, tester_binary: str, m
 
 
 def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: str) -> None:
-    storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [
         memgraph_binary,
-        "--data-directory",
-        storage_directory.name,
         "--metrics-format=OpenMetrics",
         *PORT_ARGS,
     ]
@@ -140,6 +146,8 @@ def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: 
     with open(os.path.join(os.getcwd(), "dummy_init_file.cypherl"), "w") as temp_file:
         temp_file.write("CREATE USER admin IDENTIFIED BY 'admin';\n")
         temp_file.write("CREATE USER user IDENTIFIED BY 'user';\n")
+        temp_file.write("GRANT MATCH TO user;\n")
+        temp_file.write("GRANT READ ON NODES CONTAINING LABELS * TO user;\n")
 
     with open(os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"), "w") as temp_file:
         temp_file.write("CREATE (n:RANDOM) RETURN n;\n")

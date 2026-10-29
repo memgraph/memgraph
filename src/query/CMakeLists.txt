@@ -46,7 +46,9 @@ target_sources(mg-query
     dump.cpp
     edge_accessor.cpp
     frontend/ast/ast.cpp
+    frontend/ast/label_term.cpp
     frontend/ast/cypher_main_visitor.cpp
+    frontend/ast/projected_item_matcher.cpp
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp
     frontend/semantic/graph_free.cpp
@@ -97,10 +99,12 @@ target_sources(mg-query
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     query_user.cpp
+    relations/comparability.cpp
     relations/equality.cpp
     relations/equivalence.cpp
     relations/orderability.cpp
     serialization/property_value.cpp
+    storage_access.cpp
     stream/common.cpp
     stream/sources.cpp
     stream/streams.cpp
@@ -117,12 +121,14 @@ target_sources(mg-query
     plan_v2/rewrite/fold.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
+    frontend/ast/projected_item_matcher.hpp
     frontend/ast/query/aggregation.hpp
     frontend/ast/query/auth_query.hpp
     frontend/ast/query/binary_operator.hpp
     frontend/ast/query/subquery_expression.hpp
     frontend/ast/query/expression.hpp
     frontend/ast/query/identifier.hpp
+    frontend/ast/query/label_term.hpp
     frontend/ast/query/named_expression.hpp
     frontend/ast/query/pattern_comprehension.hpp
     frontend/ast/query/pattern.hpp
@@ -270,6 +276,7 @@ endif() # MG_PYTHON_SUPPORT
 
 target_link_libraries(mg-query
     PUBLIC
+    mg::value-order
     dl
     cppitertools::cppitertools
     range-v3::range-v3
@@ -292,6 +299,7 @@ target_link_libraries(mg-query
     mg-parameters
     mg::planner
     mg::versioning
+    mg-communication
     PRIVATE
     arrow::arrow
     mg-module-support

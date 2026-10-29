@@ -14,9 +14,11 @@
 #include <atomic>
 #include <concepts>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -48,6 +50,7 @@
 /// REPLICATION ///
 
 #include "storage/v2/delta_container.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
@@ -108,7 +111,13 @@ class InMemoryStorage final : public Storage {
     static void Destroy(Edge *p) noexcept;
   };
 
-  enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
+  enum class CreateSnapshotError : uint8_t {
+    ReachedMaxNumTries,
+    AbortSnapshot,
+    AlreadyRunning,
+    NothingNewToWrite,
+    NoSpaceLeft
+  };
 
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
     switch (error) {
@@ -121,6 +130,8 @@ class InMemoryStorage final : public Storage {
         return "Another snapshot creation is already in progress";
       case NothingNewToWrite:
         return "Nothing has been written since the last snapshot";
+      case NoSpaceLeft:
+        return "Not enough disk space to write the snapshot";
       default:
         return "Unknown error";
     }
@@ -256,6 +267,11 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
                               std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) override;
 
+    VerticesIterable Vertices(PropertyId property, PropertyValueRange const &range, View view) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
@@ -266,34 +282,27 @@ class InMemoryStorage final : public Storage {
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) override;
 
-    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
-                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
-
     EdgesIterable Edges(PropertyId property, View view) override;
 
     EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) override;
 
-    EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range, View view) override;
+
+    EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) override;
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                      View view, size_t num_chunks) override;
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                      size_t num_chunks) override;
 
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) override;
 
     EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view, size_t num_chunks) override;
 
-    EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                      size_t num_chunks) override;
-
     EdgesChunkedIterable ChunkedEdges(PropertyId property, View view, size_t num_chunks) override;
 
     EdgesChunkedIterable ChunkedEdges(PropertyId property, const PropertyValue &value, View view,
-                                      size_t num_chunks) override;
-
-    EdgesChunkedIterable ChunkedEdges(PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                       size_t num_chunks) override;
 
     /// Return approximate number of all vertices in the database.
@@ -487,11 +496,28 @@ class InMemoryStorage final : public Storage {
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
-    // Represents the 2nd phase of the 2PC protocol
-    // NOTE: Needs to be called while holding the engine lock
+    // Queues this transaction's schema diff for deferred processing. Allocates, so it can throw.
+    void QueueSchemaUpdate(uint64_t durability_commit_timestamp);
+
+    // Flips the WAL commit-status flag from pending to committed, which only 2PC writes. Must run before
+    // FinalizeWalFile seals the file, so the flag byte lands in the sealed segment. Seeks and flushes the
+    // shared WAL encoder, so the caller must hold whichever lock serialises wal_file_ access: engine_lock_,
+    // or commit_mutex_ when narrowing.
+    void FinalizeWalCommitStatus();
+
+    // Makes the transaction's writes visible. The caller must hold engine_lock_ for the whole body, and
+    // passes its guard to say so: CheckForFastDiscardOfDeltas reads transaction_id_, which a BEGIN races.
+    // Under commit-lock-narrowing the caller must also hold commit_mutex_, so that commits publish in
+    // the order they minted.
+    void PublishCommit(uint64_t durability_commit_timestamp, std::unique_lock<utils::SpinLock> const &engine_guard);
+
+    // Completes a commit, and is the second phase when the transaction runs two-phase commit. A
+    // STRICT_SYNC main calls the three steps separately instead, to hold the publish back until the
+    // replicas have finalized.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp,
+                             std::unique_lock<utils::SpinLock> const &engine_guard);
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -985,10 +1011,26 @@ class InMemoryStorage final : public Storage {
   /// Smallest transaction id that may still be active.
   [[nodiscard]] uint64_t OldestActiveTimestamp();
 
+  // The highest fully-published commit timestamp; under the experiment this is what a snapshot
+  // isolation reader freezes as its own boundary at BEGIN.
+  [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
+    return last_committed_mvcc_ts_.load(std::memory_order_acquire);
+  }
+
+  // Engaged only under commit-lock-narrowing. Lock order: see Storage::commit_mutex_ (before engine_lock_).
+  [[nodiscard]] std::optional<std::unique_lock<std::mutex>> LockCommitMutexIfNarrowing() const {
+    if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
+    return std::unique_lock{commit_mutex_};
+  }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
+
+  // Single-threaded recovery/Clear only: keeps the read-snapshot watermark (everything below
+  // timestamp_ is published) in step with timestamp_.
+  void SetTimestampQuiescent(uint64_t next_timestamp);
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
@@ -1223,6 +1265,17 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
+  // EXPERIMENTAL (commit-lock-narrowing). A commit C mints commit_ts and publishes at end_ts = timestamp_;
+  // commit_mutex_ serializes committers, so every id in (commit_ts, end_ts) began in that window (start above C,
+  // snapshot below it). Only windows with such a txn are recorded (FIFO, disjoint); GC holds its horizon at commit_ts
+  // while one is live. Guarded by engine_lock_ (Clear(): main_lock_ UNIQUE).
+  struct CommitWindow {
+    uint64_t commit_ts;
+    uint64_t end_ts;
+  };
+
+  std::deque<CommitWindow> commit_windows_;
+
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
@@ -1251,17 +1304,19 @@ class InMemoryStorage final : public Storage {
   struct SchemaUpdateData {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
-    uint64_t start_ts;
+    // Exclusive bound for deferred delta reconstruction (Transaction::SchemaReconstructionBound), captured at
+    // commit so ProcessTransaction rebuilds the pre-state the committing transaction saw.
+    uint64_t snapshot_bound;
     // The local mint, which is what identifies this transaction's own deltas. Not the durable
     // timestamp, for the reason GetState gives.
     uint64_t local_commit_ts;
     bool property_on_edges;
 
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t local_commit,
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t bound, uint64_t local_commit,
                      bool prop_on_edges)
         : schema_diff(std::move(diff)),
           post_process(std::move(post_proc)),
-          start_ts(start),
+          snapshot_bound(bound),
           local_commit_ts(local_commit),
           property_on_edges(prop_on_edges) {}
   };

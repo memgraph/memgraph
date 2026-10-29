@@ -75,7 +75,7 @@ template <template <class...> class TContainer>
 struct SchemaTracking final : public SchemaTrackingInterface {
   template <template <class...> class TOtherContainer>
   void ProcessTransaction(const SchemaTracking<TOtherContainer> &diff, SchemaInfoPostProcess &post_process,
-                          uint64_t start_ts, uint64_t commit_ts, bool property_on_edges);
+                          uint64_t snapshot_bound, uint64_t commit_ts, bool property_on_edges);
 
   void Clear() override;
 
@@ -163,10 +163,10 @@ struct SchemaInfo {
                         const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
                         const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const;
 
-  void ProcessTransaction(LocalSchemaTracking &tracking, SchemaInfoPostProcess &post_process, uint64_t start_ts,
+  void ProcessTransaction(LocalSchemaTracking &tracking, SchemaInfoPostProcess &post_process, uint64_t snapshot_bound,
                           uint64_t commit_ts, bool property_on_edges) {
     auto lock = std::unique_lock{operation_ordering_mutex_};
-    tracking_.ProcessTransaction(tracking, post_process, start_ts, commit_ts, property_on_edges);
+    tracking_.ProcessTransaction(tracking, post_process, snapshot_bound, commit_ts, property_on_edges);
   }
 
   void Clear() {
@@ -191,11 +191,11 @@ struct SchemaInfo {
   class TransactionalEdgeModifyingAccessor {
    public:
     TransactionalEdgeModifyingAccessor(LocalSchemaTracking &tracking, SchemaInfoPostProcess *post_process,
-                                       uint64_t start_ts, uint64_t commit_ts, bool prop_on_edges)
+                                       uint64_t snapshot_bound, uint64_t commit_ts, bool prop_on_edges)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           post_process_{post_process},
-          start_ts_{start_ts},
+          snapshot_bound_{snapshot_bound},
           commit_ts_{commit_ts} {}
 
     void AddLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> v_lock);
@@ -209,7 +209,7 @@ struct SchemaInfo {
     LocalSchemaTracking *tracking_{};
     bool properties_on_edges_{};  //!< As defined by the storage configuration
     SchemaInfoPostProcess *post_process_{};
-    uint64_t start_ts_{};
+    uint64_t snapshot_bound_{};
     uint64_t commit_ts_{};
   };
 
@@ -252,11 +252,11 @@ struct SchemaInfo {
 
     // TRANSACTIONAL
     explicit VertexModifyingAccessor(LocalSchemaTracking &tracking, SchemaInfoPostProcess *post_process,
-                                     uint64_t start_ts, uint64_t commit_ts, bool prop_on_edges)
+                                     uint64_t snapshot_bound, uint64_t commit_ts, bool prop_on_edges)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           post_process_{post_process},
-          start_ts_{start_ts},
+          snapshot_bound_{snapshot_bound},
           commit_ts_{commit_ts} {}
 
     void CreateVertex(Vertex *vertex);
@@ -282,7 +282,7 @@ struct SchemaInfo {
     std::shared_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
     SchemaInfoPostProcess *post_process_{};
-    uint64_t start_ts_{};
+    uint64_t snapshot_bound_{};
     uint64_t commit_ts_{};
   };
 
@@ -297,14 +297,15 @@ struct SchemaInfo {
     return AnalyticalEdgeModifyingAccessor{*this, prop_on_edges};
   }
 
-  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process, uint64_t start_ts,
+  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process, uint64_t snapshot_bound,
                                                          uint64_t commit_ts, bool prop_on_edges) {
-    return VertexModifyingAccessor{tracking, &post_process, start_ts, commit_ts, prop_on_edges};
+    return VertexModifyingAccessor{tracking, &post_process, snapshot_bound, commit_ts, prop_on_edges};
   }
 
   static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, SchemaInfoPostProcess *post_process,
-                                                       uint64_t start_ts, uint64_t commit_ts, bool prop_on_edges) {
-    return TransactionalEdgeModifyingAccessor{tracking, post_process, start_ts, commit_ts, prop_on_edges};
+                                                       uint64_t snapshot_bound, uint64_t commit_ts,
+                                                       bool prop_on_edges) {
+    return TransactionalEdgeModifyingAccessor{tracking, post_process, snapshot_bound, commit_ts, prop_on_edges};
   }
 
   static std::optional<std::pair<std::shared_lock<utils::RWSpinLock>, std::shared_lock<utils::RWSpinLock>>>

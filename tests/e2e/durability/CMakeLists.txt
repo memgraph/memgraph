@@ -13,6 +13,7 @@ copy_e2e_python_files(durability periodic_snapshot.py)
 copy_e2e_python_files(durability periodic_snapshot_light_edge.py)
 copy_e2e_python_files(durability snapshot_recovery.py)
 copy_e2e_python_files(durability snapshot_recovery_light_edge.py)
+copy_e2e_python_files(durability light_edge_recovery_memory_limit.py)
 copy_e2e_python_files(durability multitenancy.py)
 copy_e2e_python_files(durability indices_not_persisted_analytical.py)
 copy_e2e_python_files(durability parameters_durability.py)
@@ -21,6 +22,7 @@ copy_e2e_python_files(durability recovery_failure_broken.py)
 copy_e2e_python_files(durability recovery_failure_status.py)
 copy_e2e_python_files(durability recovery_failure_recover_snapshot.py)
 copy_e2e_python_files(durability drop_broken_database.py)
+copy_e2e_python_files(durability snapshot_no_space.py)
 
 
 

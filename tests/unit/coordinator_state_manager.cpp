@@ -132,3 +132,37 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
     CompareServers(temp_server, loaded_server);
   });
 }
+
+// While joining a cluster, the config received from the leader may not yet include this coordinator.
+TEST_F(CoordinatorStateManagerTest, MyAuxWhenMissingFromClusterConfig) {
+  CoordinatorStateManagerConfig config{
+      .coordinator_id_ = 3,
+      .coordinator_port_ = 12'345,
+      .bolt_port_ = 9090,
+      .management_port_ = 20'345,
+      .coordinator_hostname = "localhost",
+      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination",
+      .log_store_durability_ = LogStoreDurability{
+          .durability_store_ = std::make_shared<KVStore>(test_folder_ / "high_availability" / "logs"),
+          .stored_log_store_version_ = LogStoreVersion::kV2}};
+  using memgraph::coordination::Logger;
+  using memgraph::coordination::LoggerWrapper;
+
+  Logger logger("");
+  LoggerWrapper my_logger(&logger);
+  ptr<CoordinatorStateManager> state_manager = cs_new<CoordinatorStateManager>(config, my_logger);
+
+  auto const expected_aux =
+      CoordinatorInstanceAux{.id = 3, .coordinator_server = "localhost:12345", .management_server = "localhost:20345"};
+  ASSERT_EQ(state_manager->GetMyCoordinatorInstanceAux(), expected_aux);
+
+  auto const leader_aux =
+      CoordinatorInstanceAux{.id = 1, .coordinator_server = "0.0.0.0:12346", .management_server = "0.0.0.0:2320"};
+  auto leader_config = cs_new<cluster_config>();
+  leader_config->get_servers().push_back(
+      cs_new<srv_config>(1, 0, leader_aux.coordinator_server, nlohmann::json(leader_aux).dump(), false));
+  state_manager->save_config(*leader_config);
+
+  ASSERT_EQ(state_manager->GetCoordinatorInstancesAux(), std::vector{leader_aux});
+  ASSERT_EQ(state_manager->GetMyCoordinatorInstanceAux(), expected_aux);
+}

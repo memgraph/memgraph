@@ -25,9 +25,8 @@ FileReplicationHandler::~FileReplicationHandler() {
     // The file will be deleted so I don't care about syncing it before closing
     file_.Close();
   }
-  // Nobody should be using paths_ after the FileReplicationHandler gets destructed
-  // When snapshot is received, it is moved to data directory folder so we shouldn't delete snapshot files here
-  // All received WAL files should be deleted.
+  // Nobody should be using paths_ after the FileReplicationHandler gets destructed.
+  // A snapshot that was loaded has already been moved into the data directory; whatever is still here wasn't used.
   std::ranges::for_each(paths_ | std::views::filter([](auto const &path) {
                           std::error_code ec;
                           return std::filesystem::exists(path, ec);
@@ -75,7 +74,9 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
 
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
-  return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
+  auto const written = WriteToFile(data + processed_bytes, size - processed_bytes);
+  if (!written) return std::nullopt;
+  return processed_bytes + *written;
 }
 
 bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &maybe_filename) {
@@ -106,7 +107,8 @@ bool FileReplicationHandler::ValidateFileSize(std::optional<uint64_t> const &may
   return true;
 }
 
-size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
+std::expected<size_t, utils::FileWriteError> FileReplicationHandler::WriteToFile(const uint8_t *data,
+                                                                                 size_t const size) {
   if (!file_.IsOpen()) {
     return 0;
   }
@@ -114,27 +116,35 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
   size_t processed_bytes{0};
   auto to_write = std::min(size, file_size_ - written_);
 
+  auto const fail = [this](utils::FileWriteError const error) {
+    // The file being written is always the last one opened; the handle may already be closed.
+    spdlog::error("Couldn't write received file {}: {}. The transfer is dropped and main will retry it.",
+                  paths_.back(),
+                  utils::FileWriteErrorToString(error));
+    return std::unexpected{error};
+  };
+
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    file_.Write(data + processed_bytes, chunk_size);
+    if (auto res = file_.Write(data + processed_bytes, chunk_size); !res) return fail(res.error());
     to_write -= chunk_size;
     written_ += chunk_size;
     processed_bytes += chunk_size;
   }
 
   if (written_ == file_size_) {
-    ResetCurrentFile();
+    if (auto res = ResetCurrentFile(); !res) return fail(res.error());
   }
   return processed_bytes;
 }
 
-void FileReplicationHandler::ResetCurrentFile() {
-  if (file_.IsOpen()) {
-    file_.Sync();
-    file_.Close();
-    written_ = 0;
-    file_size_ = 0;
-  }
+std::expected<void, utils::FileWriteError> FileReplicationHandler::ResetCurrentFile() {
+  if (!file_.IsOpen()) return {};
+  auto synced = file_.Sync();
+  file_.Close();
+  written_ = 0;
+  file_size_ = 0;
+  return synced;
 }
 
 bool FileReplicationHandler::HasOpenedFile() const { return file_.IsOpen(); }

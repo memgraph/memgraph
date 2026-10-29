@@ -163,8 +163,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // Shares main's NameIdMapper (historical vertices carry main's ids; a separate mapper would misdecode them).
   // Config is copied wholesale so future salient flags are inherited.
   storage::Config config = main.config_;
-  // Fresh UUID avoids aliasing main in any registry; the NAME stays main's because DbAccessor::DatabaseName() (auth,
-  // FGA, SHOW, DUMP) reads it.
+  // Fresh UUID avoids aliasing main in any registry. The NAME is main's too, read live from main below, because
+  // DbAccessor::DatabaseName() (auth, FGA, SHOW, DUMP) reads it and main can be renamed.
   config.salient.uuid = utils::UUID{};
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
@@ -211,6 +211,7 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.DbArenaPool(),
                                                                 main.DbEmbeddingMemoryTracker(),
                                                                 main.GetSharedNameIdMapper());
+  diff_engine->ReportNameOf(main);
 
   // Done before the core is visible to any session, so the diff engine never needs UNIQUE/READ_ONLY afterwards.
   // Mirror commits are rebuilt on every build, so they stay out of the branch WAL.
@@ -1190,7 +1191,7 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
         out ? diff_vertex->OutEdges(view, edge_types, nullptr) : diff_vertex->InEdges(view, edge_types, nullptr);
     if (maybe_result.has_value()) {
       result.reserve(maybe_result->edges.size());
-      for (auto &edge : maybe_result->edges) {
+      for (auto edge : maybe_result->edges) {
         // A branch-created edge on a fork vertex whose other end the branch deleted is gone with it.
         if (IsVertexDeleted((out ? edge.ToVertex() : edge.FromVertex()).Gid(), view)) continue;
         result.push_back(edge);
@@ -1205,7 +1206,7 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
       // A deleted fork edge flags both endpoints' adjacency, so a clear flag skips the per-edge probes.
       bool const edges_may_be_deleted = MayHaveEdgeChange(vertex_gid);
       result.reserve(result.size() + maybe_result->edges.size());
-      for (auto &edge : maybe_result->edges) {
+      for (auto edge : maybe_result->edges) {
         if (edges_may_be_deleted && IsForkEdgeDeleted(edge.Gid(), view)) continue;
         if (IsForkVertexDeleted(out ? edge.ToVertex() : edge.FromVertex(), view)) continue;
         result.push_back(edge);

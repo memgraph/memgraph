@@ -17,12 +17,13 @@
 
 namespace memgraph::versioning {
 
-enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode };
+enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kCommitLockNarrowing };
 
 // Returns std::nullopt when versioning is allowed. Precedence, first failure wins: flag
 // (kDisabled), then license (kNoLicense), then storage mode (kUnsupportedStorageMode).
 // Takes primitives so it is callable without Storage or license machinery.
-std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional);
+std::optional<GateError> CheckVersioningGate(bool flag_enabled, bool enterprise_valid, bool is_in_memory_transactional,
+                                             bool commit_lock_narrowing = false);
 
 std::string_view GateErrorMessage(GateError err);
 

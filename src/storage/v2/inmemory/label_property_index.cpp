@@ -250,27 +250,28 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   });
 }
 
+enum class AdvanceOutcome : uint8_t { Found, AtEnd, Rejected };
+
+/// Why AdvanceUntilValid_ stopped. On Rejected, `rejected_at` is the position of
+/// the property whose predicate failed. Every entry with the same values at
+/// positions 0..rejected_at fails too, and the index keeps those entries
+/// adjacent, so a caller that can seek skips them all at once.
+struct Advance {
+  AdvanceOutcome outcome;
+  std::size_t rejected_at{0};
+};
+
 // Advances the index iterator to the next valid entry within [lower_bound, upper_bound].
 // Bounds always refer to *value* ordering (lower_bound <= upper_bound), regardless of
 // iteration direction. For DESC indices, the caller sets reverse_iteration=true which
 // flips the UNDER/OVER early-termination semantics: in ASC iteration values increase so
 // UNDER means "skip, will reach range" and OVER means "stop"; in DESC iteration values
 // decrease so UNDER means "stop, past range" and OVER means "skip, will reach range".
-/// Why the walk stopped, so that a caller need not re-ask a question already answered.
-enum class AdvanceOutcome : uint8_t {
-  Found,
-  AtEnd,
-  /// Parked on an entry the leading predicate rejects. How far to move on from it is the caller's
-  /// to decide: one can seek past the whole run of equal values and the other can only step.
-  RejectedByPredicate,
-};
-
-AdvanceOutcome AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
-                                  auto &current_vertex_accessor, auto *storage, auto *transaction, auto view,
-                                  auto label, const auto &lower_bound, const auto &upper_bound,
-                                  auto &permutation_helper, memgraph::storage::Gid max_gid,
-                                  std::vector<bool> &match_scratch, auto const *leading_predicate,
-                                  bool use_cache = true, bool reverse_iteration = false) {
+Advance AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
+                           auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
+                           const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
+                           std::vector<bool> &match_scratch, auto const &predicates, bool use_cache = true,
+                           bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -355,12 +356,16 @@ AdvanceOutcome AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&
       break;
     }
 
-    // A predicate over the leading value reads the entry, as the bounds above do, so it is asked
-    // here rather than after the vertex is resolved: an entry it rejects then costs one comparison
-    // instead of a visibility check and a property match. A vertex whose current value would pass
-    // carries its own entry, which is what makes rejecting on the stored value sound.
-    if (leading_predicate && !(*leading_predicate)(index_iterator->values[0])) {
-      return AdvanceOutcome::RejectedByPredicate;
+    // Predicates run on the index entry, before the visibility check, so a rejection
+    // costs one call. Rejecting on the stored value is sound: a vertex whose current
+    // value passes has its own entry for that value.
+    // Any property can carry one, not only the leading one: a list bound needs a
+    // predicate wherever it sits in a composite index.
+    auto const asked = std::min(predicates.size(), index_iterator->values.size());
+    for (auto at = std::size_t{0}; at != asked; ++at) {
+      if (predicates[at] && !(*predicates[at])(index_iterator->values[at])) {
+        return {.outcome = AdvanceOutcome::Rejected, .rejected_at = at};
+      }
     }
 
     // Visibility filters run after the value-bounds check: bounds depend only on the
@@ -384,10 +389,10 @@ AdvanceOutcome AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&
                                          use_cache)) {
       current_vertex = index_iterator->vertex;
       current_vertex_accessor = VertexAccessor(current_vertex, storage, transaction);
-      return AdvanceOutcome::Found;
+      return {.outcome = AdvanceOutcome::Found};
     }
   }
-  return AdvanceOutcome::AtEnd;
+  return {.outcome = AdvanceOutcome::AtEnd};
 }
 
 }  // namespace
@@ -1144,31 +1149,35 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
-  auto const *leading_predicate = self_->leading_predicate_.get();
+  auto const &predicates = self_->predicates_;
 
-  while (AdvanceUntilValid_(index_iterator_,
-                            self_->index_accessor_.end(),
-                            current_vertex_,
-                            current_vertex_accessor_,
-                            self_->storage_,
-                            self_->transaction_,
-                            self_->view_,
-                            self_->label_,
-                            self_->lower_bound_,
-                            self_->upper_bound_,
-                            self_->permutation_helper_,
-                            self_->max_gid_,
-                            match_scratch_,
-                            leading_predicate,
-                            /*use_cache=*/true,
-                            /*reverse_iteration=*/is_desc) == AdvanceOutcome::RejectedByPredicate) {
-    auto const &leading_value = index_iterator_->values[0];
+  for (;;) {
+    auto const advance = AdvanceUntilValid_(index_iterator_,
+                                            self_->index_accessor_.end(),
+                                            current_vertex_,
+                                            current_vertex_accessor_,
+                                            self_->storage_,
+                                            self_->transaction_,
+                                            self_->view_,
+                                            self_->label_,
+                                            self_->lower_bound_,
+                                            self_->upper_bound_,
+                                            self_->permutation_helper_,
+                                            self_->max_gid_,
+                                            match_scratch_,
+                                            predicates,
+                                            /*use_cache=*/true,
+                                            /*reverse_iteration=*/is_desc);
 
-    // Only seek when the group turns out to hold more than the one entry: a seek costs more than
-    // the step that has already left a single-entry group behind.
+    if (advance.outcome != AdvanceOutcome::Rejected) break;
+
+    // Every entry sharing values 0..rejected_at is rejected too, and those entries are adjacent.
+    auto const shared = index_iterator_->values.as_view().prefix(advance.rejected_at + 1);
+
+    // Seek only if the next entry is in the same run; for a one-entry run the step is cheaper.
     ++index_iterator_;
-    if (index_iterator_ != self_->index_accessor_.end() && index_iterator_->values[0] == leading_value) {
-      index_iterator_ = self_->index_accessor_.find_greater(std::span<PropertyValue const>{&leading_value, 1});
+    if (index_iterator_ != self_->index_accessor_.end() && *index_iterator_ == shared) {
+      index_iterator_ = self_->index_accessor_.find_greater(shared);
     }
     current_vertex_ = nullptr;
   }
@@ -1191,9 +1200,8 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       transaction_(transaction),
       max_gid_(max_gid) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
-  if (!ranges.empty()) {
-    leading_predicate_ = ranges[0].GetValuePredicate();
-  }
+  predicates_.reserve(ranges.size());
+  for (auto const &range : ranges) predicates_.push_back(range.GetValuePredicate());
 }
 
 template <typename EntryT>
@@ -1550,9 +1558,10 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                             self_->permutation_helper_,
                             self_->max_gid_,
                             match_scratch_,
-                            self_->leading_predicate_.get(),
+                            self_->predicates_,
                             /*use_cache=*/false,
-                            /*reverse_iteration=*/is_desc) == AdvanceOutcome::RejectedByPredicate) {
+                            /*reverse_iteration=*/is_desc)
+             .outcome == AdvanceOutcome::Rejected) {
     ++index_iterator_;
     current_vertex_ = nullptr;
   }
@@ -1576,9 +1585,8 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   if (!bounds_valid_) return;
 
-  if (!ranges.empty()) {
-    leading_predicate_ = ranges[0].GetValuePredicate();
-  }
+  predicates_.reserve(ranges.size());
+  for (auto const &range : ranges) predicates_.push_back(range.GetValuePredicate());
 
   if constexpr (EntryT::kOrder == IndexOrder::DESC) {
     chunks_ = index_accessor_.create_chunks(

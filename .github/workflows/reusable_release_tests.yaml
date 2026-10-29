@@ -66,36 +66,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build community binary
         run: |
@@ -173,37 +151,15 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
+          no-ccache: 'true'
 
       - name: Build coverage binaries
         run: |
@@ -299,36 +255,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build debug binary
         run: |
@@ -454,36 +388,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build debug binary
         run: |
@@ -521,6 +433,15 @@ jobs:
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
           test-memgraph integration-parallel
+
+      - name: Save integration test logs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "integration_logs_${{ env.BUILD_TYPE }}-${{ env.OS }}"
+          path: build/integration-logs/
+          if-no-files-found: warn
 
       - name: Collect core dumps
         if: failure()
@@ -564,36 +485,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build release binaries
         run: |
@@ -705,36 +604,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build release binaries
         run: |
@@ -874,36 +751,14 @@ jobs:
           fetch-depth: 0
           ref:  ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build release binaries
         run: |
@@ -1008,36 +863,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build release binaries
         run: |
@@ -1067,15 +900,14 @@ jobs:
           cd tests/e2e/localstack
           docker compose --profile bridge up -d
 
-      # This step will be skipped because the e2e stream tests have been disabled
-      # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
-        if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker compose up -d
+          docker pull apache/kafka:3.9.0
+          docker compose up -d --wait --wait-timeout 120
           cd ../pulsar
-          docker compose up -d
+          docker pull apachepulsar/pulsar:2.8.1
+          docker compose up -d --wait --wait-timeout 120
 
       - name: Run e2e tests
         run: |
@@ -1096,9 +928,7 @@ jobs:
           cd tests/e2e/localstack
           docker compose down
 
-      # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
-        if: false
         run: |
           cd tests/e2e/streams/kafka
           docker compose down
@@ -1146,36 +976,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build release binaries
         run: |
@@ -1212,7 +1020,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph stress-plain
+          test-memgraph stress-plain-parallel
 
       - name: Run stress test (SSL)
         run: |
@@ -1226,21 +1034,7 @@ jobs:
           --monitoring-host $MONITORING_HOST \
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
-          test-memgraph stress-ssl
-
-      - name: Run durability test (plain)
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          --enable-monitoring \
-          --monitoring-host $MONITORING_HOST \
-          --cluster-id $CLUSTER_ID \
-          --cluster-env $CLUSTER_ENV \
-          test-memgraph durability
+          test-memgraph stress-ssl-parallel
 
       - name: Run durability test (large)
         run: |
@@ -1497,36 +1291,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
 
       - name: Build release binaries
         run: |

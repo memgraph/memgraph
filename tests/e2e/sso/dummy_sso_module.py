@@ -2,6 +2,8 @@
 import base64
 import io
 import json
+import os
+import resource
 import time
 
 from common import add_call_id_to_response, pop_call_id
@@ -16,6 +18,26 @@ def authenticate(scheme: str, response: str):
     if response == "delay_then_anthony":
         time.sleep(3)
         return {"authenticated": True, "role": "architect", "username": "anthony"}
+
+    if response == "no_inherited_sockets":
+        links = [f"/proc/self/fd/{fd}" for fd in os.listdir("/proc/self/fd")]
+        sockets = [link for link in links if os.path.exists(link) and os.readlink(link).startswith("socket:")]
+        return {
+            "authenticated": not sockets,
+            "role": "architect",
+            "username": "anthony",
+            "errors": f"sockets: {sockets}",
+        }
+
+    if response.startswith("nofile_soft:"):
+        expected = int(response.removeprefix("nofile_soft:"))
+        soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+        return {
+            "authenticated": soft == expected,
+            "role": "architect",
+            "username": "anthony",
+            "errors": f"soft RLIMIT_NOFILE {soft}, expected {expected}",
+        }
 
     if response == "send_error":
         return {
@@ -52,6 +74,10 @@ def authenticate(scheme: str, response: str):
 
     if response == "architect_user":
         return_dict = {"authenticated": True, "username": "architect_user", "roles": ["architect"]}
+
+    # An identity provider claiming the internal system user's reserved name.
+    if response == "internal_system_user":
+        return_dict = {"authenticated": True, "username": "memgraph_internal", "roles": ["admin"]}
 
     # New multi-role interface - roles is just a list of role names
     if response == "multi_role_admin":

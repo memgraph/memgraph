@@ -157,7 +157,7 @@ of MemgraphDB from your browser.
 
 <p align="left">
   <a href="https://memgraph.com/docs/memgraph-cloud">
-    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Fcloud.gif">
+    <img width="450px" alt="Memgraph Cloud" src="https://github.com/user-attachments/assets/32fd29aa-331e-4d54-bd0d-42d87d0ff1ff" />
   </a>
 </p>
 
@@ -175,7 +175,7 @@ ad hoc queries, and optimize their performance.
 
 <p align="left">
   <a href="https://memgraph.com/docs/memgraph-lab">
-    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Flab.gif">
+    <img width="450px" alt="Memgraph Lab" src="https://github.com/user-attachments/assets/a83c14cf-e590-4247-9b91-9200db67c127">
   </a>
 </p>
 

@@ -239,6 +239,8 @@ jobs:
           fi
 
       - name: Get Memgraph version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # Match the MEMGRAPH_VERSION format with that used in reusable_package.yaml,
           # so MAGE artifacts are versioned like the memgraph package they bundle.
@@ -1248,8 +1250,14 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+  BuildAndPush_fail_fast:
+    name: "Fail fast (Build and Test MAGE)"
+    needs: BuildAndPush
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Build and Test MAGE (${{ inputs.arch }}${{ inputs.cuda && ', cuda' || '' }})"

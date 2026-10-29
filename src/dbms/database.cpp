@@ -27,7 +27,9 @@
 #include "spdlog/spdlog.h"
 
 #include "dbms/database_info.hpp"
+#include "dbms/database_protector.hpp"
 #include "dbms/inmemory/history_replay.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
@@ -35,6 +37,7 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -80,7 +83,38 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::~Database() = default;
+Database::~Database() {
+  // Every teardown path (drop, suspend, drop-recreate, process exit) destroys via this destructor, and
+  // the cached 2PC accessor is storage-level, not gatekeeper-counted -- this is the one choke point
+  // that reaches it. Safe: the body runs before storage_ is destroyed.
+  //
+  // Must not call any utils::Gatekeeper method here -- finish_suspend() holds GKInternals::mutex_
+  // across ~Database (gatekeeper.hpp:394), so re-entry would self-deadlock.
+  try {
+    // GatekeeperGuard clears arena TLS around Database destruction; re-establish it so Abort()'s
+    // delta walk allocates against this tenant's arena, not stale TLS.
+    const memory::DbArenaScope db_arena_scope{this};
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(uuid());
+  } catch (const std::exception &e) {
+    // spdlog can throw; swallow it so it can't escape this implicitly-noexcept destructor (mirrors ~Gatekeeper).
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {}: {} -- prepared transaction stays pinned in "
+          "the commit log.",
+          std::string{uuid()},
+          e.what());
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+  } catch (...) {
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {} (unknown exception) -- prepared transaction "
+          "stays pinned in the commit log.",
+          std::string{uuid()});
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+  }
+}
 
 std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
                                                     std::optional<storage::IsolationLevel> override_isolation_level,
@@ -101,6 +135,11 @@ std::unique_ptr<storage::Accessor> Database::ReadOnlyAccess(
 std::string Database::name() const { return storage_->name(); }
 
 utils::SafeString::ConstSafeWrapper Database::name_view() const { return storage_->name_view(); }
+
+void Database::Rename(std::string_view new_name) {
+  storage_->config_.salient.name = new_name;
+  metrics_.Rename(new_name);
+}
 
 const utils::UUID &Database::uuid() const { return storage_->uuid(); }
 
@@ -181,6 +220,15 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
     return plan;
   }
 
+  if (config.experimental_commit_lock_narrowing) {
+    spdlog::warn(
+        "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing; the {} existing "
+        "branches [{}] are dropped.",
+        plan.ledger.branches.size(),
+        BranchNames(plan.ledger));
+    return plan;
+  }
+
   const bool can_replay =
       config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
       config.durability.recover_on_startup &&
@@ -198,7 +246,7 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
 
 }  // namespace
 
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+Database::Database(storage::Config config)
     : metrics_(RegisterMetrics(config)),
       db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
       after_commit_trigger_pool_{1,
@@ -222,6 +270,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   const auto versioning_directory = config.durability.storage_directory / "versioning";
   const auto branch_ledger_file = config.durability.storage_directory / "branches" / "ledger";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+  auto database_protector_factory = [this]() -> storage::DatabaseProtectorPtr {
+    if (auto db_acc = gatekeeper_ref_.load(std::memory_order_acquire).access()) {
+      return std::make_unique<DatabaseProtector>(*std::move(db_acc));
+    }
+    return nullptr;
+  };
 
   // versioning/ is a legacy directory left by an older build.
   if (utils::DirExists(versioning_directory) && !utils::DeleteDir(versioning_directory)) {
@@ -363,6 +417,9 @@ void Database::AddTask(utils::ThreadPool::TaskSignature new_task) {
 
 void Database::StopAllBackgroundTasks() {
   streams()->Shutdown();
+  // Signal any in-flight after-commit trigger to abort, so the pool join below cannot block on a
+  // long-running trigger that holds an accessor pinning this database.
+  after_commit_trigger_status_.store(query::TransactionStatus::TERMINATED, std::memory_order_release);
   auto const discarded = thread_pool()->ShutDown();
   if (discarded != 0) {
     spdlog::warn(

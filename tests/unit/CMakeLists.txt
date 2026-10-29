@@ -199,6 +199,11 @@ add_unit_test(cypher_main_visitor
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_storage_access
+    SOURCES query_storage_access.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(event_map
         SOURCES event_map.cpp
         LINK_TARGETS mg-events mg-utils
@@ -214,11 +219,6 @@ add_unit_test(interpreter
 add_unit_test(query_plan_pruning_bfs
     SOURCES query_plan_pruning_bfs.cpp
     LINK_TARGETS mg-query
-)
-
-add_unit_test(plan_pretty_print
-    SOURCES plan_pretty_print.cpp
-    LINK_TARGETS mg-query disk_test_utils
 )
 
 add_unit_test(query_cost_estimator
@@ -270,6 +270,11 @@ add_unit_test(query_plan_orderby_index
 add_unit_test(query_parallel_plan
     SOURCES query_parallel_plan.cpp
     LINK_TARGETS mg-query
+)
+
+add_unit_test(query_parallel_execution
+    SOURCES query_parallel_execution.cpp
+    LINK_TARGETS mg-query mg-glue
 )
 
 add_unit_test(query_plan_accumulate_aggregate
@@ -402,6 +407,11 @@ add_unit_test(query_plan_printer_race
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_index_differential
+    SOURCES query_index_differential.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
@@ -491,6 +501,18 @@ add_unit_test(typed_value
     LINK_TARGETS mg-query disk_test_utils typed_value_shapes
 )
 
+# Test mg-value-order.
+#
+# Takes its own main rather than the shared one, which links the memory and
+# utility libraries: this binary is meant to link the library under test and
+# nothing else of ours, so that the library keeping no dependencies of its own
+# is something the linker checks rather than something a comment claims.
+add_unit_test(value_order_numbers
+    CUSTOM_MAIN
+    SOURCES value_order_numbers.cpp
+    LINK_TARGETS mg-value-order GTest::gtest_main
+)
+
 add_unit_test(query_relations
     SOURCES query_relations.cpp
     LINK_TARGETS mg-query
@@ -532,10 +554,26 @@ add_unit_test(network_timeouts
     LINK_TARGETS mg-communication
 )
 
+add_unit_test(accept_emfile
+    SOURCES accept_emfile.cpp
+    LINK_TARGETS mg-communication mg-metrics mg-flags
+)
+
+add_unit_test(session_registry
+    SOURCES session_registry.cpp
+    LINK_TARGETS mg-communication
+)
+
 # Test mg-kvstore
 add_unit_test(kvstore
     SOURCES kvstore.cpp
     LINK_TARGETS mg-kvstore mg-utils
+)
+
+# Test mg-parameters
+add_unit_test(parameters
+    SOURCES parameters.cpp
+    LINK_TARGETS mg-parameters
 )
 
 if (MG_ENTERPRISE)
@@ -595,6 +633,11 @@ add_unit_test(hot_cold_resume
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
     LINK_TARGETS mg-utils mg-aws
+)
+
+add_unit_test(utils_nofile_limit
+    SOURCES utils_nofile_limit.cpp
+    LINK_TARGETS mg-utils
 )
 
 add_unit_test(utils_hot_mask
@@ -668,6 +711,11 @@ add_unit_test(utils_query_memory_tracker
 add_unit_test(jemalloc_hook_stress_test
     SOURCES jemalloc_hook_stress_test.cpp
     LINK_TARGETS mg-memory mg-utils
+)
+
+add_unit_test(memory_purge_unused_memory
+    SOURCES memory_purge_unused_memory.cpp
+    LINK_TARGETS mg-memory-utils mg-utils
 )
 
 add_unit_test(tls_destructor_registration
@@ -888,6 +936,11 @@ add_unit_test(storage_v2
     LINK_TARGETS mg::storage storage_test_utils disk_test_utils
 )
 
+add_unit_test(storage_v2_commit_lock_narrowing
+    SOURCES storage_v2_commit_lock_narrowing.cpp
+    LINK_TARGETS mg::storage storage_test_utils disk_test_utils
+)
+
 add_unit_test(storage_v2_acc
     SOURCES storage_v2_acc.cpp
     LINK_TARGETS mg::storage
@@ -948,6 +1001,11 @@ add_unit_test(storage_v2_create_snapshot
 
 add_unit_test(storage_v2_recover_snapshot
     SOURCES storage_v2_recover_snapshot.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(two_pc_commit_cache
+    SOURCES two_pc_commit_cache.cpp
     LINK_TARGETS mg::storage mg-dbms
 )
 
@@ -1208,7 +1266,27 @@ add_unit_test(text_index
 )
 
 # Test mg-auth
+add_unit_test(auth_system_user
+    SOURCES auth_system_user.cpp
+    LINK_TARGETS mg-auth mg-utils
+)
+
 if (MG_ENTERPRISE)
+    add_unit_test(atomic_auth_overlay
+        SOURCES atomic_auth_overlay.cpp
+        LINK_TARGETS mg-auth mg-kvstore mg-utils
+    )
+
+    add_unit_test(auth_repository
+        SOURCES repository.cpp
+        LINK_TARGETS mg-auth mg-kvstore mg-utils
+    )
+
+    add_unit_test(auth_layer
+        SOURCES auth_layer.cpp
+        LINK_TARGETS mg-auth mg-license mg-kvstore mg-utils mg-system
+    )
+
     add_unit_test(auth
         SOURCES auth.cpp
         LINK_TARGETS mg-auth mg-license Boost::filesystem
@@ -1271,9 +1349,13 @@ add_unit_test(rpc_in_progress
 )
 
 # Test rpc progress heartbeat (sends only on recorded progress)
+# The peer-gone test waits for the heartbeat to notice the client leave, with nothing bounding
+# that wait, so a heartbeat that never notices wedges rather than fails. TIMEOUT stops that from
+# running to the job's own cancellation with nothing naming this test.
 add_unit_test(rpc_progress_heartbeat
     SOURCES rpc_progress_heartbeat.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 # Test rpc file framing (receive-buffer duplicate-file bug)

@@ -118,6 +118,22 @@ in_memory_limited_global_limit_cluster: &in_memory_limited_global_limit_cluster
       setup_queries: []
       validation_queries: []
 
+args_delta_chain_cache: &args_delta_chain_cache
+  - "--bolt-port"
+  - *bolt_port
+  - "--memory-limit=1024"
+  - "--storage-gc-cycle-sec=180"
+  - "--log-level=TRACE"
+  - "--delta-chain-cache-threshold=1"
+
+in_memory_delta_chain_cache_cluster: &in_memory_delta_chain_cache_cluster
+  cluster:
+    main:
+      args: *args_delta_chain_cache
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Memory control"
     binary: "tests/e2e/memory/memgraph__e2e__memory__control"
@@ -246,4 +262,19 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/db_memory_tracking.py"]
     proc: "tests/e2e/memory/procedures"
+    <<: *in_memory_1024_MiB_limit_cluster
+
+  - name: "IN-list cache under query memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/inlist_cache_memory_limit.py"]
+    <<: *in_memory_1024_MiB_limit_cluster
+
+  - name: "Delta chain cache under query memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/delta_chain_cache_memory_limit.py"]
+    <<: *in_memory_delta_chain_cache_cluster
+
+  - name: "Point index under query memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/point_index_memory_limit.py"]
     <<: *in_memory_1024_MiB_limit_cluster

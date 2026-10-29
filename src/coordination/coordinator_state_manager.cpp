@@ -239,6 +239,18 @@ auto CoordinatorStateManager::system_exit(int const exit_code) -> void {
 
 auto CoordinatorStateManager::GetSrvConfig() const -> std::shared_ptr<srv_config> { return my_srv_config_; }
 
+auto CoordinatorStateManager::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
+  return ParseAux(my_srv_config_);
+}
+
+auto CoordinatorStateManager::ParseAux(std::shared_ptr<srv_config> const &server) -> CoordinatorInstanceAux {
+  try {
+    return nlohmann::json::parse(server->get_aux()).get<CoordinatorInstanceAux>();
+  } catch (std::exception const &e) {
+    LOG_FATAL("Error occurred while parsing aux field {}", e.what());
+  }
+}
+
 void to_json(nlohmann::json &j, srv_state const &state) {
   j = nlohmann::json{{kTerm.data(), state.get_term()},
                      {kVotedFor.data(), state.get_voted_for()},

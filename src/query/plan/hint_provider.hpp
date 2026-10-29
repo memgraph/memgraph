@@ -325,6 +325,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(RollUpApply & /*unused*/) override { return true; }
 
+  bool PreVisit(Conditional & /*unused*/) override { return true; }
+
+  bool PostVisit(Conditional & /*unused*/) override { return true; }
+
   bool PreVisit(PeriodicCommit & /*unused*/) override { return true; }
 
   bool PostVisit(PeriodicCommit & /*unused*/) override { return true; }
@@ -359,8 +363,12 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     auto const scan_symbol = dynamic_cast<ScanAll *>(op.input().get())->output_symbol_;
     auto const scan_type = op.input()->GetTypeInfo();
 
+    // A hint reads a plan the cache serves to every execution of the query, so it may write to nothing that
+    // plan owns: collecting without merging leaves the plan's own tests alone, and the test the fold builds
+    // belongs to this scratch storage.
+    AstStorage scratch;
     Filters filters;
-    filters.CollectFilterExpression(op.expression_, symbol_table_);
+    filters.AddOperatorFilters(op.expression_, symbol_table_, scratch);
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =

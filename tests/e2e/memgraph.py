@@ -61,6 +61,8 @@ PORT_FLAGS = {
     "--metrics_port",
 }
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "::"}
+# Ports of services the tests do not start (Kafka, Pulsar broker and admin from tests/e2e/streams); never remapped.
+EXTERNAL_SERVICE_PORTS = {29092, 6650, 6652}
 # Only host:port endpoints and `WITH PORT n` are touched, so numbers in map literals or timestamps are left alone.
 ENDPOINT_RE = re.compile(r"(?<![\w.])(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{4,5})\b")
 PORT_KEYWORD_RE = re.compile(r"(?i)(\bPORT\s+)(\d{4,5})\b")
@@ -86,7 +88,7 @@ class PortRemap:
             self.reverse[int(mapped)] = int(original)
 
     def is_candidate(self, port):
-        return 1024 <= port < self.window_start
+        return 1024 <= port < self.window_start and port not in EXTERNAL_SERVICE_PORTS
 
     def map_port(self, port):
         """Allocates a window port for `port` on first sight; later calls return the same one."""
@@ -312,6 +314,29 @@ class MemgraphInstanceRunner:
                             print(content)
                     except Exception as e:
                         pass
+
+            # /proc/<pid>/wchan above is the main thread's; per-thread wchans distinguish a
+            # thread parked in a join or a condition variable from one blocked elsewhere.
+            task_dir = f"{proc_dir}/task"
+            try:
+                tids = sorted(os.listdir(task_dir), key=int)
+            except Exception:
+                tids = []
+            if tids:
+                print(f"\n/proc/{self.proc_mg.pid}/task/*")
+                print("tid\tcomm\tstate\twchan")
+                for tid in tids:
+                    fields = {}
+                    for field in ("comm", "wchan", "stat"):
+                        try:
+                            with open(f"{task_dir}/{tid}/{field}", "r") as f:
+                                fields[field] = f.read().strip()
+                        except Exception:
+                            fields[field] = "?"
+                    # stat is "pid (comm) state ...". Every field after the comm is numeric, so the
+                    # last ')' closes the comm even when the thread name itself contains one.
+                    state = fields["stat"].rpartition(")")[2].split()
+                    print(f"{tid}\t{fields['comm']}\t{state[0] if state else '?'}\t{fields['wchan']}")
 
         print("=" * 80 + "\n")
 

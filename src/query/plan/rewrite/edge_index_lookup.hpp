@@ -54,7 +54,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.AddOperatorFilters(op.expression_, *symbol_table_, *ast_storage_);
 
     return true;
   }
@@ -65,9 +65,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
-      Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      op.all_filters_ = std::move(leftover_filters);
+      op.all_filters_ = Filters::FromExpression(op.expression_, *symbol_table_, *ast_storage_);
     }
 
     // Filters are pushed down as far as they can go.
@@ -650,6 +648,22 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Conditional &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    auto const inherited = InheritedFor(op);
+    for (auto &branch : op.branches_) {
+      for (auto &fold : branch.pattern_filters) RewriteBranch(&fold, inherited);
+      RewriteBranch(&branch.plan, inherited);
+    }
+    return false;
+  }
+
+  bool PostVisit(Conditional &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(PeriodicCommit &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -836,24 +850,13 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::ranges::all_of(used_symbols, [&bound_symbols](Symbol const &s) { return bound_symbols.contains(s); });
   }
 
-  // The string predicates were made edge-index candidates by this feature, and a correlated one --
-  // reading any symbol besides the edge itself -- is not plannable on an edge scan: the planner either
-  // absorbs the source node into the scan and then keys the seek on a symbol that same scan produces,
-  // or the plan is refused outright inside an OPTIONAL branch. Both are pre-existing limitations that
-  // still break `=` and `>=` the same way, so rather than widen them, leave a correlated string
-  // predicate as a Filter over an expansion -- which is what happened before the feature existed.
-  static bool IsUnplannableCorrelatedStringFilter(const Symbol &edge_symbol, FilterInfo const &filter) {
-    if (!PropertyFilter::IsStringPredicate(filter.property_filter->type_)) return false;
-    return std::ranges::any_of(filter.used_symbols, [&edge_symbol](Symbol const &s) { return s != edge_symbol; });
-  }
-
   std::vector<CandidateIndex> GetCandidateIndicesFromFilter(const Symbol &symbol,
                                                             const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &edge_type : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
         if (filter.property_filter->is_symbol_in_value_ || !AreBound(bound_symbols, filter.used_symbols) ||
-            IsUnplannableCorrelatedStringFilter(symbol, filter)) {
+            IsCorrelatedStringPredicate(symbol, filter)) {
           // Skip filter expressions which use the symbol whose property we are
           // looking up or aren't bound. We cannot scan by such expressions. For
           // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
@@ -883,7 +886,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &filter : filters_.PropertyFilters(symbol)) {
       if (filter.property_filter->is_symbol_in_value_ || !AreBound(bound_symbols, filter.used_symbols) ||
-          IsUnplannableCorrelatedStringFilter(symbol, filter)) {
+          IsCorrelatedStringPredicate(symbol, filter)) {
         // Skip filter expressions which use the symbol whose property we are
         // looking up or aren't bound. We cannot scan by such expressions. For
         // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
@@ -911,7 +914,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<CandidateIndex> candidate_indices{};
     for (const auto &filter : filters_.PropertyFilters(symbol)) {
       if (filter.property_filter->is_symbol_in_value_ || !AreBound(bound_symbols, filter.used_symbols) ||
-          IsUnplannableCorrelatedStringFilter(symbol, filter)) {
+          IsCorrelatedStringPredicate(symbol, filter)) {
         // Skip filter expressions which use the symbol whose property we are
         // looking up or aren't bound. We cannot scan by such expressions. For
         // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
@@ -1156,8 +1159,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto filter = std::make_shared<Filter>(result, std::vector<std::shared_ptr<LogicalOperator>>{}, test);
 
       // Need to populate the all_filters
-      Filters all_filters;
-      all_filters.CollectFilterExpression(filter->expression_, *symbol_table_);
+      auto all_filters = Filters::FromExpression(filter->expression_, *symbol_table_, *ast_storage_);
       filter->all_filters_ = std::move(all_filters);
       result = std::move(filter);
     }
