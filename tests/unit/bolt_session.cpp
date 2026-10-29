@@ -18,7 +18,11 @@
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
 #include "query/exceptions.hpp"
+#include "rpc/exceptions.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::communication::bolt::ChunkedEncoderBuffer;
 using memgraph::communication::bolt::ClientError;
@@ -1441,6 +1445,77 @@ TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
   EXPECT_EQ(messages[1][1], 0x71);  // RECORD
   ASSERT_GE(messages[2].size(), 2u);
   EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+namespace {
+using memgraph::communication::bolt::ExceptionToErrorMessage;
+using memgraph::communication::bolt::VerboseError;
+
+constexpr std::string_view kClientErrorCode = "Memgraph.ClientError.MemgraphError.MemgraphError";
+constexpr std::string_view kTransientErrorCode = "Memgraph.TransientError.MemgraphError.MemgraphError";
+
+std::string Classification(const std::exception &e) { return ExceptionToErrorMessage(e, nullptr).first; }
+}  // namespace
+
+// ExceptionToErrorMessage is the single Bolt retryability classifier: only the declared-retryable
+// families may yield TransientError, every other BasicException is non-retryable (contract A1-A4).
+
+TEST(BoltSession, ExceptionToErrorMessageVerboseErrorKeepsItsOwnCode) {
+  // A VerboseError carries an explicit classification; the classifier must not override it (A1-A4 baseline).
+  VerboseError e(VerboseError::Classification::TRANSIENT_ERROR, "Category", "Title", "custom message");
+  EXPECT_EQ(Classification(e), "Memgraph.TransientError.Category.Title");
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "custom message");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageBoltClientErrorIsClientError) {
+  memgraph::communication::bolt::ClientError e("wrong query");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "wrong query");
+}
+
+TEST(BoltSession, ExceptionToErrorMessagePlainBasicExceptionIsClientError) {
+  // A BasicException outside the retryable allow-list must never be a TransientError (A1).
+  memgraph::utils::BasicException e("plain failure");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "plain failure");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageTemporalInvalidArgumentIsClientError) {
+  // A permanent temporal parse failure is non-retryable (A4; S2-S5).
+  memgraph::utils::temporal::InvalidArgumentException e("Invalid duration literal");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "Invalid duration literal");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageNotYetImplementedIsClientError) {
+  // A recognised-but-unimplemented parse path is non-retryable (A4, parse-phase NotYetImplemented).
+  memgraph::query::NotYetImplemented e("Feature");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "Feature is not implemented yet.");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageRetryBasicExceptionStaysTransientError) {
+  // Declared-retryable family (A2): a serialization conflict keeps TransientError.
+  memgraph::query::TransactionSerializationException e;
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageStorageAccessTimeoutStaysTransientError) {
+  // Declared-retryable family (A2): storage access timeouts keep TransientError.
+  memgraph::storage::UniqueAccessTimeout e;
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageOutOfMemoryStaysTransientError) {
+  // Declared-retryable family (A2): OutOfMemoryException keeps TransientError.
+  memgraph::utils::OutOfMemoryException e("Memory limit exceeded");
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageRpcFailedStaysTransientError) {
+  // Declared-retryable family (A3): rpc::RpcFailedException keeps TransientError.
+  memgraph::rpc::RpcFailedException e("rpc connection lost");
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
 }
 
 TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {
