@@ -85,11 +85,13 @@ calling session's branch).
 (`'main' is a reserved branch name.`); must not start with `.`; must not contain `/`, `\` or `@`.
 Names are unique among a database's live branches; a dropped branch's name can be reused.
 
-**Database names and `@`.** Database names accept any character today (including `@`, `/`, NUL and
-the empty string), so every separator needs this compatibility rule; `@` reads naturally. (1) `CREATE`/`RENAME DATABASE` reject names containing `@` from now on; (2) a Bolt `db`
-value first matches an existing database name **exactly** (pre-existing `@` names keep working
-after upgrade), otherwise it splits at the **last** `@` into `<database>@<branch>`; (3) `CREATE
-BRANCH b` on database `a` is refused if a database literally named `a@b` exists.
+**Database names and `@` (breaking change).** `@` is reserved for `<database>@<branch>`.
+Database names accepted any character before this release, so every separator would need this.
+- `CREATE` / `RENAME DATABASE` reject names containing `@`.
+- A Bolt `db` value containing `@` always means `<database>@<branch>`; more than one `@` is an error.
+- **Upgrade:** Memgraph refuses to start if any existing database name contains `@`, naming each
+  one. Rename them with `RENAME DATABASE` on the previous version before upgrading. A REPLICA
+  refuses a replicated `CREATE` / `RENAME DATABASE` with an `@` name from an older MAIN.
 
 **Keywords.** New keyword: `BRANCH` (and `BRANCHES`). `USE`, `USING`, `SHOW`, `CREATE`, `DROP`,
 `FORCE` already exist. A keyword must be reserved only when the parser cannot tell it from an
