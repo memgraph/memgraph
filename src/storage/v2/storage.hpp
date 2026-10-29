@@ -38,6 +38,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/property_manifest.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
@@ -399,6 +400,13 @@ class Storage {
 
   auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
 
+  /// The record shapes interned for this database. A record names its shape rather than
+  /// carrying it, and the name means something only against the registry that issued it, so
+  /// whatever reads or writes a record has to be handed this one.
+  auto manifest_registry() -> ManifestRegistry & { return manifest_registry_; }
+
+  auto manifest_registry() const -> ManifestRegistry const & { return manifest_registry_; }
+
   // Vector index counts are now accessed through ActiveIndices snapshots (shared_ptr + COW),
   // which provide both live counts and snapshot isolation.
 
@@ -472,6 +480,11 @@ class Storage {
 
   Indices indices_;
   Constraints constraints_;
+
+  /// Outlives every record encoded against it, a shape being kept for as long as the database
+  /// is, so a record can always resolve the one it was written with.
+  ManifestRegistry manifest_registry_;
+
   PlanInvalidatorPtr invalidator_;
 
   // Datastructures to provide fast retrieval of node-label and
@@ -1004,6 +1017,8 @@ class Accessor {
   }
 
   auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
+
+  auto GetManifestRegistry() const -> ManifestRegistry & { return storage_->manifest_registry(); }
 
   auto CreateEnum(std::string_view name, std::span<std::string const> values)
       -> std::expected<EnumTypeId, EnumStorageError> {

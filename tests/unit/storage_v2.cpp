@@ -21,6 +21,7 @@
 #include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/manifest_property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -54,6 +55,46 @@ class StorageV2Test : public testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(StorageV2Test, StorageTypes);
+
+// A record names the shape of its properties rather than carrying it, and those names mean
+// something only against the registry that issued them. A database owns one, so anything
+// holding a transaction of that database can reach it, which is what reading a record takes.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(StorageV2Test, ATransactionReachesTheShapeRegistryOfItsDatabase) {
+  auto first = this->store->Access(memgraph::storage::WRITE);
+  auto second = this->store->Access(memgraph::storage::WRITE);
+
+  // One registry for the database, not one per transaction, since a record written by one
+  // transaction is read by the next.
+  EXPECT_EQ(&first->GetManifestRegistry(), &second->GetManifestRegistry());
+  EXPECT_EQ(&first->GetManifestRegistry(), &this->store->manifest_registry());
+
+  // And whatever holds the transaction can get there the same way.
+  EXPECT_EQ(first->GetTransaction()->GetStorage(), this->store.get());
+}
+
+// A shape outlives the transaction that first interned it, because a record written under one
+// transaction has to resolve its shape under every later one.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(StorageV2Test, AShapeInternedByOneTransactionResolvesUnderTheNext) {
+  auto const property = memgraph::storage::PropertyId::FromUint(1);
+  auto interned = memgraph::storage::ManifestId{};
+
+  {
+    auto acc = this->store->Access(memgraph::storage::WRITE);
+    auto record = memgraph::storage::ManifestPropertyStore{};
+    ASSERT_TRUE(
+        record.SetProperty(acc->GetManifestRegistry(), property, memgraph::storage::PropertyValue{int64_t{300}}));
+    ASSERT_TRUE(record.manifest().has_value());
+    interned = *record.manifest();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto later = this->store->Access(memgraph::storage::WRITE);
+  auto const &shape = later->GetManifestRegistry().Resolve(interned);
+  ASSERT_EQ(shape.entries().size(), 1U);
+  EXPECT_EQ(shape.entries().front().property, property);
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, Commit) {

@@ -53,6 +53,8 @@ class Transaction;
 
 namespace memgraph::storage {
 
+class Storage;
+
 struct CommitCallbacks {
   using func_t = std::function<void(uint64_t)>;
 
@@ -132,12 +134,13 @@ struct AsyncIndexHelper {
 };
 
 struct Transaction {
-  Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
+  Transaction(Storage *storage, uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
               uint64_t last_durable_num_committed_txns = 0, metrics::GaugeHandle unreleased_delta_gauge = {})
-      : transaction_id(transaction_id),
+      : storage_(storage),
+        transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         original_start_timestamp(start_timestamp),
         command_id(0),
@@ -186,6 +189,8 @@ struct Transaction {
   ~Transaction() = default;
 
   bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
+
+  Storage *GetStorage() const { return storage_; }
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
@@ -268,6 +273,11 @@ struct Transaction {
   [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept {
     return commit_lock_narrowing ? snapshot_ts : start_timestamp;
   }
+
+  /// The storage that made this transaction, which is what reaching its shape registry takes.
+  /// Never null: a transaction is owned by that storage, directly or through the accessor
+  /// holding it, so it cannot outlive it.
+  Storage *storage_{};
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};

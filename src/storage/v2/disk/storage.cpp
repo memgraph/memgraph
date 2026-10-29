@@ -2537,7 +2537,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     active_constraints = GetActiveConstraints();
   }
 
-  return {transaction_id,
+  return {this,
+          transaction_id,
           start_timestamp,
           isolation_level,
           storage_mode,
