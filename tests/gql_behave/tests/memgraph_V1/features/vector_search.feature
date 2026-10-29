@@ -1108,3 +1108,25 @@ Feature: Vector search related features
         Then the result should be:
             | total |
             | 3.0   |
+
+    Scenario: A map projected before a write keeps the vector-index value it read
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {id: 1, prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            MATCH (n:L1) WITH n, n{.*} AS m SET n.prop1 = [5.0, 6.0] RETURN m.prop1 AS before, n.prop1 AS after;
+            """
+        Then the result should be:
+            | before     | after      |
+            | [1.0, 2.0] | [5.0, 6.0] |
+        When executing query:
+            """
+            MATCH (n:L1) WITH collect(n{.*}) AS ms MATCH (k:L1) SET k.prop1 = [7.0, 8.0] RETURN ms[0].prop1 AS before;
+            """
+        Then the result should be:
+            | before     |
+            | [5.0, 6.0] |
