@@ -1510,84 +1510,99 @@ TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   }
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeWildcardClearsAllProperties) {
+TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeWildcardKeepsNamedRecords) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
   std::vector<std::string> const emp = {"Employee"};
 
-  // REVOKE READ {*} should clear all READ grants, not just a literal "*" key
-  {
-    PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
-    perms.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
-    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-  }
+  PropertyAccessPermissions perms;
+  perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
+  perms.Grant({"Employee"}, "*", PropertyPermissionType::WRITE);
+  perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
+  perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
+  perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
+  EXPECT_EQ(perms.Has(emp, "age", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.Has(emp, "age", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
 
-  // REVOKE READ {*} should clear all READ denies too
-  {
-    PropertyAccessPermissions perms;
-    perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
-    perms.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
-    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-  }
-
-  // REVOKE READ {*} should not affect WRITE bits
-  {
-    PropertyAccessPermissions perms;
-    perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
-    perms.Grant({"Employee"}, "name", PropertyPermissionType::WRITE);
-    perms.Revoke({"Employee"}, "*", PropertyPermissionType::READ);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
-    EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
-  }
+  perms.Revoke({"Employee"}, "name", PropertyPermissionType::READ);
+  perms.Revoke({"Employee"}, "ssn", PropertyPermissionType::READ);
+  perms.Revoke({"Employee"}, "*", PropertyPermissionType::WRITE);
+  EXPECT_TRUE(perms.GetRules().empty());
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardClearsNamedGrants) {
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGrantWildcardKeepsNamedRecords) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
   std::vector<std::string> const emp = {"Employee"};
 
   PropertyAccessPermissions perms;
   perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
-  perms.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
   perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
 
-  // Wildcard grant + named deny survive; named grants cleared
   perms.Grant({"Employee"}, "*", PropertyPermissionType::READ);
   auto const &rules = perms.GetRules();
   ASSERT_EQ(rules.size(), 1);
-  EXPECT_EQ(rules[0].properties.size(), 2);
-  EXPECT_TRUE(rules[0].properties.contains("*"));
-  EXPECT_TRUE(rules[0].properties.contains("ssn"));
+  EXPECT_EQ(rules[0].properties.size(), 3);
   EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::GRANT);
 }
 
-TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardClearsNamedDenies) {
+TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardKeepsNamedRecords) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
   std::vector<std::string> const emp = {"Employee"};
 
   PropertyAccessPermissions perms;
   perms.Deny({"Employee"}, "ssn", PropertyPermissionType::READ);
-  perms.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
   perms.Grant({"Employee"}, "name", PropertyPermissionType::READ);
 
-  // Wildcard deny + named grant survive; named denies cleared
   perms.Deny({"Employee"}, "*", PropertyPermissionType::READ);
   auto const &rules = perms.GetRules();
   ASSERT_EQ(rules.size(), 1);
-  EXPECT_EQ(rules[0].properties.size(), 2);
-  EXPECT_TRUE(rules[0].properties.contains("*"));
-  EXPECT_TRUE(rules[0].properties.contains("name"));
+  EXPECT_EQ(rules[0].properties.size(), 3);
   EXPECT_EQ(perms.Has(emp, "name", PropertyPermissionType::READ), PermissionLevel::GRANT);
   EXPECT_EQ(perms.Has(emp, "ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
   EXPECT_EQ(perms.Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsWildcardDenyOrderDoesNotMatter) {
+  using memgraph::auth::Merge;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+  std::vector<std::string> const emp = {"Employee"};
+
+  PropertyAccessPermissions other;
+  other.Grant({"Employee"}, "salary", PropertyPermissionType::READ);
+
+  PropertyAccessPermissions named_first;
+  named_first.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
+  named_first.Deny({"Employee"}, "*", PropertyPermissionType::READ);
+
+  PropertyAccessPermissions wildcard_first;
+  wildcard_first.Deny({"Employee"}, "*", PropertyPermissionType::READ);
+  wildcard_first.Deny({"Employee"}, "salary", PropertyPermissionType::READ);
+
+  EXPECT_EQ(Merge(named_first, other).Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(wildcard_first, other).Has(emp, "salary", PropertyPermissionType::READ), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsRevokeGlobalWildcardKeepsNamedRecords) {
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyAccessPermissions;
+
+  PropertyAccessPermissions perms;
+  perms.GrantGlobal("*", PropertyPermissionType::READ);
+  perms.GrantGlobal("*", PropertyPermissionType::WRITE);
+  perms.GrantGlobal("name", PropertyPermissionType::READ);
+  perms.DenyGlobal("ssn", PropertyPermissionType::READ);
+  perms.RevokeGlobal("*", PropertyPermissionType::READ);
+  EXPECT_EQ(perms.HasGlobal("age", PropertyPermissionType::READ), PermissionLevel::NEUTRAL);
+  EXPECT_EQ(perms.HasGlobal("name", PropertyPermissionType::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(perms.HasGlobal("ssn", PropertyPermissionType::READ), PermissionLevel::DENY);
+  EXPECT_EQ(perms.HasGlobal("age", PropertyPermissionType::WRITE), PermissionLevel::GRANT);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsDenyWildcardPreservesNamedDenyOnOtherBit) {
