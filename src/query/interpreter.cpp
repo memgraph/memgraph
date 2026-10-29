@@ -6699,7 +6699,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             main_guard.unlock();
             in.SwitchToOnDisk();
           })) {  // Try exclusively failed
-        throw utils::BasicException(
+        throw RetryBasicException(
             "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
             "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
             "multiple sessions to run queries in parallel, "
@@ -6922,12 +6922,16 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
                        storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
-        case storage::InMemoryStorage::CreateSnapshotError::NoSpaceLeft:
           throw RetryBasicException("Failed to create snapshot. {}.",
                                     storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
+        // A full disk persists until an operator frees space, so retrying cannot succeed.
+        case storage::InMemoryStorage::CreateSnapshotError::NoSpaceLeft:
+          throw utils::BasicException("Failed to create snapshot. {}.",
+                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
-        case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
           throw RetryBasicException(storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
+        case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
+          throw utils::BasicException(storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
       }
     }
     return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.value()}}};
