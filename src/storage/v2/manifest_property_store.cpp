@@ -498,16 +498,15 @@ void WriteEndOffset(uint8_t *buffer, Regions regions, uint32_t index, uint32_t e
 auto ManifestPropertyStore::PayloadAt(PropertyManifest const &layout, PropertyManifest::Location location) const
     -> std::span<uint8_t const> {
   auto const regions = RegionsOf(layout);
-  auto const end = EndOffsetAt(buffer_.get(), regions, location.offset);
-  auto const begin =
-      location.offset == 0 ? regions.payload_begin : EndOffsetAt(buffer_.get(), regions, location.offset - 1);
-  return {buffer_.get() + begin, end - begin};
+  auto const end = EndOffsetAt(Record(), regions, location.offset);
+  auto const begin = location.offset == 0 ? regions.payload_begin : EndOffsetAt(Record(), regions, location.offset - 1);
+  return {Record() + begin, end - begin};
 }
 
 auto ManifestPropertyStore::ValueAt(PropertyManifest const &layout, PropertyManifest::Location location) const
     -> PropertyValue {
   if (location.is_fixed) {
-    return ReadFixed(buffer_.get() + location.offset, location.stored_type);
+    return ReadFixed(Record() + location.offset, location.stored_type);
   }
 
   auto const payload = PayloadAt(layout, location);
@@ -518,9 +517,10 @@ auto ManifestPropertyStore::ValueAt(PropertyManifest const &layout, PropertyMani
 }
 
 auto ManifestPropertyStore::GetProperty(ManifestRegistry const &registry, PropertyId property) const -> PropertyValue {
-  if (!manifest_) return {};
+  auto const shape = manifest();
+  if (!shape) return {};
 
-  auto const &layout = registry.Resolve(*manifest_);
+  auto const &layout = registry.Resolve(*shape);
   auto const location = layout.Find(property);
   if (!location) return {};
 
@@ -533,7 +533,7 @@ auto ManifestPropertyStore::CompareAt(PropertyManifest const &layout, PropertyMa
   if (value.IsNull()) return false;
 
   if (location.is_fixed) {
-    return CompareFixed(buffer_.get() + location.offset, location.stored_type, value);
+    return CompareFixed(Record() + location.offset, location.stored_type, value);
   }
 
   auto const payload = PayloadAt(layout, location);
@@ -551,9 +551,10 @@ auto ManifestPropertyStore::CompareAt(PropertyManifest const &layout, PropertyMa
 
 auto ManifestPropertyStore::IsPropertyEqual(ManifestRegistry const &registry, PropertyId property,
                                             PropertyValue const &value) const -> bool {
-  if (!manifest_) return value.IsNull();
+  auto const shape = manifest();
+  if (!shape) return value.IsNull();
 
-  auto const &layout = registry.Resolve(*manifest_);
+  auto const &layout = registry.Resolve(*shape);
   auto const location = layout.Find(property);
   if (!location) return value.IsNull();
   return CompareAt(layout, *location, value);
@@ -569,7 +570,8 @@ void ManifestPropertyStore::ArePropertiesEqual(ManifestRegistry const &registry,
 
   // A shape gives a property's place without reading what sits before it, so each path is
   // looked up on its own and the paths need not be in any particular order.
-  auto const *layout = manifest_ ? &registry.Resolve(*manifest_) : nullptr;
+  auto const shape = manifest();
+  auto const *layout = shape ? &registry.Resolve(*shape) : nullptr;
   for (std::size_t pos = 0; pos != ordered_properties.size(); ++pos) {
     auto const &path = ordered_properties[pos];
     auto const &value = values[position_lookup[pos]];
@@ -617,7 +619,8 @@ void ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry 
                                                                std::span<PropertyValue> out) const {
   MG_ASSERT(out.size() == ordered_properties.size(), "One value is read per path asked about");
 
-  auto const *layout = manifest_ ? &registry.Resolve(*manifest_) : nullptr;
+  auto const shape = manifest();
+  auto const *layout = shape ? &registry.Resolve(*shape) : nullptr;
   for (std::size_t pos = 0; pos != ordered_properties.size(); ++pos) {
     auto const &path = ordered_properties[pos];
     auto const location = layout ? layout->Find(path.front()) : std::nullopt;
@@ -627,9 +630,10 @@ void ManifestPropertyStore::ExtractPropertyValuesMissingAsNull(ManifestRegistry 
 
 auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -> std::map<PropertyId, PropertyValue> {
   auto properties = std::map<PropertyId, PropertyValue>{};
-  if (!manifest_) return properties;
+  auto const shape = manifest();
+  if (!shape) return properties;
 
-  auto const &layout = registry.Resolve(*manifest_);
+  auto const &layout = registry.Resolve(*shape);
   auto const entries = layout.entries();
   for (size_t position = 0; position != entries.size(); ++position) {
     // Entries come out in property order, so each one goes straight on the end of the map.
@@ -640,9 +644,8 @@ auto ManifestPropertyStore::Properties(ManifestRegistry const &registry) const -
 
 void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<PropertyId, PropertyValue> const &properties) {
   if (properties.empty()) {
+    // Carrying nothing is carrying no shape either, which is what having no record says.
     buffer_.reset();
-    size_ = 0;
-    manifest_.reset();
     return;
   }
 
@@ -669,8 +672,8 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
     payloads.emplace_hint(payloads.end(), property, std::move(encoded));
   }
 
-  size_ = regions.payload_begin + payload_bytes;
-  buffer_ = std::make_unique<uint8_t[]>(size_);
+  buffer_ = std::make_unique<uint8_t[]>(kShapeIdBytes + regions.payload_begin + payload_bytes);
+  std::memcpy(buffer_.get(), &id.value, sizeof(id.value));
 
   // A shape numbers its variable values in property order, so walking the properties in that
   // order fills the table in order and the payloads follow one another.
@@ -681,18 +684,17 @@ void ManifestPropertyStore::Rebuild(ManifestRegistry &registry, std::map<Propert
     DMG_ASSERT(layout.entries()[position].property == property, "A shape is in the order its properties were in");
     auto const location = layout.LocationAt(position++);
     if (location.is_fixed) {
-      WriteFixed(buffer_.get() + location.offset, location.stored_type, value);
+      WriteFixed(Record() + location.offset, location.stored_type, value);
       continue;
     }
 
     DMG_ASSERT(location.offset == next_variable, "A shape numbers its variable values in property order");
     ++next_variable;
     auto const &payload = payloads.at(property);
-    std::memcpy(buffer_.get() + cursor, payload.data(), payload.size());
+    std::memcpy(Record() + cursor, payload.data(), payload.size());
     cursor += static_cast<uint32_t>(payload.size());
-    WriteEndOffset(buffer_.get(), regions, location.offset, cursor);
+    WriteEndOffset(Record(), regions, location.offset, cursor);
   }
-  manifest_ = id;
 }
 
 auto ManifestPropertyStore::SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value)

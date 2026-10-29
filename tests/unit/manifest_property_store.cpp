@@ -22,6 +22,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/temporal.hpp"
+#include "storage/v2/vertex.hpp"
 #include "tests/unit/value_shapes.hpp"
 
 using memgraph::storage::ManifestPropertyStore;
@@ -33,6 +34,21 @@ using memgraph::storage::PropertyValue;
 namespace {
 PropertyId Prop(uint32_t id) { return PropertyId::FromUint(id); }
 }  // namespace
+
+// A vertex must not grow when its properties become a record, and these three say it cannot.
+// A member replaced by one no larger, at an offset its alignment already allows, leaves every
+// later member where it was and so leaves the size where it was. Stated against the two stores
+// rather than against a copy of a vertex's members, which would be a second place to maintain
+// a layout and would agree with the first only by luck.
+//
+// Here rather than in either header, since neither includes the other and the switchover is
+// what will bring them together.
+static_assert(sizeof(ManifestPropertyStore) <= sizeof(PropertyStore),
+              "A record must fit where the store it replaces sits");
+static_assert(alignof(ManifestPropertyStore) <= alignof(memgraph::storage::Vertex),
+              "A record must not align a vertex more strictly than it already is");
+static_assert(offsetof(memgraph::storage::Vertex, properties) % alignof(ManifestPropertyStore) == 0,
+              "A record must sit where the store it replaces sits");
 
 /// Gives both stores the same properties, the same replacements and the same removals, and
 /// requires them to answer alike throughout. The old store is the specification, so a
@@ -642,6 +658,48 @@ TEST(ManifestPropertyStore, AnIndexKeysARecordAsItKeysAPropertyStore) {
   ManifestPropertyStore empty;
   PropertyStore empty_current;
   EXPECT_EQ(helper.Extract(memgraph::storage::ManifestRecord{empty, empty_registry}), helper.Extract(empty_current));
+}
+
+// A record names its own shape, in its own bytes, so that holding a record costs a pointer and
+// nothing else. Two records of the same shape name the same one, and a record carrying nothing
+// names none.
+TEST(ManifestPropertyStore, ARecordNamesItsOwnShape) {
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+  EXPECT_FALSE(store.manifest().has_value());
+
+  store.SetProperty(registry, Prop(1), PropertyValue{int64_t{300}});
+  auto const one_integer = store.manifest();
+  ASSERT_TRUE(one_integer.has_value());
+
+  // A second property is a different shape, and the first shape is still the first.
+  store.SetProperty(registry, Prop(2), PropertyValue{"outer"});
+  auto const integer_and_string = store.manifest();
+  ASSERT_TRUE(integer_and_string.has_value());
+  EXPECT_NE(integer_and_string->value, one_integer->value);
+
+  // A shape carries the width its integers are stored at, so another record names the same
+  // shape when its integer is stored at the same width, and a different one when a narrower
+  // integer is stored at a narrower width. Its string's length is no part of either, being a
+  // width the shape does not know.
+  ManifestPropertyStore alike;
+  alike.SetProperty(registry, Prop(1), PropertyValue{int64_t{301}});
+  alike.SetProperty(registry, Prop(2), PropertyValue{"a longer string than the other one"});
+  EXPECT_EQ(alike.manifest()->value, integer_and_string->value);
+
+  ManifestPropertyStore narrower;
+  narrower.SetProperty(registry, Prop(1), PropertyValue{int64_t{7}});
+  narrower.SetProperty(registry, Prop(2), PropertyValue{"other"});
+  EXPECT_NE(narrower.manifest()->value, integer_and_string->value);
+
+  // Reading the values back is unaffected by the shape sitting in front of them.
+  EXPECT_EQ(store.GetProperty(registry, Prop(1)), PropertyValue{int64_t{300}});
+  EXPECT_EQ(store.GetProperty(registry, Prop(2)), PropertyValue{"outer"});
+
+  // Emptied, it names no shape, because it has no record to name one in.
+  store.SetProperty(registry, Prop(1), PropertyValue{});
+  store.SetProperty(registry, Prop(2), PropertyValue{});
+  EXPECT_FALSE(store.manifest().has_value());
 }
 
 // A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a

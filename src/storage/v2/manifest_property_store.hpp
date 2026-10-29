@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <optional>
@@ -94,7 +95,12 @@ class ManifestPropertyStore {
   auto SetProperty(ManifestRegistry &registry, PropertyId property, PropertyValue const &value) -> bool;
 
   /// The shape this record names, absent while it carries nothing.
-  auto manifest() const -> std::optional<ManifestId> { return manifest_; }
+  auto manifest() const -> std::optional<ManifestId> {
+    if (!buffer_) return std::nullopt;
+    auto value = uint32_t{};
+    std::memcpy(&value, buffer_.get(), sizeof(value));
+    return ManifestId{value};
+  }
 
  private:
   /// Gives the record the shape `properties` needs and writes them into it. Every value is
@@ -117,10 +123,28 @@ class ManifestPropertyStore {
   auto CompareAt(PropertyManifest const &layout, PropertyManifest::Location location, PropertyValue const &value) const
       -> bool;
 
+  /// A record names its shape in its own first bytes, so a vertex holds nothing but the
+  /// pointer to it. Naming it beside that pointer instead would cost the vertex four more
+  /// bytes, which it has not got, and the id is read from bytes the values are read from
+  /// anyway.
+  static constexpr uint32_t kShapeIdBytes = sizeof(uint32_t);
+
+  /// Where the values begin, which is where every offset a shape gives is measured from.
+  auto Record() const -> uint8_t const * { return buffer_.get() + kShapeIdBytes; }
+
+  auto Record() -> uint8_t * { return buffer_.get() + kShapeIdBytes; }
+
+  /// Null while the record carries nothing. Its first bytes are the shape it names, and the
+  /// values follow. Nothing says how long it is: a shape and the record's own table of where
+  /// its variable values end give that, and nothing asks.
   std::unique_ptr<uint8_t[]> buffer_;
-  uint32_t size_{};
-  std::optional<ManifestId> manifest_;
 };
+
+/// A vertex holds one of these, and has twelve bytes to spare for it: the four-byte lock
+/// beside it fills what a pointer's alignment would otherwise waste, and the two together must
+/// leave the vertex's size where it is. Eight bytes aligned to eight satisfies that, where
+/// twelve aligned to eight would not, since a size is rounded up to its alignment.
+static_assert(sizeof(ManifestPropertyStore) <= 12, "A vertex has twelve bytes for its properties");
 
 /// A record together with the registry that describes it, which is the smallest thing that can
 /// be asked anything: a record names its shape and cannot resolve it, and a shape id means
