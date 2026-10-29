@@ -233,6 +233,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // stores unfrozen. Does blocking file I/O, so it must run before the replication state lock is taken.
   bool DropBranchesForDemotion();
   void UnfreezeBranches();
+  // Runs DropBranchesForDemotion, then `demote`; unfreezes the stores if the instance is still MAIN afterwards.
+  bool DemoteWithBranchDrop(auto &&demote);
 
   void ClientsShutdown(auto &locked_repl_state) const {
     spdlog::info("Shutting down instance level clients.");

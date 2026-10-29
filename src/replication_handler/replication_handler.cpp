@@ -270,6 +270,21 @@ void ReplicationHandler::UnfreezeBranches() {
   });
 }
 
+bool ReplicationHandler::DemoteWithBranchDrop(auto &&demote) {
+  // Only a MAIN has branches to drop; an already-REPLICA re-config keeps its frozen stores.
+  bool const was_main = repl_state_.ReadLock()->IsMain();
+  if (was_main && !DropBranchesForDemotion()) {
+    return false;
+  }
+
+  // A failed demotion stays MAIN, so the stores must accept branches again.
+  utils::OnScopeExit const unfreeze_if_still_main{[&] {
+    if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
+  }};
+
+  return demote();
+}
+
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
@@ -292,25 +307,16 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       return false;
     }
 
-    // Only a MAIN has branches to drop; an already-REPLICA re-config keeps its frozen stores.
-    bool const was_main = repl_state_.ReadLock()->IsMain();
-    if (was_main && !DropBranchesForDemotion()) {
-      return false;
-    }
+    return DemoteWithBranchDrop([&] {
+      auto locked_repl_state = repl_state_.TryLock();
 
-    // A failed demotion stays MAIN, so the stores must accept branches again.
-    utils::OnScopeExit const refreeze_on_failure{[&] {
-      if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
-    }};
+      dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+        // Pause TTL
+        db_acc->ttl().Pause();
+      });
 
-    auto locked_repl_state = repl_state_.TryLock();
-
-    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
-      // Pause TTL
-      db_acc->ttl().Pause();
+      return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
     });
-
-    return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
@@ -318,15 +324,10 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
-    bool const was_main = repl_state_.ReadLock()->IsMain();
-    if (was_main && !DropBranchesForDemotion()) {
-      return false;
-    }
-    utils::OnScopeExit const refreeze_on_failure{[&] {
-      if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
-    }};
-    auto locked_repl_state = repl_state_.TryLock();
-    return SetReplicationRoleReplica_<false>(locked_repl_state, config);
+    return DemoteWithBranchDrop([&] {
+      auto locked_repl_state = repl_state_.TryLock();
+      return SetReplicationRoleReplica_<false>(locked_repl_state, config);
+    });
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }

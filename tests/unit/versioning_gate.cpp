@@ -18,12 +18,12 @@ using memgraph::versioning::GateError;
 using memgraph::versioning::GateErrorMessage;
 
 TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
-  // Precedence: flag, then license, then storage mode (first failure wins).
+  // Precedence: flag, then license, then storage mode, then commit-lock narrowing (first failure wins).
   struct Case {
     bool flag;
     bool license;
     bool storage;
-    std::optional<GateError> expected;
+    std::optional<GateError> expected;  // when commit_lock_narrowing is false
   };
 
   constexpr Case kCases[] = {
@@ -37,8 +37,12 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
       {false, false, false, GateError::kDisabled},
   };
   for (const auto &c : kCases) {
-    EXPECT_EQ(CheckVersioningGate(c.flag, c.license, c.storage), c.expected)
-        << "flag=" << c.flag << " license=" << c.license << " storage=" << c.storage;
+    for (const bool narrowing : {false, true}) {
+      // Narrowing only surfaces when every earlier check passed.
+      const auto expected = (narrowing && !c.expected) ? std::optional{GateError::kCommitLockNarrowing} : c.expected;
+      EXPECT_EQ(CheckVersioningGate(c.flag, c.license, c.storage, narrowing), expected)
+          << "flag=" << c.flag << " license=" << c.license << " storage=" << c.storage << " narrowing=" << narrowing;
+    }
   }
 }
 

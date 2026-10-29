@@ -294,15 +294,13 @@ TEST_F(VersionStoreTest, GetOrBuildCoreRefusesADroppedBranchNumber) {
   EXPECT_FALSE(store->IsLive("feature", created->number));
 
   int builds = 0;
-  std::weak_ptr<int> observer;
   auto build = [&]() -> CoreResult {
     ++builds;
-    return MakeSentinelCore(observer);
+    return std::unexpected(std::string("must not build"));
   };
   auto refused = store->GetOrBuildCore(created->number, build);
   EXPECT_FALSE(refused.has_value());
   EXPECT_EQ(builds, 0) << "a dropped branch must not be built";
-  EXPECT_TRUE(observer.expired());
 }
 
 TEST_F(VersionStoreTest, ActiveGaugesSumAcrossStores) {
@@ -433,26 +431,6 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllPersistsEmptyRegistryAndRemovesDi
   EXPECT_FALSE(std::filesystem::exists(root / std::to_string(b->number)));
 }
 
-TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchIsRemovedWhenSessionReleasesItsCore) {
-  auto store = MakeLedgerStore();
-  auto b = store->CreateBranch("b", "main", std::nullopt);
-  ASSERT_TRUE(b.has_value());
-  const auto directory = file_.parent_path() / std::to_string(b->number);
-  std::filesystem::create_directories(directory);
-
-  ASSERT_TRUE(store->TryAcquireCheckout("b").has_value());
-  std::weak_ptr<int> observer;
-  auto core = store->GetOrBuildCore(b->number, [&] { return MakeSentinelCore(observer); });
-  ASSERT_TRUE(core.has_value());
-
-  ASSERT_TRUE(store->FreezeAndDropAll().has_value());
-  EXPECT_TRUE(std::filesystem::exists(directory));
-
-  core->reset();
-  store->ReleaseCheckout("b");
-  EXPECT_FALSE(std::filesystem::exists(directory));
-}
-
 TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchSurvivesUntilLastNestedHolderReleases) {
   auto store = MakeLedgerStore();
   auto b = store->CreateBranch("b", "main", std::nullopt);
@@ -468,6 +446,7 @@ TEST_F(VersionStoreLedgerTest, DirectoryOfDroppedBranchSurvivesUntilLastNestedHo
   auto nested = *outer;
 
   ASSERT_TRUE(store->FreezeAndDropAll().has_value());
+  EXPECT_TRUE(std::filesystem::exists(directory));
 
   nested.reset();
   store->ReleaseCheckout("b");

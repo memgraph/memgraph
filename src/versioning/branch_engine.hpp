@@ -82,12 +82,12 @@ class BranchCore {
     uint64_t edge_gid_floor;
   };
 
-  // Builds an empty diff engine, records the gid floors (main's counters unless `recorded` supplies them), and mirrors
-  // main's index and enum definitions. With a `branch_number` and a WAL-enabled main, branch commits (native deltas and
-  // overlay records) go to a WAL in <main storage dir>/branches/<branch_number>/; otherwise the branch is not durable.
   // True when main keeps a WAL, the config half of whether a numbered branch gets its own durable WAL.
   static bool WritesWal(const storage::InMemoryStorage &main);
 
+  // Builds an empty diff engine, records the gid floors (main's counters unless `recorded` supplies them), and mirrors
+  // main's index and enum definitions. With a `branch_number` and a WAL-enabled main, branch commits (native deltas and
+  // overlay records) go to a WAL in <main storage dir>/branches/<branch_number>/; otherwise the branch is not durable.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt,
       std::optional<RecordedFloors> recorded = std::nullopt);
@@ -105,10 +105,7 @@ class BranchCore {
   uint64_t fork_ts() const { return fork_ts_; }
 
   // Whether the diff engine writes a WAL, i.e. whether branch commits must carry their overlay records.
-  bool wal_enabled() const {
-    return diff_engine_->config_.durability.snapshot_wal_mode ==
-           storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-  }
+  bool wal_enabled() const { return WritesWal(*diff_engine_); }
 
   // Main's vertex/edge counters at Build: gids below are fork objects, gids at or above are branch-native.
   uint64_t vertex_gid_floor() const { return vertex_gid_floor_; }

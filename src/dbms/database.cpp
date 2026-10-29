@@ -212,20 +212,17 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   std::ranges::stable_sort(plan.ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
   if (plan.ledger.branches.empty()) return plan;
 
+  const char *unsupported = nullptr;
   if (!FLAGS_versioning_enabled) {
-    spdlog::warn(
-        "Graph Versioning is disabled (--versioning-enabled=false); the {} existing branches [{}] are dropped.",
-        plan.ledger.branches.size(),
-        BranchNames(plan.ledger));
-    return plan;
+    unsupported = "Graph Versioning is disabled (--versioning-enabled=false)";
+  } else if (config.experimental_commit_lock_narrowing) {
+    unsupported = "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing";
   }
-
-  if (config.experimental_commit_lock_narrowing) {
-    spdlog::warn(
-        "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing; the {} existing "
-        "branches [{}] are dropped.",
-        plan.ledger.branches.size(),
-        BranchNames(plan.ledger));
+  if (unsupported) {
+    spdlog::warn("{}; the {} existing branches [{}] are dropped.",
+                 unsupported,
+                 plan.ledger.branches.size(),
+                 BranchNames(plan.ledger));
     return plan;
   }
 

@@ -179,8 +179,8 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
   return impl_.HasLabel(label, view);
 }
 
-storage::Result<bool> VertexAccessor::HasAnyLabel(storage::View view) const {
-  if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) && branch_ctx_->MayHaveLabelChange(impl_.Gid())) {
+storage::Result<bool> VertexAccessor::BranchHasAnyLabel(storage::View view) const {
+  if (MayHaveOverlay(*branch_ctx_, impl_) && branch_ctx_->MayHaveLabelChange(impl_.Gid())) {
     auto labels = MergedLabels(*branch_ctx_, impl_, view);
     if (!labels) return std::unexpected{labels.error()};
     return !labels->empty();

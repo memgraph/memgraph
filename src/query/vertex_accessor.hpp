@@ -66,7 +66,11 @@ class VertexAccessor final {
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const;
 
-  storage::Result<bool> HasAnyLabel(storage::View view) const;
+  storage::Result<bool> HasAnyLabel(storage::View view) const {
+    if (branch_ctx_ == nullptr) [[likely]]
+      return impl_.HasAnyLabel(view);
+    return BranchHasAnyLabel(view);
+  }
 
   auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
 
@@ -163,6 +167,7 @@ class VertexAccessor final {
   // Overlay* writes.
   storage::Result<bool> BranchAddLabel(storage::LabelId label);
   storage::Result<bool> BranchRemoveLabel(storage::LabelId label);
+  storage::Result<bool> BranchHasAnyLabel(storage::View view) const;
   storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
                                                             const storage::PropertyValue &value);
   storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
