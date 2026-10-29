@@ -279,12 +279,17 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   }
   // A cartesian point has x and y where a geographic one has longitude and latitude, and
   // naming the one to use instead is more help than reporting the name as unknown.
-  auto field_error = [](std::string_view prop_name, bool geographic, std::string_view kind) {
+  // A cartesian point has x and y where a geographic one has longitude and latitude, and
+  // naming the one to use instead is more help than reporting the name as unknown. Only for a
+  // coordinate the point has, though: one in two dimensions has no third, so sending it there
+  // would earn the asker a second refusal.
+  auto field_error = [](std::string_view prop_name, bool geographic, bool has_z, std::string_view kind) {
     if (!geographic) {
       if (prop_name == "longitude")
         return QueryRuntimeException("Use x instead of longitude for cartesian point types");
       if (prop_name == "latitude") return QueryRuntimeException("Use y instead of latitude for cartesian point types");
-      if (prop_name == "height") return QueryRuntimeException("Use z instead of height for cartesian point types");
+      if (prop_name == "height" && has_z)
+        return QueryRuntimeException("Use z instead of height for cartesian point types");
     }
     return QueryRuntimeException("Invalid property name {} for {}", prop_name, kind);
   };
@@ -344,35 +349,35 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueDuration(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, "Duration");
+      throw field_error(prop_name, true, false, "Duration");
     }
     case TypedValue::Type::Date: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueDate(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, "Date");
+      throw field_error(prop_name, true, false, "Date");
     }
     case TypedValue::Type::LocalTime: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueLocalTime(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, "LocalTime");
+      throw field_error(prop_name, true, false, "LocalTime");
     }
     case TypedValue::Type::LocalDateTime: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueLocalDateTime(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, "LocalDateTime");
+      throw field_error(prop_name, true, false, "LocalDateTime");
     }
     case TypedValue::Type::ZonedDateTime: {
       const auto &prop_name = property_lookup.property_.name;
       if (auto read = storage::ReadFieldNamed(expression_result_ptr->ValueZonedDateTime(), prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, true, "ZonedDateTime");
+      throw field_error(prop_name, true, false, "ZonedDateTime");
     }
     case TypedValue::Type::Point2d: {
       const auto &prop_name = property_lookup.property_.name;
@@ -380,7 +385,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (auto read = storage::ReadFieldNamed(point_2d, prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d, "Point2d");
+      throw field_error(prop_name, point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d, false, "Point2d");
     }
     case TypedValue::Type::Point3d: {
       const auto &prop_name = property_lookup.property_.name;
@@ -388,7 +393,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (auto read = storage::ReadFieldNamed(point_3d, prop_name)) {
         return {*read, GetNameIdMapper(), ctx_->memory};
       }
-      throw field_error(prop_name, point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d, "Point3d");
+      throw field_error(prop_name, point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d, true, "Point3d");
     }
     case TypedValue::Type::Graph: {
       const auto &prop_name = property_lookup.property_.name;
