@@ -166,22 +166,25 @@ until the session switches. With `db="x@b"` every new transaction fails with
 
 ## 6. Behaviour on a branch
 
+Every area below is meant to work on a branch. **Not in v1** marks what this version does not do
+yet (§12 says what each needs). Only triggers, TTL and streams are main-only by design.
+
 | Area | On a branch |
 |---|---|
 | Reads: `MATCH`, traversals, shortest paths, aggregations, subqueries | Yes |
 | Create/delete vertices and edges, labels, properties (on fork-era and branch-created objects) | Yes. Plain `DELETE` of a vertex with edges fails, as on `main`. |
 | Index-backed scans (label, label+property incl. composite/nested/range, edge-type, edge-type+property, global property) | Yes: main's indexes as of the fork plus the branch's changes. Results equal a full scan. |
-| Point functions (`point.distance`, `point.withinbbox`) | Correct results via full scan plus filter; the point index is not used |
-| Text search, vector search | Not supported (architecture): these indexes live outside the MVCC store and cannot answer "as of the fork plus the branch's changes" (§12) |
-| Parallel execution | Not planned: branch queries run single-threaded |
+| Point functions (`point.distance`, `point.withinbbox`) | Correct results via full scan plus filter; using the point index is not in v1 |
+| Text search, vector search | Not in v1; required long-term (agent workloads). These indexes live outside the MVCC store, so they need branch-aware versions (§12) |
+| Parallel execution | Not in v1: branch queries run single-threaded |
 | Existence and type constraints | Enforced at branch commit, against main's **current** constraints |
-| Unique constraints | **Not enforced**. `SHOW CONSTRAINT INFO` marks them `unique (not enforced on branch)`. |
+| Unique constraints | Not in v1 (**not enforced**); required long-term. `SHOW CONSTRAINT INFO` marks them `unique (not enforced on branch)`. |
 | Enums | Main's enums can be used in values |
 | Query modules / procedures | Yes; nested queries stay on the caller's branch. Approximate counts reflect main at the fork. |
-| Triggers, TTL, streams | Never act on a branch; branch writes fire no triggers |
+| Triggers, TTL, streams | Not planned for branches: they act on `main` only; branch writes fire no triggers |
 | `DUMP DATABASE` | The branch's data with main's schema |
 | `CREATE SNAPSHOT` | Snapshots `main` |
-| Schema DDL (index, constraint, enum, TTL, trigger, stream, description), `ANALYZE GRAPH`, `DROP GRAPH`, `STORAGE MODE`, `RECOVER SNAPSHOT`, `EDGE IMPORT MODE`, `schema.assert` | Not in v1: schema and storage-wide state belong to `main` (§12 has the reason per item). Error: `Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.` |
+| Schema DDL (index, constraint, enum, TTL, trigger, stream, description), `ANALYZE GRAPH`, `DROP GRAPH`, `STORAGE MODE`, `RECOVER SNAPSHOT`, `EDGE IMPORT MODE`, `schema.assert` | Not in v1: in v1, schema and storage-wide state are `main`'s (§12 says what each item needs; TTL, trigger and stream DDL stay main-only). Error: `Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.` |
 | `SHOW INDEX INFO` / `SHOW CONSTRAINT INFO` | Main's |
 | `SHOW SCHEMA INFO` | Not in v1: schema info is tracked per storage engine, so main's does not include the branch's changes |
 | Label / edge-type listings | Main's ∪ the branch's |
@@ -190,8 +193,8 @@ until the session switches. With `db="x@b"` every new transaction fails with
 Vertex and edge ids (`id(n)`) of branch-created objects come from main's counters, so ids are
 unique across `main` and all branches of the database.
 
-**Performance.** Scans over data the branch did not touch stream main's data directly. When about
-90% of the scanned data was changed on the branch, reads measured 2.6–7× slower than on `main`.
+**Performance.** Scans over data the branch did not touch stream main's data directly. Measured
+costs per operation are under **Costs on a branch** (§7).
 
 ## 7. Interactions with main
 
@@ -219,6 +222,32 @@ none of them can start once the branch exists.
 | Exclusive operations on `main` wait for open branch transactions (idle branch sessions block nothing) | n/a | Transaction ends |
 
 Branch memory is accounted to the database's memory usage.
+
+**Costs on a branch.** Ratios are branch time ÷ main time for the same query on the same server,
+with equal results checked on both sides. Setup: a 100k-vertex, 1.77M-edge Pokec subset on a
+shared VM, one session, main's WAL on, main idle after the fork. "0/10/50/90%" is the share of
+`:User` vertices the branch changed (each gets a property; every 2nd also a label, every 5th also
+a new edge). Writes ran on a fresh `(:V)` chain graph, 10k–40k rows in one transaction. Reads were
+measured at `c29ca14d5`, writes at `5e0cfb888`; both builds predate the branch WAL, so its cost is
+not in these numbers.
+
+| Operation | Cost vs main | Grows with | Measured |
+|---|---|---|---|
+| RAM, disk | Branch: per changed object plus fixed per built branch. Main: retained history (above) | Branch change count, not graph size; disk with branch write history (§8) | RAM per change: 77–189 B at 90% changed, 101–507 B at 10% (new edges cost most; `5e0cfb888`). Disk not yet measured |
+| First use after `CREATE` or restart | Builds the branch's in-memory structures (§5.1) | Branch size | Not yet measured |
+| Point read via index | Untouched object: one hint-bit check, then main's object at the fork. Touched object: overlay lookup by gid | Touched objects among those read | 200 seeks: ×1.04 / 1.06 / 1.03 / 1.03; zero changes, 20k seeks: ×1.07 |
+| Full scan, count, label scan + filter | Unchanged data streams from main; changed objects are merged from the overlay | Changed objects in the scanned set | `count(n)` ×1.00 at all levels; label scan + filter ×1.02–1.03 |
+| Read every vertex's properties | As above, plus reading the branch's version of each changed object | Changed objects read | ×1.02 / 1.05 / 1.12 / 1.15 |
+| Scan of a label the branch added (no index) | Main's vertices at the fork checked against the branch's per-label membership | Vertices whose label set the branch changed | ×1.07 / 1.16 / 1.25 / 1.31. Branch removing the scanned label from main's vertices: not yet measured |
+| Index scan, `ORDER BY … LIMIT` | Main's index at the fork plus the branch's index. An index not visible at the fork is not used: full scan (§7) | Changed objects carrying the label | `ORDER BY n.id DESC LIMIT 10` over all `:User`: ×1.00–1.01 |
+| Expand / traversal | Adjacency of a touched vertex is main's at the fork merged with branch-added and branch-deleted edges | Touched vertices on the path, their edge changes | 1 hop ×1.03–1.06 at 0–10%, ×1.18–1.28 at 90%; 2 hops ×1.02–1.10; 20 BFS ×1.05 / 1.09 / 1.16 / 1.22 |
+| Writes (incl. commit, no branch WAL) | First write to a fork-era object copies its full state (labels, properties) into an overlay version; later writes add full-state versions | Rows written; width of the object (wide objects not yet measured) | SET property ×0.90–0.94, add label ×1.11–1.23, remove label ×1.03–1.13, edge property ×0.51–0.55, create edge ×0.96–0.97, create vertex ×0.60–0.63, `DETACH DELETE` ×0.46–0.58 |
+| Commit path | Branch commits use the branch's own commit lock and clock, not main's; existence/type constraints are checked on the txn's touched vertices; the branch WAL is written and flushed with main's WAL settings | Txn size; WAL sync policy | Not yet measured with the branch WAL |
+| Reading main@fork after main kept writing | An object main changed after the fork is read by walking main's undo chain back to the fork; main's post-fork index entries are skipped | Main's writes to the read objects since the fork (main write rate × branch age) | Not yet measured (all runs above had main idle) |
+| Planning | Cardinality estimates come from the branch's own engine (branch-created objects only), not main@fork, so a plan can differ from main's for the same query. Results are unaffected | Gap between branch-created data and main@fork | Not yet measured |
+| Several sessions on one branch | Sessions share one branch core; each query is single-threaded (§6); writers conflict only on the same object | Session count | Correctness only (TSan, stress); throughput not yet measured |
+| Restart | Main replays its WAL from the oldest fork point as MVCC transactions, then each branch replays its whole WAL (§8) | Main's WAL since the oldest fork; branch write history (no compaction in v1) | Not yet measured |
+| Main's own queries while branches exist | Retained history costs memory and GC work (above); main's readers start from the newest version and do not walk it. Each built branch runs its own GC on main's interval. Vertex/edge flag writes are atomic read-modify-writes so the hint bit can be read without a lock | Main write rate × age of the oldest branch; branch count | Not yet measured with live branches. The CI benchmark job (no branches) passed on `87cddc09d`; not compared against master |
 
 ## 8. Durability and recovery
 
@@ -249,7 +278,7 @@ retained. Main's clock and vertex/edge id counters still move past every recorde
 branch-created id, so writes made while the flag is off never land in a branch's fork base or reuse
 a branch's ids. The main-side refusals of §7 still apply while the ledger holds branches.
 
-Branch WALs are never compacted, so a long-lived branch's restart time grows with its write
+Branch WALs are not compacted in v1, so a long-lived branch's restart time grows with its write
 history.
 
 **Format.** The feature adds a WAL record type and bumps the durable format version shared by
@@ -258,7 +287,7 @@ version has written files is not supported.
 
 ## 9. Replication and HA (v1)
 
-Branches are single-instance in v1. Main's writes replicate as usual; branch writes never enter
+Branches are single-instance in v1. Main's writes replicate as usual; branch writes do not enter
 the replication stream.
 
 - Every branch query fails on a REPLICA. A promoted replica starts with no branches.
@@ -301,30 +330,35 @@ label):
 branch directory that cannot be removed is logged as a warning naming `Graph Versioning`; a failed
 automatic drop is an error starting with `Failed to drop the branches of database <db>`.
 
-Not exposed: per-branch memory and disk (branch memory shares the database's allocator), and how
+Not exposed in v1: per-branch memory and disk (branch memory shares the database's allocator), and how
 much of main's history is retained because of branches.
 
-## 12. Limits and why
+## 12. Not in v1
 
-| Feature | v1? | Reason |
+Everything below is intended to be supported later; the last column says what it needs. Text
+search, vector search and unique constraints are required long-term (agent workloads), even if
+they need refactoring. Triggers, TTL and streams are the only features not planned for branches:
+they stay main-only (§6).
+
+| Feature | In v1 | What it needs |
 |---|---|---|
-| Merge a branch into `main` | No | Scheduling + design: conflicts with main's concurrent writes, schema drift, triggers, replication and audit are a separate problem. `BRANCH` is non-reserved, so adding `MERGE BRANCH` later is backward compatible. |
-| Diff / log / revert of a branch | No | Scheduling |
-| Nested branches (fork a branch) | No | Architecture: a child's base would be parent-engine@ts ⊕ parent-overlay@ts ⊕ main@fork. That needs historical reads on the branch engine and overlay, GC and WAL pins on the parent, ordered recovery and 3-layer scans: a new visibility layer. |
-| Fork at a past point in time | No | Architecture: main's history before "now" is not retained |
-| Replication / HA | No | Scheduling (§9) |
-| Analytical or on-disk storage | No | Architecture: analytical mode writes no undo history, so there is nothing to read at the fork point; on-disk has no in-memory MVCC history |
-| Index or constraint created on a branch | No | Architecture: fork data lives in main's storage and indexes. A branch-private index there would be maintained by main's write path and seen by main's planner; doing it right needs a new branch-side index type. Workaround: create the index on `main` (allowed). |
-| `ANALYZE GRAPH` on a branch | No | Scheduling: stats would go to the branch engine, but the branch planner's use of them is not yet verified |
-| Unique constraints enforced on a branch | No | Scheduling: needs a check against main@fork plus branch changes under concurrent sessions |
-| Text, vector search on a branch | No | Architecture: these indexes live outside the MVCC store and cannot answer "as of the fork plus branch changes"; a stale answer would be worse than an error |
-| Point index on a branch | No (full-scan fallback, correct results) | Scheduling |
-| Parallel execution on a branch | No | Not planned |
-| Branch WAL compaction (branch snapshots) | No | Scheduling |
-| Caps on branch count, size, age | No | Scheduling: needs operating experience to pick bounds |
-| Per-branch memory/disk reporting | No | Architecture: branch memory shares the database allocator |
-| Per-branch ACLs / ownership | No | Scheduling |
-| `CREATE` / `ALTER ENUM` on `main` while branches exist | No | Architecture: each branch has its own copy of the enum store, so a change on `main` would not reach it. Sharing main's enum store with branches is follow-up work. |
+| Merge a branch into `main` | Not in v1 | A design for conflicts with main's concurrent writes, schema drift, triggers, replication and audit. `BRANCH` is non-reserved, so adding `MERGE BRANCH` is backward compatible. |
+| Diff / log / revert of a branch | Not in v1 | Implementation only |
+| Nested branches (fork a branch) | Not in v1 | A third visibility layer: a child's base is parent-engine@ts ⊕ parent-overlay@ts ⊕ main@fork, so it needs historical reads on the branch engine and overlay, GC and WAL pins on the parent, ordered recovery and 3-layer scans |
+| Fork at a past point in time | Not in v1 | A retention window on `main`: today main keeps no history older than the oldest open transaction or fork pin |
+| Replication / HA | Not in v1 | §9 |
+| Analytical or on-disk storage | Not in v1 | A fork-point read source: analytical mode writes no undo history, and on-disk has no in-memory MVCC history |
+| Index or constraint created on a branch | Not in v1 | A branch-side index type: fork data lives in main's storage and indexes, and a branch-private index there would be maintained by main's write path and seen by main's planner. Workaround: create the index on `main` (allowed) |
+| `ANALYZE GRAPH` on a branch | Not in v1 | Verifying the branch planner's use of stats stored in the branch engine |
+| Unique constraints enforced on a branch | Not in v1 (required) | A check against main@fork plus the branch's changes under concurrent branch sessions |
+| Text, vector search on a branch | Not in v1 (required) | Branch-aware versions of these indexes. They live outside the MVCC store and reflect only main's current state, so answering "as of the fork plus the branch's changes" needs a fork-point view of main's index plus a branch-side index over the branch's changes. Until then the query errors instead of returning a stale answer |
+| Point index on a branch | Not in v1 (full-scan fallback, correct results) | Implementation only |
+| Parallel execution on a branch | Not in v1 | Making the branch scans (fork stream ⊕ overlay ⊕ branch-created objects) splittable into chunks |
+| Branch WAL compaction (branch snapshots) | Not in v1 | Implementation only |
+| Caps on branch count, size, age | Not in v1 | Operating experience to pick bounds |
+| Per-branch memory/disk reporting | Not in v1 | Per-branch accounting: branch memory shares the database allocator |
+| Per-branch ACLs / ownership | Not in v1 | Implementation only |
+| `CREATE` / `ALTER ENUM` on `main` while branches exist | Not in v1 | Sharing main's enum store with branches: each branch has its own copy, so a change on `main` would not reach it |
 
 ## 13. Worked example
 
@@ -365,7 +399,7 @@ takes only main's shared storage lock and always reads snapshot-isolated at `for
 
 **Branch core** (one per branch, shared by its sessions, built on first use):
 
-- *Diff engine:* a private `InMemoryStorage` (config copied from main, own GC, never snapshotted)
+- *Diff engine:* a private `InMemoryStorage` (config copied from main, own GC, not snapshotted in v1)
   sharing main's name-id mapper and allocator. It holds **branch-native** objects (gid ≥ the gid
   floor, i.e. main's counter value at first build; gids come from main's counters).
 - *Overlay MVCC* (`VertexOverlayStore`): changes to **fork-era** objects are per-object MVCC
