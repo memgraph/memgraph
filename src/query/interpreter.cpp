@@ -6923,11 +6923,11 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
         case storage::InMemoryStorage::CreateSnapshotError::NoSpaceLeft:
-          throw utils::BasicException("Failed to create snapshot. {}.",
-                                      storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
+          throw RetryBasicException("Failed to create snapshot. {}.",
+                                    storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
         case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
-          throw utils::BasicException(storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
+          throw RetryBasicException(storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
       }
     }
     return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.value()}}};
@@ -11695,7 +11695,7 @@ void Interpreter::CommitAuthTransaction() {
   auto claimed = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(claimed, TransactionStatus::STARTED_COMMITTING)) {
     if (claimed == TransactionStatus::TERMINATED) {
-      throw memgraph::utils::BasicException(
+      throw RetryBasicException(
           "Aborting transaction commit because the transaction was requested to stop from other session. ");
     }
     MG_ASSERT(claimed == TransactionStatus::ACTIVE || claimed == TransactionStatus::VERIFYING,
@@ -11862,7 +11862,7 @@ void Interpreter::Commit() {
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING)) {
     if (expected == TransactionStatus::TERMINATED) {
-      throw memgraph::utils::BasicException(
+      throw RetryBasicException(
           "Aborting transaction commit because the transaction was requested to stop from other session. ");
     }
     expected = TransactionStatus::ACTIVE;
@@ -11927,8 +11927,14 @@ void Interpreter::Commit() {
                         user_or_role_,
                         interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
-        throw utils::BasicException(
-            fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
+        auto message =
+            fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what());
+        // Preserve the retryability of the original failure: a retryable exception (serialization
+        // conflict, HintedAbortError, OOM) must stay retryable after being rewrapped.
+        if (dynamic_cast<const utils::RetryableException *>(&e)) {
+          throw RetryBasicException(std::move(message));
+        }
+        throw utils::BasicException(std::move(message));
       }
     }
     SPDLOG_DEBUG("Finished executing before commit triggers");
