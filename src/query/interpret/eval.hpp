@@ -1203,11 +1203,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 #endif
 
-  // The one place a VectorRef is created; eager (non-compact) reads never yield a VectorIndexId.
+  // The one place a VectorRef is created, only under the lazy-refs gate; eager reads (floats filled) become a List.
   template <class TRecordAccessor, class TPropertyValue>
   TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
                                TPropertyValue &&raw) {
-    if (raw.IsVectorIndexId()) [[unlikely]]
+    if (raw.IsVectorIndexId() && ctx_->lazy_vector_refs) [[unlikely]]
       return MakeVectorRef(record_accessor, prop_id);
     return {std::forward<TPropertyValue>(raw), GetNameIdMapper(), ctx_->memory};
   }
