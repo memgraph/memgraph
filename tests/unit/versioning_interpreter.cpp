@@ -3741,3 +3741,93 @@ TEST_F(VersioningGatedTest, BranchRebuiltIndexNoDriftControl) {
   faker.Interpret("USE BRANCH 'b'");
   ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6}, true);
 }
+
+#ifdef MG_ENTERPRISE
+// Bolt db="<database>@<branch>": RuntimeConfig::Configure pins the session to the database (in_explicit_db) and calls
+// SelectPinnedBranch. These drive that pair directly, without SessionHL.
+TEST_F(VersioningMultiSessionTest, PinnedBranchRunsOnBranchAndPlainPinMeansMain) {
+  faker2.Interpret("CREATE BRANCH 'b'");
+
+  faker.interpreter.SetCurrentDB(db, /*in_explicit_db=*/true);
+  faker.interpreter.SelectPinnedBranch("b");
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  faker.Interpret("CREATE (:OnB {v:1})");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker2, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}})) << "the write is invisible on main";
+
+  faker.interpreter.SelectPinnedBranch(std::nullopt);
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+
+  faker.interpreter.SelectPinnedBranch("b");
+  faker.interpreter.SelectPinnedBranch("main");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value()) << "'x@main' is main";
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+}
+
+TEST_F(VersioningMultiSessionTest, PinnedUnknownBranchFailsAndLeavesTheSession) {
+  faker.interpreter.SetCurrentDB(db, true);
+  try {
+    faker.interpreter.SelectPinnedBranch("nope");
+    FAIL() << "unknown branch must be refused";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string{e.what()}, "Branch 'nope' does not exist.");
+  }
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+}
+
+TEST_F(VersioningMultiSessionTest, PinnedBranchHonoursTheVersioningGate) {
+  faker2.Interpret("CREATE BRANCH 'b'");
+  faker.interpreter.SetCurrentDB(db, true);
+  SetVersioningFlag(false);
+  EXPECT_THROW(faker.interpreter.SelectPinnedBranch("b"), memgraph::query::QueryRuntimeException);
+  EXPECT_NO_THROW(faker.interpreter.SelectPinnedBranch(std::nullopt)) << "no '@' part, no gate";
+}
+
+TEST_F(VersioningMultiSessionTest, PinnedSessionRefusesUseBranchAndUseDatabaseButAllowsUsingBranch) {
+  faker2.Interpret("CREATE BRANCH 'b'");
+  faker2.Interpret("USE BRANCH 'b'");
+  faker2.Interpret("CREATE (:OnB {v:1})");
+  faker2.Interpret("USE BRANCH 'main'");
+
+  faker.interpreter.SetCurrentDB(db, true);
+  faker.interpreter.SelectPinnedBranch("b");
+
+  try {
+    faker.Interpret("USE BRANCH 'main'");
+    FAIL() << "USE BRANCH must be refused under a db pin";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_EQ(std::string{e.what()}, "Branch switching is prohibited if the session explicitly defines the database.");
+  }
+  EXPECT_ANY_THROW(faker.Interpret("USE DATABASE memgraph"));
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  EXPECT_EQ(IntRows(faker, "USING BRANCH 'main' MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b") << "USING BRANCH changes no session state";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{1}}));
+}
+
+TEST_F(VersioningMultiSessionTest, PinnedBranchDroppedFailsEveryTransactionUntilTheDbChanges) {
+  faker2.Interpret("CREATE (:K {v:10})");
+  faker2.Interpret("CREATE BRANCH 'b'");
+  faker.interpreter.SetCurrentDB(db, true);
+  faker.interpreter.SelectPinnedBranch("b");
+  ASSERT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
+
+  faker2.Interpret("DROP BRANCH 'b' FORCE");
+
+  for (int i = 0; i < 2; ++i) {
+    try {
+      faker.Interpret("MATCH (n:K) RETURN n.v");
+      FAIL() << "a pinned session on a dropped branch must fail";
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(std::string{e.what()}, "Branch 'b' no longer exists.");
+    }
+  }
+
+  faker.interpreter.SelectPinnedBranch(std::nullopt);
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+}
+#endif

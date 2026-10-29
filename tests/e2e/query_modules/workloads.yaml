@@ -100,3 +100,9 @@ workloads:
     proc: "query_modules/,tests/e2e/query_modules/query_modules/"
     args: ["query_modules/versioning_mgp_test.py"]
     <<: *in_memory_cluster_versioning
+
+  - name: "Versioning Bolt db=database@branch test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/versioning_bolt_db_test.py"]
+    <<: *in_memory_cluster_versioning

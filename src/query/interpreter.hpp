@@ -553,6 +553,11 @@ class Interpreter final {
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_explicit_db);
 
+  // Bolt `db="<database>@<branch>"`: puts the session on `branch` (std::nullopt or "main" means main) of the current
+  // database, reusing USE BRANCH's attach/park machinery and gates. Throws QueryRuntimeException (session left where
+  // it was) if the branch does not exist or the versioning gate refuses.
+  void SelectPinnedBranch(std::optional<std::string> const &branch);
+
   void ResetDB() { current_db_.ResetDB(); }
 
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }

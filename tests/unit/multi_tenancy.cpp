@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/resource.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -800,10 +801,34 @@ TEST_F(MultiTenantTest, DatabaseNameWithAtIsReserved) {
 
   RunMtQuery(interpreter, "CREATE DATABASE at_rename_db", "Successfully created database at_rename_db");
   ASSERT_THROW(RenameDatabase(interpreter, "at_rename_db", "`x@y`"), memgraph::query::QueryException);
+}
 
-  // Simulates a database created before the restriction (or recovered from disk).
-  ASSERT_TRUE(DBMS().New("legacy@db").has_value());
-  UseDatabase(interpreter, "`legacy@db`", "Using legacy@db");
+TEST_F(MultiTenantTest, ReplicatedDatabaseNameWithAtIsRefused) {
+  auto &dbms = DBMS();
+  const memgraph::storage::SalientConfig at_config{.name = "a@b", .uuid = memgraph::utils::UUID{}};
+  ASSERT_FALSE(dbms.Update(at_config).has_value());
+  ASSERT_THROW(dbms.Get("a@b"), memgraph::dbms::UnknownDatabaseException);
+}
+
+TEST_F(MultiTenantTest, StartupFailsOnDatabaseNameWithAt) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  // Databases created by a version that still allowed '@'; Rename bypasses the query-level check.
+  ASSERT_TRUE(DBMS().New("old_a").has_value());
+  ASSERT_TRUE(DBMS().New("old_x").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_a", "a@b").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_x", "x@y").has_value());
+  min_mg.reset();
+
+  ASSERT_DEATH(
+      {
+        rlimit no_core{};
+        no_core.rlim_cur = 0;
+        no_core.rlim_max = 0;
+        setrlimit(RLIMIT_CORE, &no_core);
+        memgraph::dbms::DbmsHandler handler{config};
+        (void)handler;
+      },
+      "Database name\\(s\\) 'a@b', 'x@y' contain '@'");
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {

@@ -36,6 +36,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"  // utils::OutOfMemoryException (boot-OOM detection)
 #include "utils/on_scope_exit.hpp"
+#include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -241,6 +242,26 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
         if (json.contains("cold_stats")) entry.cold_stats = Durability::StatsFromJson(json.at("cold_stats"));
         return entry;
       };
+
+  // '@' is reserved for database@branch addressing; a Bolt `db` value containing it is always split. Refuse to boot
+  // rather than leave a database that can never be addressed. Checked on the durable keys, so COLD tenants and
+  // renamed databases are covered, and before any storage is built.
+  {
+    std::vector<std::string> reserved;
+    for (auto rit = durability_->begin(std::string(kDBPrefix)), rend = durability_->end(std::string(kDBPrefix));
+         rit != rend;
+         ++rit) {
+      if (auto db_name = rit->first.substr(kDBPrefix.size()); db_name.contains('@')) {
+        reserved.push_back(std::move(db_name));
+      }
+    }
+    if (!reserved.empty()) {
+      LOG_FATAL(
+          "Database name(s) '{}' contain '@', which is reserved for branch addressing (database@branch) since this "
+          "version. Start the previous Memgraph version and run RENAME DATABASE on them before upgrading.",
+          utils::Join(reserved, "', '"));
+    }
+  }
 
   // Restore databases. A tenant is restored HOT (storage built + recovered) unless its durable entry
   // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored

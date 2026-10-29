@@ -191,6 +191,14 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
+  if (req.new_name.contains('@')) {
+    spdlog::error("Refusing to rename database '{}' to '{}': '@' is reserved for branch addressing (database@branch).",
+                  req.old_name,
+                  req.new_name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be renamed/created/deleted at the
     // moment.

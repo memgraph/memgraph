@@ -325,6 +325,10 @@ void memgraph::query::CurrentDB::ThrowIfBranchGone() {
   if (branch_context_ && !db_transactional_accessor_) {
     ClearBranchContext();
   }
+  // A db-pinned session cannot USE BRANCH or USE DATABASE; only the client changing `db` gets it out.
+  if (in_explicit_db_) {
+    throw QueryRuntimeException("Branch '{}' no longer exists.", *current_version_);
+  }
   throw QueryRuntimeException("Branch '{}' no longer exists. Run USE BRANCH or USE DATABASE to continue.",
                               *current_version_);
 }
@@ -11193,6 +11197,28 @@ void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_ex
     AbortCommand(nullptr);
   }
   current_db_.SetCurrentDB(std::move(db_acc), in_explicit_db);
+}
+
+void Interpreter::SelectPinnedBranch(std::optional<std::string> const &branch) {
+  auto &current_db = current_db_;
+  MG_ASSERT(current_db.db_acc_, "Branch pin expects a current DB");
+  const auto db_acc = *current_db.db_acc_;
+  if (!branch) {
+    // Plain `db="x"` means main, including for a session that earlier left it with USE BRANCH.
+    if (current_db.CurrentVersion()) current_db.SetCurrentVersion(std::nullopt);
+    return;
+  }
+  auto *version_store = CheckedVersionStore(interpreter_context_, db_acc);
+  if (*branch == "main") {
+    if (current_db.CurrentVersion()) current_db.SetCurrentVersion(std::nullopt);
+    return;
+  }
+  const auto info = version_store->Get(*branch);
+  if (!info) {
+    throw QueryRuntimeException("Branch '{}' does not exist.", *branch);
+  }
+  if (current_db.branch_context() != nullptr && current_db.foreign_branch_number() == info->number) return;
+  SwitchSessionBranch(current_db, version_store, db_acc, *branch);
 }
 #else
 // Default database only
