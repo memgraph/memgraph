@@ -61,14 +61,9 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const utils::BasicException *>(&e)) {
-    // Only exception types declared retryable here may be reported as
-    // TransientError: a retry can only help for a genuinely transient
-    // condition (a serialization conflict, a storage access timeout, an
-    // RPC failure or an out-of-memory condition). Every other
-    // BasicException - e.g. a permanently-invalid temporal literal or an
-    // unwrapped TypedValueException - is non-retryable, so it is reported
-    // as a ClientError and the driver does not retry a query that can
-    // never succeed.
+    // Allow-list of retryable BasicExceptions: only genuinely transient conditions (serialization
+    // conflict, storage access timeout, RPC failure, OOM). Everything else is non-retryable, so it
+    // gets a ClientError and the driver won't retry a query that can never succeed.
     const bool retryable = dynamic_cast<const query::RetryBasicException *>(&e) != nullptr ||
                            dynamic_cast<const storage::SharedAccessTimeout *>(&e) != nullptr ||
                            dynamic_cast<const storage::UniqueAccessTimeout *>(&e) != nullptr ||

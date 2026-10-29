@@ -556,9 +556,6 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
-    // `throw;` here no longer implies a TransientError: the Bolt classifier reports only an
-    // explicitly retryable BasicException as transient and every other one as a ClientError, so
-    // the type itself decides whether the client is encouraged to retry.
     throw;
   }
 }
@@ -582,9 +579,6 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
-    // `throw;` here no longer implies a TransientError: the Bolt classifier reports only an
-    // explicitly retryable BasicException as transient and every other one as a ClientError, so
-    // the type itself decides whether the client is encouraged to retry.
     throw;
   }
 }
@@ -711,9 +705,6 @@ void SessionHL::RollbackTransaction() {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
-    // `throw;` here no longer implies a TransientError: the Bolt classifier reports only an
-    // explicitly retryable BasicException as transient and every other one as a ClientError, so
-    // the type itself decides whether the client is encouraged to retry.
     throw;
   }
 }
@@ -740,9 +731,6 @@ bolt_map_t SessionHL::CommitTransaction() {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
-    // `throw;` here no longer implies a TransientError: the Bolt classifier reports only an
-    // explicitly retryable BasicException as transient and every other one as a ClientError, so
-    // the type itself decides whether the client is encouraged to retry.
     throw;
   }
 }

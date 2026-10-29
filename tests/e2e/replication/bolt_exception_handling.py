@@ -47,8 +47,7 @@ FILE = "bolt_exception_handling"
 MAIN_PORT = 7687
 REPLICA_PORT = 7688
 
-# The unparseable temporal inputs + the message the temporal parser returns for each. They share one code path: a
-# plain utils::BasicException (temporal::InvalidArgumentException) escaping the Bolt statement classifier.
+# Unparseable temporal inputs; each is a plain temporal::InvalidArgumentException from one shared code path.
 _INVALID_TEMPORAL = [
     ("RETURN duration('PXYZ')", "Invalid duration string", "duration"),
     ("RETURN date('not-a-date')", "Invalid year in the string", "date"),
@@ -260,7 +259,7 @@ def test_invalid_temporal_input_is_client_error(query, message, test_name):
 
 
 def test_invalid_temporal_input_does_not_increment_transient_errors(test_name):
-    """A6: a permanently-invalid temporal parse is never counted as a transient error."""
+    """A permanently-invalid temporal parse is never counted as a transient error."""
     _start_main(test_name)
     driver = _driver()
     try:
@@ -278,7 +277,7 @@ def test_invalid_temporal_input_does_not_increment_transient_errors(test_name):
 
 
 def test_project_distinct_graph_is_client_error(test_name):
-    """S6/A4: an unwrapped TypedValueException (graph hashing) is a ClientError, not retryable."""
+    """An unwrapped TypedValueException (graph hashing) is a ClientError, not retryable."""
     _start_main(test_name)
     driver = _driver()
     try:
@@ -294,7 +293,7 @@ def test_project_distinct_graph_is_client_error(test_name):
 
 
 def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
-    """S1/S15: the driver must not retry an invalid temporal query inside a managed transaction."""
+    """The driver must not retry an invalid temporal query inside a managed transaction."""
     _start_main(test_name)
     driver = _driver(
         max_transaction_retry_time=5.0,
@@ -322,7 +321,7 @@ def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
 
 @requires_enterprise
 def test_impersonation_failure_is_client_error(test_name):
-    """A4: a permanently-invalid impersonation request is a ClientError, never a TransientError."""
+    """A permanently-invalid impersonation request is a ClientError, never a TransientError."""
     _start_main(test_name)
     driver = _driver()
     try:
@@ -337,7 +336,7 @@ def test_impersonation_failure_is_client_error(test_name):
 
 
 def test_storage_access_timeout_remains_transient_error(test_name):
-    """A2: the storage access-timeout family stays TransientError (allow-list entry)."""
+    """The storage access-timeout family stays TransientError."""
     _start_main(test_name)
     driver = _driver()
     holder = None
@@ -357,7 +356,7 @@ def test_storage_access_timeout_remains_transient_error(test_name):
 
 
 def test_serialization_conflict_remains_transient_error(test_name):
-    """A2: a RetryBasicException (write-write serialization conflict) stays TransientError."""
+    """A write-write serialization conflict stays TransientError."""
     _start_main(test_name)
     driver = _driver()
     try:
