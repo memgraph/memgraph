@@ -2831,6 +2831,92 @@ TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
   EXPECT_GT(second->number, first->number);
 }
 
+TEST_F(ReplicationTest, TryDemoteToReplicaDropsBranches) {
+  FLAGS_versioning_enabled = true;
+  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
+  MinMemgraph instance(main_conf);
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  ASSERT_TRUE(store->CreateBranch("before", "main", std::nullopt).has_value());
+
+  ASSERT_TRUE(instance.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+  EXPECT_TRUE(store->List().empty());
+  EXPECT_TRUE(store->Frozen());
+}
+
+TEST_F(ReplicationTest, DemoteFailingToDropBranchesStaysMain) {
+  FLAGS_versioning_enabled = true;
+  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
+  MinMemgraph instance(main_conf);
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  ASSERT_TRUE(store->CreateBranch("kept", "main", std::nullopt).has_value());
+
+  // A directory in place of the ledger's temp file makes every ledger write fail (also when running as root).
+  auto const ledger_tmp = instance.db.config().durability.storage_directory / "branches" / "ledger.tmp";
+  ASSERT_TRUE(std::filesystem::create_directories(ledger_tmp));
+  auto const remove_blocker = memgraph::utils::OnScopeExit{[&] {
+    std::error_code ec;
+    std::filesystem::remove_all(ledger_tmp, ec);
+  }};
+
+  EXPECT_FALSE(instance.repl_handler.SetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+  EXPECT_FALSE(instance.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+
+  EXPECT_FALSE(instance.repl_handler.IsReplica());
+  EXPECT_FALSE(store->Frozen());
+  EXPECT_EQ(store->List().size(), 1U);
+}
+
+TEST_F(ReplicationTest, ReplicaResyncDropsBranchesAndKeepsStoreFrozen) {
+  FLAGS_versioning_enabled = true;
+  auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  ASSERT_TRUE(replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // A demoted replica is frozen and empty by construction; unfreezing it stands in for a store that still holds
+  // branches forked from the state the resync is about to discard.
+  auto *replica_store = replica.db.version_store();
+  ASSERT_NE(replica_store, nullptr);
+  ASSERT_TRUE(replica_store->Frozen());
+  replica_store->Unfreeze();
+  ASSERT_TRUE(replica_store->CreateBranch("stale", "main", std::nullopt).has_value());
+
+  {
+    auto *const mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(main.db.storage());
+    auto const locked_clients = mem_storage->repl_storage_state_.replication_storage_clients_.ReadLock();
+    auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+    for (auto const &client : *locked_clients) client->ForceRecoverReplica(mem_storage, protector);
+  }
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  EXPECT_TRUE(replica_store->List().empty());
+  EXPECT_TRUE(replica_store->Frozen());
+}
+
 TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
   FLAGS_versioning_enabled = true;
   auto const reset_flag = memgraph::utils::OnScopeExit{[] { FLAGS_versioning_enabled = false; }};
