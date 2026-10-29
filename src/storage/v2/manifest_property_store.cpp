@@ -13,6 +13,10 @@
 
 #include <array>
 #include <bit>
+// Taken via usearch, since the platform's own half-precision type is not dependable.
+#include <fp16.h>
+#include <gflags/gflags.h>
+
 #include <chrono>
 #include <cstring>
 #include <limits>
@@ -24,6 +28,10 @@
 
 #include "storage/v2/timezone_registry.hpp"
 #include "utils/logging.hpp"
+
+/// How many bits of a double are kept. A record is written at whatever this says and then
+/// carries that width in its shape, so nothing a record says depends on this afterwards.
+DECLARE_uint64(storage_floating_point_resolution_bits);
 
 namespace memgraph::storage {
 
@@ -37,6 +45,58 @@ auto WidthFor(int64_t value) -> uint8_t {
   if (value >= std::numeric_limits<int16_t>::min() && value <= std::numeric_limits<int16_t>::max()) return 2;
   if (value >= std::numeric_limits<int32_t>::min() && value <= std::numeric_limits<int32_t>::max()) return 4;
   return 8;
+}
+
+/// The width a double is written at. Read once, when a record is written, because the width it
+/// gives then goes into the shape: a record read against a width other than the one it was
+/// written at would say something it was never given.
+auto DoubleWidthToWriteAt() -> uint8_t {
+  auto const bits = FLAGS_storage_floating_point_resolution_bits;
+  if (bits == 16) return sizeof(uint16_t);
+  if (bits == 32) return sizeof(float);
+  DMG_ASSERT(bits == 64, "Invalid floating point resolution: {}", bits);
+  return sizeof(double);
+}
+
+void WriteDouble(uint8_t *at, double value, uint8_t width) {
+  switch (width) {
+    case sizeof(uint16_t): {
+      auto const half = fp16_ieee_from_fp32_value(static_cast<float>(value));
+      std::memcpy(at, &half, sizeof(half));
+      return;
+    }
+    case sizeof(float): {
+      auto const single = static_cast<float>(value);
+      std::memcpy(at, &single, sizeof(single));
+      return;
+    }
+    default:
+      DMG_ASSERT(width == sizeof(double), "A double is stored at one of three widths");
+      // The bytes rather than the number, so a negative zero and a NaN read back as the ones
+      // written rather than as some other value that compares the same.
+      std::memcpy(at, &value, sizeof(value));
+      return;
+  }
+}
+
+auto ReadDouble(uint8_t const *at, uint8_t width) -> double {
+  switch (width) {
+    case sizeof(uint16_t): {
+      auto half = uint16_t{};
+      std::memcpy(&half, at, sizeof(half));
+      return static_cast<double>(fp16_ieee_to_fp32_value(half));
+    }
+    case sizeof(float): {
+      auto single = float{};
+      std::memcpy(&single, at, sizeof(single));
+      return static_cast<double>(single);
+    }
+    default:
+      DMG_ASSERT(width == sizeof(double), "A double is stored at one of three widths");
+      auto number = double{};
+      std::memcpy(&number, at, sizeof(number));
+      return number;
+  }
 }
 
 void WriteInt(uint8_t *at, int64_t value, uint8_t width) {
@@ -324,7 +384,7 @@ auto EncodePayload(PropertyValue const &value) -> std::vector<uint8_t> {
 auto StoredTypeFor(PropertyValue const &value) -> StoredType {
   if (value.IsBool()) return StoredType::Fixed(PropertyStoreType::BOOL, 1);
   if (value.IsInt()) return StoredType::Fixed(PropertyStoreType::INT, WidthFor(value.ValueInt()));
-  if (value.IsDouble()) return StoredType::Fixed(PropertyStoreType::DOUBLE, sizeof(double));
+  if (value.IsDouble()) return StoredType::Fixed(PropertyStoreType::DOUBLE, DoubleWidthToWriteAt());
   if (value.IsString()) return StoredType::Variable(PropertyStoreType::STRING);
   if (value.IsList() || value.IsIntList() || value.IsDoubleList() || value.IsNumericList()) {
     return StoredType::Variable(PropertyStoreType::LIST);
@@ -350,13 +410,9 @@ void WriteFixed(uint8_t *at, StoredType stored_type, PropertyValue const &value)
     case PropertyStoreType::INT:
       WriteInt(at, value.ValueInt(), stored_type.width);
       return;
-    case PropertyStoreType::DOUBLE: {
-      // The bytes rather than the number, so a negative zero and a NaN read back as the ones
-      // written rather than as some other value that compares the same.
-      auto const number = value.ValueDouble();
-      std::memcpy(at, &number, sizeof(number));
+    case PropertyStoreType::DOUBLE:
+      WriteDouble(at, value.ValueDouble(), stored_type.width);
       return;
-    }
     case PropertyStoreType::ENUM:
       WriteObject(at, value.ValueEnum());
       return;
@@ -385,11 +441,8 @@ auto ReadFixed(uint8_t const *at, StoredType stored_type) -> PropertyValue {
       return PropertyValue{*at != 0};
     case PropertyStoreType::INT:
       return PropertyValue{ReadInt(at, stored_type.width)};
-    case PropertyStoreType::DOUBLE: {
-      auto number = double{};
-      std::memcpy(&number, at, sizeof(number));
-      return PropertyValue{number};
-    }
+    case PropertyStoreType::DOUBLE:
+      return PropertyValue{ReadDouble(at, stored_type.width)};
     case PropertyStoreType::ENUM:
       return PropertyValue{ReadObject<Enum>(at)};
     case PropertyStoreType::TEMPORAL_DATA:
@@ -429,8 +482,7 @@ bool CompareFixed(uint8_t const *at, StoredType stored_type, PropertyValue const
     }
     case PropertyStoreType::DOUBLE: {
       if (!value.IsInt() && !value.IsDouble()) return false;
-      auto stored = double{};
-      std::memcpy(&stored, at, sizeof(stored));
+      auto const stored = ReadDouble(at, stored_type.width);
       if (value.IsInt()) return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), stored));
       return Equivalent(value.ValueDouble(), stored);
     }

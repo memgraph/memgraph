@@ -702,6 +702,142 @@ TEST(ManifestPropertyStore, ARecordNamesItsOwnShape) {
   EXPECT_FALSE(store.manifest().has_value());
 }
 
+namespace {
+/// Leaves the resolution as it was found, so one of these tests cannot decide what another
+/// stores.
+struct RestoreFpResolutionGuard {
+  uint64_t saved = FLAGS_storage_floating_point_resolution_bits;
+
+  ~RestoreFpResolutionGuard() { FLAGS_storage_floating_point_resolution_bits = saved; }
+};
+
+/// What the shape says the record's only property takes.
+auto StoredWidthOf(ManifestRegistry const &registry, ManifestPropertyStore const &store) -> uint8_t {
+  auto const entries = registry.Resolve(*store.manifest()).entries();
+  return entries.front().stored_type.width;
+}
+}  // namespace
+
+// A double may be stored at less than its full width, which is a setting. The width is settled
+// when the record is written and kept in its shape, so the setting is read once per write and
+// never by a read.
+TEST(ManifestPropertyStore, ADoubleIsStoredAtTheWidthTheSettingAsksFor) {
+  RestoreFpResolutionGuard guard;
+
+  for (auto const [resolution, width] : {std::pair{uint64_t{16}, uint8_t{2}},
+                                         std::pair{uint64_t{32}, uint8_t{4}},
+                                         std::pair{uint64_t{64}, uint8_t{8}}}) {
+    FLAGS_storage_floating_point_resolution_bits = resolution;
+
+    ManifestRegistry registry;
+    ManifestPropertyStore store;
+    ASSERT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{1.5}));
+
+    EXPECT_EQ(StoredWidthOf(registry, store), width) << "at a resolution of " << resolution;
+    // A value the narrowest width holds exactly, so it reads back as itself at every one.
+    EXPECT_EQ(store.GetProperty(registry, Prop(1)), PropertyValue{1.5}) << "at a resolution of " << resolution;
+    EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), PropertyValue{1.5})) << "at a resolution of " << resolution;
+  }
+}
+
+// What a record says cannot depend on anything but the record and the shape it names. The
+// setting is the one piece of state that could reach in, so a record written under one is read
+// the same way after it changes: the width it was written at is in its shape, and a shape never
+// changes once interned.
+TEST(ManifestPropertyStore, ARecordReadsTheSameAfterTheSettingChanges) {
+  RestoreFpResolutionGuard guard;
+
+  // A value with more precision than a half or a float can hold, so reading it at the wrong
+  // width could not pass for reading it at the right one.
+  auto const value = 1.2345678901234567;
+
+  for (auto const written_at : {uint64_t{16}, uint64_t{32}, uint64_t{64}}) {
+    FLAGS_storage_floating_point_resolution_bits = written_at;
+
+    ManifestRegistry registry;
+    ManifestPropertyStore store;
+    ASSERT_TRUE(store.SetProperty(registry, Prop(1), PropertyValue{value}));
+    auto const as_stored = store.GetProperty(registry, Prop(1));
+    ASSERT_TRUE(as_stored.IsDouble());
+
+    for (auto const read_at : {uint64_t{16}, uint64_t{32}, uint64_t{64}}) {
+      FLAGS_storage_floating_point_resolution_bits = read_at;
+      EXPECT_EQ(store.GetProperty(registry, Prop(1)), as_stored)
+          << "written at " << written_at << ", read at " << read_at;
+      EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), as_stored))
+          << "written at " << written_at << ", compared at " << read_at;
+      // And the record still says what it carries, which is one double at the width it was
+      // written at.
+      EXPECT_EQ(store.Properties(registry).at(Prop(1)), as_stored)
+          << "written at " << written_at << ", read at " << read_at;
+    }
+  }
+}
+
+// At one setting the two stores answer alike, which is what makes the new one a replacement
+// rather than a different store that happens to hold doubles.
+TEST(ManifestPropertyStore, ADoubleIsStoredAsTheOldStoreStoresIt) {
+  RestoreFpResolutionGuard guard;
+
+  for (auto const resolution : {uint64_t{16}, uint64_t{32}, uint64_t{64}}) {
+    FLAGS_storage_floating_point_resolution_bits = resolution;
+
+    for (auto const value : {0.0,
+                             -0.0,
+                             1.5,
+                             -1.5,
+                             0.1,
+                             1.2345678901234567,
+                             65504.0,
+                             1e-8,
+                             std::numeric_limits<double>::infinity(),
+                             -std::numeric_limits<double>::infinity()}) {
+      ManifestRegistry registry;
+      ManifestPropertyStore manifest;
+      PropertyStore current;
+      ASSERT_EQ(manifest.SetProperty(registry, Prop(1), PropertyValue{value}),
+                current.SetProperty(Prop(1), PropertyValue{value}));
+
+      EXPECT_EQ(manifest.GetProperty(registry, Prop(1)), current.GetProperty(Prop(1)))
+          << value << " at a resolution of " << resolution;
+      // And each store compares its own stored value the way it reads it.
+      auto const stored = current.GetProperty(Prop(1));
+      EXPECT_EQ(manifest.IsPropertyEqual(registry, Prop(1), stored), current.IsPropertyEqual(Prop(1), stored))
+          << value << " at a resolution of " << resolution;
+    }
+  }
+}
+
+// The other piece of state a read could depend on is the registry a named zone is interned in,
+// which is one for the process and not one per database. Naming more zones after a record is
+// written must not change what that record says, which holding ids that are never reused is
+// what secures.
+TEST(ManifestPropertyStore, ARecordsZoneIsUnaffectedByWhatIsNamedAfterIt) {
+  using memgraph::storage::ZonedTemporalData;
+  using memgraph::storage::ZonedTemporalType;
+  using memgraph::utils::Timezone;
+
+  auto const moment = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{1'700'000'000'000}};
+  auto const value =
+      PropertyValue{ZonedTemporalData{ZonedTemporalType::ZonedDateTime, moment, Timezone{"Europe/London"}}};
+
+  ManifestRegistry registry;
+  ManifestPropertyStore store;
+  ASSERT_TRUE(store.SetProperty(registry, Prop(1), value));
+  ASSERT_EQ(store.GetProperty(registry, Prop(1)), value);
+
+  // Several other zones named afterwards, in another record, so the registry holds more than
+  // it did when this one was written.
+  ManifestPropertyStore later;
+  for (auto const *name : {"America/Los_Angeles", "Asia/Tokyo", "Australia/Sydney", "Africa/Cairo"}) {
+    later.SetProperty(
+        registry, Prop(1), PropertyValue{ZonedTemporalData{ZonedTemporalType::ZonedDateTime, moment, Timezone{name}}});
+  }
+
+  EXPECT_EQ(store.GetProperty(registry, Prop(1)), value);
+  EXPECT_TRUE(store.IsPropertyEqual(registry, Prop(1), value));
+}
+
 // A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a
 // number within a known range, and one taken from the database is named, so naming it by an
 // interned id makes the whole value one of a known width. Nothing about it then needs the
