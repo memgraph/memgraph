@@ -53,9 +53,37 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }
 }  // end namespace
 
-PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties,
-                                                         NameIdMapper *name_id_mapper)
-    : sorted_properties_(properties.begin(), properties.end()) {
+/// Which of `properties` end in the name of a field a value carries. Asked as "which id is
+/// this name" rather than the other way about: asking for the name behind an id the mapper
+/// does not know is fatal, and asking for the id behind an unused name would mint one.
+auto PropertiesPermutationHelper::GatherFields(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper)
+    -> std::vector<PropertiesPermutationHelper::FieldsOf> {
+  auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
+  for (auto const &[name, field] : FieldNames()) {
+    if (auto const id = name_id_mapper.NameToIdIfExists(name)) {
+      field_ids.emplace_back(PropertyId::FromUint(*id), field);
+    }
+  }
+
+  // Gathered under the property each path starts at. Paths are given in their own order, so
+  // ones sharing a property arrive together and a group is closed by the next property.
+  auto fields = std::vector<PropertiesPermutationHelper::FieldsOf>{};
+  for (auto const &[pos, path] : ranges::views::enumerate(properties)) {
+    if (path.size() == 1) continue;
+    for (auto const &[id, field] : field_ids) {
+      if (id != path.back()) continue;
+      if (fields.empty() || fields.back().outer != path[0]) {
+        fields.push_back({.outer = path[0], .named = {}});
+      }
+      fields.back().named.emplace_back(pos, field);
+      break;
+    }
+  }
+  return fields;
+}
+
+void PropertiesPermutationHelper::OrderPaths(std::span<PropertyPath const> properties) {
+  sorted_properties_.assign(properties.begin(), properties.end());
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{}, [](auto const &value) -> decltype(auto) {
     return std::get<1>(value);
@@ -66,42 +94,38 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
     auto const outer_prop_id = path[0];
     grouped_by_outer_prop_id_[outer_prop_id].emplace_back(pos);
   }
+}
 
-  // Which of these paths end in the name of a field a value carries, worked out once here
-  // because resolving a name is a lookup and these paths are read for every record.
-  auto const any_nested = r::any_of(sorted_properties_, [](auto const &path) { return path.size() > 1; });
-  DMG_ASSERT(!any_nested || name_id_mapper != nullptr,
-             "Telling a key inside a value from a field of it takes the names behind the ids");
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties,
+                                                         NameIdMapper &name_id_mapper) {
+  OrderPaths(properties);
+  // Worked out once here rather than for every record read, because resolving a name is a
+  // lookup and these paths are read for every record.
+  fields_ = GatherFields(sorted_properties_, name_id_mapper);
+}
 
-  // Asked as "which id is this name" rather than the other way about: asking for the name of
-  // an id the mapper does not know is fatal, and asking for the id of an unused name would
-  // mint one.
-  auto field_ids = std::vector<std::pair<PropertyId, ValueField>>{};
-  if (any_nested) {
-    for (auto const &[name, field] : FieldNames()) {
-      if (auto const id = name_id_mapper->NameToIdIfExists(name)) {
-        field_ids.emplace_back(PropertyId::FromUint(*id), field);
-      }
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties, WithoutNames) {
+  OrderPaths(properties);
+  // Not an assertion that compiles away: a caller reaching here with a nested path would
+  // otherwise have that path read as naming no field, silently.
+  MG_ASSERT(r::none_of(sorted_properties_, [](auto const &path) { return path.size() > 1; }),
+            "Reading a key inside a value takes the names behind the ids");
+}
+
+auto PropertiesPermutationHelper::FieldAt(std::size_t pos) const -> std::optional<ValueField> {
+  // Searched rather than indexed because only the paths that name a field are held, which is
+  // usually none of them.
+  for (auto const &group : fields_) {
+    for (auto const &[at, field] : group.named) {
+      if (at == pos) return field;
     }
   }
-  fields_.reserve(sorted_properties_.size());
-  for (auto const &path : sorted_properties_) {
-    auto found = std::optional<ValueField>{};
-    if (path.size() > 1) {
-      for (auto const &[id, field] : field_ids) {
-        if (id == path.back()) {
-          found = field;
-          break;
-        }
-      }
-    }
-    fields_.push_back(found);
-  }
+  return std::nullopt;
 }
 
 auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const &value) const
     -> std::optional<PropertyValue> {
-  return ReadPropertyPath(value, sorted_properties_[pos].as_span(), fields_[pos]);
+  return ReadPropertyPath(value, sorted_properties_[pos].as_span(), FieldAt(pos));
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
@@ -116,10 +140,12 @@ void PropertiesPermutationHelper::ExtractInto(PropertyStore const &properties, s
 }
 
 void PropertiesPermutationHelper::ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
-  for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
-    if (!field) continue;
-    auto read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
-    out[pos] = read ? *std::move(read) : PropertyValue{};
+  for (auto const &group : fields_) {
+    auto const held = properties.GetProperty(group.outer);
+    for (auto const &[pos, field] : group.named) {
+      auto read = ReadPropertyPath(held, sorted_properties_[pos].as_span(), field);
+      out[pos] = read ? *std::move(read) : PropertyValue{};
+    }
   }
 }
 
@@ -172,11 +198,13 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
                                                 std::vector<bool> &out) const {
   properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
-  for (auto const &[pos, field] : ranges::views::enumerate(fields_)) {
-    if (!field) continue;
-    auto const read = ReadPath(pos, properties.GetProperty(sorted_properties_[pos][0]));
-    auto const &cmp_value = values[position_lookup_[pos]];
-    out[pos] = read ? *read == cmp_value : cmp_value.IsNull();
+  for (auto const &group : fields_) {
+    auto const held = properties.GetProperty(group.outer);
+    for (auto const &[pos, field] : group.named) {
+      auto const read = ReadPropertyPath(held, sorted_properties_[pos].as_span(), field);
+      auto const &cmp_value = values[position_lookup_[pos]];
+      out[pos] = read ? *read == cmp_value : cmp_value.IsNull();
+    }
   }
 }
 

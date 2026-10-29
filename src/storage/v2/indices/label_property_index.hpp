@@ -243,12 +243,18 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
-   * @param name_id_mapper Resolves a path ending in the name of a field once here rather
-   *                   than for every record read. An id it does not know names no field. May
-   *                   be null only when no path has more than one property, since no field
-   *                   can then apply.
+   * @param name_id_mapper Resolves a path ending in the name of a field once here rather than
+   *                   for every record read. An id it does not know names no field.
    */
-  PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper *name_id_mapper);
+  PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper);
+
+  /// Says that a caller has no names to resolve against, which it may only say when every one
+  /// of `properties` is a whole property: telling a key inside a value from a field of it
+  /// takes the name behind the id, so a path of more than one is refused here rather than read
+  /// as naming no field.
+  struct WithoutNames {};
+
+  PropertiesPermutationHelper(std::span<PropertyPath const> properties, WithoutNames);
 
   /** Rearranges monotonically ordered properties (as returned by `Extract` /
    * written by `ExtractInto`) into the index order, in place.
@@ -319,16 +325,36 @@ struct PropertiesPermutationHelper {
   }
 
  private:
-  /// Re-reads the paths that could end in a field. Leaves every other position as it was.
+  /// Puts the paths into the order a single pass over a record requires, and works out the
+  /// bookkeeping that follows from that order.
+  void OrderPaths(std::span<PropertyPath const> properties);
+
+  /// Which field the path at `pos` names, where it names one.
+  auto FieldAt(std::size_t pos) const -> std::optional<ValueField>;
+
+  /// Re-reads the paths that name a field, of which there are usually none. Leaves every
+  /// other position as it was.
   void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
-  /// Parallel to `sorted_properties_`: which field each path's last segment names, where it
-  /// names one.
-  std::vector<std::optional<ValueField>> fields_;
+
+  /// The paths that name a field, gathered under the property each starts at, so that reading
+  /// them reads that property once however many of them there are. An index over whole
+  /// properties holds no groups, and then reading a record is reading its properties with
+  /// nothing further to do.
+  struct FieldsOf {
+    PropertyId outer;
+    std::vector<std::pair<std::size_t, ValueField>> named;
+  };
+
+  /// Which of `properties` name a field, gathered under the property each starts at.
+  static auto GatherFields(std::span<PropertyPath const> properties, NameIdMapper &name_id_mapper)
+      -> std::vector<FieldsOf>;
+
+  std::vector<FieldsOf> fields_;
 };
 
 using LabelPropertyIndexAbortableInfo =
