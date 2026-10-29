@@ -99,6 +99,10 @@ struct EdgeTypePropertyIndexActiveIndices {
 
   virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
 
+  virtual bool IndexVisibleAt(EdgeTypeId edge_type, PropertyId property, uint64_t timestamp) const {
+    return IndexReady(edge_type, property);
+  }
+
   /// Whether the entry is in the catalogue at all, ready or not, which is the question a drop
   /// asks: an index that is registered but not yet committed is still an index a drop evicts.
   virtual bool IndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;

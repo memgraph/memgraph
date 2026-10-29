@@ -968,6 +968,21 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
   return check(index_container_->asc_indices_) || check(index_container_->desc_indices_);
 }
 
+bool InMemoryLabelPropertyIndex::ActiveIndices::IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties,
+                                                               uint64_t timestamp) const {
+  auto check = [&](auto &indices_map) {
+    auto it = indices_map.find(label);
+    if (it != indices_map.end()) {
+      auto it2 = it->second.find(properties);
+      if (it2 != it->second.end()) {
+        return WithIndex(it2->second, [&](auto const &index) { return index.status.IsVisible(timestamp); });
+      }
+    }
+    return false;
+  };
+  return check(index_container_->asc_indices_) || check(index_container_->desc_indices_);
+}
+
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
     std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
     -> std::vector<LabelPropertiesIndicesInfo> {

@@ -240,6 +240,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
     bool IndexReady(EdgeTypeId edge_type, PropertyId property) const override;
+    bool IndexVisibleAt(EdgeTypeId edge_type, PropertyId property, uint64_t timestamp) const override;
 
     bool IndexExists(EdgeTypeId edge_type, PropertyId property) const override;
 

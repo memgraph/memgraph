@@ -17,10 +17,12 @@
 #include <cctype>
 #include <filesystem>
 #include <limits>
+#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -3239,4 +3241,237 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsCleanlyAndFallsBackToMain
   EXPECT_DOUBLE_EQ(checkouts->Value(), checkouts0 - 1.0) << "the detach must release the checkout exactly once";
 
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}})) << "the next query runs on main";
+}
+
+// Indexes created on main after a branch's fork point: the branch must read fork-state (plus its own writes), not
+// main's state at index-build time. Ground truth is the same predicate evaluated without any index.
+namespace {
+using TagP = std::vector<std::pair<std::string, int64_t>>;
+
+std::vector<std::string> Tags(const TagP &rows) {
+  std::vector<std::string> out;
+  for (const auto &[tag, p] : rows) out.push_back(tag);
+  std::ranges::sort(out);
+  return out;
+}
+
+std::vector<std::string> TagsWithP(const TagP &rows, int64_t p) {
+  std::vector<std::string> out;
+  for (const auto &[tag, v] : rows)
+    if (v == p) out.push_back(tag);
+  std::ranges::sort(out);
+  return out;
+}
+
+void SeedLateIndexVertices(InterpreterFaker &s) {
+  s.Interpret("CREATE (:L {p:1, t:'a'}), (:M {p:2, t:'b'}), (:L {p:3, t:'c'}), (:L {p:5, t:'e'}), (:L {p:6, t:'f'})");
+}
+
+void CreateLateVertexIndexes(InterpreterFaker &s) {
+  s.Interpret("CHECKOUT BRANCH 'main'");
+  s.Interpret("CREATE INDEX ON :L");
+  s.Interpret("CREATE INDEX ON :L(p)");
+}
+
+// `expected` is the branch's exact set of :L vertices with their p.
+void ExpectBranchVertexIndexes(InterpreterFaker &s, const TagP &expected, const std::vector<int64_t> &probe_p,
+                               bool expect_index_plan = false) {
+  const std::string label_idx = "MATCH (n:L) RETURN n.t AS t ORDER BY t";
+  const std::string label_scan = "MATCH (n) WHERE 'L' IN labels(n) RETURN n.t AS t ORDER BY t";
+  const std::string prop_idx = "MATCH (n:L) WHERE n.p > 0 RETURN n.t AS t ORDER BY t";
+  const std::string prop_scan = "MATCH (n) WHERE 'L' IN labels(n) AND n.p > 0 RETURN n.t AS t ORDER BY t";
+  // A branch plans against the indexes it had at the fork, so an index created on main afterwards is never scanned.
+  EXPECT_EQ(PlanHasOperator(ExplainText(s, label_idx), "ScanAllByLabel"), expect_index_plan);
+  EXPECT_EQ(PlanHasOperator(ExplainText(s, prop_idx), "ScanAllByLabelProperties"), expect_index_plan);
+  EXPECT_FALSE(PlanHasOperator(ExplainText(s, label_scan), "ScanAllByLabel"));
+
+  const auto want = Tags(expected);
+  EXPECT_EQ(BranchScanStrings(s, label_scan), want) << "ground truth (no index) differs from the hand-derived state";
+  EXPECT_EQ(BranchScanStrings(s, label_idx), want) << "label index scan on the branch";
+  EXPECT_EQ(BranchScanStrings(s, prop_scan), want);
+  EXPECT_EQ(BranchScanStrings(s, prop_idx), want) << "label+property index scan on the branch";
+  for (auto p : probe_p) {
+    const auto q = "MATCH (n:L {p: " + std::to_string(p) + "}) RETURN n.t AS t ORDER BY t";
+    EXPECT_EQ(BranchScanStrings(s, q), TagsWithP(expected, p)) << "point lookup p=" << p;
+  }
+}
+
+constexpr auto kMainDrift =
+    "MATCH (n {t:'b'}) SET n:L;"
+    "MATCH (n {t:'c'}) REMOVE n:L;"
+    "MATCH (n {t:'e'}) SET n.p = 50;"
+    "CREATE (:L {p:9, t:'n'});"
+    "MATCH (n {t:'f'}) DETACH DELETE n";
+constexpr auto kBranchWrites =
+    "CREATE (:L {p:7, t:'bn'});"
+    "MATCH (n {t:'a'}) SET n.p = 10;"
+    "MATCH (n {t:'c'}) REMOVE n:L";
+
+void RunStatements(InterpreterFaker &s, std::string_view script) {
+  for (auto stmt : std::views::split(script, ';')) s.Interpret(std::string(std::string_view(stmt)));
+}
+}  // namespace
+
+TEST_F(VersioningGatedTest, BranchLateIndexMainDriftBeforeIndexBuild) {
+  SeedLateIndexVertices(faker);
+  Fork();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kMainDrift);
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 9, 50, 2});
+}
+
+TEST_F(VersioningGatedTest, BranchLateIndexBranchWritesBeforeIndexBuild) {
+  SeedLateIndexVertices(faker);
+  Fork();
+  RunStatements(faker, kBranchWrites);
+  faker.Interpret("MATCH (n {t:'b'}) SET n:L");
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"b", 2}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 2, 3, 5, 6, 7, 10});
+}
+
+TEST_F(VersioningGatedTest, BranchLateIndexMainDriftAndBranchWritesBeforeIndexBuild) {
+  SeedLateIndexVertices(faker);
+  Fork();
+  RunStatements(faker, kBranchWrites);
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kMainDrift);
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2});
+}
+
+// Branch writes landing after the late index is built on main.
+TEST_F(VersioningGatedTest, BranchLateIndexBranchWritesAfterIndexBuild) {
+  SeedLateIndexVertices(faker);
+  Fork();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kMainDrift);
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  RunStatements(faker, kBranchWrites);
+  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2});
+}
+
+namespace {
+void SeedLateIndexEdges(InterpreterFaker &s) {
+  s.Interpret(
+      "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}),"
+      " (a)-[:R {w:1, t:'e1'}]->(b), (b)-[:R {w:2, t:'e2'}]->(c), (a)-[:Q {w:3, t:'e3'}]->(c)");
+}
+
+constexpr auto kEdgeMainDrift =
+    "MATCH ()-[e {t:'e1'}]->() DELETE e;"
+    "MATCH ()-[e {t:'e2'}]->() SET e.w = 20;"
+    "MATCH (a:N {n:'a'}), (c:N {n:'c'}) CREATE (a)-[:R {w:4, t:'e4'}]->(c);"
+    "MATCH ()-[e {t:'e3'}]->() DELETE e";
+constexpr auto kEdgeBranchWrites =
+    "MATCH (c:N {n:'c'}), (a:N {n:'a'}) CREATE (c)-[:R {w:7, t:'bn'}]->(a);"
+    "MATCH ()-[e {t:'e1'}]->() SET e.w = 10";
+
+void ExpectBranchEdgeIndexes(InterpreterFaker &s, const TagP &expected_r, const std::vector<int64_t> &probe_w,
+                             bool expect_index_plan = false) {
+  const std::string type_idx = "MATCH ()-[e:R]->() RETURN e.t AS t ORDER BY t";
+  const std::string type_scan = "MATCH ()-[e]->() WHERE type(e) = 'R' RETURN e.t AS t ORDER BY t";
+  const std::string prop_idx = "MATCH ()-[e:R]->() WHERE e.w > 0 RETURN e.t AS t ORDER BY t";
+  EXPECT_EQ(PlanHasOperator(ExplainText(s, type_idx), "ScanAllByEdgeType"), expect_index_plan);
+  EXPECT_EQ(PlanHasOperator(ExplainText(s, prop_idx), "ScanAllByEdgeTypeProperty"), expect_index_plan);
+
+  const auto want = Tags(expected_r);
+  EXPECT_EQ(BranchScanStrings(s, type_scan), want) << "ground truth (no index) differs from the hand-derived state";
+  EXPECT_EQ(BranchScanStrings(s, type_idx), want) << "edge-type index scan on the branch";
+  EXPECT_EQ(BranchScanStrings(s, prop_idx), want) << "edge-type+property index scan on the branch";
+  for (auto w : probe_w) {
+    const auto q = "MATCH ()-[e:R]->() WHERE e.w = " + std::to_string(w) + " RETURN e.t AS t ORDER BY t";
+    EXPECT_EQ(BranchScanStrings(s, q), TagsWithP(expected_r, w)) << "point lookup w=" << w;
+  }
+}
+
+void CreateLateEdgeIndexes(InterpreterFaker &s) {
+  s.Interpret("CHECKOUT BRANCH 'main'");
+  s.Interpret("CREATE EDGE INDEX ON :R");
+  s.Interpret("CREATE EDGE INDEX ON :R(w)");
+}
+}  // namespace
+
+TEST_F(VersioningGatedTest, BranchLateEdgeIndexMainDriftBeforeIndexBuild) {
+  SeedLateIndexEdges(faker);
+  Fork();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kEdgeMainDrift);
+  CreateLateEdgeIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchEdgeIndexes(faker, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20});
+}
+
+TEST_F(VersioningGatedTest, BranchLateEdgeIndexMainDriftAndBranchWritesBeforeIndexBuild) {
+  SeedLateIndexEdges(faker);
+  Fork();
+  RunStatements(faker, kEdgeBranchWrites);
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kEdgeMainDrift);
+  CreateLateEdgeIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchEdgeIndexes(faker, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20});
+}
+
+// An index that existed at the fork is dropped and rebuilt on main after main drifted: the branch still plans against
+// the index, but the rebuilt one was populated from main's current state.
+TEST_F(VersioningGatedTest, BranchRebuiltIndexMainDriftBeforeRebuild) {
+  faker.Interpret("CREATE INDEX ON :L");
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  SeedLateIndexVertices(faker);
+  Fork();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kMainDrift);
+  faker.Interpret("DROP INDEX ON :L");
+  faker.Interpret("DROP INDEX ON :L(p)");
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 9, 50, 2}, true);
+}
+
+TEST_F(VersioningGatedTest, BranchRebuiltIndexBranchWritesAndMainDriftBeforeRebuild) {
+  faker.Interpret("CREATE INDEX ON :L");
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  SeedLateIndexVertices(faker);
+  Fork();
+  RunStatements(faker, kBranchWrites);
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kMainDrift);
+  faker.Interpret("DROP INDEX ON :L");
+  faker.Interpret("DROP INDEX ON :L(p)");
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchVertexIndexes(faker, {{"a", 10}, {"bn", 7}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6, 7, 9, 10, 50, 2}, true);
+}
+
+TEST_F(VersioningGatedTest, BranchRebuiltEdgeIndexMainDriftBeforeRebuild) {
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  SeedLateIndexEdges(faker);
+  Fork();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  RunStatements(faker, kEdgeMainDrift);
+  faker.Interpret("DROP EDGE INDEX ON :R");
+  faker.Interpret("DROP EDGE INDEX ON :R(w)");
+  CreateLateEdgeIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchEdgeIndexes(faker, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}, true);
+}
+
+// Control: dropped and rebuilt on main with no drift since the fork.
+TEST_F(VersioningGatedTest, BranchRebuiltIndexNoDriftControl) {
+  faker.Interpret("CREATE INDEX ON :L");
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  SeedLateIndexVertices(faker);
+  Fork();
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("DROP INDEX ON :L");
+  faker.Interpret("DROP INDEX ON :L(p)");
+  CreateLateVertexIndexes(faker);
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ExpectBranchVertexIndexes(faker, {{"a", 1}, {"c", 3}, {"e", 5}, {"f", 6}}, {1, 3, 5, 6}, true);
 }

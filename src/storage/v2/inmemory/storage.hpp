@@ -438,7 +438,9 @@ class InMemoryStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
-      return transaction_.active_indices_->label_->IndexReady(label);
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_->IndexVisibleAt(label, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_->IndexReady(label);
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
@@ -446,15 +448,23 @@ class InMemoryStorage final : public Storage {
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
-      return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_properties_->IndexVisibleAt(
+                       label, properties, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_properties_->IndexReady(label, properties);
     }
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
-      return transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_->IndexVisibleAt(edge_type, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_->IndexReady(edge_type);
     }
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_properties_->IndexVisibleAt(
+                       edge_type, property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {
@@ -462,7 +472,9 @@ class InMemoryStorage final : public Storage {
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
-      return transaction_.active_indices_->edge_property_->IndexReady(property);
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_property_->IndexVisibleAt(property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_property_->IndexReady(property);
     }
 
     bool VertexPropertyIndexExists(PropertyId property) const override {
@@ -470,7 +482,9 @@ class InMemoryStorage final : public Storage {
     }
 
     bool VertexPropertyIndexReady(PropertyId property) const override {
-      return transaction_.active_indices_->vertex_property_->IndexReady(property);
+      return transaction_.is_historical_ ? transaction_.active_indices_->vertex_property_->IndexVisibleAt(
+                                               property, transaction_.start_timestamp)
+                                         : transaction_.active_indices_->vertex_property_->IndexReady(property);
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;

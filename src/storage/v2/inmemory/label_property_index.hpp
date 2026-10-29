@@ -436,6 +436,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
+    bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, uint64_t timestamp) const override;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const

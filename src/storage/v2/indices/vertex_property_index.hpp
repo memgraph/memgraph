@@ -79,6 +79,8 @@ struct VertexPropertyIndexActiveIndices {
 
   virtual bool IndexReady(PropertyId property) const = 0;
 
+  virtual bool IndexVisibleAt(PropertyId property, uint64_t timestamp) const { return IndexReady(property); }
+
   virtual std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const = 0;
 
   virtual auto GetAbortProcessor() const -> VertexPropertyIndexAbortProcessor = 0;

@@ -227,6 +227,13 @@ bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTyp
   return it->second->status_.IsReady();
 }
 
+bool InMemoryEdgeTypeIndex::ActiveIndices::IndexVisibleAt(EdgeTypeId edge_type, uint64_t timestamp) const {
+  auto const &indices = index_container_->indices_;
+  auto it = indices.find(edge_type);
+  if (it == indices.end()) return false;
+  return it->second->status_.IsVisible(timestamp);
+}
+
 bool InMemoryEdgeTypeIndex::ActiveIndices::IndexExists(EdgeTypeId edge_type) const {
   return index_container_->indices_.contains(edge_type);
 }

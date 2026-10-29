@@ -75,6 +75,9 @@ struct LabelIndexActiveIndices {
 
   virtual bool IndexReady(LabelId label) const = 0;
 
+  // Committed at or before `timestamp`: a branch (historical) read must skip an index rebuilt after its fork.
+  virtual bool IndexVisibleAt(LabelId label, uint64_t timestamp) const { return IndexReady(label); }
+
   virtual std::vector<LabelId> ListIndices(uint64_t start_timestamp) const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;

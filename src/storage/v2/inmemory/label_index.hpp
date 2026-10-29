@@ -194,6 +194,7 @@ class InMemoryLabelIndex : public LabelIndex {
     bool IndexExists(LabelId label) const override;
 
     bool IndexReady(LabelId label) const override;
+    bool IndexVisibleAt(LabelId label, uint64_t timestamp) const override;
 
     std::vector<LabelId> ListIndices(uint64_t start_timestamp) const override;
 

@@ -201,6 +201,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
         : index_container_{std::move(indices)} {}
 
     bool IndexReady(EdgeTypeId edge_type) const override;
+    bool IndexVisibleAt(EdgeTypeId edge_type, uint64_t timestamp) const override;
 
     bool IndexExists(EdgeTypeId edge_type) const override;
 
