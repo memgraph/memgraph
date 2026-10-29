@@ -54,7 +54,7 @@ void VersionStore::PublishRetentionFloor() const {
     for (const auto &branch : hidden_) note(branch.info);
   }
   if (!oldest_fork_ts) return retention_floor_callback_(std::nullopt);
-  retention_floor_callback_(*oldest_fork_ts == 0 ? 0 : *oldest_fork_ts - 1);
+  retention_floor_callback_(RecoverableBelow(*oldest_fork_ts));
 }
 
 void VersionStore::AttachLedger(std::filesystem::path file) {

@@ -29,7 +29,7 @@ namespace memgraph::dbms {
 std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &ledger) {
   if (ledger.branches.empty()) return std::nullopt;
   const auto earliest = std::ranges::min(ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
-  return earliest.info.fork_ts == 0 ? 0 : earliest.info.fork_ts - 1;
+  return versioning::RecoverableBelow(earliest.info.fork_ts);
 }
 
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,

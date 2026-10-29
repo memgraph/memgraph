@@ -18,6 +18,7 @@
 #include <ranges>
 #include <thread>
 
+#include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
@@ -191,7 +192,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
-  if (req.new_name.contains('@')) {
+  if (IsReservedDatabaseName(req.new_name)) {
     spdlog::error("Refusing to rename database '{}' to '{}': '@' is reserved for branch addressing (database@branch).",
                   req.old_name,
                   req.new_name);

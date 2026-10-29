@@ -242,43 +242,26 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
                                                                    const storage::TextSearchConfig &config) const {
-  // Text indices are not mirrored into the diff engine, which would report a misleading "index does not exist".
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
-  }
-#endif
+  RejectBranchTextSearch();
   return accessor_->TextIndexSearch(index_name, search_query, search_mode, config);
 }
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                            const std::string &aggregation_query) const {
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
-  }
-#endif
+  RejectBranchTextSearch();
   return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                                const std::string &aggregation_query) {
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
-  }
-#endif
+  RejectBranchTextSearch();
   return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
     const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
     const storage::TextSearchConfig &config) const {
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw storage::TextSearchException("Text search is not supported on a checked-out branch.");
-  }
-#endif
+  RejectBranchTextSearch();
   return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
 }
 
@@ -288,22 +271,13 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-  // Vector indices are likewise not mirrored into the diff engine.
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw storage::VectorSearchException("Vector search is not supported on a checked-out branch.");
-  }
-#endif
+  RejectBranchVectorSearch();
   return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
 }
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw storage::VectorSearchException("Vector search is not supported on a checked-out branch.");
-  }
-#endif
+  RejectBranchVectorSearch();
   return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
 }
 
@@ -319,12 +293,7 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
-  // Point indices are not mirrored into the diff engine; delegating would silently miss historical vertices.
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw NotYetImplemented("point index scans are not yet supported on a checked-out version/branch");
-  }
-#endif
+  RejectBranchPointScan();
   return PointIterable(accessor_->PointVertices(label,
                                                 property,
                                                 crs,
@@ -336,11 +305,7 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
-#ifdef MG_ENTERPRISE
-  if (branch_ctx_ != nullptr) {
-    throw NotYetImplemented("point index scans are not yet supported on a checked-out version/branch");
-  }
-#endif
+  RejectBranchPointScan();
   return PointIterable(accessor_->PointVertices(label,
                                                 property,
                                                 crs,

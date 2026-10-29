@@ -119,6 +119,20 @@ void CheckWalChain(const std::vector<WalFileEntry> &files) {
   }
 }
 
+// Opens `file` in `decoder` positioned at its first delta and returns the WAL version.
+// @throw utils::BasicException the file cannot be opened, is of an unsupported version, or cannot be positioned
+uint64_t OpenAtDeltas(dur::Decoder &decoder, const WalFileEntry &file) {
+  const auto version = decoder.Initialize(file.path, dur::kWalMagic);
+  if (!version) throw utils::BasicException("Cannot read the WAL magic and version of '{}'.", file.path.string());
+  if (!dur::IsVersionSupported(*version)) {
+    throw utils::BasicException("WAL '{}' has an unsupported version {}.", file.path.string(), *version);
+  }
+  if (!decoder.SetPosition(file.info.offset_deltas)) {
+    throw utils::BasicException("Cannot seek to the deltas of WAL '{}'.", file.path.string());
+  }
+  return *version;
+}
+
 struct TxnState {
   std::unique_ptr<storage::Storage::Accessor> holder;
   storage::ReplicationAccessor *acc{nullptr};
@@ -154,17 +168,10 @@ class BranchWalReplayer {
  private:
   void ReplayFile(const WalFileEntry &file) {
     dur::Decoder decoder;
-    const auto version = decoder.Initialize(file.path, dur::kWalMagic);
-    if (!version) throw utils::BasicException("Cannot read the WAL magic and version of '{}'.", file.path.string());
-    if (!dur::IsVersionSupported(*version)) {
-      throw utils::BasicException("WAL '{}' has an unsupported version {}.", file.path.string(), *version);
-    }
-    if (!decoder.SetPosition(file.info.offset_deltas)) {
-      throw utils::BasicException("Cannot seek to the deltas of WAL '{}'.", file.path.string());
-    }
+    const auto version = OpenAtDeltas(decoder, file);
 
     uint64_t consumed = 0;
-    while (consumed < file.info.num_deltas) consumed += ReplayTransaction(decoder, *version);
+    while (consumed < file.info.num_deltas) consumed += ReplayTransaction(decoder, version);
     // A transaction runs to its end marker, so overshooting means a marker rotted into another delta.
     if (consumed != file.info.num_deltas) {
       throw utils::BasicException("WAL '{}' states {} deltas but replaying it consumed {}.",
@@ -540,21 +547,22 @@ std::expected<std::shared_ptr<BranchCore>, std::string> BuildAndReplay(storage::
 
 // New main objects must not take a gid a branch uses: gids below a floor are fork objects, so a native object taking
 // one would be misread as a fork object, and a native gid that main hands out again would alias two objects.
+void RaiseMainCounters(storage::InMemoryStorage &main, uint64_t next_vertex, uint64_t next_edge) {
+  atomic_fetch_max_explicit(&main.vertex_id_, next_vertex, std::memory_order_acq_rel);
+  atomic_fetch_max_explicit(&main.edge_id_, next_edge, std::memory_order_acq_rel);
+}
+
 void RaiseGidCounters(VersionStore &store, storage::InMemoryStorage &main,
                       const std::vector<std::shared_ptr<BranchCore>> &recovered) {
   for (const auto &entry : store.List()) {
     const BranchInfo &info = entry.second;
-    if (info.vertex_gid_floor) {
-      atomic_fetch_max_explicit(&main.vertex_id_, *info.vertex_gid_floor, std::memory_order_acq_rel);
-    }
-    if (info.edge_gid_floor) atomic_fetch_max_explicit(&main.edge_id_, *info.edge_gid_floor, std::memory_order_acq_rel);
+    RaiseMainCounters(main, info.vertex_gid_floor.value_or(0), info.edge_gid_floor.value_or(0));
   }
   // The diff engine's counters sit one past the highest native gid it replayed.
   for (const auto &core : recovered) {
-    atomic_fetch_max_explicit(
-        &main.vertex_id_, core->diff_engine().vertex_id_.load(std::memory_order_acquire), std::memory_order_acq_rel);
-    atomic_fetch_max_explicit(
-        &main.edge_id_, core->diff_engine().edge_id_.load(std::memory_order_acquire), std::memory_order_acq_rel);
+    RaiseMainCounters(main,
+                      core->diff_engine().vertex_id_.load(std::memory_order_acquire),
+                      core->diff_engine().edge_id_.load(std::memory_order_acquire));
   }
 }
 
@@ -562,16 +570,10 @@ void RaiseGidCounters(VersionStore &store, storage::InMemoryStorage &main,
 // @throw std::exception the file cannot be decoded
 void ScanCreatedGids(const WalFileEntry &file, uint64_t &next_vertex, uint64_t &next_edge) {
   dur::Decoder decoder;
-  const auto version = decoder.Initialize(file.path, dur::kWalMagic);
-  if (!version || !dur::IsVersionSupported(*version)) {
-    throw utils::BasicException("Cannot read the WAL magic and version of '{}'.", file.path.string());
-  }
-  if (!decoder.SetPosition(file.info.offset_deltas)) {
-    throw utils::BasicException("Cannot seek to the deltas of WAL '{}'.", file.path.string());
-  }
+  const auto version = OpenAtDeltas(decoder, file);
   for (uint64_t i = 0; i < file.info.num_deltas; ++i) {
     dur::ReadWalDeltaHeader(&decoder);
-    const auto delta = dur::ReadWalDeltaData(&decoder, *version);
+    const auto delta = dur::ReadWalDeltaData(&decoder, version);
     std::visit(utils::Overloaded{
                    [&](const dur::WalVertexCreate &d) { next_vertex = std::max(next_vertex, d.gid.AsUint() + 1); },
                    [&](const dur::WalEdgeCreate &d) { next_edge = std::max(next_edge, d.gid.AsUint() + 1); },
@@ -588,25 +590,25 @@ void RaiseGidCountersForHiddenBranches(const LedgerContents &ledger, storage::In
     uint64_t next_vertex = branch.info.vertex_gid_floor.value_or(0);
     uint64_t next_edge = branch.info.edge_gid_floor.value_or(0);
     const auto wal_dir = branches_dir / std::to_string(branch.info.number) / "wal";
-    try {
-      // A branch that never committed has no WAL directory.
-      std::error_code exists_ec;
-      for (const auto &file :
-           std::filesystem::exists(wal_dir, exists_ec) ? ListWalFiles(wal_dir) : std::vector<WalFileEntry>{}) {
-        try {
-          ScanCreatedGids(file, next_vertex, next_edge);
-        } catch (const std::exception &e) {
-          spdlog::warn("Graph Versioning: cannot read the branch WAL '{}' of hidden branch '{}' in full: {}",
-                       file.path.string(),
-                       branch.name,
-                       e.what());
+    // A branch that never committed has no WAL directory.
+    std::error_code exists_ec;
+    if (std::filesystem::exists(wal_dir, exists_ec)) {
+      try {
+        for (const auto &file : ListWalFiles(wal_dir)) {
+          try {
+            ScanCreatedGids(file, next_vertex, next_edge);
+          } catch (const std::exception &e) {
+            spdlog::warn("Graph Versioning: cannot read the branch WAL '{}' of hidden branch '{}' in full: {}",
+                         file.path.string(),
+                         branch.name,
+                         e.what());
+          }
         }
+      } catch (const std::exception &e) {
+        spdlog::warn("Graph Versioning: cannot list the WAL of hidden branch '{}': {}", branch.name, e.what());
       }
-    } catch (const std::exception &e) {
-      spdlog::warn("Graph Versioning: cannot list the WAL of hidden branch '{}': {}", branch.name, e.what());
     }
-    atomic_fetch_max_explicit(&main.vertex_id_, next_vertex, std::memory_order_acq_rel);
-    atomic_fetch_max_explicit(&main.edge_id_, next_edge, std::memory_order_acq_rel);
+    RaiseMainCounters(main, next_vertex, next_edge);
   }
 }
 

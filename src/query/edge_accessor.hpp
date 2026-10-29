@@ -28,7 +28,7 @@ class VertexAccessor;
 class EdgeAccessor final {
  public:
   storage::EdgeAccessor impl_;
-  // Non-null iff minted while checked out on a branch; non-owning.
+  // Non-null iff minted on a branch; non-owning.
   versioning::BranchContext *branch_ctx_{nullptr};
 
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}

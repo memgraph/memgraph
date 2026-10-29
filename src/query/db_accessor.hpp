@@ -19,6 +19,7 @@
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -128,36 +129,46 @@ class SubgraphVertexAccessor final {
 namespace memgraph::query {
 
 class VerticesIterable final {
-  // Alternatives: storage scan, caller-materialized set, branch union scan, and a materialized (already filtered)
-  // branch result; shared_ptr keeps that vector alive across copies of the iterable and its Iterator.
+  // Enterprise adds a branch union scan and a materialized (already filtered) branch result; shared_ptr keeps that
+  // vector alive across copies of the iterable and its Iterator.
   std::variant<storage::VerticesIterable,
                std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                  utils::Allocator<VertexAccessor>> *,
+                                  utils::Allocator<VertexAccessor>> *
 #ifdef MG_ENTERPRISE
-               versioning::BranchContext::UnionVerticesIterable,
+               ,
+               versioning::BranchContext::UnionVerticesIterable, std::shared_ptr<std::vector<VertexAccessor>>
 #endif
-               std::shared_ptr<std::vector<VertexAccessor>>>
+               >
       iterable_;
-  // Branch union-scan alternative only: stamped onto each yielded VertexAccessor so mutators can CowVertex through it.
+#ifdef MG_ENTERPRISE
+  // Stamped onto each yielded VertexAccessor so mutators can CowVertex through it.
   // The diff-engine accessor lives in BranchContext::current_diff_txn(), keeping accessors at one extra pointer.
   versioning::BranchContext *branch_ctx_{nullptr};
+#endif
 
  public:
   class Iterator final {
     std::variant<storage::VerticesIterable::Iterator,
                  std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                    utils::Allocator<VertexAccessor>>::iterator,
+                                    utils::Allocator<VertexAccessor>>::iterator
 #ifdef MG_ENTERPRISE
-                 versioning::BranchContext::UnionVerticesIterable::Iterator,
+                 ,
+                 versioning::BranchContext::UnionVerticesIterable::Iterator, std::vector<VertexAccessor>::iterator
 #endif
-                 std::vector<VertexAccessor>::iterator>
+                 >
         it_;
+#ifdef MG_ENTERPRISE
     versioning::BranchContext *branch_ctx_{nullptr};
     std::shared_ptr<std::vector<VertexAccessor>> materialized_;
+#endif
 
    public:
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
+
+#ifdef MG_ENTERPRISE
     Iterator(storage::VerticesIterable::Iterator it, versioning::BranchContext *ctx)
         : it_(std::move(it)), branch_ctx_(ctx) {}
+#endif
 
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
@@ -166,27 +177,33 @@ class VerticesIterable final {
 #ifdef MG_ENTERPRISE
     Iterator(versioning::BranchContext::UnionVerticesIterable::Iterator it, versioning::BranchContext *ctx)
         : it_(std::move(it)), branch_ctx_(ctx) {}
-#endif
 
     Iterator(std::vector<VertexAccessor>::iterator it, std::shared_ptr<std::vector<VertexAccessor>> materialized)
         : it_(it), materialized_(std::move(materialized)) {}
+#endif
 
     VertexAccessor operator*() const {
       return std::visit(
           memgraph::utils::Overloaded{
+#ifdef MG_ENTERPRISE
               [this](const storage::VerticesIterable::Iterator &it) { return VertexAccessor(*it, branch_ctx_); },
+#else
+              [](const storage::VerticesIterable::Iterator &it) { return VertexAccessor(*it); },
+#endif
               [](const std::unordered_set<VertexAccessor,
                                           std::hash<VertexAccessor>,
                                           std::equal_to<void>,
                                           utils::Allocator<VertexAccessor>>::iterator &it) {
                 return VertexAccessor(*it);
-              },
+              }
 #ifdef MG_ENTERPRISE
+              ,
               [this](const versioning::BranchContext::UnionVerticesIterable::Iterator &it) {
                 return VertexAccessor(*it, branch_ctx_);
               },
+              [](const std::vector<VertexAccessor>::iterator &it) { return *it; }
 #endif
-              [](const std::vector<VertexAccessor>::iterator &it) { return *it; }},
+          },
           it_);
     }
 
@@ -202,8 +219,10 @@ class VerticesIterable final {
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
 
+#ifdef MG_ENTERPRISE
   VerticesIterable(storage::VerticesIterable iterable, versioning::BranchContext *ctx)
       : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
+#endif
 
   explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                                utils::Allocator<VertexAccessor>> *vertices)
@@ -212,48 +231,58 @@ class VerticesIterable final {
 #ifdef MG_ENTERPRISE
   VerticesIterable(versioning::BranchContext::UnionVerticesIterable iterable, versioning::BranchContext *ctx)
       : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
-#endif
 
   explicit VerticesIterable(std::shared_ptr<std::vector<VertexAccessor>> materialized)
       : iterable_(std::move(materialized)) {}
+#endif
 
   Iterator begin() {
-    return std::visit(memgraph::utils::Overloaded{[this](storage::VerticesIterable &iterable_) {
-                                                    return Iterator(iterable_.begin(), branch_ctx_);
-                                                  },
-                                                  [](std::unordered_set<VertexAccessor,
-                                                                        std::hash<VertexAccessor>,
-                                                                        std::equal_to<void>,
-                                                                        utils::Allocator<VertexAccessor>> *iterable_) {
-                                                    return Iterator(iterable_->begin());
-                                                  },
+    return std::visit(
+        memgraph::utils::Overloaded{
 #ifdef MG_ENTERPRISE
-                                                  [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
-                                                    return Iterator(iterable_.begin(), branch_ctx_);
-                                                  },
+            [this](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin(), branch_ctx_); },
+#else
+            [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
 #endif
-                                                  [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
-                                                    return Iterator(materialized->begin(), materialized);
-                                                  }},
-                      iterable_);
+            [](std::unordered_set<VertexAccessor,
+                                  std::hash<VertexAccessor>,
+                                  std::equal_to<void>,
+                                  utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->begin()); }
+#ifdef MG_ENTERPRISE
+            ,
+            [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
+              return Iterator(iterable_.begin(), branch_ctx_);
+            },
+            [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
+              return Iterator(materialized->begin(), materialized);
+            }
+#endif
+        },
+        iterable_);
   }
 
   Iterator end() {
     return std::visit(
         memgraph::utils::Overloaded{
+#ifdef MG_ENTERPRISE
             [this](storage::VerticesIterable &iterable_) { return Iterator(iterable_.end(), branch_ctx_); },
+#else
+            [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.end()); },
+#endif
             [](std::unordered_set<VertexAccessor,
                                   std::hash<VertexAccessor>,
                                   std::equal_to<void>,
-                                  utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); },
+                                  utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); }
 #ifdef MG_ENTERPRISE
+            ,
             [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
               return Iterator(iterable_.end(), branch_ctx_);
             },
-#endif
             [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
               return Iterator(materialized->end(), materialized);
-            }},
+            }
+#endif
+        },
         iterable_);
   }
 };
@@ -377,22 +406,32 @@ class EdgesChunkedIterable {
 };
 
 class EdgesIterable final {
-  // 3rd alternative: materialized, already-filtered branch scan result; its EdgeAccessors are branch-stamped at
+  // Enterprise adds a materialized, already-filtered branch scan result; its EdgeAccessors are branch-stamped at
   // materialization, so unlike VerticesIterable no branch_ctx_ member is needed.
   std::variant<
       storage::EdgesIterable,
-      std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>> *,
-      std::shared_ptr<std::vector<EdgeAccessor>>>
+      std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>> *
+#ifdef MG_ENTERPRISE
+      ,
+      std::shared_ptr<std::vector<EdgeAccessor>>
+#endif
+      >
       iterable_;
 
  public:
   class Iterator final {
     std::variant<storage::EdgesIterable::Iterator,
                  std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                    utils::Allocator<EdgeAccessor>>::iterator,
-                 std::vector<EdgeAccessor>::iterator>
+                                    utils::Allocator<EdgeAccessor>>::iterator
+#ifdef MG_ENTERPRISE
+                 ,
+                 std::vector<EdgeAccessor>::iterator
+#endif
+                 >
         it_;
+#ifdef MG_ENTERPRISE
     std::shared_ptr<std::vector<EdgeAccessor>> materialized_;
+#endif
 
    public:
     explicit Iterator(storage::EdgesIterable::Iterator it) : it_(std::move(it)) {}
@@ -401,8 +440,10 @@ class EdgesIterable final {
                                          utils::Allocator<EdgeAccessor>>::iterator it)
         : it_(it) {}
 
+#ifdef MG_ENTERPRISE
     Iterator(std::vector<EdgeAccessor>::iterator it, std::shared_ptr<std::vector<EdgeAccessor>> materialized)
         : it_(it), materialized_(std::move(materialized)) {}
+#endif
 
     EdgeAccessor operator*() const {
       return std::visit(
@@ -411,8 +452,12 @@ class EdgesIterable final {
               [](const std::unordered_set<EdgeAccessor,
                                           std::hash<EdgeAccessor>,
                                           std::equal_to<void>,
-                                          utils::Allocator<EdgeAccessor>>::iterator &it) { return EdgeAccessor(*it); },
-              [](const std::vector<EdgeAccessor>::iterator &it) { return *it; }},
+                                          utils::Allocator<EdgeAccessor>>::iterator &it) { return EdgeAccessor(*it); }
+#ifdef MG_ENTERPRISE
+              ,
+              [](const std::vector<EdgeAccessor>::iterator &it) { return *it; }
+#endif
+          },
           it_);
     }
 
@@ -432,8 +477,10 @@ class EdgesIterable final {
                                             utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
 
+#ifdef MG_ENTERPRISE
   explicit EdgesIterable(std::shared_ptr<std::vector<EdgeAccessor>> materialized)
       : iterable_(std::move(materialized)) {}
+#endif
 
   Iterator begin() {
     return std::visit(
@@ -442,10 +489,14 @@ class EdgesIterable final {
             [](std::unordered_set<EdgeAccessor,
                                   std::hash<EdgeAccessor>,
                                   std::equal_to<void>,
-                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); },
+                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); }
+#ifdef MG_ENTERPRISE
+            ,
             [](std::shared_ptr<std::vector<EdgeAccessor>> &materialized) {
               return Iterator(materialized->begin(), materialized);
-            }},
+            }
+#endif
+        },
         iterable_);
   }
 
@@ -456,10 +507,14 @@ class EdgesIterable final {
             [](std::unordered_set<EdgeAccessor,
                                   std::hash<EdgeAccessor>,
                                   std::equal_to<void>,
-                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); },
+                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }
+#ifdef MG_ENTERPRISE
+            ,
             [](std::shared_ptr<std::vector<EdgeAccessor>> &materialized) {
               return Iterator(materialized->end(), materialized);
-            }},
+            }
+#endif
+        },
         iterable_);
   }
 };
@@ -495,12 +550,12 @@ class DbAccessor final {
   // accessor. Non-const: BranchContext's resolve/COW methods mutate it.
   versioning::BranchContext *branch_ctx_{nullptr};
 
+#ifdef MG_ENTERPRISE
   static bool VertexHasLabel(VertexAccessor &v, storage::View view, storage::LabelId label) {
     auto has_label = v.HasLabel(view, label);
     return has_label.has_value() && *has_label;
   }
 
-#ifdef MG_ENTERPRISE
   // Full scan of the branch union, O(graph) regardless of selectivity; fallback when an index is not ready.
   template <typename Pred>
   auto MaterializeFilteredBranchScan(storage::View view, Pred &&predicate)
@@ -1270,6 +1325,26 @@ class DbAccessor final {
   }
 
   // Chunked scans bypass the branch union and would return only the diff engine's contents, so they are rejected.
+  // Text, vector and point indices are not mirrored into the diff engine, so searching them on a branch would
+  // report a misleading "index does not exist" or silently miss historical vertices.
+  void RejectBranchTextSearch() const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) throw storage::TextSearchException("Text search is not supported on a branch.");
+#endif
+  }
+
+  void RejectBranchVectorSearch() const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) throw storage::VectorSearchException("Vector search is not supported on a branch.");
+#endif
+  }
+
+  void RejectBranchPointScan() const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) throw NotYetImplemented("point index scans are not yet supported on a branch");
+#endif
+  }
+
   void RejectBranchChunkedVertexScan() const {
 #ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
@@ -1760,11 +1835,13 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageManipulationError> PeriodicCommit(storage::CommitArgs commit_args) {
 #ifdef MG_ENTERPRISE
-    if (auto valid = ValidateBranchConstraints(); !valid) {
-      accessor_->Abort();
-      return std::unexpected{storage::StorageManipulationError{valid.error()}};
+    if (branch_ctx_ != nullptr) {
+      if (auto valid = ValidateBranchConstraints(); !valid) {
+        accessor_->Abort();
+        return std::unexpected{storage::StorageManipulationError{valid.error()}};
+      }
+      return branch_ctx_->PeriodicCommitTransaction(std::move(commit_args));
     }
-    if (branch_ctx_ != nullptr) return branch_ctx_->PeriodicCommitTransaction(std::move(commit_args));
 #endif
     return accessor_->PeriodicCommit(std::move(commit_args));
   }

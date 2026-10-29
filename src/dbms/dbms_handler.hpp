@@ -187,7 +187,7 @@ class DbmsHandler {
   NewResultT Update(const storage::SalientConfig &config) {
     // '@' is reserved for database@branch addressing; an older MAIN can still replicate such a name. Refused as an
     // ordinary failure (the caller answers FAILURE / aborts the recovery) instead of creating an unaddressable tenant.
-    if (const auto requested = config.name.str(); requested.contains('@')) {
+    if (const auto requested = config.name.str(); IsReservedDatabaseName(requested)) {
       spdlog::error("Refusing database '{}' from MAIN: '@' is reserved for branch addressing (database@branch).",
                     requested);
       return std::unexpected{NewError::GENERIC};

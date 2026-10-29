@@ -5975,7 +5975,7 @@ struct mgp_execution_result::pImplMgpExecutionResult {
   std::unique_ptr<mgp_execution_headers> headers;
 };
 
-mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type alloc)
+mgp_execution_result::mgp_execution_result([[maybe_unused]] mgp_graph *graph, allocator_type alloc)
     : pImpl(std::make_unique<pImplMgpExecutionResult>()), alloc(alloc) {
   auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 #ifdef MG_ENTERPRISE
@@ -5991,7 +5991,6 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type allo
     pImpl->interpreter->current_db_.AttachBranchOf(version_store, *branch_ctx);
   }
 #else
-  (void)graph;
   pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, instance.dbms_handler->Get());
 #endif
 }

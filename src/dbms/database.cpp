@@ -49,6 +49,7 @@
 #ifdef MG_ENTERPRISE
 #include "versioning/branch_ledger.hpp"
 #include "versioning/branch_recovery.hpp"
+#include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
 
@@ -221,10 +222,8 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   if (plan.ledger.branches.empty()) return plan;
 
   // Checked first: branches that could not be rebuilt later are not worth hiding.
-  const bool can_replay =
-      config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
-      config.durability.recover_on_startup &&
-      config.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  const bool can_replay = config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
+                          versioning::BranchesDurable(config);
   if (!can_replay) {
     spdlog::warn(
         "Graph Versioning: branches [{}] cannot be recovered without recovery on startup and a write-ahead log; they "
@@ -280,9 +279,6 @@ Database::Database(storage::Config config)
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   // Captured before config is std::move()'d into the storage engine below.
 #ifdef MG_ENTERPRISE
-  const auto versioning_directory = config.durability.storage_directory / "versioning";
-#endif
-#ifdef MG_ENTERPRISE
   const auto branch_ledger_file = config.durability.storage_directory / "branches" / "ledger";
 #endif
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
@@ -292,13 +288,6 @@ Database::Database(storage::Config config)
     }
     return nullptr;
   };
-
-#ifdef MG_ENTERPRISE
-  // versioning/ is a legacy directory left by an older build.
-  if (utils::DirExists(versioning_directory) && !utils::DeleteDir(versioning_directory)) {
-    spdlog::warn("Graph Versioning: failed to remove legacy branch directory '{}'.", versioning_directory.string());
-  }
-#endif
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
   if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
@@ -406,11 +395,7 @@ Database::Database(storage::Config config)
     } else if (branch_plan.hidden) {
       // Commits made while the branches are hidden must stay above every fork point, and ids main hands out must not
       // collide with the ones the branches use.
-      uint64_t newest_fork_ts = 0;
-      for (const auto &branch : branch_plan.ledger.branches) {
-        newest_fork_ts = std::max(newest_fork_ts, branch.info.recorded_fork_ts);
-      }
-      in_memory_storage->BumpClockPastDurable(newest_fork_ts);
+      in_memory_storage->BumpClockPastDurable(branch_plan.ledger.branches.back().info.recorded_fork_ts);
       versioning::RaiseGidCountersForHiddenBranches(branch_plan.ledger, *in_memory_storage);
       version_store_->RestoreHidden(branch_plan.ledger);
     } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {

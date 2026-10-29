@@ -37,7 +37,7 @@ class VertexAccessor final {
   // On a branch a fork vertex keeps its main@fork_ts accessor here even once changed; changes are reached by gid
   // (BranchContext::ReadOverlayVersion, Overlay* writes).
   storage::VertexAccessor impl_;
-  // Non-null iff minted while checked out on a branch. A single raw pointer keeps this trivially copyable
+  // Non-null iff minted on a branch. A single raw pointer keeps this trivially copyable
   // and within mgp_vertex's kMaxMgpVertexSize budget; non-const because CowIfNeeded calls BranchContext::CowVertex.
   versioning::BranchContext *branch_ctx_{nullptr};
 

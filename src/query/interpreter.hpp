@@ -385,12 +385,10 @@ struct CurrentDB {
   // (see ThrowIfBranchGone).
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
 
-  // Clearing the version releases any held branch context.
-  void SetCurrentVersion(std::optional<std::string> version) {
-    if (!version) {
-      ClearBranchContext();
-    }
-    current_version_ = std::move(version);
+  // Returns the session to main, releasing any held branch context.
+  void LeaveBranch() {
+    ClearBranchContext();
+    current_version_.reset();
   }
 
   // Caller contract: TryAcquireCheckout(name) already succeeded and any previous context was already released or
@@ -421,6 +419,9 @@ struct CurrentDB {
 
   // Branch the session's transactions run on, by number; 0 for main. Readable from any thread.
   uint64_t foreign_branch_number() const { return foreign_branch_number_.load(std::memory_order_acquire); }
+
+  // True when the session is attached to the branch numbered `number`.
+  bool OnBranch(uint64_t number) { return branch_context() != nullptr && foreign_branch_number() == number; }
 
   // Attaches this fresh nested session (mgp_execute_query) to the branch `outer` is on, with its own counted
   // checkout. Throws QueryRuntimeException (nothing held) if the checkout is refused.

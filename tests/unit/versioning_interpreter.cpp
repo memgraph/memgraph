@@ -859,9 +859,9 @@ TEST_F(VersioningGatedTest, VersioningMetricsIncrementOnLifecycle) {
 
 // RuntimeConfig::Configure re-applies SetCurrentDB for the same database when only the Bolt RUN extras change; that
 // must not reset the checked-out branch. Drives CurrentDB directly, without SessionHL.
-TEST_F(VersioningInterpreterTest, SetCurrentDBOnlyResetsCurrentVersionOnADifferentDatabase) {
-  memgraph::query::CurrentDB current_db{db};
-  current_db.SetCurrentVersion(std::string{"feature"});
+TEST_F(VersioningGatedTest, SetCurrentDBOnlyResetsCurrentVersionOnADifferentDatabase) {
+  Fork("feature");
+  auto &current_db = faker.interpreter.current_db_;
   ASSERT_EQ(current_db.CurrentVersion(), "feature");
 
   auto same_db_acc_opt = db_gk.access();
@@ -878,9 +878,9 @@ TEST_F(VersioningInterpreterTest, SetCurrentDBOnlyResetsCurrentVersionOnADiffere
   current_db.SetCurrentDB(*other_db_acc_opt, false);
   EXPECT_FALSE(current_db.CurrentVersion().has_value()) << "a genuine database switch must reset the branch";
 
-  // current_db holds an accessor into other_gk, whose destructor blocks until every accessor is released; release it
-  // first, as locals destruct in reverse order.
-  current_db.ResetDB();
+  // current_db holds an accessor into other_gk, whose destructor blocks until every accessor is released; move it back
+  // to the fixture's database first, as locals destruct in reverse order.
+  current_db.SetCurrentDB(*same_db_acc_opt, false);
 }
 
 // A branch's diff engine is a separate storage, but its database name is what auth, FGA, SHOW and DUMP see through

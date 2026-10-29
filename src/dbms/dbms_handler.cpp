@@ -251,7 +251,7 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
     for (auto rit = durability_->begin(std::string(kDBPrefix)), rend = durability_->end(std::string(kDBPrefix));
          rit != rend;
          ++rit) {
-      if (auto db_name = rit->first.substr(kDBPrefix.size()); db_name.contains('@')) {
+      if (auto db_name = rit->first.substr(kDBPrefix.size()); IsReservedDatabaseName(db_name)) {
         reserved.push_back(std::move(db_name));
       }
     }

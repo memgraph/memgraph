@@ -23,6 +23,12 @@ std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &
   return std::nullopt;
 }
 
+bool BranchesDurable(const storage::Config &config) {
+  return config.durability.recover_on_startup &&
+         config.durability.snapshot_wal_mode ==
+             storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+}
+
 std::string_view GateErrorMessage(GateError err) {
   using namespace std::string_view_literals;
   switch (err) {

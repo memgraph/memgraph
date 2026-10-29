@@ -15,6 +15,8 @@
 #include <optional>
 #include <string_view>
 
+#include "storage/v2/config.hpp"
+
 namespace memgraph::versioning {
 
 enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable, kCommitLockNarrowing };
@@ -40,5 +42,8 @@ struct GateState {
 std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state);
 
 std::string_view GateErrorMessage(GateError err);
+
+// Branches survive a restart: the WAL is on and recovery on startup is enabled.
+bool BranchesDurable(const storage::Config &config);
 
 }  // namespace memgraph::versioning
