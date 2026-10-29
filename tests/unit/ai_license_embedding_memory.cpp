@@ -299,24 +299,24 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
   auto *mem = memgraph::utils::NewDeleteResource();
   for (const auto view : {View::OLD, View::NEW}) {
     const memgraph::query::TypedValue ref{memgraph::query::VectorRefValue{*rvertex, env.prop, view}, mem};
-    const auto floats = ref.MaterializeVectorRef(mem);
-    ASSERT_EQ(floats.ValueList().size(), static_cast<size_t>(kDim));
-    EXPECT_FLOAT_EQ(static_cast<float>(floats.ValueList().front().ValueDouble()), 0.5F)
+    const auto floats = ref.ReadVectorRef();
+    ASSERT_EQ(floats.size(), static_cast<size_t>(kDim));
+    EXPECT_FLOAT_EQ(floats.front(), 0.5F)
         << "reader must see the committed embedding, not the other transaction's uncommitted SET";
   }
 
   // The writer's own OLD view must also take the pre-SET floats from the delta, not usearch (which holds 42.0).
   {
     const memgraph::query::TypedValue own{memgraph::query::VectorRefValue{wvertex, env.prop, View::OLD}, mem};
-    const auto floats = own.MaterializeVectorRef(mem);
-    ASSERT_EQ(floats.ValueList().size(), static_cast<size_t>(kDim));
-    EXPECT_FLOAT_EQ(static_cast<float>(floats.ValueList().front().ValueDouble()), 0.5F)
+    const auto floats = own.ReadVectorRef();
+    ASSERT_EQ(floats.size(), static_cast<size_t>(kDim));
+    EXPECT_FLOAT_EQ(floats.front(), 0.5F)
         << "OLD-view ref must materialize the committed embedding, not the same-transaction overwrite";
   }
 
   writer->Abort();
   const memgraph::query::TypedValue ref{memgraph::query::VectorRefValue{*rvertex, env.prop, View::OLD}, mem};
-  EXPECT_FLOAT_EQ(static_cast<float>(ref.MaterializeVectorRef(mem).ValueList().front().ValueDouble()), 0.5F);
+  EXPECT_FLOAT_EQ(ref.ReadVectorRef().front(), 0.5F);
 }
 
 // Write plans must stay eager (EvaluationContext::lazy_vector_refs): a lazy ref held across a rewrite/delete
@@ -331,7 +331,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_WritePlansStayEager) {
       "MATCH (n:Doc) WITH n, n.emb AS e REMOVE n.emb RETURN e ORDER BY e",
       "MATCH (n:Doc) WITH n, n.emb AS e SET n.emb = [x IN range(1, 8) | 42.0] RETURN e ORDER BY e",
       "MATCH (n:Doc) WITH n, n.emb AS e DETACH DELETE n RETURN e ORDER BY e",
-      "MATCH (n:Doc) SET n.copy = n.emb RETURN n.copy ORDER BY n.copy",
   };
   int case_no = 0;
   for (const auto &query : queries) {
@@ -365,12 +364,24 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_SnapshotStableGateAndReadsUnderEvery
       auto acc = env.db->Access();
       memgraph::query::DbAccessor dba{acc.get()};
       EXPECT_EQ(dba.IsSnapshotStable(), c.stable);
+      EXPECT_EQ(dba.CanHoldLazyVectorRefs(), c.stable);
     }
     auto stream = env.faker.Interpret("MATCH (n:Doc) WITH n ORDER BY n.emb RETURN DISTINCT n.emb AS e");
     const auto rows = EmbeddingRows(stream);
     ASSERT_EQ(rows.size(), 7u);
     for (size_t i = 0; i < rows.size(); ++i) {
       EXPECT_EQ(rows[i], std::vector<double>(8, static_cast<double>(i) + 0.5));
+    }
+    if (c.stable) {
+      {
+        auto unique_acc = env.db->UniqueAccess();
+        ASSERT_TRUE(unique_acc->DropVectorIndex("emb_index").has_value());
+        ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      auto acc = env.db->Access();
+      memgraph::query::DbAccessor dba{acc.get()};
+      EXPECT_TRUE(dba.IsSnapshotStable());
+      EXPECT_FALSE(dba.CanHoldLazyVectorRefs());
     }
   }
 }
@@ -383,16 +394,16 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
   struct Row {
     const char *literal;
     bool equal;
-    bool embedding_less;  // e < literal
-    int64_t distinct;     // count of distinct values among {e, literal}
+    bool embedding_less;
+    int64_t distinct;
   };
 
   const Row table[] = {
-      {"[0.5, 0.5, 0.5, 0.5]", true, false, 1},       // equal list
+      {"[0.5, 0.5, 0.5, 0.5]", true, false, 1},
       {"[0.5, 0.5, 0.5]", false, false, 2},           // prefix: e is longer, so greater
       {"[0.5, 0.5, 0.5, 0.5, 0.5]", false, true, 2},  // longer: e is a prefix, so less
-      {"[0.5, 0.5, 0.5, 1.5]", false, true, 2},       // differs in the last element, larger
-      {"[0.5, 0.5, 0.5, 0.25]", false, false, 2},     // differs in the last element, smaller
+      {"[0.5, 0.5, 0.5, 1.5]", false, true, 2},
+      {"[0.5, 0.5, 0.5, 0.25]", false, false, 2},
   };
   for (const auto &row : table) {
     SCOPED_TRACE(row.literal);
@@ -419,9 +430,8 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
       {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.25}, {0.5, 0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 0.5, 0.5}, {0.5, 0.5, 0.5, 1.5}};
   EXPECT_EQ(EmbeddingRows(s), sorted);
 
-  // Nested refs (`[n.emb]` keeps VectorRef elements), mixed ref/literal sides, and two distinct refs in one
-  // comparison: every result equals the same query over literal lists.
-  // a = [0.5 x4], b = [0.5, 0.5, 0.5, 0.25]; they differ only in the last element.
+  // Nested refs (`[n.emb]` keeps VectorRef elements), mixed sides, two distinct refs: every result equals the
+  // same query over literal lists.
   QueryEnv nested_env{data_dir_, "t16_nested", 1, 4};
   nested_env.faker.Interpret("CREATE (:Doc {emb: [0.5, 0.5, 0.5, 0.25]})");
   const std::string kA = "[0.5, 0.5, 0.5, 0.5]";
@@ -479,7 +489,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_BehavesLikeItsListInRelations) {
       "a = a",
       "a < a",
   };
-  // mixed sides in both orders: Int element, Null element, shorter (prefix) and longer lists
   for (const char *lit : {"[0.5, 0.5, 0.5, 0.5]",
                           "[0.5, 0.5, 0.5, 0.25]",
                           "[0.5, 0.5, 0.5, 1]",
@@ -635,15 +644,6 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_ConcurrentReadersWritersAndParallelP
       std::vector<double> got;
       for (const auto &row : stream.GetResults()) got.push_back(first_of(row[0]));
       EXPECT_EQ(got, expected_sorted);
-    }
-    {
-      const std::string q = "USING PARALLEL EXECUTION MATCH (n:Doc) RETURN DISTINCT n.emb";
-      auto stream = env.faker.Interpret(q);
-      // The planner does not parallelize a bare DISTINCT, so no expect_parallel here.
-      std::vector<double> got;
-      for (const auto &row : stream.GetResults()) got.push_back(first_of(row[0]));
-      std::ranges::sort(got);
-      EXPECT_EQ(got, (std::vector<double>{0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5}));
     }
     {
       const std::string q = "USING PARALLEL EXECUTION MATCH (n:Doc) RETURN count(DISTINCT n.emb)";

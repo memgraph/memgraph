@@ -557,10 +557,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesCompact(View
 }
 
 bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
-  // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
-  // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
-  // the usearch index, which is written at SetProperty time and so is only correct for the live value.
-  // That index read runs under the edge lock so a concurrent SetProperty cannot interleave.
+  // A delta-carried ref holds its own floats for `view`; only the live ref (empty list) may read the usearch
+  // index, which is written at SetProperty time. That read runs under the edge lock (SetProperty holds it).
   bool found = false;
   const auto maybe_value = GetPropertyImpl<true>(property, view, [&](const PropertyValue &value) {
     if (!value.IsVectorIndexId()) return;

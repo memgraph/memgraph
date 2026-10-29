@@ -5558,13 +5558,6 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       memgraph::utils::PrintIterable(
           *stream, value.ValueList(), ", ", [](auto &stream, const auto &elem) { PrintValue(elem, &stream); });
       return (*stream) << "]";
-    case TypedValue::Type::VectorRef: {
-      (*stream) << "[";
-      const auto floats = value.ReadVectorRef();
-      memgraph::utils::PrintIterable(
-          *stream, floats, ", ", [](auto &stream, const float x) { stream << static_cast<double>(x); });
-      return (*stream) << "]";
-    }
     case TypedValue::Type::Map:
       (*stream) << "{";
       memgraph::utils::PrintIterable(*stream, value.ValueMap(), ", ", [](auto &stream, const auto &item) {
@@ -5598,6 +5591,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Graph:
     case TypedValue::Type::VirtualGraph:
     case TypedValue::Type::Function:
+    case TypedValue::Type::VectorRef:
       LOG_FATAL("value must not be a graph|function element");
   }
 }

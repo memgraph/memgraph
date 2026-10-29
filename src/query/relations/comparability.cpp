@@ -37,21 +37,15 @@ std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a
 
 namespace {
 
-// What Compare answers for a double against a list element: only a number is placed against it.
-std::optional<std::partial_ordering> CompareDoubleAndElement(double d, const TypedValue &element) {
-  if (element.IsDouble()) return d <=> element.UnsafeValueDouble();
-  if (element.IsInt()) return ReversedOrder(PlaceIntegerAgainstDouble(element.UnsafeValueInt(), d));
-  return std::nullopt;
-}
-
 // CompareOfLists over the embedding's floats and a plain list, without building the list of doubles.
 std::optional<std::partial_ordering> CompareOfFloatsAndList(std::span<const float> floats,
                                                             TypedValue::TVector const &list, bool floats_first) {
   auto const shared = std::min(floats.size(), list.size());
   for (auto at = std::size_t{0}; at != shared; ++at) {
-    auto const element = CompareDoubleAndElement(static_cast<double>(floats[at]), list[at]);
+    TypedValue const as_double{static_cast<double>(floats[at])};
+    auto const element = floats_first ? Compare(as_double, list[at]) : Compare(list[at], as_double);
     if (!element || *element == std::partial_ordering::unordered) return std::nullopt;
-    if (std::is_neq(*element)) return floats_first ? *element : ReversedOrder(*element);
+    if (std::is_neq(*element)) return element;
   }
   return floats_first ? floats.size() <=> list.size() : list.size() <=> floats.size();
 }

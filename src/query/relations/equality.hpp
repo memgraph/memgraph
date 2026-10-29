@@ -40,12 +40,8 @@ TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const 
 TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, TypedValue::allocator_type alloc);
 
 /// Equality where either side is a lazy embedding, which reads as the list of doubles it materializes to.
-///
-/// Embeddings are read through the thread's float scratch, so that a sort or a hash join over them
-/// never allocates in the query's arena. A float widens to a double exactly, so comparing the floats
-/// answers what the list of doubles would, a NaN included. Two embeddings compare as floats; an
-/// embedding against a plain List compares elementwise, as EqualOfLists does; against anything else
-/// it is false.
+/// Reading allocates on the heap, so this stays cold. Two embeddings compare as floats (NaN included, as
+/// widening is exact); against a plain List elementwise; against anything else false.
 ///
 /// @pre At least one is a VectorRef.
 [[gnu::cold, gnu::noinline]] TypedValue EqualOfAnyVectorRef(const TypedValue &a, const TypedValue &b,
@@ -94,7 +90,6 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   // Every element of a container reaches this.
   if (a.type() != b.type()) {
     if (!AreMixedNumbers(a.type(), b.type())) {
-      // A lazy embedding is equal to the list it would materialize to, and to nothing else.
       if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
         return EqualOfAnyVectorRef(a, b, alloc);
       return TypedValue(false, alloc);

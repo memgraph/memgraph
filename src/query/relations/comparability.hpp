@@ -55,7 +55,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
     case ZonedDateTime:
     case Duration:
     case List:       // compared by CompareOfLists, not ComparePayload
-    case VectorRef:  // the list of doubles it materializes to
+    case VectorRef:  // compared by CompareWithVectorRef
       return true;
 
     case Null:
@@ -82,14 +82,9 @@ constexpr bool ValidFor(TypedValue::Type type) {
 /// Takes the vectors so both arguments are lists by type.
 std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
-/// A pair with an embedding in it, ordered as the lists of doubles an embedding materializes to: two
-/// embeddings against each other, or one against a plain list. Any other partner has no order.
-///
-/// Read through the thread's float buffers, so a filter or a sort over them never allocates in the
-/// query's arena. A float widens to a double exactly, so the answer is CompareOfLists's, a NaN included.
-///
-/// Cold and out of line, and the one tail Compare reaches an embedding through, so the scalar path
-/// Compare is inlined for carries a single call it does not take.
+/// Orders a pair with an embedding as the lists of doubles it materializes to: against another
+/// embedding or a plain list; any other partner has no order. Cold and out of line so Compare's
+/// scalar path carries only one call. Reads allocate on the heap.
 ///
 /// @pre At least one is a VectorRef.
 [[gnu::cold, gnu::noinline]] std::optional<std::partial_ordering> CompareWithVectorRef(const TypedValue &a,
@@ -228,7 +223,7 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
   // Numbers are the only unlike pair the relation places. Every other pair of
   // unlike types is incomparable, as is any pair involving a Null.
   if (!AreMixedNumbers(a.type(), b.type())) {
-    // An embedding still orders against a list, as the list it materializes to.
+    // An embedding still orders against a plain list.
     if (a.IsVectorRef() || b.IsVectorRef()) [[unlikely]]
       return CompareWithVectorRef(a, b);
     return std::nullopt;

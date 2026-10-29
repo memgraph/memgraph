@@ -271,8 +271,6 @@ TEST_F(VectorIndexTest, ConcurrencyTest) {
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
 }
 
-// A writer that links its delta and updates the index before commit must never leak its uncommitted floats to a
-// snapshot reader that resolved the live (store-resident) reference.
 TEST_F(VectorIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
   this->CreateIndex(2, 10);
   const std::vector<float> committed{1.0F, 1.0F};
@@ -313,6 +311,7 @@ TEST_F(VectorIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
         auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
         const auto property = acc->NameToProperty(test_property);
         for (const auto view : {View::OLD, View::NEW}) {
+          out.clear();  // a read that returns true without writing `out` must not pass on stale floats
           const auto done_before = aborts_done.load();
           const bool ok = vertex.GetVectorInto(property, view, out);
           const auto started_after = aborts_started.load();

@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <span>
 
 #include "utils/temporal.hpp"
 #include "value_order/numbers.hpp"
@@ -67,8 +66,8 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b) {
 
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
   // A container is equivalent only to a container of its own kind, so a pair of
-  // unlike types is settled without walking either. An embedding is the one
-  // exception: it is equivalent to the list it materializes to.
+  // unlike types is settled without walking either. Except an embedding, which
+  // is equivalent to the list it materializes to.
   if (a.type() != b.type()) {
     if (!a.IsVectorRef() && !b.IsVectorRef()) return false;
     auto const &embedding = a.IsVectorRef() ? a : b;
@@ -76,7 +75,6 @@ bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
     if (!other.IsPlainList()) return false;
     DMG_ASSERT(embedding.IsVectorRef() && other.IsPlainList());
 
-    // Each float meets its list element as the double it widens to, as the elements of two lists do.
     auto const floats = embedding.ReadVectorRef();
     return std::ranges::equal(floats, other.UnsafeValueList(), [](float x, TypedValue const &y) {
       return Equivalent(TypedValue(static_cast<double>(x)), y);
@@ -85,8 +83,7 @@ bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
 
   switch (a.type()) {
     case TypedValue::Type::VectorRef: {
-      // The elements are doubles, so the pair is read as the lists of them are: elementwise, a NaN
-      // equivalent to a NaN. Floats widen exactly, so this is that answer without making either list.
+      // Floats widen exactly, so comparing them directly matches comparing the lists of doubles (NaN == NaN).
       auto const floats_a = a.ReadVectorRef();
       auto const floats_b = b.ReadVectorRef();
       return std::ranges::equal(
@@ -103,10 +100,7 @@ bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
 
 namespace {
 
-// Out of line and cold so that the frame of Hash, which every grouping key passes through, carries nothing of it.
-//
-// An embedding is equivalent to the list of doubles it materializes to, so it hashes as that list does: the
-// same collection hash over each float taken through the hash of its double. DISTINCT and grouping rely on that.
+// Cold and out of line to keep Hash's frame small. Must equal the hash of the materialized list of doubles.
 [[gnu::cold, gnu::noinline]] size_t HashOfVectorRef(const TypedValue &value) {
   auto const floats = value.ReadVectorRef();
 

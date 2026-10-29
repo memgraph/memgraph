@@ -313,6 +313,7 @@ TEST_F(VectorEdgeIndexTest, GetVectorIntoNeverReadsUncommittedFloats) {
         const auto property = acc->NameToProperty(test_property);
         for (const auto view : {View::OLD, View::NEW}) {
           const auto done_before = aborts_done.load();
+          out.clear();  // a read that returns true without writing `out` must not pass on stale floats
           const bool ok = edge.GetVectorInto(property, view, out);
           const auto started_after = aborts_started.load();
           if (!ok) {
