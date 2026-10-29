@@ -340,7 +340,7 @@ authQuery : createRole
           | showRoleForUser
           | showUsersForRole
           | grantDatabaseToUserOrRole
-          | denyDatabaseFromUserOrRole
+          | denyDatabaseToUserOrRole
           | revokeDatabaseFromUserOrRole
           | showDatabasePrivileges
           | setMainDatabase
@@ -566,7 +566,7 @@ revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=
 
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
-denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
+denyDatabaseToUserOrRole : DENY DATABASE db=wildcardName ( TO | FROM ) target=userOrRole ;
 
 revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM target=userOrRole ;
 
