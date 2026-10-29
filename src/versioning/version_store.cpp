@@ -427,8 +427,8 @@ void VersionStore::SweepPendingRemovals() {
   }
   std::vector<std::filesystem::path> ready;
   {
-    // Order: lock_ then pending_mutex_ (leaf). A holder's checkout stays counted while its core is destroyed, so a
-    // removable entry has no holder mid-teardown. A re-created same-name branch with checkouts only delays removal.
+    // A holder's checkout stays counted while its core is destroyed, so a removable entry has no holder mid-teardown.
+    // A re-created same-name branch with checkouts only delays removal.
     std::lock_guard guard{lock_};
     std::lock_guard pending_guard{pending_mutex_};
     for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {

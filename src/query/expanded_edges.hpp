@@ -24,8 +24,8 @@ namespace memgraph::query {
 
 /// The edges one expansion found, wrapped as the query layer sees them only when looked at.
 ///
-/// A `query::EdgeAccessor` is a `storage::EdgeAccessor` and nothing else, so a vector of the first
-/// built from a vector of the second copies the whole list to change only its type.
+/// Without a branch a `query::EdgeAccessor` is just a `storage::EdgeAccessor`, so a vector of the first
+/// built from a vector of the second would copy the whole list to change only its type.
 class ExpandedEdges {
  public:
   ExpandedEdges() = default;
@@ -80,7 +80,6 @@ class ExpandedEdges {
 
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
 
-  /// The edges `keep` accepts, held the same way as they came.
   template <typename Predicate>
   auto Filtered(Predicate keep) const -> ExpandedEdges {
     if (!from_storage_) [[unlikely]] {

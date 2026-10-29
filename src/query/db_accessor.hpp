@@ -1232,8 +1232,7 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
   }
 
-  // Chunked scans bypass the branch union and would return only the diff engine's contents; rejected until a union
-  // chunked scan exists. Serial scans are unaffected.
+  // Chunked scans bypass the branch union and would return only the diff engine's contents, so they are rejected.
   void RejectBranchChunkedVertexScan() const {
     if (branch_ctx_ != nullptr) throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
   }

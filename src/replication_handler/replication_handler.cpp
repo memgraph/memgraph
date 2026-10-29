@@ -277,7 +277,6 @@ bool ReplicationHandler::DemoteWithBranchDrop(auto &&demote) {
     return false;
   }
 
-  // A failed demotion stays MAIN, so the stores must accept branches again.
   utils::OnScopeExit const unfreeze_if_still_main{[&] {
     if (was_main && repl_state_.ReadLock()->IsMain()) UnfreezeBranches();
   }};

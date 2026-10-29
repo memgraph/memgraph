@@ -162,9 +162,8 @@ class VersionStore {
   // Returns a weak reference that is non-expired iff another holder still keeps the core (and its directory) alive.
   std::weak_ptr<BranchCore> RetireCore(uint64_t number);
 
-  // Removes the branch directory now if `remaining` is expired, else queues it for the last holder's release.
+  // Removes the branch directory now, or queues it until the core is gone and no session of `name` is attached.
   // Call without lock_, cores_mutex_ or pending_mutex_ held; the caller holds ledger_mutex_ (reads branches_root_).
-  // Deferred while the core is referenced or any session of `name` is attached.
   void RemoveOrDefer(std::string_view name, uint64_t number, std::weak_ptr<BranchCore> remaining);
   // Removes queued directories whose core is gone and whose branch name has no attached session. Call without lock_;
   // file removal runs unlocked.

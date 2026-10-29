@@ -316,17 +316,15 @@ void VertexAccessor::RecordPropertyFieldChanges(
   }
 }
 
-// A fork vertex whose edges the branch left alone reads straight from main@fork_ts; deleting an edge or vertex flags
-// the edge bit (DeleteForkEdge/OverlayMarkDeleted), sending it to ResolveEdges. A neighbour of a deleted vertex is not
-// flagged; the fast path filters its edges via IsForkVertexDeleted.
+// Deletes flag the vertex (DeleteForkEdge/OverlayMarkDeleted) so it takes ResolveEdges; a neighbour of a deleted
+// vertex is not flagged, so the fast path filters its edges via IsForkVertexDeleted.
 bool VertexAccessor::BranchEdgesUnchanged() const {
   return impl_.storage_ != &branch_ctx_->diff_engine() &&
          (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()));
 }
 
-// ResolveEdges is unfiltered, so hops are charged before the edge_types (and dest) filters. Destination filter is
-// client-side by gid. Never pass `dest` to impl_.{In,Out}Edges: a COW'd dest.impl_ is in another transaction
-// (storage DMG_ASSERT).
+// ResolveEdges is unfiltered, so hops are charged before the edge_types/dest filters. Never pass `dest` to
+// impl_.{In,Out}Edges: a COW'd dest.impl_ is in another transaction (storage DMG_ASSERT).
 storage::Result<ExpandedEdgesResult> VertexAccessor::BranchEdges(storage::EdgeDirection direction, storage::View view,
                                                                  const std::vector<storage::EdgeTypeId> &edge_types,
                                                                  const VertexAccessor *dest,

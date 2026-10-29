@@ -82,7 +82,8 @@ class BranchCore {
     uint64_t edge_gid_floor;
   };
 
-  // True when main keeps a WAL, the config half of whether a numbered branch gets its own durable WAL.
+  // True when `main` is configured to write a WAL. Applied to main it gates branch durability; applied to a diff engine
+  // it says whether branch commits carry overlay records.
   static bool WritesWal(const storage::InMemoryStorage &main);
 
   // Builds an empty diff engine, records the gid floors (main's counters unless `recorded` supplies them), and mirrors
