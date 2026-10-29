@@ -325,11 +325,10 @@ def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
 
 def test_retryable_trigger_failure_stays_transient_error(test_name):
     """
-    A before-commit trigger that fails with a declared-retryable exception must stay TransientError after the
-    rewrapping. The rewrap in Interpreter::Commit catches the trigger's BasicException and, before the fix, always
-    rethrew a plain BasicException, which dropped the retryability of a HintedAbortError/OOM/serialization conflict
-    (contract A2). A lowered query timeout makes a deliberately long-running trigger body abort with a retryable
-    HintedAbortError(TIMEOUT); the client must see TransientError carrying the trigger-rewrap message.
+    A before-commit trigger that fails with a declared-retryable exception (HintedAbortError, OOM, a serialization
+    conflict) must stay TransientError after Interpreter::Commit re-wraps the trigger's BasicException. A lowered
+    query timeout makes a deliberately long-running trigger body abort with a retryable HintedAbortError(TIMEOUT);
+    the client must see TransientError carrying the trigger-rewrap message.
     """
     _start_main(test_name)
     driver = _driver()

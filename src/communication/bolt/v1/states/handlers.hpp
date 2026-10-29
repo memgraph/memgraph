@@ -58,10 +58,8 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const utils::RetryableException *>(&e)) {
-    // Only exceptions that declare themselves retryable (serialization conflicts, storage access
-    // timeouts, RPC failures, out of memory) yield TransientError; the metric counts exactly those.
-    // Every other BasicException is non-retryable and gets a ClientError below.
-    //
+    // Only RetryableException-derived types (serialization conflicts, storage access timeouts,
+    // RPC failures, OOM) are transient; every other BasicException is a permanent ClientError below.
     // If this is in the context of a database (i.e., we have database
     // `metric_handles`), then log count failure in the db metrics;
     // otherwise, count in the global metrics.
@@ -72,7 +70,6 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const utils::BasicException *>(&e)) {
-    // A BasicException that did not declare itself retryable is a permanent failure for the client.
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
