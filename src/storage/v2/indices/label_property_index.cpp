@@ -128,27 +128,6 @@ auto PropertiesPermutationHelper::ReadPath(std::size_t pos, PropertyValue const 
   return ReadPropertyPath(value, sorted_properties_[pos].as_span(), FieldAt(pos));
 }
 
-auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
-  auto values = properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
-  ReadFieldsInto(properties, values);
-  return values;
-}
-
-void PropertiesPermutationHelper::ExtractInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
-  properties.ExtractPropertyValuesMissingAsNull(sorted_properties_, out);
-  ReadFieldsInto(properties, out);
-}
-
-void PropertiesPermutationHelper::ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const {
-  for (auto const &group : fields_) {
-    auto const held = properties.GetProperty(group.outer);
-    for (auto const &[pos, field] : group.named) {
-      auto read = ReadPropertyPath(held, sorted_properties_[pos].as_span(), field);
-      out[pos] = read ? *std::move(read) : PropertyValue{};
-    }
-  }
-}
-
 void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue const &value,
                                          std::vector<PropertyValue> &extracted_values) const {
   auto it = grouped_by_outer_prop_id_.find(outer_prop_id);
@@ -193,19 +172,6 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
     return {index, read ? *read == cmp_value : cmp_value.IsNull()};
   };
   return relevant_paths | rv::transform(is_match) | r::to_vector;
-}
-
-void PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values,
-                                                std::vector<bool> &out) const {
-  properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
-  for (auto const &group : fields_) {
-    auto const held = properties.GetProperty(group.outer);
-    for (auto const &[pos, field] : group.named) {
-      auto const read = ReadPropertyPath(held, sorted_properties_[pos].as_span(), field);
-      auto const &cmp_value = values[position_lookup_[pos]];
-      out[pos] = read ? *read == cmp_value : cmp_value.IsNull();
-    }
-  }
 }
 
 size_t PropertyValueRange::hash() const noexcept {

@@ -36,6 +36,22 @@
 
 namespace memgraph::storage {
 
+/// What reading an index's key out of a record takes. Both property stores answer it, so an
+/// index reads a record without being told which store holds it.
+///
+/// `GetProperty` is part of it because a path's last segment may name a field the value carries
+/// of its own rather than a key it holds. A store answers for keys, so the field is read above
+/// it, out of the record's own property.
+template <typename Record>
+concept HoldsProperties = requires(Record const &record, PropertyId property, std::span<PropertyPath const> paths,
+                                   std::span<PropertyValue> out, std::span<PropertyValue const> values,
+                                   std::span<std::size_t const> position_lookup, std::vector<bool> &result) {
+  { record.GetProperty(property) } -> std::same_as<PropertyValue>;
+  { record.ExtractPropertyValuesMissingAsNull(paths) } -> std::same_as<std::vector<PropertyValue>>;
+  record.ExtractPropertyValuesMissingAsNull(paths, out);
+  record.ArePropertiesEqual(paths, values, position_lookup, result);
+};
+
 struct ActiveIndicesUpdater;
 struct LabelPropertyIndexActiveIndices;
 struct LabelPropertyIndexAbortProcessor;
@@ -271,14 +287,23 @@ struct PropertiesPermutationHelper {
    * properties into the index order.
    * @sa ApplyPermutation
    */
-  auto Extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
+  template <HoldsProperties Record>
+  auto Extract(Record const &properties) const -> std::vector<PropertyValue> {
+    auto values = properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
+    ReadFieldsInto(properties, values);
+    return values;
+  }
 
   /** As `Extract`, but writes into the caller-provided `out` (one slot per
    * index property, monotonic `PropertyId` order) without allocating, so a
    * fixed-arity entry can be built into a stack buffer. `out.size()` must equal
    * the index arity.
    */
-  void ExtractInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
+  template <HoldsProperties Record>
+  void ExtractInto(Record const &properties, std::span<PropertyValue> out) const {
+    properties.ExtractPropertyValuesMissingAsNull(sorted_properties_, out);
+    ReadFieldsInto(properties, out);
+  }
 
   /**
    * Inplace update the `extracted_values` with the current value if relevant
@@ -304,7 +329,18 @@ struct PropertiesPermutationHelper {
    * entries in a loop and so pay for the storage once instead of once per entry. Its previous
    * contents are discarded.
    */
-  void MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const;
+  template <HoldsProperties Record>
+  void MatchesValues(Record const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const {
+    properties.ArePropertiesEqual(sorted_properties_, values, position_lookup_, out);
+    for (auto const &group : fields_) {
+      auto const held = properties.GetProperty(group.outer);
+      for (auto const &[pos, field] : group.named) {
+        auto const read = ReadPropertyPath(held, sorted_properties_[pos].as_span(), field);
+        auto const &cmp_value = values[position_lookup_[pos]];
+        out[pos] = read ? *read == cmp_value : cmp_value.IsNull();
+      }
+    }
+  }
 
   /// Reads the path at `pos` out of `value`, which must be the record's own property that
   /// path starts at, with the field this index resolved for that path. `WithPropertyId` hands
@@ -334,7 +370,16 @@ struct PropertiesPermutationHelper {
 
   /// Re-reads the paths that name a field, of which there are usually none. Leaves every
   /// other position as it was.
-  void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
+  template <HoldsProperties Record>
+  void ReadFieldsInto(Record const &properties, std::span<PropertyValue> out) const {
+    for (auto const &group : fields_) {
+      auto const held = properties.GetProperty(group.outer);
+      for (auto const &[pos, field] : group.named) {
+        auto read = ReadPropertyPath(held, sorted_properties_[pos].as_span(), field);
+        out[pos] = read ? *std::move(read) : PropertyValue{};
+      }
+    }
+  }
 
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;

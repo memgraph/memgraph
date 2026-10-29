@@ -122,4 +122,37 @@ class ManifestPropertyStore {
   std::optional<ManifestId> manifest_;
 };
 
+/// A record together with the registry that describes it, which is the smallest thing that can
+/// be asked anything: a record names its shape and cannot resolve it, and a shape id means
+/// nothing to a registry that did not issue it.
+///
+/// It answers the reading questions `PropertyStore` answers, with the registry already in hand,
+/// so whatever reads a record can read either store without being told which it has.
+class ManifestRecord {
+ public:
+  ManifestRecord(ManifestPropertyStore const &store, ManifestRegistry const &registry)
+      : store_{&store}, registry_{&registry} {}
+
+  auto GetProperty(PropertyId property) const -> PropertyValue { return store_->GetProperty(*registry_, property); }
+
+  auto ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const
+      -> std::vector<PropertyValue> {
+    return store_->ExtractPropertyValuesMissingAsNull(*registry_, ordered_properties);
+  }
+
+  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const {
+    store_->ExtractPropertyValuesMissingAsNull(*registry_, ordered_properties, out);
+  }
+
+  void ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup, std::vector<bool> &result) const {
+    store_->ArePropertiesEqual(*registry_, ordered_properties, values, position_lookup, result);
+  }
+
+ private:
+  ManifestPropertyStore const *store_;
+  ManifestRegistry const *registry_;
+};
+
 }  // namespace memgraph::storage

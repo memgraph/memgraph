@@ -16,8 +16,10 @@
 #include <string_view>
 #include <vector>
 
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/manifest_property_store.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/temporal.hpp"
 #include "tests/unit/value_shapes.hpp"
@@ -568,6 +570,78 @@ TEST(ManifestPropertyStore, ReadsSeveralPathsAtOnceAsThePropertyStoreDoes) {
     EXPECT_EQ(empty.ExtractPropertyValuesMissingAsNull(empty_registry, asked),
               std::vector<PropertyValue>(asked.size()));
   }
+}
+
+// An index keys a record by reading it, and a path's last segment may name a field the value
+// carries of its own rather than a key it holds. Which of the two it is takes the names behind
+// the ids, which no store can see, so the index resolves the name once and then reads the
+// record's own property. This store is asked for that property the way the old one is, and a
+// record it holds is keyed exactly as the same record in the old store.
+TEST(ManifestPropertyStore, AnIndexKeysARecordAsItKeysAPropertyStore) {
+  using memgraph::storage::IndexOrderedValuesVector;
+  using memgraph::storage::NameIdMapper;
+  using memgraph::storage::PropertiesPermutationHelper;
+  using memgraph::storage::PropertyPath;
+  using memgraph::storage::TemporalData;
+  using memgraph::storage::TemporalType;
+
+  NameIdMapper mapper;
+  auto const a = PropertyId::FromUint(mapper.NameToId("a"));
+  auto const b = PropertyId::FromUint(mapper.NameToId("b"));
+  auto const c = PropertyId::FromUint(mapper.NameToId("c"));
+  auto const year = PropertyId::FromUint(mapper.NameToId("year"));
+  auto const k = PropertyId::FromUint(mapper.NameToId("k"));
+
+  // A whole property, a field of a second property, and a key inside a third, which is a shape
+  // an index can be created in. The paths are given out of order, so the permutation is doing
+  // something.
+  auto const paths = std::vector<PropertyPath>{PropertyPath{c, k}, PropertyPath{a}, PropertyPath{b, year}};
+  PropertiesPermutationHelper helper{paths, mapper};
+
+  ManifestRegistry registry;
+  ManifestPropertyStore manifest;
+  PropertyStore current;
+  // 2024-03-05, whose year is 2024 and whose `year` is no key of its.
+  auto const held = std::vector<std::pair<PropertyId, PropertyValue>>{
+      {a, PropertyValue{int64_t{300}}},
+      {b, PropertyValue{TemporalData{TemporalType::Date, 1'709'596'800'000'000}}},
+      {c, PropertyValue{PropertyValue::map_t{{k, PropertyValue{int64_t{11}}}}}},
+  };
+  for (auto const &[property, value] : held) {
+    manifest.SetProperty(registry, property, value);
+    current.SetProperty(property, value);
+  }
+  auto const record = memgraph::storage::ManifestRecord{manifest, registry};
+
+  auto const expected = helper.ApplyPermutation(helper.Extract(current));
+  auto const keyed = helper.ApplyPermutation(helper.Extract(record));
+  EXPECT_EQ(keyed.values_, expected.values_);
+  // The field is read rather than left as the Null a store alone would answer.
+  EXPECT_EQ(keyed.values_[2], PropertyValue{int64_t{2024}});
+
+  // The same key built into a caller's buffer rather than a returned one.
+  auto into = std::vector<PropertyValue>(paths.size());
+  helper.ExtractInto(record, into);
+  helper.ApplyPermutationInPlace(into);
+  EXPECT_EQ(into, expected.values_);
+
+  // And a record compares against a key the way it is read into one, for the key it is keyed
+  // on and for one it is not.
+  auto const elsewhere = IndexOrderedValuesVector{std::vector<PropertyValue>{
+      PropertyValue{int64_t{11}}, PropertyValue{int64_t{301}}, PropertyValue{int64_t{2024}}}};
+  for (auto const &against : {expected, elsewhere}) {
+    auto from_current = std::vector<bool>{};
+    auto from_manifest = std::vector<bool>{};
+    helper.MatchesValues(current, against, from_current);
+    helper.MatchesValues(record, against, from_manifest);
+    EXPECT_EQ(from_manifest, from_current);
+  }
+
+  // A record carrying nothing is keyed as Null at every path, as the old store's is.
+  ManifestRegistry empty_registry;
+  ManifestPropertyStore empty;
+  PropertyStore empty_current;
+  EXPECT_EQ(helper.Extract(memgraph::storage::ManifestRecord{empty, empty_registry}), helper.Extract(empty_current));
 }
 
 // A zoned temporal value is a moment, a kind, and a zone. A zone given as an offset is a
