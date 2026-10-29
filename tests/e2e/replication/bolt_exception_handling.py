@@ -307,7 +307,9 @@ def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
 
     def work(tx):
         attempts["n"] += 1
-        return list(tx.run("RETURN duration('P1M')"))
+        # An unambiguously invalid literal: `P1M` is valid ISO-8601 (one month) and only rejected because
+        # months are currently unsupported, so it could become parseable; `PXYZ` never can.
+        return list(tx.run("RETURN duration('PXYZ')"))
 
     try:
         with pytest.raises(ClientError) as exc_info:
@@ -319,6 +321,33 @@ def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
     finally:
         driver.close()
     assert attempts["n"] == 1, f"driver retried the query {attempts['n'] - 1} time(s); a ClientError must not be retried"
+
+
+def test_retryable_trigger_failure_stays_transient_error(test_name):
+    """
+    A before-commit trigger that fails with a declared-retryable exception must stay TransientError after the
+    rewrapping. The rewrap in Interpreter::Commit catches the trigger's BasicException and, before the fix, always
+    rethrew a plain BasicException, which dropped the retryability of a HintedAbortError/OOM/serialization conflict
+    (contract A2). A lowered query timeout makes a deliberately long-running trigger body abort with a retryable
+    HintedAbortError(TIMEOUT); the client must see TransientError carrying the trigger-rewrap message.
+    """
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            # Seed enough nodes that a cartesian trigger body cannot finish before the (lowered) deadline.
+            session.run("UNWIND range(1, 20000) AS x CREATE (:Seed)").consume()
+            session.run("SET DATABASE SETTING 'query.timeout' TO '1'").consume()
+            session.run(
+                "CREATE TRIGGER slow_before_commit ON CREATE BEFORE COMMIT EXECUTE "
+                "MATCH (a:Seed), (b:Seed), (c:Seed) WITH count(*) AS cnt CREATE (:SlowTriggerResult {cnt: cnt})"
+            ).consume()
+            with pytest.raises(TransientError) as exc_info:
+                session.run("CREATE (:TriggerSource)").consume()
+            assert "slow_before_commit" in str(exc_info.value)
+            assert "caused the transaction to fail" in str(exc_info.value)
+    finally:
+        driver.close()
 
 
 @requires_enterprise
