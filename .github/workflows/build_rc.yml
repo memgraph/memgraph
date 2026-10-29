@@ -71,16 +71,34 @@ jobs:
           git config user.name github-actions
           git config user.email actions@github.com
 
+      - name: Validate inputs
+        env:
+          VERSION: ${{ inputs.version }}
+          RC_NUMBER: ${{ inputs.rc_number }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must be in X.Y.Z format, got: $VERSION"
+            exit 1
+          fi
+          if [[ ! "$RC_NUMBER" =~ ^rc[0-9]+$ ]]; then
+            echo "rc_number must be in rcN format, got: $RC_NUMBER"
+            exit 1
+          fi
+
       - name: Create Short Version
         id: create_short_version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          short_version=$(echo "${{ inputs.version }}" | sed -E 's/^([0-9]+\.[0-9]+)\.0$/\1/')
+          short_version=$(echo "$VERSION" | sed -E 's/^([0-9]+\.[0-9]+)\.0$/\1/')
           echo "short_version=$short_version" >> $GITHUB_OUTPUT
 
       - name: Check if release branch exists and checkout
         id: check_branch
+        env:
+          SHORT_VERSION: ${{ steps.create_short_version.outputs.short_version }}
         run: |
-          branch_name="release/${{ steps.create_short_version.outputs.short_version }}"
+          branch_name="release/$SHORT_VERSION"
           if git ls-remote --exit-code --heads origin "$branch_name"; then
             echo "Branch $branch_name exists. Checking out."
             git checkout "$branch_name"
@@ -91,16 +109,21 @@ jobs:
           echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
 
       - name: Set Memgraph Override Version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"${{ inputs.version }}\")/" CMakeLists.txt
+          sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"$VERSION\")/" CMakeLists.txt
           git add CMakeLists.txt
           # this will fail if there are no changes, but we don't care
           git commit -m "Update CMakeLists.txt with new memgraph override version" || true
 
       - name: Check if tag exists
         id: check_tag
+        env:
+          VERSION: ${{ inputs.version }}
+          RC_NUMBER: ${{ inputs.rc_number }}
         run: |
-          tag_name="v${{ inputs.version }}-${{ inputs.rc_number }}"
+          tag_name="v$VERSION-$RC_NUMBER"
           if git ls-remote --exit-code --tags origin "$tag_name"; then
             echo "Tag $tag_name exists."
             if [ "${{ inputs.overwrite_tag }}" == "true" ]; then

@@ -93,12 +93,14 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Create and push multi-arch manifest for version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
 
           if [[ "${{ matrix.image_type }}" == "client" ]]; then
-            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}"
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:$VERSION"
           else
-            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}-full"
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:$VERSION-full"
           fi
 
           repo_tag_arm="${repo_tag}-arm64"

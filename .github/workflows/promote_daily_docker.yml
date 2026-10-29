@@ -93,8 +93,8 @@ jobs:
 
       - name: Validate date format
         run: |
-          if [[ ! "${{ inputs.date }}" =~ ^[0-9]{8}$ ]]; then
-            echo "date must be in YYYYMMDD format, got: ${{ inputs.date }}"
+          if [[ ! "$DATE" =~ ^[0-9]{8}$ ]]; then
+            echo "date must be in YYYYMMDD format, got: $DATE"
             exit 1
           fi
 
