@@ -861,7 +861,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitDenyDatabaseFromUserOrRole(MemgraphCypher::DenyDatabaseFromUserOrRoleContext *ctx) override;
+  antlrcpp::Any visitDenyDatabaseToUserOrRole(MemgraphCypher::DenyDatabaseToUserOrRoleContext *ctx) override;
 
   /**
    * @return AuthQuery*

@@ -60,7 +60,7 @@ def complete(
     if not text:
         return ""
 
-    effective_model = config.get("model", os.environ.get("LITELLM_MODEL", "gpt-5-mini"))
+    effective_model = config.get("model", os.environ.get("LITELLM_MODEL", "openai/gpt-5.6-terra"))
     effective_system = config.get("system_prompt", _DEFAULT_SYSTEM_PROMPT)
     api_base = config.get("api_base") or os.environ.get("LITELLM_API_BASE")
 

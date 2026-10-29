@@ -41,6 +41,7 @@
 #include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/value_field.hpp"
 #include "tests/unit/timezone_handler.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
@@ -2091,6 +2092,71 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
   EXPECT_TRUE(total_nano.IsInt());
   const auto expected_nano = expected_micros * 1000;
   EXPECT_EQ(total_nano.ValueInt(), expected_nano);
+}
+
+// An index over a path like `a.year` has to answer with the field a lookup would read, or the
+// same filter answers one way through the index and another way without it. Reading a field is
+// written once, in storage, and this is what holds the two to each other: for every value that
+// carries fields and every name that denotes one, a lookup and that reading agree, and a
+// lookup raises exactly where the reading finds nothing.
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, ReadingAFieldAgreesWithLookingItUp) {
+  auto const values = std::vector<TypedValue>{
+      TypedValue(memgraph::utils::Date({1996, 11, 22})),
+      TypedValue(memgraph::utils::LocalTime({2, 3, 4, 55, 40})),
+      TypedValue(memgraph::utils::LocalDateTime({1993, 8, 6}, {2, 3, 4, 55, 40})),
+      TypedValue(memgraph::utils::Duration({10, 1, 30, 2, 22, 45})),
+      TypedValue(
+          memgraph::utils::ZonedDateTime({{2024, 3, 5}, {11, 12, 13, 0, 0}, memgraph::utils::Timezone("Etc/UTC")})),
+      TypedValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.5, 2.5}),
+      TypedValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.5, 2.5}),
+      TypedValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.5, 2.5, 3.5}),
+      TypedValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.5, 2.5, 3.5}),
+  };
+  auto const names = std::vector<std::string>{
+      "year",
+      "month",
+      "day",
+      "hour",
+      "minute",
+      "second",
+      "millisecond",
+      "microsecond",
+      "nanosecond",
+      "timezone",
+      "x",
+      "y",
+      "z",
+      "longitude",
+      "latitude",
+      "height",
+      "crs",
+      "srid",
+  };
+
+  auto *mapper = this->storage_dba->GetNameIdMapper();
+  for (auto const &value : values) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(this->symbol, TypedValue(value));
+    auto const stored = value.ToPropertyValue(mapper);
+
+    for (auto const &name : names) {
+      auto const field = memgraph::storage::FieldNamed(name);
+      ASSERT_TRUE(field.has_value()) << "every name here denotes some field: " << name;
+      auto const read = memgraph::storage::ReadField(stored, *field);
+
+      auto looked_up = std::optional<TypedValue>{};
+      try {
+        looked_up = this->Value(std::make_pair(name, this->dba.NameToProperty(name)));
+      } catch (memgraph::query::QueryRuntimeException const &) {
+        // A lookup raises for a name the value carries no field of.
+      }
+
+      ASSERT_EQ(read.has_value(), looked_up.has_value()) << "value " << value.type() << " asked for " << name;
+      if (read) {
+        EXPECT_EQ(*read, looked_up->ToPropertyValue(mapper)) << "value " << value.type() << " field " << name;
+      }
+    }
+  }
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Date) {

@@ -174,6 +174,7 @@ class AuthQuery : public memgraph::query::Query {
   PropertyEntityKind property_entity_kind_{PropertyEntityKind::NODE};
   LabelMatchingMode property_matching_mode_{LabelMatchingMode::ANY};
   PropertyPermissionType property_permission_types_{PropertyPermissionType::NONE};
+  bool uses_deprecated_deny_database_from_{false};
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -202,6 +203,7 @@ class AuthQuery : public memgraph::query::Query {
     object->property_entity_kind_ = property_entity_kind_;
     object->property_matching_mode_ = property_matching_mode_;
     object->property_permission_types_ = property_permission_types_;
+    object->uses_deprecated_deny_database_from_ = uses_deprecated_deny_database_from_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;
     return object;

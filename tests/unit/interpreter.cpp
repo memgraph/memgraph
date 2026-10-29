@@ -17,7 +17,10 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "auth_query_handler_fixture.hpp"
 #include "auth_test_utils.hpp"
@@ -2799,6 +2802,33 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
   }
 }
 
+#ifdef MG_ENTERPRISE
+TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+  this->default_interpreter.Interpret("CREATE USER alice");
+
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<CodeAndSeverity> result;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
+      }
+    }
+    return result;
+  };
+
+  EXPECT_EQ(notifications("DENY DATABASE * FROM alice"),
+            (std::vector<CodeAndSeverity>{{"DeprecatedQuery", "WARNING"}}));
+  EXPECT_TRUE(notifications("DENY DATABASE * TO alice").empty());
+}
+#endif
+
 TYPED_TEST(InterpreterTest, NotificationsValidStructure) {
   {
     auto [stream, qid] = this->Prepare("MATCH (n) DELETE n;");
@@ -3293,6 +3323,34 @@ TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
 // A query the AST cache never holds is handed out as the parser built it. Where ORDER BY repeated a projected item,
 // the parser left the replaced subtree in the AST storage with its identifiers unresolved, so whatever reads the
 // storage rather than walking the tree meets an identifier that symbol generation never reached.
+// Statistics count the records an index holds, so they have to read a path the way the index
+// keyed it. An index over `a.year` keys a record whose `a` is a moment on the year that moment
+// carries, so statistics that read only map keys would report an index that holds entries as
+// holding none, and a plan would be costed against nothing.
+TYPED_TEST(InterpreterTest, AnalyzeGraphCountsWhatANestedIndexHolds) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Nested indexes are not supported on disk storage.";
+  }
+
+  for (auto const year : {2021, 2022, 2023}) {
+    this->Interpret(fmt::format("CREATE (:Moment {{a: date('{}-03-05')}})", year));
+    this->Interpret(fmt::format("CREATE (:Keyed {{a: {{year: {}}}}})", year));
+  }
+  this->Interpret("CREATE INDEX ON :Moment(a.year)");
+  this->Interpret("CREATE INDEX ON :Keyed(a.year)");
+
+  auto const stats = this->Interpret("ANALYZE GRAPH ON LABELS :Moment, :Keyed").GetResults();
+  ASSERT_EQ(stats.size(), 2U);
+
+  // Both indexes hold the same three records, so both report the same counts. The second is a
+  // map key, which was always read, and is here to show the first is not failing for some
+  // reason of its own.
+  for (auto const &row : stats) {
+    EXPECT_EQ(row[2].ValueInt(), 3) << "number of records for " << row[0].ValueString();
+    EXPECT_EQ(row[3].ValueInt(), 3) << "distinct values for " << row[0].ValueString();
+  }
+}
+
 TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListTest) {
   using EPV = memgraph::storage::ExternalPropertyValue;
   this->Interpret("CREATE (:Node {x: 1, list: [1, 2]}), (:Node {x: 3, list: [1, 2]}), (:Node {x: 3, list: [1, 2]})");

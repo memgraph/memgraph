@@ -129,6 +129,7 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction_constants.hpp"
+#include "storage/v2/value_field.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
 #include "utils/compile_time.hpp"
@@ -4818,22 +4819,29 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       prop_ranges.reserve(properties.size());
       ranges::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
 
+      // Which of these paths end in the name of a field a value carries, worked out once for
+      // the whole scan because it takes the name behind a property id. Counting a record the
+      // way the index keyed it is what makes these statistics describe that index.
+      auto fields = std::vector<std::optional<storage::ValueField>>{};
+      fields.reserve(properties.size());
+      for (auto const &property_path : properties) {
+        fields.push_back(property_path.size() > 1
+                             ? storage::FieldNamed(execution_db_accessor->PropertyToName(property_path.back()))
+                             : std::nullopt);
+      }
+
       for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges, order)) {
         // TODO(colinbarry) currently using a linear pass to get the property
         // values. Instead, gather all in one pass and permute as we usually do.
         // Additional, we should only extract the leaf property rather than
-        // the entire one, which would save a call to `ReadNestedPropertyValue`.
+        // the entire one.
 
         std::vector<storage::PropertyValue> property_values;
         property_values.reserve(properties.size());
-        for (auto property_path : properties) {
+        for (auto const &[pos, property_path] : ranges::views::enumerate(properties)) {
           auto property_value = *vertex.GetProperty(view, property_path[0]);
-          auto *nested_property_value = ReadNestedPropertyValue(property_value, property_path | rv::drop(1));
-          if (nested_property_value) {
-            property_values.push_back(*nested_property_value);
-          } else {
-            property_values.push_back(storage::PropertyValue{});
-          }
+          auto read = storage::ReadPropertyPath(property_value, property_path.as_span(), fields[pos]);
+          property_values.push_back(read ? *std::move(read) : storage::PropertyValue{});
         }
 
         for (auto &stats : uncomputed_stats_by_prefix) {
@@ -6191,6 +6199,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                                std::optional<memgraph::dbms::DatabaseAccess> db_acc,
                                std::vector<Notification> *notifications) {
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
+
+  if (auth_query->uses_deprecated_deny_database_from_) {
+    notifications->emplace_back(SeverityLevel::WARNING,
+                                NotificationCode::DEPRECATED_QUERY,
+                                "DENY DATABASE ... FROM is deprecated since Memgraph 3.15 and will stop working in a "
+                                "later release, no earlier than 3.16. Use DENY DATABASE <name> TO <user_or_role> "
+                                "instead.");
+  }
 
   // The transaction is created here, on the first auth statement, rather than at BEGIN: a transaction is only known
   // to be an auth one once a statement has classified it, and one that only ever runs data queries must not pay for

@@ -2781,7 +2781,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         input_cursor_(self_.input()->MakeCursor(mem, metric_handles)),
         processed_(mem),
         to_visit_next_(mem),
-        to_visit_current_(mem) {
+        to_visit_current_(mem),
+        expansion_(mem) {
     DMG_ASSERT(!self_.common_.existing_node,
                "Single source shortest path algorithm "
                "should not be used when `existing_node` "
@@ -2862,7 +2863,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         auto out_edges_result =
             UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += out_edges_result.expanded_count;
-        for (const auto &edge : out_edges_result.edges) {
+        out_edges_result.edges.MaterialiseInto(expansion_);
+        for (const auto &edge : expansion_) {
           bool was_expanded = expand_pair(edge, edge.To());
           restore_frame_state_after_expansion(was_expanded);
         }
@@ -2871,7 +2873,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         auto in_edges_result =
             UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += in_edges_result.expanded_count;
-        for (const auto &edge : in_edges_result.edges) {
+        in_edges_result.edges.MaterialiseInto(expansion_);
+        for (const auto &edge : expansion_) {
           bool was_expanded = expand_pair(edge, edge.From());
           restore_frame_state_after_expansion(was_expanded);
         }
@@ -2894,6 +2897,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         to_visit_current_.clear();
         to_visit_next_.clear();
         processed_.clear();
+        ReleaseExpansion();
 
         const auto &vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
@@ -2973,9 +2977,17 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     processed_.clear();
     to_visit_next_.clear();
     to_visit_current_.clear();
+    ReleaseExpansion();
   }
 
  private:
+  /// Capacity is what makes collecting free of allocation, and is only worth keeping for as long
+  /// as the walk that earned it.
+  void ReleaseExpansion() {
+    expansion_.clear();
+    expansion_.shrink_to_fit();
+  }
+
   const ExpandVariable &self_;
   const UniqueCursorPtr input_cursor_;
 
@@ -2991,6 +3003,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
   utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
+  utils::pmr::vector<EdgeAccessor> expansion_;
 };
 
 namespace {

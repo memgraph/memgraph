@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <iterator>
 #include <utility>
@@ -97,6 +98,18 @@ class ExpandedEdges {
 #endif
     return ExpandedEdges{storage_edges_.Filtered(
         [&keep](storage::EdgeAccessor const &edge) -> bool { return keep(EdgeAccessor{edge}); })};
+  }
+
+  /// Worth calling, over walking the expansion, only where visiting an edge waits on memory: an
+  /// edge is built as it is looked at, so collecting first lets several of those waits be
+  /// outstanding at once. `out` keeps its capacity.
+  template <typename Collection>
+    requires std::same_as<typename Collection::value_type, EdgeAccessor>
+  void MaterialiseInto(Collection &out) const {
+    auto const count = size();
+    out.clear();
+    out.reserve(count);
+    for (auto index = std::size_t{0}; index != count; ++index) out.push_back(At(index));
   }
 
  private:

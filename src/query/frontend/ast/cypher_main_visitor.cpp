@@ -3007,11 +3007,11 @@ antlrcpp::Any CypherMainVisitor::visitGrantDatabaseToUserOrRole(MemgraphCypher::
 /**
  * @return AuthQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitDenyDatabaseFromUserOrRole(
-    MemgraphCypher::DenyDatabaseFromUserOrRoleContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitDenyDatabaseToUserOrRole(MemgraphCypher::DenyDatabaseToUserOrRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_DATABASE_FROM_USER;
   auth->database_ = std::any_cast<std::string>(ctx->wildcardName()->accept(this));
+  auth->uses_deprecated_deny_database_from_ = ctx->FROM() != nullptr;
   std::tie(auth->user_or_role_, auth->entity_type_) =
       std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(ctx->target->accept(this));
   return auth;

@@ -1132,6 +1132,11 @@ add_unit_test(storage_v2_property_store
     CUSTOM_MAIN
 )
 
+add_unit_test(storage_v2_value_field
+    SOURCES storage_v2_value_field.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_wal_file
     SOURCES storage_v2_wal_file.cpp
     LINK_TARGETS mg::storage storage_test_utils fmt::fmt

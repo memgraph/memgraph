@@ -16,6 +16,8 @@
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/value_field.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/bound.hpp"
@@ -230,6 +232,10 @@ using IndexOrderedValues =
  * This class efficiently handles reading an abitrarily ordered list of
  * properties, rearranging the reads them so that the internal ordering
  * requirement is handled transparently.
+ *
+ * A path that arrives at nothing, because the record lacks the property or the value it lands
+ * on holds neither that key nor that field, is keyed as Null and compared as Null. Every
+ * reading below answers that way, so a record is never judged to lack what it holds.
  */
 struct PropertiesPermutationHelper {
   using permutation_cycles = std::vector<std::vector<std::size_t>>;
@@ -237,8 +243,12 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
+   * @param name_id_mapper Resolves a path ending in the name of a field once here rather
+   *                   than for every record read. An id it does not know names no field. May
+   *                   be null only when no path has more than one property, since no field
+   *                   can then apply.
    */
-  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
+  PropertiesPermutationHelper(std::span<PropertyPath const> properties, NameIdMapper *name_id_mapper);
 
   /** Rearranges monotonically ordered properties (as returned by `Extract` /
    * written by `ExtractInto`) into the index order, in place.
@@ -290,6 +300,15 @@ struct PropertiesPermutationHelper {
    */
   void MatchesValues(PropertyStore const &properties, IndexOrderedValuesView values, std::vector<bool> &out) const;
 
+  /// Reads the path at `pos` out of `value`, which must be the record's own property that
+  /// path starts at, with the field this index resolved for that path. `WithPropertyId` hands
+  /// out the positions.
+  ///
+  /// Only the value in hand settles whether a path's last segment is a key or a field, so
+  /// reading a record's bytes answers the key and nothing else. Anything holding an outer
+  /// value and wanting what the path names has to come through here.
+  auto ReadPath(std::size_t pos, PropertyValue const &value) const -> std::optional<PropertyValue>;
+
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).
    */
@@ -300,10 +319,16 @@ struct PropertiesPermutationHelper {
   }
 
  private:
+  /// Re-reads the paths that could end in a field. Leaves every other position as it was.
+  void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
+
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
+  /// Parallel to `sorted_properties_`: which field each path's last segment names, where it
+  /// names one.
+  std::vector<std::optional<ValueField>> fields_;
 };
 
 using LabelPropertyIndexAbortableInfo =
