@@ -473,7 +473,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
         VectorEdgeIndex::EdgeIndexEntry{
             .from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge, .edge_type = edge_type},
         static_cast<double>(result_keys[i].distance),
-        std::abs(SimilarityFromDistance(mg_index.index.metric().metric_kind(), result_keys[i].distance)));
+        SimilarityFromDistance(mg_index.index.metric().metric_kind(), result_keys[i].distance));
   }
 
   return result;
