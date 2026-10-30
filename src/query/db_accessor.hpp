@@ -53,6 +53,10 @@ using WithinBBoxCondition = memgraph::storage::WithinBBoxCondition;
 enum class text_search_mode;
 
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <algorithm>
+#include <memory>
+#endif
 #include <optional>
 #include <ranges>
 #include <span>
@@ -122,16 +126,60 @@ class SubgraphVertexAccessor final {
 namespace memgraph::query {
 
 class VerticesIterable final {
+#ifdef MG_ENTERPRISE
+  using VertexSet = std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                       utils::Allocator<VertexAccessor>>;
+  using UnionIterable = versioning::BranchContext::UnionVerticesIterable;
+
+  // A branch scan's iterator sits behind one alternative of the iterator's variant, so that main's iterator keeps the
+  // shape and the per-row cost it has without branches; a branch scan steps through the box, out of line.
+  class BoxedBranchIterator {
+    using Inner = UnionIterable::Iterator;
+
+   public:
+    explicit BoxedBranchIterator(UnionIterable::Iterator it) : it_(std::make_unique<Inner>(std::move(it))) {}
+
+    BoxedBranchIterator(const BoxedBranchIterator &other) : it_(std::make_unique<Inner>(*other.it_)) {}
+
+    BoxedBranchIterator &operator=(const BoxedBranchIterator &other) {
+      it_ = std::make_unique<Inner>(*other.it_);
+      return *this;
+    }
+
+    BoxedBranchIterator(BoxedBranchIterator &&) noexcept = default;
+    BoxedBranchIterator &operator=(BoxedBranchIterator &&) noexcept = default;
+    ~BoxedBranchIterator() = default;
+
+    VertexAccessor operator*() const { return VertexAccessor(**it_); }
+
+    BoxedBranchIterator &operator++() {
+      ++*it_;
+      return *this;
+    }
+
+    bool operator==(const BoxedBranchIterator &other) const { return *it_ == *other.it_; }
+
+   private:
+    std::unique_ptr<Inner> it_;
+  };
+
+  std::variant<storage::VerticesIterable, VertexSet *, std::shared_ptr<UnionIterable>> iterable_;
+#else
   std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
                                                              std::equal_to<void>, utils::Allocator<VertexAccessor>> *>
       iterable_;
+#endif
 
  public:
   class Iterator final {
+#ifdef MG_ENTERPRISE
+    std::variant<storage::VerticesIterable::Iterator, VertexSet::iterator, BoxedBranchIterator> it_;
+#else
     std::variant<storage::VerticesIterable::Iterator,
                  std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                     utils::Allocator<VertexAccessor>>::iterator>
         it_;
+#endif
 
    public:
     explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
@@ -140,6 +188,43 @@ class VerticesIterable final {
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
+#ifdef MG_ENTERPRISE
+    explicit Iterator(BoxedBranchIterator it) : it_(std::move(it)) {}
+#endif
+
+#ifdef MG_ENTERPRISE
+   private:
+    template <typename Self, typename F>
+    [[gnu::noinline]] static decltype(auto) DispatchBranchScan(Self &self, F &f) {
+      return f(*std::get_if<2>(&self.it_));
+    }
+
+    // Main's alternatives are dispatched inline, so a main scan pays no per-row visit over the branch alternative; a
+    // branch scan steps out of line.
+    template <typename Self, typename F>
+    static decltype(auto) Dispatch(Self &self, F &&f) {
+      if (auto *it = std::get_if<0>(&self.it_)) [[likely]]
+        return f(*it);
+      if (auto *it = std::get_if<1>(&self.it_)) return f(*it);
+      return DispatchBranchScan(self, f);
+    }
+
+   public:
+    VertexAccessor operator*() const {
+      return Dispatch(*this, [](auto &it) { return VertexAccessor(*it); });
+    }
+
+    Iterator &operator++() {
+      Dispatch(*this, [](auto &it) { ++it; });
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const {
+      if (it_.index() != other.it_.index()) return false;
+      return Dispatch(
+          *this, [&](auto const &it) { return it == *std::get_if<std::remove_cvref_t<decltype(it)>>(&other.it_); });
+    }
+#else
     VertexAccessor operator*() const {
       return std::visit([](auto &it_) { return VertexAccessor(*it_); }, it_);
     }
@@ -150,6 +235,7 @@ class VerticesIterable final {
     }
 
     bool operator==(const Iterator &other) const { return it_ == other.it_; }
+#endif
 
     bool operator!=(const Iterator &other) const { return !(other == *this); }
   };
@@ -160,6 +246,27 @@ class VerticesIterable final {
                                                utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
+#ifdef MG_ENTERPRISE
+  explicit VerticesIterable(UnionIterable iterable) : iterable_(std::make_shared<UnionIterable>(std::move(iterable))) {}
+
+  Iterator begin() {
+    return std::visit(utils::Overloaded{[](VertexSet *set) { return Iterator(set->begin()); },
+                                        [](storage::VerticesIterable &iterable) { return Iterator(iterable.begin()); },
+                                        [](std::shared_ptr<UnionIterable> &iterable) {
+                                          return Iterator(BoxedBranchIterator(iterable->begin()));
+                                        }},
+                      iterable_);
+  }
+
+  Iterator end() {
+    return std::visit(utils::Overloaded{[](VertexSet *set) { return Iterator(set->end()); },
+                                        [](storage::VerticesIterable &iterable) { return Iterator(iterable.end()); },
+                                        [](std::shared_ptr<UnionIterable> &iterable) {
+                                          return Iterator(BoxedBranchIterator(iterable->end()));
+                                        }},
+                      iterable_);
+  }
+#else
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{[](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
@@ -182,6 +289,7 @@ class VerticesIterable final {
                                   utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
         iterable_);
   }
+#endif
 };
 
 template <typename storage_iterator>
@@ -394,6 +502,23 @@ class DbAccessor final {
 #ifdef MG_ENTERPRISE
   // Non-null iff this belongs to a branch's transaction, where `accessor_` is the branch's diff-engine accessor.
   versioning::BranchContext *branch_ctx_{nullptr};
+
+  // Branch reads (db_accessor.cpp), reached only when branch_ctx_ != nullptr: main@fork merged with the diff engine.
+  std::optional<VertexAccessor> BranchFindVertex(storage::Gid gid, storage::View view);
+  std::optional<EdgeAccessor> BranchFindEdge(storage::Gid gid, storage::View view);
+  std::optional<EdgeAccessor> BranchFindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
+  VerticesIterable BranchVertices(storage::View view);
+
+  // Per-key count on a branch: main@fork's plus the diff engine's, so base objects the branch deleted or took out of
+  // the key are not subtracted. No index on both sides: the whole branch count.
+  template <typename Ready, typename Count>
+  int64_t BranchKeyCount(bool edges, Ready &&ready, Count &&count) const {
+    auto &historical = branch_ctx_->historical();
+    if (!ready(historical) || !ready(*accessor_)) {
+      return edges ? branch_ctx_->ApproximateEdgeCount() : branch_ctx_->ApproximateVertexCount();
+    }
+    return static_cast<int64_t>(count(historical)) + static_cast<int64_t>(count(*accessor_));
+  }
 #endif
 
  public:
@@ -417,18 +542,30 @@ class DbAccessor final {
   auto type() const { return accessor_->type(); }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchFindVertex(gid, view);
+#endif
     auto maybe_vertex = accessor_->FindVertex(gid, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
   }
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchFindEdge(gid, view);
+#endif
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
   }
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchFindEdge(edge_gid, from_vertex_gid, view);
+#endif
     auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
@@ -450,7 +587,15 @@ class DbAccessor final {
 
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 
+#ifdef MG_ENTERPRISE
+  VerticesIterable Vertices(storage::View view) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view);
+    return VerticesIterable(accessor_->Vertices(view));
+  }
+#else
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
+#endif
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
     return VerticesIterable(accessor_->Vertices(label, view));
@@ -785,12 +930,21 @@ class DbAccessor final {
 
   std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const;
 
+  // On a branch the stats are main@base's; the diff engine has none.
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return branch_ctx_->historical().GetIndexStats(label);
+#endif
     return accessor_->GetIndexStats(label);
   }
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return branch_ctx_->historical().GetIndexStats(label, properties);
+#endif
     return accessor_->GetIndexStats(label, properties);
   }
 
@@ -810,33 +964,99 @@ class DbAccessor final {
     accessor_->SetIndexStats(label, properties, stats);
   }
 
-  int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
+  int64_t VerticesCount() const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return branch_ctx_->ApproximateVertexCount();
+#endif
+    return accessor_->ApproximateVertexCount();
+  }
 
-  int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
+  int64_t VerticesCount(storage::LabelId label) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.LabelIndexReady(label); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(label); });
+#endif
+    return accessor_->ApproximateVertexCount(label);
+  }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.LabelPropertyIndexReady(label, properties); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(label, properties); });
+#endif
     return accessor_->ApproximateVertexCount(label, properties);
   }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValue const> values) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      // All values null asks for the average group size, which does not add up: main@fork's stands for the branch's.
+      auto &historical = branch_ctx_->historical();
+      if (std::ranges::all_of(values, [](auto const &value) { return value.IsNull(); }) &&
+          historical.LabelPropertyIndexReady(label, properties)) {
+        return static_cast<int64_t>(historical.ApproximateVertexCount(label, properties, values));
+      }
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.LabelPropertyIndexReady(label, properties); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(label, properties, values); });
+    }
+#endif
     return accessor_->ApproximateVertexCount(label, properties, values);
   }
 
   // TODO: rename to ApproximateVertexCount?
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.LabelPropertyIndexReady(label, properties); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(label, properties, bounds); });
+#endif
     return accessor_->ApproximateVertexCount(label, properties, bounds);
   }
 
-  int64_t VerticesCount(storage::PropertyId property) const { return accessor_->ApproximateVertexCount(property); }
+  int64_t VerticesCount(storage::PropertyId property) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.VertexPropertyIndexReady(property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(property); });
+#endif
+    return accessor_->ApproximateVertexCount(property);
+  }
 
   int64_t VerticesCount(storage::PropertyId property, storage::PropertyValue const &value) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.VertexPropertyIndexReady(property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(property, value); });
+#endif
     return accessor_->ApproximateVertexCount(property, value);
   }
 
   int64_t VerticesCount(storage::PropertyId property, std::optional<utils::Bound<storage::PropertyValue>> const &lower,
                         std::optional<utils::Bound<storage::PropertyValue>> const &upper) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          false,
+          [&](storage::Storage::Accessor &a) { return a.VertexPropertyIndexReady(property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateVertexCount(property, lower, upper); });
+#endif
     return accessor_->ApproximateVertexCount(property, lower, upper);
   }
 
@@ -856,33 +1076,92 @@ class DbAccessor final {
     return accessor_->ApproximateEdgesTextCount(index_name);
   }
 
-  int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }
+  int64_t EdgesCount() const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return branch_ctx_->ApproximateEdgeCount();
+#endif
+    return accessor_->ApproximateEdgeCount();
+  }
 
-  int64_t EdgesCount(storage::EdgeTypeId edge_type) const { return accessor_->ApproximateEdgeCount(edge_type); }
+  int64_t EdgesCount(storage::EdgeTypeId edge_type) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgeTypeIndexReady(edge_type); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(edge_type); });
+#endif
+    return accessor_->ApproximateEdgeCount(edge_type);
+  }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgeTypePropertyIndexReady(edge_type, property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(edge_type, property); });
+#endif
     return accessor_->ApproximateEdgeCount(edge_type, property);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property,
                      const storage::PropertyValue &value) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgeTypePropertyIndexReady(edge_type, property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(edge_type, property, value); });
+#endif
     return accessor_->ApproximateEdgeCount(edge_type, property, value);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property,
                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgeTypePropertyIndexReady(edge_type, property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(edge_type, property, lower, upper); });
+#endif
     return accessor_->ApproximateEdgeCount(edge_type, property, lower, upper);
   }
 
-  int64_t EdgesCount(storage::PropertyId property) const { return accessor_->ApproximateEdgeCount(property); }
+  int64_t EdgesCount(storage::PropertyId property) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgePropertyIndexReady(property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(property); });
+#endif
+    return accessor_->ApproximateEdgeCount(property);
+  }
 
   int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgePropertyIndexReady(property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(property, value); });
+#endif
     return accessor_->ApproximateEdgeCount(property, value);
   }
 
   int64_t EdgesCount(storage::PropertyId property, const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchKeyCount(
+          true,
+          [&](storage::Storage::Accessor &a) { return a.EdgePropertyIndexReady(property); },
+          [&](storage::Storage::Accessor &a) { return a.ApproximateEdgeCount(property, lower, upper); });
+#endif
     return accessor_->ApproximateEdgeCount(property, lower, upper);
   }
 
