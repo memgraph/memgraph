@@ -403,6 +403,28 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
     EXPECT_EQ(listed[0][2].ValueList().at(1).ValueInt(), 5);                                                   \
   } while (false)
 
+// A row's properties are read together before the row's expressions are evaluated, so a record the
+// same query has deleted is reached earlier than a lookup would reach it. There is nothing to read
+// either way, so the query refuses either way: when the read happens must not decide whether a
+// query answers.
+#define CHECK_A_DELETED_RECORD_REFUSES()                                               \
+  do {                                                                                 \
+    this->Execute("MATCH (n) DETACH DELETE n");                                        \
+    this->Execute("CREATE ({a: 1, b: 2})");                                            \
+    EXPECT_THROW(this->Execute("MATCH (n) DETACH DELETE n RETURN n.a AS a, n.b AS b"), \
+                 memgraph::query::QueryRuntimeException);                              \
+  } while (false)
+
+TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_DELETED_RECORD_REFUSES();
+}
+
+TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_DELETED_RECORD_REFUSES();
+}
+
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
   CHECK_LEFTOVER_LOOKUP_RESULTS();
