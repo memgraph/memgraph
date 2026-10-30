@@ -126,6 +126,10 @@ class VersionStore {
   // MODE, RECOVER SNAPSHOT, DROP GRAPH) are rejected while any branch exists.
   bool Empty() const;
 
+  // Keeps CreateBranch and every drop out while held, so an Empty() store stays empty: a storage-global operation
+  // needs it across its whole run. Take it before any storage lock (CreateBranch takes its fork pin under it).
+  [[nodiscard]] std::unique_lock<std::mutex> LockRegistry() { return std::unique_lock{ledger_mutex_}; }
+
   // Attaches a session to `name`; any number may attach, all sharing the branch's BranchCore. Returns the BranchInfo
   // captured atomically with the attach (no race with drop + same-name re-create). A branch with an attached session
   // cannot be dropped without ForceDropBranch. Every successful attach MUST be paired with exactly one
