@@ -133,6 +133,13 @@ class VersionStore {
   // True iff no branches exist, hidden ones included (`main` is not counted). Gates storage-global destructive ops.
   bool Empty() const;
 
+  // True iff some of the branches are hidden (kept only in the ledger because versioning is off).
+  bool HasHidden() const;
+
+  // Keeps CreateBranch and every drop out while held, so an Empty() store stays empty: a storage-global operation
+  // needs it across its whole run. Take it before any storage lock (CreateBranch takes its fork pin under it).
+  [[nodiscard]] std::unique_lock<std::mutex> LockRegistry() { return std::unique_lock{ledger_mutex_}; }
+
   // Attaches a session to `name` (any number may, sharing the branch's BranchCore); returns the BranchInfo captured
   // atomically with the attach, so a drop + same-name re-create cannot interleave. Every success MUST be paired with
   // exactly one ReleaseCheckout(info.number).
