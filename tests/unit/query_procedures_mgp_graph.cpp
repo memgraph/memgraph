@@ -727,11 +727,6 @@ TYPED_TEST(MgpGraphTest, EdgesIteratorByTypes) {
       EXPECT_EQ(by_types({{"B"}, {"B"}}), OfTypes(all, {"B"})) << "a repeated type must not repeat edges";
       EXPECT_EQ(by_types({{"A"}, {"B"}, {"C"}}), all);
       EXPECT_TRUE(by_types({{"NO_SUCH_TYPE"}}).empty());
-      EXPECT_TRUE(by_types({}).empty()) << "no types must mean no edges, not every edge";
-      const mgp_edge_type a_type{"A"};
-      MgpEdgesIteratorPtr empty_list{EXPECT_MGP_NO_ERROR(
-          mgp_edges_iterator *, mgp_vertex_iter_out_edges_by_types, a.get(), &a_type, 0, &this->memory)};
-      EXPECT_TRUE(EdgesOf(empty_list.get()).empty()) << "a non-NULL list with num_types 0 is empty too";
       EXPECT_EQ(KnownEdgeTypeNames(graph), (std::set<std::string>{"A", "B", "C", "NO_SUCH_TYPE"}))
           << "the names asked for are remembered for the rest of the call";
     }
@@ -762,8 +757,12 @@ TYPED_TEST(MgpGraphTest, EdgesIteratorByTypesArguments) {
     }
     mgp_edges_iterator *iter = nullptr;
     const mgp_edge_type null_name{nullptr};
-    for (auto [types, num_types] :
-         {std::pair{static_cast<const mgp_edge_type *>(nullptr), size_t{1}}, std::pair{&null_name, size_t{1}}}) {
+    const mgp_edge_type edge_type{"EDGE"};
+    // No types, a NULL list, a NULL name: the storage would read an empty list as every type, so it is refused.
+    for (auto [types, num_types] : {std::pair{static_cast<const mgp_edge_type *>(nullptr), size_t{0}},
+                                    std::pair{&edge_type, size_t{0}},
+                                    std::pair{static_cast<const mgp_edge_type *>(nullptr), size_t{1}},
+                                    std::pair{&null_name, size_t{1}}}) {
       const auto error = in ? mgp_vertex_iter_in_edges_by_types(v.get(), types, num_types, &this->memory, &iter)
                             : mgp_vertex_iter_out_edges_by_types(v.get(), types, num_types, &this->memory, &iter);
       EXPECT_EQ(error, mgp_error::MGP_ERROR_INVALID_ARGUMENT);
@@ -772,28 +771,36 @@ TYPED_TEST(MgpGraphTest, EdgesIteratorByTypesArguments) {
 }
 
 TYPED_TEST(MgpGraphTest, EdgesIteratorByTypesOnDeletedVertex) {
-  memgraph::storage::Gid vertex_id{};
+  std::array<memgraph::storage::Gid, 2> ids{};
   {
     auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
-    vertex_id = accessor.InsertVertex().Gid();
+    ids = {accessor.InsertVertex().Gid(), accessor.InsertVertex().Gid()};
     ASSERT_FALSE(!accessor.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
-  MgpVertexPtr v{EXPECT_MGP_NO_ERROR(
-      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
-  ASSERT_NE(v, nullptr);
-  ASSERT_EQ(mgp_graph_delete_vertex(&graph, v.get()), mgp_error::MGP_ERROR_NO_ERROR);
+  // A handle the procedure held before deleting the vertex, and the handle a deletion returns, which may still read
+  // the deleted vertex (triggers get those). Reading their edges is refused, typed or not.
+  MgpVertexPtr held{EXPECT_MGP_NO_ERROR(
+      mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{ids[0].AsInt()}, &this->memory)};
+  ASSERT_NE(held, nullptr);
+  ASSERT_EQ(mgp_graph_delete_vertex(&graph, held.get()), mgp_error::MGP_ERROR_NO_ERROR);
+  auto *dba = std::get<memgraph::query::DbAccessor *>(graph.impl);
+  auto other = dba->FindVertex(ids[1], memgraph::storage::View::NEW);
+  ASSERT_TRUE(other.has_value());
+  auto removed = dba->RemoveVertex(&*other);
+  ASSERT_TRUE(removed.has_value() && removed->has_value());
+  mgp_vertex returned{**removed, &graph, memgraph::utils::NewDeleteResource()};
   const mgp_edge_type a_type{"A"};
-  for (const bool in : {false, true}) {
-    SCOPED_TRACE(in ? "in-edges" : "out-edges");
-    mgp_edges_iterator *iter = nullptr;
-    const auto plain = in ? mgp_vertex_iter_in_edges(v.get(), &this->memory, &iter)
-                          : mgp_vertex_iter_out_edges(v.get(), &this->memory, &iter);
-    ASSERT_EQ(plain, mgp_error::MGP_ERROR_DELETED_OBJECT);
-    for (const size_t num_types : {size_t{0}, size_t{1}}) {
-      SCOPED_TRACE("num_types " + std::to_string(num_types));
-      const auto typed = in ? mgp_vertex_iter_in_edges_by_types(v.get(), &a_type, num_types, &this->memory, &iter)
-                            : mgp_vertex_iter_out_edges_by_types(v.get(), &a_type, num_types, &this->memory, &iter);
+  for (auto *v : {held.get(), &returned}) {
+    SCOPED_TRACE(v == held.get() ? "held handle" : "handle returned by the deletion");
+    for (const bool in : {false, true}) {
+      SCOPED_TRACE(in ? "in-edges" : "out-edges");
+      mgp_edges_iterator *iter = nullptr;
+      const auto plain =
+          in ? mgp_vertex_iter_in_edges(v, &this->memory, &iter) : mgp_vertex_iter_out_edges(v, &this->memory, &iter);
+      ASSERT_EQ(plain, mgp_error::MGP_ERROR_DELETED_OBJECT);
+      const auto typed = in ? mgp_vertex_iter_in_edges_by_types(v, &a_type, 1, &this->memory, &iter)
+                            : mgp_vertex_iter_out_edges_by_types(v, &a_type, 1, &this->memory, &iter);
       EXPECT_EQ(typed, plain);
     }
   }
@@ -858,7 +865,6 @@ TYPED_TEST(MgpGraphTest, EdgesIteratorByTypesInVirtualGraph) {
   EXPECT_EQ(by_types({{"A"}, {"C"}}), OfTypes(all, {"A", "C"}));
   EXPECT_EQ(by_types({{"A"}, {"B"}, {"C"}}), all);
   EXPECT_TRUE(by_types({{"NO_SUCH_TYPE"}}).empty());
-  EXPECT_TRUE(by_types({}).empty());
 }
 
 TYPED_TEST(MgpGraphTest, EdgeSetProperty) {

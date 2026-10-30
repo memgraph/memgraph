@@ -2926,7 +2926,8 @@ memgraph::storage::EdgeTypeId mgp_graph::KnownEdgeType(const char *name) {
 }
 
 namespace {
-/// `types` set: only edges of those types, checked by the storage (an empty set matches nothing).
+/// `types` set: only edges of those types, checked by the storage. Never empty: the storage reads an empty type list
+/// as every type.
 template <bool ForIn>
 mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory,
                                       std::optional<std::span<const mgp_edge_type>> types = std::nullopt) {
@@ -2958,23 +2959,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory,
     return it.release();
   }
 
-  // The storage reads an empty type list as every type, so asking for no types stops here. The degree read makes
-  // the same deleted and visibility check, for the graph's view, that reading the edges would.
-  if (types && types->empty()) {
-    auto maybe_degree = v->VisitReal([v](auto &impl) {
-      if constexpr (ForIn) {
-        return impl.InDegree(v->graph->view);
-      } else {
-        return impl.OutDegree(v->graph->view);
-      }
-    });
-    if (!maybe_degree) {
-      ThrowOnReadError(
-          maybe_degree.error(), ForIn ? "get the inbound edges of" : "get the outbound edges of", ObjectKind::Vertex);
-    }
-    it->cursor.emplace<mgp_edges_iterator::RealCursor>(memgraph::query::ExpandedEdges{}, ForIn);
-    return it.release();
-  }
+  DMG_ASSERT(!types || !types->empty(), "An empty type list would read every edge.");
   std::vector<memgraph::storage::EdgeTypeId> type_ids;
   if (types) {
     type_ids.reserve(types->size());
@@ -3032,8 +3017,10 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
 
 namespace {
 std::span<const mgp_edge_type> EdgeTypesArg(const mgp_edge_type *types, size_t num_types) {
-  if (types == nullptr && num_types != 0) {
-    throw std::invalid_argument{"types is NULL but num_types is not 0"};
+  // An empty list is refused rather than given a meaning: the storage reads it as every type, and a call that asks
+  // for no types has nothing to iterate.
+  if (types == nullptr || num_types == 0) {
+    throw std::invalid_argument{"types must hold at least one edge type"};
   }
   const std::span<const mgp_edge_type> span{types, num_types};
   if (std::ranges::any_of(span, [](const auto &type) { return type.name == nullptr; })) {

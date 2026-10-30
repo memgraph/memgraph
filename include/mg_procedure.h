@@ -907,10 +907,10 @@ enum mgp_error mgp_vertex_iter_out_edges(struct mgp_vertex *v, struct mgp_memory
 /// has many edges and only a few types matter.
 /// `types` is read only during the call. The type names are remembered for the rest of the procedure call, so
 /// passing the same types for many vertices looks each name up once.
-/// A type that no edge has matches nothing. With `num_types` 0 the iterator is empty.
+/// A type that no edge has matches nothing.
 /// The resulting mgp_edges_iterator needs to be deallocated with mgp_edges_iterator_destroy.
-/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `types` is NULL and `num_types` is not 0, or if a name in
-/// `types` is NULL.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `num_types` is 0, if `types` is NULL, or if a name in `types`
+/// is NULL.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
 /// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_in_edges_by_types(struct mgp_vertex *v, const struct mgp_edge_type *types,
@@ -923,10 +923,10 @@ enum mgp_error mgp_vertex_iter_in_edges_by_types(struct mgp_vertex *v, const str
 /// has many edges and only a few types matter.
 /// `types` is read only during the call. The type names are remembered for the rest of the procedure call, so
 /// passing the same types for many vertices looks each name up once.
-/// A type that no edge has matches nothing. With `num_types` 0 the iterator is empty.
+/// A type that no edge has matches nothing.
 /// The resulting mgp_edges_iterator needs to be deallocated with mgp_edges_iterator_destroy.
-/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `types` is NULL and `num_types` is not 0, or if a name in
-/// `types` is NULL.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `num_types` is 0, if `types` is NULL, or if a name in `types`
+/// is NULL.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
 /// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_out_edges_by_types(struct mgp_vertex *v, const struct mgp_edge_type *types,
