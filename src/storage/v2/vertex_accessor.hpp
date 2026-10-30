@@ -103,10 +103,9 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  /// Reads a fixed set of properties into `out`, one slot per property, in a single pass over the
-  /// record. A property the vertex does not carry reads as Null rather than being left out, so the
-  /// caller's slots line up with `ordered_properties` whatever the vertex holds. A caller that keeps
-  /// a buffer between rows reads a row without allocating.
+  /// Reads `ordered_properties` into `out`, one slot each, in one pass over the record. A property
+  /// the vertex does not carry reads as Null, so the slots line up whatever it holds, and a buffer
+  /// kept between rows reads a row without allocating.
   Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
                                   View view) const;
 

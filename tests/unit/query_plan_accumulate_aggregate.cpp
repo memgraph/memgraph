@@ -1495,8 +1495,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
                         ->MapTo(symbol_table.CreateSymbol("account_ne", true));
   auto produce = MakeProduce(cache, amount_ne, account_ne);
 
-  // A relationship property the caller may not read evaluates to Null, so caching it must not hand
-  // the real value back instead.
+  // The same rule for a relationship's property: denied reads as Null, cached or not.
   memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Pays", "account"}});
   auto context = MakeContext(this->storage, symbol_table, &dba);
   context.auth_checker = &checker;

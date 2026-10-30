@@ -20,13 +20,12 @@
 namespace memgraph::storage {
 
 /**
- * A set of `PropertyPath` held in the order a `PropertyStore` must be asked for them, together with
- * the permutation back to the order the caller gave.
+ * A set of `PropertyPath` in the order a `PropertyStore` must be asked for them, with the
+ * permutation back to the caller's order.
  *
- * A store reads several properties in one forward pass over the record, finding each from where the
- * previous one stopped, so it can only find a path it has not already passed. Asking out of order
- * reads Null for a property that is set, a wrong answer rather than a refusal. Holding the order in
- * the type means a caller cannot express the bad one.
+ * That store reads one forward pass, so it can only find a path it has not already passed: asking
+ * out of order reads Null for a property that is set, a wrong answer rather than a refusal. Held in
+ * the type, the bad order cannot be expressed.
  */
 class OrderedPropertyPaths {
  public:
