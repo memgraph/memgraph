@@ -23,11 +23,11 @@ azure-core==1.41.0
     #   azure-storage-blob
 azure-datalake-store==0.0.53
     # via adlfs
-azure-identity==1.26.0
+azure-identity==1.27.0
     # via adlfs
-azure-storage-blob==12.31.0
+azure-storage-blob==12.31.1
     # via adlfs
-black==26.5.0
+black==26.10.1
     # via
     #   -r src/mage/python/tests/requirements.txt
     #   pytest-black
@@ -131,9 +131,9 @@ pycodestyle==2.12.1
     # via flake8
 pycparser==3.12
     # via cffi
-pydantic==2.14.1
+pydantic==2.14.2
     # via gqlalchemy
-pydantic-core==2.50.1
+pydantic-core==2.50.2
     # via pydantic
 pyflakes==3.2.0
     # via flake8
@@ -174,7 +174,7 @@ python-dateutil==2.9.0.post0
     # via pandas
 pytokens==0.4.1
     # via black
-pytz==2026.5
+pytz==2026.6
     # via
     #   neo4j
     #   pandas
@@ -204,7 +204,7 @@ typing-extensions==4.16.0
     #   typing-inspection
 typing-inspection==0.4.4
     # via pydantic
-tzdata==2026.5
+tzdata==2026.6
     # via
     #   pandas
     #   pymgclient

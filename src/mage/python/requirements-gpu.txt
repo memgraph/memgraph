@@ -26,4 +26,4 @@ six==1.17.0
 transformers==5.13.0
 torch==2.9.0
 torchmetrics==0.10.0
-litellm==1.85.0
+litellm==1.95.1
