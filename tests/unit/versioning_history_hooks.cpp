@@ -9,7 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Storage hooks for rebuilding history at startup: bounded recovery through the configuration.
+// Storage hooks for rebuilding history at startup: bounded recovery through the configuration, WAL suppression for
+// the replayed transactions and the clock bump after them.
 
 #include <gtest/gtest.h>
 
@@ -22,6 +23,7 @@
 #include "dbms/database.hpp"
 #include "flags/general.hpp"
 #include "memory/db_arena.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -62,6 +64,12 @@ uint64_t LastDurableTs() {
 
 void Commit(ms::Storage::Accessor &acc) {
   ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+void CommitAsReplicaWrite(ms::Storage::Accessor &acc, uint64_t desired_ts) {
+  ASSERT_TRUE(
+      acc.PrepareForCommitPhase(ms::CommitArgs::make_replica_write(desired_ts, /*two_phase_commit=*/false, [] {}))
+          .has_value());
 }
 
 }  // namespace
@@ -137,4 +145,76 @@ TEST_F(VersioningHistoryHooksTest, BoundedConfigRecoversStateAtBoundAndReturnsTa
     EXPECT_EQ(ReadP(db), ms::PropertyValue(3));
     EXPECT_FALSE(s->TakeRecoveryTail().has_value()) << "no bound configured, no tail";
   }
+}
+
+TEST_F(VersioningHistoryHooksTest, SuppressedCommitsDoNotTouchTheWal) {
+  WriteHistory();
+
+  memgraph::dbms::Database db{MakeConfig(true, ts_c1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
+  auto const p = s->NameToProperty("p");
+  ASSERT_TRUE(s->TakeRecoveryTail().has_value());
+
+  auto const before = WalFiles();
+  {
+    ms::InMemoryStorage::SuppressWalScope const suppress{*s};
+    // Replays the tail (c2 and c3 folded together) as a replica-style commit carrying main's durable timestamp.
+    auto acc = db.Access(ms::WRITE);
+    auto v = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v->SetProperty(p, ms::PropertyValue(3)).has_value());
+    CommitAsReplicaWrite(*acc, ts_c3);
+  }
+  auto const after = WalFiles();
+  ASSERT_EQ(after.size(), before.size());
+  for (size_t i = 0; i < before.size(); ++i) {
+    EXPECT_EQ(after[i].path, before[i].path);
+    EXPECT_EQ(after[i].to_timestamp, before[i].to_timestamp);
+  }
+  EXPECT_EQ(ReadP(db), ms::PropertyValue(3));
+
+  // Once the scope is gone commits append again.
+  s->BumpClockPastDurable();
+  {
+    auto acc = db.Access(ms::WRITE);
+    auto v = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v->SetProperty(p, ms::PropertyValue(7)).has_value());
+    Commit(*acc);
+  }
+  EXPECT_EQ(WalFiles().size(), before.size() + 1);
+  EXPECT_EQ(LastDurableTs(), ts_c3 + 2);  // start ts takes ts_c3 + 1, commit ts_c3 + 2
+}
+
+TEST_F(VersioningHistoryHooksTest, ClockBumpLetsLocalCommitsAndGcProceed) {
+  WriteHistory();
+
+  memgraph::dbms::Database db{MakeConfig(true, ts_c1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
+  auto const p = s->NameToProperty("p");
+
+  constexpr uint64_t kFarAheadTs = 1'000'000;
+  {
+    ms::InMemoryStorage::SuppressWalScope const suppress{*s};
+    auto acc = db.Access(ms::WRITE);
+    auto v = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v->SetProperty(p, ms::PropertyValue(2)).has_value());
+    CommitAsReplicaWrite(*acc, kFarAheadTs);
+  }
+  ASSERT_LT(s->OldestActiveTimestamp(), kFarAheadTs);
+
+  s->BumpClockPastDurable();
+  EXPECT_GT(s->OldestActiveTimestamp(), kFarAheadTs) << "skipped ids must be marked finished";
+  s->BumpClockPastDurable();  // idempotent once ahead
+
+  {
+    auto acc = db.Access(ms::WRITE);
+    auto v = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v->SetProperty(p, ms::PropertyValue(9)).has_value());
+    Commit(*acc);
+  }
+  EXPECT_EQ(LastDurableTs(), kFarAheadTs + 2);  // start ts takes +1, commit +2
+  EXPECT_EQ(ReadP(db), ms::PropertyValue(9));
+  s->FreeMemory({}, false);
+  EXPECT_GT(s->OldestActiveTimestamp(), kFarAheadTs);
 }
