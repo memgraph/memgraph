@@ -7695,8 +7695,7 @@ class AggregateCursor : public Cursor {
   ///
   /// Where the two are the same kind of number the addition happens in place, sparing a result
   /// value per row. An integer total meeting a double stops being an integer, and addition owns
-  /// that rule, so that pair is handed to it. An integer total that would overflow becomes a double
-  /// and stays one.
+  /// that rule, so that pair is handed to it. Integer overflow promotes the total to double.
   static void AddInto(TypedValue &total, const TypedValue &addend) {
     if (total.IsDouble()) {
       total.ValueDouble() +=

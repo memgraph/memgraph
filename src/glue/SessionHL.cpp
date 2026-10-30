@@ -177,7 +177,6 @@ std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
 // internal invariant violation - retry will fail the same way, and there is
 // nothing the client can do; surface as DatabaseError so the driver does not
 // suggest retrying and the classification reflects "server-side problem".
-// An ArithmeticException gets its own code, Statement.ArithmeticError.
 [[noreturn]] void RewrapQueryException(memgraph::query::QueryException const &e) {
   memgraph::metrics::IncrementCounter(GetExceptionName(e));
   if (dynamic_cast<memgraph::query::PlannerBug const *>(&e) != nullptr) {

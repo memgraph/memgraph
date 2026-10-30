@@ -48,8 +48,6 @@ auto ToConstant(TypedValue const &v) -> std::optional<ExternalPropertyValue> {
 // column (op_ast_lists.hpp), so an operator's evaluation and its fold rule come
 // from the same row and cannot drift. The AST-node column is unused here.
 // Reusing runtime TypedValue operators matches interpreter semantics exactly.
-// Integer overflow and division by zero raise ArithmeticException there, which
-// FoldConstant treats as "don't fold" so the error stays a runtime one.
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 auto EvalBinary(symbol op, TypedValue const &lhs, TypedValue const &rhs) -> std::optional<TypedValue> {
   switch (op) {
