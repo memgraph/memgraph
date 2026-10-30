@@ -1311,12 +1311,11 @@ struct CachedProperty {
   Symbol output_symbol;
 };
 
-/// The properties to read of one symbol. Each group is one record, so each is its own pass; what
-/// they share is the pull that found them and the buffer their values are read into.
+/// The properties to read of one symbol. Each group is one record and so its own pass; groups
+/// share the pull that found them and the buffer read into.
 ///
-/// The order a record must be read in is settled here rather than when a cursor is made, so a plan
-/// reused for many executions establishes it once. It is derived from `properties` on construction,
-/// so the two cannot describe different sets.
+/// The read order is settled here rather than per cursor, so a plan reused many times settles it
+/// once, and it is derived from `properties`, so the two cannot describe different sets.
 class CachedPropertyGroup {
  public:
   CachedPropertyGroup() = default;
@@ -1340,15 +1339,11 @@ class CachedPropertyGroup {
   storage::OrderedPropertyPaths ordered_;
 };
 
-/// Reads several properties of a single vertex-bound symbol in one pass over
-/// the record, writing each value into its own frame slot.
+/// Reads the properties of one record in a single pass, writing each value into its own frame
+/// slot, with a group of them for each symbol a projection reads. One lookup at a time pays for a
+/// lock, a shape resolution and a delta walk per property; one pass pays each once per group.
 ///
-/// Looking the same properties up one at a time costs one lock acquisition, one
-/// shape resolution and one delta-chain walk per property; doing it in a single
-/// pass pays each of those once for the whole set.
-///
-/// A row whose input symbol does not hold a vertex (Null from an OPTIONAL
-/// MATCH, for instance) still passes through, with Null in every output slot.
+/// A symbol holding no record answers that group's slots with Null, as a lookup would.
 class CacheProperties : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
@@ -1389,16 +1384,14 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    /// One group's properties arranged the way the read wants them, worked out once.
     const CacheProperties &self_;
     const UniqueCursorPtr input_cursor_;
 #ifdef MG_ENTERPRISE
-    /// Whether each of the current group's properties may be read, decided before the record is, and
-    /// reused between rows so deciding costs no allocation.
+    /// Whether each of the current group's properties may be read, decided before the record is.
+    /// Reused between rows.
     std::vector<bool> allowed_;
 #endif
-    /// Every group's values, end to end, so that reading a row allocates nothing whatever the row
-    /// is made of.
+    /// Every group's values end to end, so a row allocates nothing.
     std::vector<storage::PropertyValue> values_;
   };
 };

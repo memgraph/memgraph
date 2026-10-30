@@ -110,21 +110,16 @@ class PropertyStore {
   /// O(n).
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
 
-  /// Checks whether the properties `ordered_properties` are equal to the
-  /// specified values `values`. This function doesn't perform any memory
-  /// allocations while performing the equality check. The time complexity of
-  /// this function is O(n). `values` is in the order the paths were supplied
-  /// in, so the value compared against `ordered_properties.paths()[0]` is
-  /// `values[ordered_properties.position_lookup()[0]]`. The results written to
-  /// `result` correspond to `ordered_properties.paths()`.
+  /// Checks whether the properties `ordered_properties` are equal to `values`, without allocating,
+  /// in O(n). `values` is in the order the paths were supplied in, so the value compared against
+  /// `paths()[0]` is `values[position_lookup()[0]]`, and `result` corresponds to `paths()`.
   ///
-  /// `result` is supplied by the caller so that walking index entries allocates once per loop rather
-  /// than once per entry. Its previous contents are discarded.
+  /// `result` is the caller's so that walking index entries allocates once per loop rather than
+  /// once per entry. Its previous contents are discarded.
   void ArePropertiesEqual(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue const> values,
                           std::vector<bool> &result) const;
 
-  /// Returns all properties currently stored in the store. The time complexity
-  /// of this function is O(n).
+  /// Returns every property the store holds, in O(n).
   /// @throw std::bad_alloc
   std::map<PropertyId, PropertyValue> Properties() const;
 

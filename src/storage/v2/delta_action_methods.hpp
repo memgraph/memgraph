@@ -22,11 +22,9 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/variant_helpers.hpp"
 
-/// Replaying a delta chain over a record means handling one delta action at a time, and the actions
-/// that carry a property or say whether the record still exists mean the same thing for a vertex as
-/// for an edge. What follows is that shared half: the dispatch that turns a runtime action into a
-/// compile-time tag, and the methods a read composes out of it. Whatever holds labels or edges is
-/// particular to a vertex and lives with it.
+/// The half of a delta replay that means the same for a vertex as for an edge: the dispatch from a
+/// runtime action to a compile-time tag, and the property and existence methods built on it.
+/// Whatever holds labels or edges is particular to a vertex and lives with it.
 namespace memgraph::storage {
 
 template <DeltaAction>
@@ -112,12 +110,11 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
   });
 }
 
-/// As above, for a fixed set of properties with one value slot each. A property the deltas remove
-/// leaves Null in its slot, which is what a property the record never carried reads as.
+/// As above, for a fixed set of properties with one slot each. A property the deltas remove leaves
+/// Null, which is what one the record never carried reads as.
 ///
-/// Every path must name a single property: a slot is found by the leaf of its path, which orders
-/// with the rest only while nothing sits above that leaf. A nested path would match no slot and
-/// leave a stale value, so the callers that can reach this check before they begin.
+/// Every path must name a single property: a slot is found by its leaf, and a nested path's leaf
+/// orders with nothing, so it would match no slot and leave a stale value. Callers check first.
 inline auto PropertyValues_ActionMethod(std::span<PropertyPath const> ordered_properties,
                                         std::span<PropertyValue> values) {
   using enum DeltaAction;

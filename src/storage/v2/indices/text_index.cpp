@@ -96,8 +96,8 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       {.index_name = index_info.index_name, .label = index_info.label, .properties = index_info.properties});
 
   auto &index_data = *index_->at(index_info.index_name);
-  // Every vertex is read for the same properties, so the order they must be asked for is settled
-  // once here, and the slots they are read into are reused rather than allocated per vertex.
+  // Every vertex is read for the same properties, so the order and the slots are settled once
+  // here rather than per vertex.
   auto const ordered = OrderedPropertyPaths::FromPropertyIds(index_info.properties);
   auto values = std::vector<PropertyValue>(ordered.size());
 

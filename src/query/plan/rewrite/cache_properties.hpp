@@ -25,11 +25,11 @@ namespace memgraph::query::plan {
 
 namespace impl {
 
-/// Walks the named expressions of a single Produce, first counting the property lookups that are candidates for
-/// caching, then swapping the chosen ones for identifiers bound to the cache's frame slots.
+/// Walks one Produce's named expressions, counting the lookups worth caching and then swapping the
+/// chosen ones for identifiers on the cache's frame slots.
 ///
-/// Both phases share one traversal so that a lookup which the traversal does not reach is neither counted nor
-/// replaced; a subexpression this visitor refuses to enter simply keeps reading properties the old way.
+/// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced,
+/// and keeps reading properties as it did.
 class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
   enum class Phase : uint8_t { GATHER, REPLACE, RETUNE };
@@ -192,9 +192,8 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
-/// An expression no phase enters. Whatever lookups it holds keep reading properties the way they
-/// already did, so declining one is always safe; what it costs is the pass. Each group below is one
-/// reason for declining, and which group a node is in is the whole of why it is here.
+/// An expression no phase enters. A lookup inside one keeps reading as it did, so declining is
+/// always safe and costs only the pass. Each group below is one reason for it.
 #define NOT_ENTERED(TOp) \
   void Visit(TOp &op) override {}
 
@@ -204,10 +203,9 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(PatternComprehension)
   NOT_ENTERED(SubqueryExpression)
 
-  // May never be evaluated at all, so reading ahead for one would read a record the query never
-  // asked for, and could refuse a query that answers. The two short circuits below are declined
-  // outright; AND and OR are declined for the same reason but still entered to retune, which is
-  // further down.
+  // May never be evaluated, so reading ahead would read a record the query never asked for and
+  // could refuse a query that answers. AND and OR are declined for the same reason but are still
+  // entered to retune, further down.
   NOT_ENTERED(IfOperator)
   NOT_ENTERED(Coalesce)
 
@@ -228,9 +226,8 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(EnumValueAccess)
   NOT_ENTERED(AllPropertiesLookup)
 
-  // Always evaluated, so entering these would be safe. They are left for a later pass rather than
-  // for a reason, which is worth saying so that the safety of the groups above is not read onto
-  // them.
+  // Always evaluated, so entering these would be safe. Left for a later pass rather than for a
+  // reason, which is worth saying: the groups above are declined because entering them is not.
   NOT_ENTERED(MapProjectionLiteral)
   NOT_ENTERED(ListSlicingOperator)
   NOT_ENTERED(LabelsTest)
@@ -239,13 +236,10 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 
 #undef NOT_ENTERED
 
-  // Entered to retune and for nothing else. Nothing inside is ever read ahead: a short circuit may
-  // never evaluate what it holds, and a literal is built from its entries rather than read from a
-  // frame. What retuning changes is only how a lookup left standing here reads, never whether or
-  // when it is evaluated.
-  //
-  // These are the ones that pay twice without it, since the pass has already read the record and
-  // loading every property again for them reads it a second time over.
+  // Entered to retune and nothing else: a short circuit may never evaluate what it holds, and a
+  // literal is built from its entries rather than read from a frame, so nothing inside is read
+  // ahead. Retuning settles only how a lookup left here reads, never whether or when it runs, and
+  // these are the ones that otherwise read the record a second time over.
   void Visit(AndOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
 
   void Visit(OrOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }

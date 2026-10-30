@@ -77,12 +77,11 @@ std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
 // Make index path from base directory and index name
 std::string MakeIndexPath(const std::string &base_path, std::string_view index_name);
 
-/// What a text index holds a record's properties as: the properties themselves, and all their
-/// values run together as the one string a search matches against.
+/// The two forms a text index holds a record's properties in: the properties, and all their values
+/// run together as the one string a search matches against.
 ///
-/// Both come from one read of the record, which is why one call gives both. Built from two reads
-/// they could disagree, and a document built from a disagreement answers for a record that never
-/// held what it says.
+/// One call gives both because both must come from one read: from two they could disagree, and the
+/// document would answer for a record that never held what it says.
 struct TextIndexFields {
   nlohmann::json properties;
   std::string all_property_values;
