@@ -128,6 +128,11 @@ class EdgeAccessor final {
   /// does not change once the edge exists.
   [[gnu::pure]] Gid Gid() const noexcept;
 
+#ifdef MG_ENTERPRISE
+  // Whether any branch has ever touched this edge (monotonic); false without properties_on_edges.
+  bool MaybeBranchedHint() const;
+#endif
+
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
   bool operator==(const EdgeAccessor &other) const noexcept {
