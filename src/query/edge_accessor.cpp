@@ -17,6 +17,8 @@
 #include <optional>
 
 #include "query/exceptions.hpp"
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/vertex_overlay.hpp"
 #endif
@@ -150,6 +152,11 @@ storage::Result<uint64_t> EdgeAccessor::BranchGetPropertySize(storage::PropertyI
   if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
   if (target.kind == ReadTarget::Kind::kOverlay) return versioning::MergeGetPropertySize(*target.version, impl_, key);
   return impl_.GetPropertySize(key, view);
+}
+
+std::vector<storage::PropertyId> EdgeAccessor::BranchVectorIndexedProperties() const {
+  if (impl_.storage_ != &branch_ctx_->diff_engine()) return impl_.VectorIndexedProperties();
+  return branch_ctx_->historical().GetTransaction()->active_indices_->vector_edge_->IndexedProperties(impl_.EdgeType());
 }
 
 storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
