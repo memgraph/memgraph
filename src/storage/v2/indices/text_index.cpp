@@ -108,19 +108,16 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       continue;
     }
     if (index_info.properties.empty()) {
-      auto const vertex_properties = v.Properties(View::NEW).value();
-      TextIndex::AddNodeToTextIndex(v.Gid().AsInt(),
-                                    SerializeProperties(vertex_properties, name_id_mapper),
-                                    StringifyProperties(vertex_properties),
-                                    index_data.context);
+      auto fields = TextFieldsOf(v.Properties(View::NEW).value(), name_id_mapper);
+      TextIndex::AddNodeToTextIndex(
+          v.Gid().AsInt(), std::move(fields.properties), std::move(fields.all_property_values), index_data.context);
       continue;
     }
     // Throws if the vertex cannot be read, as reading its properties one set at a time did.
     v.ReadPropertyValues(ordered, values, View::NEW).value();
-    TextIndex::AddNodeToTextIndex(v.Gid().AsInt(),
-                                  SerializeProperties(ordered.paths(), values, name_id_mapper),
-                                  StringifyProperties(values),
-                                  index_data.context);
+    auto fields = TextFieldsOf(ordered.paths(), values, name_id_mapper);
+    TextIndex::AddNodeToTextIndex(
+        v.Gid().AsInt(), std::move(fields.properties), std::move(fields.all_property_values), index_data.context);
   }
   try {
     mgcxx::text_search::commit(index_data.context);
@@ -159,10 +156,9 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
       if (index_info.properties.empty()) {
         auto const vertex_properties = vertex.properties.Properties();
         if (vertex_properties.empty()) continue;
-        TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
-                                      SerializeProperties(vertex_properties, name_id_mapper),
-                                      StringifyProperties(vertex_properties),
-                                      context);
+        auto fields = TextFieldsOf(vertex_properties, name_id_mapper);
+        TextIndex::AddNodeToTextIndex(
+            vertex.gid.AsInt(), std::move(fields.properties), std::move(fields.all_property_values), context);
         continue;
       }
 
@@ -173,10 +169,9 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipListDb<
       // just avoids building one.
       if (std::ranges::all_of(values, [](PropertyValue const &value) { return value.IsNull(); })) continue;
 
-      TextIndex::AddNodeToTextIndex(vertex.gid.AsInt(),
-                                    SerializeProperties(ordered.paths(), values, name_id_mapper),
-                                    StringifyProperties(values),
-                                    context);
+      auto fields = TextFieldsOf(ordered.paths(), values, name_id_mapper);
+      TextIndex::AddNodeToTextIndex(
+          vertex.gid.AsInt(), std::move(fields.properties), std::move(fields.all_property_values), context);
     }
 
     try {
@@ -454,15 +449,17 @@ void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper
     for (const auto *vertex : pending.to_add) {
       if (index_data_ptr->properties.empty()) {
         auto const vertex_properties = vertex->properties.Properties();
+        auto fields = TextFieldsOf(vertex_properties, name_id_mapper);
         docs_to_add.push_back({.gid = vertex->gid.AsInt(),
-                               .properties = SerializeProperties(vertex_properties, name_id_mapper),
-                               .all_property_values = StringifyProperties(vertex_properties)});
+                               .properties = std::move(fields.properties),
+                               .all_property_values = std::move(fields.all_property_values)});
         continue;
       }
       vertex->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
+      auto fields = TextFieldsOf(ordered.paths(), values, name_id_mapper);
       docs_to_add.push_back({.gid = vertex->gid.AsInt(),
-                             .properties = SerializeProperties(ordered.paths(), values, name_id_mapper),
-                             .all_property_values = StringifyProperties(values)});
+                             .properties = std::move(fields.properties),
+                             .all_property_values = std::move(fields.all_property_values)});
     }
 
     const std::lock_guard lock(index_data_ptr->write_mutex);

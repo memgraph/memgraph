@@ -172,68 +172,58 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     }
   }
 
-  // The expression each of these holds is a body run once per element of a list, so an empty or Null
-  // list runs it no times. A pass reads before any expression runs, so a lookup inside one is left
-  // to its own lookup rather than read for a row that was never going to ask for it.
-  void Visit(Reduce &op) override {}
-
-  void Visit(Extract &op) override {}
-
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
-  // AND stops on a false first operand and OR on a true one, so whether the second is evaluated is
-  // decided as the row runs. Caching a lookup reachable only through one would read a record the
-  // query never asked to be read, and answer with an error where the lookup was never to happen.
-  void Visit(AndOperator &op) override {}
+/// An expression this traversal does not enter. Whatever lookups it holds keep reading properties
+/// the way they already did, so declining one is always safe; what it costs is the pass. Each
+/// group below is one reason for declining, and which group a node is in is the whole of why it
+/// is here.
+#define NOT_ENTERED(TOp) \
+  void Visit(TOp &op) override {}
 
-  void Visit(OrOperator &op) override {}
+  // Evaluated by a subplan below this Produce rather than here, so a slot read above it would
+  // never be written.
+  NOT_ENTERED(Aggregation)
+  NOT_ENTERED(PatternComprehension)
+  NOT_ENTERED(SubqueryExpression)
 
-  // An Aggregation's inner expression is evaluated by the Aggregate operator below this Produce, so a cache inserted
-  // above it would leave the slot unwritten. Pattern comprehensions and subqueries are likewise evaluated by a
-  // subplan.
-  void Visit(Aggregation &op) override {}
+  // May never be evaluated at all: AND stops on a false first operand, OR on a true one, and the
+  // other two pick a branch as the row runs. Reading ahead for one of these would read a record
+  // the query never asked for, and could refuse a query that answers.
+  NOT_ENTERED(AndOperator)
+  NOT_ENTERED(OrOperator)
+  NOT_ENTERED(IfOperator)
+  NOT_ENTERED(Coalesce)
 
-  void Visit(PatternComprehension &op) override {}
+  // A body run once per element of a list, which an empty or Null list runs no times. Reading
+  // ahead has the same fault as the group above.
+  NOT_ENTERED(Reduce)
+  NOT_ENTERED(Extract)
+  NOT_ENTERED(All)
+  NOT_ENTERED(Single)
+  NOT_ENTERED(Any)
+  NOT_ENTERED(None)
+  NOT_ENTERED(ListComprehension)
 
-  void Visit(SubqueryExpression &op) override {}
+  // Holds no lookup on a symbol, so there is nothing inside to reach.
+  NOT_ENTERED(Identifier)
+  NOT_ENTERED(PrimitiveLiteral)
+  NOT_ENTERED(ParameterLookup)
+  NOT_ENTERED(EnumValueAccess)
+  NOT_ENTERED(AllPropertiesLookup)
 
-  void Visit(ListSlicingOperator &op) override {}
+  // Always evaluated, so entering these would be safe. They are left for a later pass rather than
+  // for a reason, which is worth saying so that the safety of the groups above is not read onto
+  // them.
+  NOT_ENTERED(ListLiteral)
+  NOT_ENTERED(MapLiteral)
+  NOT_ENTERED(MapProjectionLiteral)
+  NOT_ENTERED(ListSlicingOperator)
+  NOT_ENTERED(LabelsTest)
+  NOT_ENTERED(EdgeTypesTest)
+  NOT_ENTERED(RegexMatch)
 
-  void Visit(IfOperator &op) override {}
-
-  void Visit(ListLiteral &op) override {}
-
-  void Visit(MapLiteral &op) override {}
-
-  void Visit(MapProjectionLiteral &op) override {}
-
-  void Visit(LabelsTest &op) override {}
-
-  void Visit(EdgeTypesTest &op) override {}
-
-  void Visit(Coalesce &op) override {}
-
-  void Visit(All &op) override {}
-
-  void Visit(Single &op) override {}
-
-  void Visit(Any &op) override {}
-
-  void Visit(None &op) override {}
-
-  void Visit(ListComprehension &op) override {}
-
-  void Visit(Identifier &op) override {}
-
-  void Visit(PrimitiveLiteral &op) override {}
-
-  void Visit(AllPropertiesLookup &op) override {}
-
-  void Visit(ParameterLookup &op) override {}
-
-  void Visit(RegexMatch &op) override {}
-
-  void Visit(EnumValueAccess &op) override {}
+#undef NOT_ENTERED
 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;

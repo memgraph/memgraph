@@ -114,7 +114,6 @@ void StringifyOne(std::vector<std::string> &into, PropertyValue const &prop_valu
       break;
   }
 }
-}  // namespace
 
 nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
                                    NameIdMapper *name_id_mapper) {
@@ -145,6 +144,19 @@ std::string StringifyProperties(std::span<PropertyValue const> values) {
   indexable_properties_as_string.reserve(values.size());
   for (auto const &prop_value : values) StringifyOne(indexable_properties_as_string, prop_value);
   return utils::Join(indexable_properties_as_string, " ");
+}
+
+}  // namespace
+
+TextIndexFields TextFieldsOf(const std::map<PropertyId, PropertyValue> &properties, NameIdMapper *name_id_mapper) {
+  return {.properties = SerializeProperties(properties, name_id_mapper),
+          .all_property_values = StringifyProperties(properties)};
+}
+
+TextIndexFields TextFieldsOf(std::span<PropertyPath const> paths, std::span<PropertyValue const> values,
+                             NameIdMapper *name_id_mapper) {
+  return {.properties = SerializeProperties(paths, values, name_id_mapper),
+          .all_property_values = StringifyProperties(values)};
 }
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
