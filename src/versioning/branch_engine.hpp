@@ -522,6 +522,12 @@ class BranchContext {
   // fork-time index by edge id, so the FROM vertex is required; finding an edge without it would scan all of main.
   std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
+  // The edge `edge_gid` by id alone, resolved the way main resolves a lookup by edge id (main keeps no fork-time index
+  // of it): a fork gid through main's own lookup read at the fork, unless hidden on the branch; a native gid through
+  // the diff engine. Never an edge stub, and no walk of the graph. Like main's lookup it finds only an edge main still
+  // holds, so a fork edge main deleted since the fork needs ResolveEdge with its FROM vertex.
+  std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::View view);
+
   // `vertex` as the query layer holds it: the fork vertex when `vertex` is the diff-engine stub of one (the endpoint of
   // a branch-native edge hanging on a fork vertex), `vertex` itself for anything else. Stubs never reach a reader.
   storage::VertexAccessor ForkIdentity(const storage::VertexAccessor &vertex);
@@ -547,6 +553,13 @@ class BranchContext {
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
   // Same, walking the known FROM vertex's adjacency instead of scanning every vertex.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
+
+  // ---- Counts
+
+  // Approximate counts as Storage::Accessor reports them on main, for the planner and mgp: main's current count plus
+  // the branch-native objects, less the fork vertices (edges) committed branch transactions deleted (hid).
+  int64_t ApproximateVertexCount();
+  int64_t ApproximateEdgeCount();
 
   // ---- Scans and adjacency
 

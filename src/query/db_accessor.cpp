@@ -182,17 +182,70 @@ auto KeptIn(Graph const *graph) {
     return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = result.expanded_count};
   };
 }
+#ifdef MG_ENTERPRISE
+
+/// On a branch the storage adjacency is one-sided and holds raw stubs, so the expansion goes through the branch-aware
+/// query accessor and only membership is filtered here (by gid, so stub-backed and fork copies of an edge match).
+auto KeptInBranch(Graph const *graph) {
+  return [graph](ExpandedEdgesResult &&result) -> ExpandedEdgesResult {
+    auto const &graph_edges = graph->edges();
+    std::vector<EdgeAccessor> kept;
+    for (auto const &edge : result.edges) {
+      if (graph_edges.contains(edge)) kept.push_back(edge);
+    }
+    return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(kept)}, .expanded_count = result.expanded_count};
+  };
+}
+#endif
 
 }  // namespace
 
 storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
+#ifdef MG_ENTERPRISE
+  if (impl_.branch_ctx() != nullptr) [[unlikely]]
+    return impl_.OutEdges(view).transform(KeptInBranch(graph_));
+#endif
   return impl_.impl_.OutEdges(view, {}).transform(KeptIn(graph_));
 }
 
 storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
+#ifdef MG_ENTERPRISE
+  if (impl_.branch_ctx() != nullptr) [[unlikely]]
+    return impl_.InEdges(view).transform(KeptInBranch(graph_));
+#endif
   return impl_.impl_.InEdges(view, {}).transform(KeptIn(graph_));
 }
 
+#ifdef MG_ENTERPRISE
+std::optional<VertexAccessor> DbAccessor::BranchFindVertex(storage::Gid gid, storage::View view) {
+  auto maybe_vertex = branch_ctx_->ResolveVertex(gid, view);
+  if (maybe_vertex) return VertexAccessor(*maybe_vertex, branch_ctx_);
+  return std::nullopt;
+}
+
+std::optional<EdgeAccessor> DbAccessor::BranchFindEdge(storage::Gid gid, storage::View view) {
+  if (auto edge = branch_ctx_->ResolveEdge(gid, view)) return EdgeAccessor(*edge, branch_ctx_);
+  return std::nullopt;
+}
+
+std::optional<EdgeAccessor> DbAccessor::BranchFindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid,
+                                                       storage::View view) {
+  if (auto edge = branch_ctx_->ResolveEdge(edge_gid, from_vertex_gid, view)) return EdgeAccessor(*edge, branch_ctx_);
+  return std::nullopt;
+}
+
+VerticesIterable DbAccessor::BranchVertices(storage::View view) {
+  // No deletes and no branch-native vertex (the skiplist size counts uncommitted and un-GC'd ones too, so 0 means none
+  // visible to anyone): the union is exactly main@fork's stream, yielded without the per-vertex merge. OLD only: a NEW
+  // scan must see deletes the same query makes while it iterates, which the union checks per vertex.
+  if (view == storage::View::OLD && !branch_ctx_->MayHaveAnyVertexDeleted() &&
+      accessor_->ApproximateVertexCount() == 0) {
+    return {branch_ctx_->historical().Vertices(storage::View::OLD), branch_ctx_};
+  }
+  return {branch_ctx_->Vertices(view), branch_ctx_};
+}
+
+#endif
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
 std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::string &index_name,
