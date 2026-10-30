@@ -12,6 +12,7 @@ target_sources(mg-versioning
         branch_engine.hpp
         branch_recovery.hpp
         gate.hpp
+        main_constraints.hpp
         name.hpp
         reserve_for_append.hpp
         stub_index.hpp

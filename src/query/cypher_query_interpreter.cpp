@@ -238,6 +238,14 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
   //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
+#ifdef MG_ENTERPRISE
+  // Branch scans cannot be split into chunks (parallel execution is not supported on a branch in v1), so a branch
+  // query is planned single-threaded and falls back like any plan that was not parallelized.
+  if (query->pre_query_directives_.parallel_execution_ && db_accessor != nullptr &&
+      db_accessor->branch_context() != nullptr) [[unlikely]] {
+    query->pre_query_directives_.parallel_execution_ = false;
+  }
+#endif
   bool is_cacheable = false;
   auto result = std::invoke([&] {
     // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
