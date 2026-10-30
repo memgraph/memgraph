@@ -984,7 +984,7 @@ build_memgraph () {
   echo "Setting up Conan environment..."
   docker exec -u mg "$build_container" bash -c "$CMD_START && python3 -m venv env"
   CMD_START="$CMD_START && source ./env/bin/activate"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install 'conan>=2.26.0'"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install --only-binary :all: 'conan>=2.26.0'"
 
   # Check if a conan profile exists and create one if needed
   docker exec -u mg "$build_container" bash -c "$CMD_START && conan profile detect --force"
@@ -2091,7 +2091,7 @@ test_memgraph() {
       if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
         python3 -m venv $PROJECT_ROOT/tests/ve3
         source $PROJECT_ROOT/tests/ve3/bin/activate
-        pip install --upgrade pip
+        pip install --only-binary :all: --upgrade pip
         pip install -r $PROJECT_ROOT/tests/requirements.txt
       else
         source $PROJECT_ROOT/tests/ve3/bin/activate
@@ -2133,7 +2133,7 @@ test_memgraph() {
       if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
         python3 -m venv "$PROJECT_ROOT/tests/ve3"
         source "$PROJECT_ROOT/tests/ve3/bin/activate"
-        pip install --upgrade pip
+        pip install --only-binary :all: --upgrade pip
         pip install -r "$PROJECT_ROOT/tests/requirements.txt"
       else
         source "$PROJECT_ROOT/tests/ve3/bin/activate"

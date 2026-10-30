@@ -433,7 +433,7 @@ else
     "$PYTHON" -m venv "$VENV_DIR"
     source "$VENV_DIR/bin/activate"
     trap 'deactivate 2>/dev/null' EXIT ERR
-    pip install "conan>=2.26.0"
+    pip install --only-binary :all: "conan>=2.26.0"
 fi
 
 # check if a conan profile exists
