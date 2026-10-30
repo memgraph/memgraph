@@ -98,6 +98,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // Main's retention needs are not the diff engine's: they would pin its WAL for no reason.
   config.durability.recovery_history_bound.reset();
   config.durability.retention_floor.reset();
+  // A branch with recorded floors continues its own WAL; the engine must not move those files aside.
+  config.durability.keep_existing_files = recorded.has_value();
   config.durability.snapshot_on_exit = false;
   config.durability.restore_replication_state_on_startup = false;
   // Without durability, a stale path is one flip away from aliasing main's live data, so it is unique per build.

@@ -74,7 +74,8 @@ class BranchCore {
     std::string message;
   };
 
-  // Gid floors recorded before a restart; Build uses them instead of main's current counters.
+  // Gid floors recorded before a restart. Passing them to Build also means the branch's WAL directory holds its own
+  // history: Build keeps those files for the replay to read.
   struct RecordedFloors {
     uint64_t vertex_gid_floor;
     uint64_t edge_gid_floor;
