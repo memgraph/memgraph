@@ -67,6 +67,17 @@ inline std::filesystem::path BranchWalDir(const std::filesystem::path &storage_d
   return storage_directory / "branches" / std::to_string(number) / "wal";
 }
 
+// The regular files of `dir` (a WAL directory), oldest first: WAL file names start with a zero-padded timestamp.
+inline std::vector<std::filesystem::path> WalFiles(const std::filesystem::path &dir) {
+  std::vector<std::filesystem::path> files;
+  if (!std::filesystem::exists(dir)) return files;
+  for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+    if (entry.is_regular_file()) files.push_back(entry.path());
+  }
+  std::ranges::sort(files);
+  return files;
+}
+
 struct Names {
   ms::LabelId l, m, x, n;
   ms::PropertyId p, q, w, a;

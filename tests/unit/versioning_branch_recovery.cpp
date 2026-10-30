@@ -53,13 +53,7 @@ std::filesystem::path BranchWalDir(uint64_t number) {
 }
 
 std::vector<std::filesystem::path> WalFiles(uint64_t number) {
-  std::vector<std::filesystem::path> files;
-  if (!std::filesystem::exists(BranchWalDir(number))) return files;
-  for (const auto &entry : std::filesystem::directory_iterator(BranchWalDir(number))) {
-    if (entry.is_regular_file()) files.push_back(entry.path());
-  }
-  std::ranges::sort(files);
-  return files;
+  return memgraph::tests::versioning_recovery::WalFiles(BranchWalDir(number));
 }
 
 struct NativeWorkload {
