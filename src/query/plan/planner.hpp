@@ -59,6 +59,7 @@ auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
 
 class PostProcessor final {
   Parameters parameters_;
+  CachedPropertySlots cached_property_slots_;
 
  public:
   IndexHints index_hints_{};
@@ -88,7 +89,7 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table); } |
-           [&](auto p) { return RewriteCacheProperties(std::move(p), symbol_table, ast, db); }
+           [&](auto p) { return RewriteCacheProperties(std::move(p), symbol_table, ast, db, &cached_property_slots_); }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end

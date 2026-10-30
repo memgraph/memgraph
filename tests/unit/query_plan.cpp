@@ -900,8 +900,8 @@ TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
   for (auto const *op = produce->input().get(); op != nullptr && op != order_by;) {
     if (auto const *cache = dynamic_cast<CacheProperties const *>(op)) {
       for (auto const &group : cache->groups_) {
-        required.push_back(group.input_symbol);
-        for (auto const &cached : group.properties) made_in_between.push_back(cached.output_symbol);
+        required.push_back(group.input_symbol());
+        for (auto const &cached : group.properties()) made_in_between.push_back(cached.output_symbol);
       }
     }
     op = op->HasSingleInput() ? op->input().get() : nullptr;
@@ -9094,6 +9094,59 @@ TYPED_TEST(TestPlanner, CachePropertiesReadsEachDistinctPropertyOnce) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
+}
+
+// A rewritten expression needs a copy of its own, because the candidate plans for one query share
+// the expressions they were planned from. One the rewrite leaves alone needs none, and copying it
+// would duplicate everything it holds, down to a whole subquery.
+TYPED_TEST(TestPlanner, CachePropertiesCopiesOnlyWhatItRewrites) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto *as_x = NEXPR("x", PROPERTY_LOOKUP(dba, "n", prop_a));
+  auto *as_y = NEXPR("y", PROPERTY_LOOKUP(dba, "n", prop_b));
+  auto *as_z = NEXPR("z", LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_x, as_y, as_z)));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *produce = FindOpOfType<memgraph::query::plan::Produce>(&planner.plan());
+  ASSERT_NE(produce, nullptr);
+  auto const &projected = produce->named_expressions_;
+  auto holds = [&](auto *expression) { return std::ranges::find(projected, expression) != projected.end(); };
+  EXPECT_TRUE(holds(as_z)) << "an expression with no cached lookup was copied anyway";
+  EXPECT_FALSE(holds(as_x)) << "a rewritten expression must not be the one the other plans share";
+}
+
+// Every candidate plan the variable-start planner considers is rewritten, and they all share the
+// one symbol table that sizes a frame. The slots a pass writes belong to whichever plan is chosen,
+// so weighing more candidates must not widen the frame.
+TYPED_TEST(TestPlanner, CachePropertiesSlotsAreNotPaidForPerCandidatePlan) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("s"), NODE("o"))),
+                   RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("x"), PROPERTY_LOOKUP(dba, "n", prop_b), AS("y"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  memgraph::query::Parameters parameters;
+  PostProcessor post_processor{parameters, std::vector<memgraph::query::IndexHint>{}, &dba};
+
+  auto candidates = 0;
+  auto width_after_first = int32_t{};
+  for (auto plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &context)) {
+    if (!plan) continue;
+    post_processor.Rewrite(std::move(plan), &context);
+    if (++candidates == 1) width_after_first = symbol_table.max_position();
+  }
+
+  ASSERT_GT(candidates, 1) << "the pattern must offer the planner a choice for this to prove anything";
+  EXPECT_EQ(symbol_table.max_position(), width_after_first);
 }
 
 TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
