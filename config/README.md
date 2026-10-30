@@ -60,14 +60,14 @@ Selected records also contain an `event` object with a `name` and an
 numbers. Other records retain the basic fields above without either object.
 Existing human-readable messages and session tags remain unchanged.
 
-| `event.name` | Attributes and enablement |
-|-------------|---------------------------|
-| `query.failed` | `db.query.text`, `db.namespace`, `user.name`, `session.id`, `transaction.id`, `query.id`, `phase`, `error.type`, `error.message`, and `outcome=failure`, where available. Still requires `log.failed_queries` and uses ERROR severity. `phase` is `parse`, `prepare`, or `pull`. |
-| `query.slow` | Query/session identifiers, `duration_ms`, and `outcome=success`. Still requires the `log.min_duration_ms` threshold and uses WARNING severity. `query.plan` is only included when `log.query_plan` enables it. |
-| `connection.accepted` | `network.protocol.name`, `client.address`, `client.port`, and the Bolt `session.id`, where available. Uses INFO severity. |
-| `connection.closed` | The same connection identifiers. Uses INFO severity. JSON mode also records server-initiated and WebSocket closures that previously had no log record. |
-| `connection.error` | Connection identifiers and `error.type`. Transport errors also carry numeric `error.code` and `error.message`; their type is the error category. Processing exceptions use `session_processing_error`, retaining their existing DEBUG message. Uses ERROR severity. |
-| `authentication.failed` | `session.id`, `outcome=failure`, and a stable `reason`: `unauthenticated`, `session_limit`, or `missing_sso_credentials`. Uses WARNING severity. |
+| `event.name`            | Attributes and enablement                                                                                                                                                                                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `query.failed`          | `db.query.text`, `db.namespace`, `user.name`, `session.id`, `transaction.id`, `query.id`, `phase`, `error.type`, `error.message`, and `outcome=failure`, where available. Still requires `log.failed_queries` and uses ERROR severity. `phase` is `parse`, `prepare`, or `pull`. |
+| `query.slow`            | Query/session identifiers, `duration_ms`, and `outcome=success`. Still requires the `log.min_duration_ms` threshold and uses WARNING severity. `query.plan` is only included when `log.query_plan` enables it.                                                                   |
+| `connection.accepted`   | `network.protocol.name`, `client.address`, `client.port`, and the Bolt `session.id`, where available. Uses INFO severity.                                                                                                                                                        |
+| `connection.closed`     | The same connection identifiers. Uses INFO severity. JSON mode also records server-initiated and WebSocket closures that previously had no log record.                                                                                                                           |
+| `connection.error`      | Connection identifiers and `error.type`. Transport errors also carry numeric `error.code` and `error.message`; their type is the error category. Processing exceptions use `session_processing_error`, retaining their existing DEBUG message. Uses ERROR severity.              |
+| `authentication.failed` | `session.id`, `outcome=failure`, and a stable `reason`: `unauthenticated`, `session_limit`, or `missing_sso_credentials`. Uses WARNING severity.                                                                                                                                 |
 
 Authentication rejection records are new and only emitted when JSON logging
 is enabled. They never include passwords, tokens, authentication metadata, or
