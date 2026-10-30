@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <shared_mutex>
+#include <span>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -311,6 +312,7 @@ std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical() {
   return main()
       .HistoricalAccess(fork_ts())
       .transform([this](std::unique_ptr<storage::Storage::Accessor> historical) {
+        historical->GetTransaction()->branch_ctx = this;
         txn_.emplace(Txn{.historical = std::move(historical)});
       })
       .transform_error([this](storage::InMemoryStorage::HistoricalAccessError error) {
@@ -323,6 +325,7 @@ void BranchContext::SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) {
   MG_ASSERT(txn_ && txn_->diff == nullptr,
             "BranchContext::SetCurrentDiffTxn: OpenHistorical must run first, once per transaction.");
   txn_->diff = diff_txn;
+  diff_txn->GetTransaction()->branch_ctx = this;
 }
 
 // ---- Commit
@@ -410,6 +413,13 @@ std::optional<storage::VertexAccessor> BranchContext::ForkAccessor(storage::Vert
 std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gid gid) {
   if (!IsForkCandidateVertex(gid)) return std::nullopt;
   return ForkAccessor(stubs().FindFork(gid.AsUint(), txn().stub_cursor), gid);
+}
+
+storage::VertexAccessor BranchContext::ForkIdentity(const storage::VertexAccessor &vertex) {
+  if (!IsStub(vertex)) return vertex;
+  auto fork = FindForkVertex(vertex.Gid());
+  DMG_ASSERT(fork.has_value(), "a stub's fork vertex is pinned for the branch's life.");
+  return fork.value_or(vertex);
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid) {
@@ -600,6 +610,32 @@ storage::Result<uint64_t> BranchContext::GetPropertySize(const storage::VertexAc
   return stub::MergeGetPropertySize(*stub, vertex, key, view);
 }
 
+namespace {
+
+// Each slot is one GetProperty decision, so a set read on a branch answers what asking one key at a time does.
+template <typename Record>
+storage::Result<void> ReadEachProperty(BranchContext &ctx, const Record &record,
+                                       const storage::OrderedPropertyPaths &ordered_properties,
+                                       std::span<storage::PropertyValue> out, storage::View view) {
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  auto const paths = ordered_properties.paths();
+  for (std::size_t slot = 0; slot != paths.size(); ++slot) {
+    MG_ASSERT(paths[slot].size() == 1, "A branch reads a set of paths only for single-property paths");
+    auto value = ctx.GetProperty(record, paths[slot][0], view);
+    if (!value) return std::unexpected(value.error());
+    out[slot] = std::move(*value);
+  }
+  return {};
+}
+
+}  // namespace
+
+storage::Result<void> BranchContext::ReadPropertyValues(const storage::VertexAccessor &vertex,
+                                                        const storage::OrderedPropertyPaths &ordered_properties,
+                                                        std::span<storage::PropertyValue> out, storage::View view) {
+  return ReadEachProperty(*this, vertex, ordered_properties, out, view);
+}
+
 // ---- Edge reads
 
 // A clear branched bit proves the branch never wrote the fork edge, but a deleted endpoint hides it regardless, so the
@@ -643,6 +679,12 @@ storage::Result<uint64_t> BranchContext::GetPropertySize(const storage::EdgeAcce
   if (read.kind == EdgeRead::Kind::kHidden) return std::unexpected(storage::Error::DELETED_OBJECT);
   if (read.kind == EdgeRead::Kind::kDirect) return edge.GetPropertySize(key, view);
   return stub::MergeGetPropertySize(*read.stub, edge, key, view);
+}
+
+storage::Result<void> BranchContext::ReadPropertyValues(const storage::EdgeAccessor &edge,
+                                                        const storage::OrderedPropertyPaths &ordered_properties,
+                                                        std::span<storage::PropertyValue> out, storage::View view) {
+  return ReadEachProperty(*this, edge, ordered_properties, out, view);
 }
 
 // ---- Vertex writes
@@ -1194,7 +1236,7 @@ storage::Result<PropertyMap> BranchContext::ClearProperties(storage::EdgeAccesso
 
 std::vector<storage::EdgeAccessor> BranchContext::VisibleForkEdges(const storage::VertexAccessor &fork) {
   auto const gid = fork.Gid();
-  bool const edges_may_be_deleted = core_->MayHaveEdgeChange(gid);
+  bool const edges_may_be_deleted = ForkEdgesMayBeDeleted(gid);
   std::vector<storage::EdgeAccessor> visible;
   for (auto const direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
     auto expanded =
@@ -1268,16 +1310,17 @@ storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor 
 storage::Result<std::vector<storage::EdgeAccessor>> BranchContext::Edges(const storage::VertexAccessor &vertex,
                                                                          storage::EdgeDirection direction,
                                                                          storage::View view) {
-  bool const out = direction == storage::EdgeDirection::OUT;
-  if (vertex.storage_ == &diff_engine()) {
-    // A native vertex's edges are all native: the vertex says itself whether it is deleted.
-    auto native = out ? vertex.OutEdges(view) : vertex.InEdges(view);
-    if (!native) return std::unexpected(native.error());
-    return std::vector<storage::EdgeAccessor>(native->edges.begin(), native->edges.end());
-  }
-  bool deleted = false;
-  auto edges = ResolveEdges(vertex.Gid(), direction, view, &deleted);
-  if (deleted) return std::unexpected(storage::Error::DELETED_OBJECT);
+  std::vector<storage::EdgeAccessor> edges;
+  auto visited = VisitEdges(
+      vertex,
+      direction,
+      view,
+      [&](size_t count) { edges.reserve(edges.size() + count); },
+      [&](const storage::EdgeAccessor &edge) {
+        edges.push_back(edge);
+        return true;
+      });
+  if (!visited) return std::unexpected(visited.error());
   return edges;
 }
 
@@ -1291,27 +1334,96 @@ storage::Result<std::vector<storage::EdgeAccessor>> BranchContext::InEdges(const
   return Edges(vertex, storage::EdgeDirection::IN, view);
 }
 
-// historical_ is a frozen snapshot, so it is read with View::OLD throughout.
+// Direct when no fork edge can be hidden for the vertex and its stub, if any, holds no adjacency in `direction`. A
+// native edge is appended to the stub's in/out edges under the stub's lock before its transaction commits, so any edge
+// this reader may see (committed before its snapshot, its own, or committed since for READ_COMMITTED) is in the vectors
+// when they are read here; one it cannot see may or may not be, and a non-empty vector only sends the read down the
+// merged path. The bloom is only a pre-filter: a clear bit means no native edge, a hidden fork edge or a delete flag
+// for this vertex.
+std::optional<storage::View> BranchContext::DirectExpansionView(const storage::VertexAccessor &vertex,
+                                                                storage::EdgeDirection direction, storage::View view) {
+  if (vertex.storage_ == &diff_engine()) return view;
+  auto const gid = vertex.Gid();
+  if (!IsForkCandidateVertex(gid) || core_->MayHaveAnyVertexDeleted() || ForkEdgesMayBeDeleted(gid)) {
+    return std::nullopt;
+  }
+  if (!core_->MayHaveEdgeChange(gid)) return storage::View::OLD;
+  auto *const stub = stubs().FindStub(gid.AsUint(), txn().stub_cursor);
+  if (stub != nullptr && !StubAdjacencyEmpty(stub, direction)) return std::nullopt;
+  return storage::View::OLD;
+}
+
+bool BranchContext::StubAdjacencyEmpty(storage::Vertex *stub, storage::EdgeDirection direction) {
+  auto guard = std::shared_lock{stub->lock};
+  return direction == storage::EdgeDirection::OUT ? stub->out_edges.empty() : stub->in_edges.empty();
+}
+
+storage::Result<void> BranchContext::VisitEdges(const storage::VertexAccessor &vertex, storage::EdgeDirection direction,
+                                                storage::View view, absl::FunctionRef<void(size_t)> reserve,
+                                                absl::FunctionRef<bool(const storage::EdgeAccessor &)> emit) {
+  if (vertex.storage_ == &diff_engine()) {
+    // A native vertex's edges are all native: the vertex says itself whether it is deleted.
+    auto native = direction == storage::EdgeDirection::OUT ? vertex.OutEdges(view) : vertex.InEdges(view);
+    if (!native) return std::unexpected(native.error());
+    reserve(native->edges.size());
+    for (auto const &edge : native->edges) {
+      if (!emit(edge)) break;
+    }
+    return {};
+  }
+  bool deleted = false;
+  ResolveEdgesInto(vertex.Gid(), &vertex, direction, view, &deleted, reserve, emit);
+  if (deleted) return std::unexpected(storage::Error::DELETED_OBJECT);
+  return {};
+}
+
 std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
                                                                storage::EdgeDirection direction, storage::View view,
                                                                bool *vertex_deleted) {
+  std::vector<storage::EdgeAccessor> result;
+  ResolveEdgesInto(
+      vertex_gid,
+      nullptr,
+      direction,
+      view,
+      vertex_deleted,
+      [&](size_t count) { result.reserve(count); },
+      [&](const storage::EdgeAccessor &edge) {
+        result.push_back(edge);
+        return true;
+      });
+  return result;
+}
+
+// historical_ is a frozen snapshot, so it is read with View::OLD throughout. Edges reach `emit` in this order: the
+// stub's native edges, then the fork's visible ones.
+void BranchContext::ResolveEdgesInto(storage::Gid vertex_gid, const storage::VertexAccessor *fork_hint,
+                                     storage::EdgeDirection direction, storage::View view, bool *vertex_deleted,
+                                     absl::FunctionRef<void(size_t)> reserve,
+                                     absl::FunctionRef<bool(const storage::EdgeAccessor &)> emit) {
   auto &t = txn();
   if (vertex_deleted != nullptr) *vertex_deleted = false;
   bool const out = direction == storage::EdgeDirection::OUT;
-  std::vector<storage::EdgeAccessor> result;
   // The edge types are left unfiltered: callers filter after charging hops.
-  auto const expand = [&](const storage::VertexAccessor &vertex, storage::View expand_view) {
+  auto const expand = [&](const storage::VertexAccessor &vertex,
+                          storage::View expand_view) -> std::optional<storage::EdgesVertexAccessorResult> {
     auto expanded = out ? vertex.OutEdges(expand_view) : vertex.InEdges(expand_view);
     // The accessor was just resolved through the same transaction and view, so it is visible and not deleted.
     DMG_ASSERT(expanded.has_value(), "expanding a resolved vertex failed.");
-    return expanded;
+    if (!expanded) return std::nullopt;
+    return std::move(*expanded);
   };
 
   if (!IsForkCandidateVertex(vertex_gid)) {
     if (auto native = t.diff->FindVertex(vertex_gid, view)) {
-      if (auto expanded = expand(*native, view)) result.assign(expanded->edges.begin(), expanded->edges.end());
+      if (auto expanded = expand(*native, view)) {
+        reserve(expanded->edges.size());
+        for (auto const &edge : expanded->edges) {
+          if (!emit(edge)) return;
+        }
+      }
     }
-    return result;
+    return;
   }
 
   // Diff side first: for a fork vertex it holds only the native edges attached to the vertex's stub. Fork edges come
@@ -1319,31 +1431,45 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
   // whose other end is a fork vertex the branch deleted cannot exist: the delete conflicts with the edge's creation
   // on that vertex's stub (stock first-writer-wins), and DETACH DELETE removes the vertex's native edges itself.
   auto const found = stubs().Find(vertex_gid.AsUint(), t.stub_cursor);
+  std::optional<storage::EdgesVertexAccessorResult> native_edges;
   if (found.stub != nullptr) {
     if (core_->MayHaveVertexDeleted(vertex_gid) && StubDeleted(found.stub, view)) {
       if (vertex_deleted != nullptr) *vertex_deleted = true;
-      return result;
+      return;
     }
-    if (auto expanded = expand(StubAccessor(found.stub), view)) {
-      result.assign(expanded->edges.begin(), expanded->edges.end());
-    }
+    native_edges = expand(StubAccessor(found.stub), view);
   }
 
-  if (auto const hist_vertex = ForkAccessor(found.fork, vertex_gid)) {
-    if (auto expanded = expand(*hist_vertex, storage::View::OLD)) {
-      // A deleted fork edge flags both endpoints' adjacency, so a clear flag skips the per-edge probes.
-      bool const edges_may_be_deleted = core_->MayHaveEdgeChange(vertex_gid);
-      if (!edges_may_be_deleted && !core_->MayHaveAnyVertexDeleted()) {
-        result.insert(result.end(), expanded->edges.begin(), expanded->edges.end());
-        return result;
-      }
-      result.reserve(result.size() + expanded->edges.size());
-      for (auto edge : expanded->edges) {
-        if (!IsForkEdgeHiddenWith(edge, view, edges_may_be_deleted, vertex_gid)) result.push_back(edge);
-      }
+  std::optional<storage::VertexAccessor> looked_up;
+  if (fork_hint == nullptr) {
+    looked_up = ForkAccessor(found.fork, vertex_gid);
+    if (looked_up) fork_hint = &*looked_up;
+  }
+  std::optional<storage::EdgesVertexAccessorResult> fork_edges;
+  if (fork_hint != nullptr) fork_edges = expand(*fork_hint, storage::View::OLD);
+
+  size_t const native_count = native_edges ? native_edges->edges.size() : 0;
+  size_t const fork_count = fork_edges ? fork_edges->edges.size() : 0;
+  reserve(native_count + fork_count);
+
+  if (native_count != 0) {
+    for (auto const &edge : native_edges->edges) {
+      if (!emit(edge)) return;
     }
   }
-  return result;
+  if (fork_count == 0) return;
+  // A deleted fork edge flags both endpoints' adjacency, so a clear flag skips the per-edge probes.
+  bool const edges_may_be_deleted = ForkEdgesMayBeDeleted(vertex_gid);
+  if (!edges_may_be_deleted && !core_->MayHaveAnyVertexDeleted()) {
+    for (auto const &edge : fork_edges->edges) {
+      if (!emit(edge)) return;
+    }
+    return;
+  }
+  for (auto const &edge : fork_edges->edges) {
+    if (IsForkEdgeHiddenWith(edge, view, edges_may_be_deleted, vertex_gid)) continue;
+    if (!emit(edge)) return;
+  }
 }
 
 BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view) {

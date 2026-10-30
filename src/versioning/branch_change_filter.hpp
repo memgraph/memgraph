@@ -130,7 +130,16 @@ class BranchChangeFilters {
     fork_edge_property_.Insert(edge_gid);
   }
 
-  void RecordForkEdgeDeleted(storage::Gid edge_gid) noexcept { fork_edge_deleted_.Insert(edge_gid); }
+  // Call before the marker write; the flag is published ahead of the filter, like RecordVertexDeleted's.
+  void RecordForkEdgeDeleted(storage::Gid edge_gid) noexcept {
+    any_fork_edge_deleted_.store(true, std::memory_order_release);
+    fork_edge_deleted_.Insert(edge_gid);
+  }
+
+  // False until the branch first marks any fork edge deleted: adjacency reads then skip the per-edge probes.
+  [[nodiscard]] bool MayHaveAnyForkEdgeDeleted() const noexcept {
+    return any_fork_edge_deleted_.load(std::memory_order_acquire);
+  }
 
   [[nodiscard]] bool MayHaveForkEdgePropertyChange(storage::Gid edge_gid) const noexcept {
     return fork_edge_property_.MayContain(edge_gid);
@@ -225,6 +234,7 @@ class BranchChangeFilters {
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> pid_gate_{};
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> edge_pid_gate_{};
   std::atomic<bool> any_vertex_deleted_{false};
+  std::atomic<bool> any_fork_edge_deleted_{false};
   MonotonicGidFilter property_;
   MonotonicGidFilter label_;
   MonotonicGidFilter edge_;

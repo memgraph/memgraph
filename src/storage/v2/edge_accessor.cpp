@@ -173,10 +173,6 @@ bool EdgeAccessor::IsVisible(const View view) const {
   return check_presence_of_edge();
 }
 
-VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_vertex_, storage_, transaction_}; }
-
-VertexAccessor EdgeAccessor::ToVertex() const { return VertexAccessor{to_vertex_, storage_, transaction_}; }
-
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
   return VertexAccessor{from_vertex_, storage_, transaction_, for_deleted_ && from_vertex_->deleted()};
 }

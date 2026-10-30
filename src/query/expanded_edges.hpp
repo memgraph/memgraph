@@ -15,6 +15,9 @@
 #include <cstddef>
 #include <iterator>
 #include <utility>
+#ifdef MG_ENTERPRISE
+#include <vector>
+#endif
 
 #include "query/edge_accessor.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -32,6 +35,11 @@ class ExpandedEdges {
 
   explicit ExpandedEdges(storage::ExpandedEdges edges) : storage_edges_(std::move(edges)) {}
 
+#ifdef MG_ENTERPRISE
+  /// A branch's edges are resolved against its overlay, so they are held built, as the disk engine's are.
+  explicit ExpandedEdges(std::vector<EdgeAccessor> const &edges) : storage_edges_(Unwrapped(edges)) {}
+
+#endif
   class Iterator {
    public:
     using iterator_concept = std::forward_iterator_tag;
@@ -84,6 +92,15 @@ class ExpandedEdges {
   }
 
  private:
+#ifdef MG_ENTERPRISE
+  static auto Unwrapped(std::vector<EdgeAccessor> const &edges) -> storage::ExpandedEdges {
+    auto impls = std::vector<storage::EdgeAccessor>{};
+    impls.reserve(edges.size());
+    for (auto const &edge : edges) impls.push_back(edge.impl_);
+    return storage::ExpandedEdges{std::move(impls)};
+  }
+
+#endif
   auto At(std::size_t index) const -> EdgeAccessor { return EdgeAccessor{storage_edges_.At(index)}; }
 
   storage::ExpandedEdges storage_edges_;

@@ -15,6 +15,14 @@
 #include <utility>
 
 #include "query/edge_accessor.hpp"
+#ifdef MG_ENTERPRISE
+#include <algorithm>
+#include <cstdint>
+#include <map>
+#include <vector>
+
+#include "versioning/branch_engine.hpp"
+#endif
 
 namespace memgraph::query {
 
@@ -31,11 +39,120 @@ auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdges
 
 }  // namespace
 
+#ifdef MG_ENTERPRISE
+storage::Result<storage::VertexKey> VertexAccessor::BranchLabels(storage::View view) const {
+  return branch_ctx()->Labels(impl_, view);
+}
+
+storage::Result<bool> VertexAccessor::BranchHasLabel(storage::View view, storage::LabelId label) const {
+  return branch_ctx()->HasLabel(impl_, label, view);
+}
+
+storage::Result<bool> VertexAccessor::BranchHasAnyLabel(storage::View view) const {
+  return branch_ctx()->HasAnyLabel(impl_, view);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> VertexAccessor::BranchProperties(
+    storage::View view) const {
+  return branch_ctx()->Properties(impl_, view);
+}
+
+storage::Result<storage::PropertyValue> VertexAccessor::BranchGetProperty(storage::View view,
+                                                                          storage::PropertyId key) const {
+  return branch_ctx()->GetProperty(impl_, key, view);
+}
+
+storage::Result<uint64_t> VertexAccessor::BranchGetPropertySize(storage::PropertyId key, storage::View view) const {
+  return branch_ctx()->GetPropertySize(impl_, key, view);
+}
+
+storage::Result<void> VertexAccessor::BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
+                                                               std::span<storage::PropertyValue> out,
+                                                               storage::View view) const {
+  return branch_ctx()->ReadPropertyValues(impl_, ordered_properties, out, view);
+}
+
+// A native vertex is the diff engine's own object, so its flag says; a fork vertex's flag is main's, not the branch's.
+bool VertexAccessor::BranchIsDeleted() const {
+  if (impl_.storage_ == &branch_ctx()->diff_engine()) return impl_.vertex_->deleted();
+  return branch_ctx()->IsForkVertexDeleted(impl_, storage::View::NEW);
+}
+
+// The union of the fork and diff-engine edges, not a cheaper count.
+storage::Result<size_t> VertexAccessor::BranchDegree(storage::EdgeDirection direction, storage::View view) const {
+  auto edges = direction == storage::EdgeDirection::IN ? branch_ctx()->InEdges(impl_, view)
+                                                       : branch_ctx()->OutEdges(impl_, view);
+  return edges.transform([](const auto &resolved) { return resolved.size(); });
+}
+
+// Never pass `dest` to impl_.{In,Out}Edges: a stub dest.impl_ belongs to another transaction (storage DMG_ASSERT), so
+// the destination is compared by gid. Where impl_ already holds the vertex's whole branch adjacency, its own typed,
+// hops-limited expansion runs (charged as on main); otherwise the branch's edges are unfiltered, so hops are charged
+// before the edge_types/dest filters.
+storage::Result<ExpandedEdgesResult> VertexAccessor::BranchEdges(storage::EdgeDirection direction, storage::View view,
+                                                                 const std::vector<storage::EdgeTypeId> &edge_types,
+                                                                 const VertexAccessor *dest,
+                                                                 storage::HopsLimit *hops_limit) const {
+  auto const dest_gid = dest != nullptr ? dest->Gid() : storage::kInvalidGid;
+  auto const far_end = [direction](auto const &edge) {
+    return direction == storage::EdgeDirection::IN ? edge.FromVertex() : edge.ToVertex();
+  };
+
+  std::vector<EdgeAccessor> edges;
+  if (auto const direct = branch_ctx()->DirectExpansionView(impl_, direction, view)) {
+    auto expanded = direction == storage::EdgeDirection::IN ? impl_.InEdges(*direct, edge_types, nullptr, hops_limit)
+                                                            : impl_.OutEdges(*direct, edge_types, nullptr, hops_limit);
+    if (!expanded) return std::unexpected{expanded.error()};
+    // Wrapped as it is looked at, like main's expansion, unless a destination filter has to look at every edge now.
+    if (dest == nullptr) {
+      return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(expanded->edges)},
+                                 .expanded_count = expanded->expanded_count};
+    }
+    for (auto const &edge : expanded->edges) {
+      if (far_end(edge).Gid() != dest_gid) continue;
+      edges.emplace_back(edge);
+    }
+    return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(edges)}, .expanded_count = expanded->expanded_count};
+  }
+
+  int64_t expanded_count = 0;
+  auto visited = branch_ctx()->VisitEdges(
+      impl_,
+      direction,
+      view,
+      [&](size_t count) { edges.reserve(count); },
+      [&](const storage::EdgeAccessor &edge) {
+        if (hops_limit != nullptr && hops_limit->IsUsed()) {
+          if (hops_limit->IncrementHopsCount() == 0) return false;
+        }
+        ++expanded_count;
+        if (dest != nullptr && far_end(edge).Gid() != dest_gid) return true;
+        if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) return true;
+        edges.emplace_back(edge);
+        return true;
+      });
+  if (!visited) return std::unexpected{visited.error()};
+  return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(edges)}, .expanded_count = expanded_count};
+}
+
+#endif
+bool VertexAccessor::IsDeleted() const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx() != nullptr) [[unlikely]]
+    return BranchIsDeleted();
+#endif
+  return impl_.vertex_->deleted();
+}
+
 storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view) const { return InEdges(view, {}); }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view,
                                                              const std::vector<storage::EdgeTypeId> &edge_types,
                                                              storage::HopsLimit *hops_limit) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx() != nullptr) [[unlikely]]
+    return BranchEdges(storage::EdgeDirection::IN, view, edge_types, nullptr, hops_limit);
+#endif
   return impl_.InEdges(view, edge_types, nullptr, hops_limit).transform(AsQueryResult);
 }
 
@@ -43,12 +160,20 @@ storage::Result<ExpandedEdgesResult> VertexAccessor::InEdges(storage::View view,
                                                              const std::vector<storage::EdgeTypeId> &edge_types,
                                                              const VertexAccessor &dest,
                                                              storage::HopsLimit *hops_limit) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx() != nullptr) [[unlikely]]
+    return BranchEdges(storage::EdgeDirection::IN, view, edge_types, &dest, hops_limit);
+#endif
   return impl_.InEdges(view, edge_types, &dest.impl_, hops_limit).transform(AsQueryResult);
 }
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view,
                                                               const std::vector<storage::EdgeTypeId> &edge_types,
                                                               storage::HopsLimit *hops_limit) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx() != nullptr) [[unlikely]]
+    return BranchEdges(storage::EdgeDirection::OUT, view, edge_types, nullptr, hops_limit);
+#endif
   return impl_.OutEdges(view, edge_types, nullptr, hops_limit).transform(AsQueryResult);
 }
 
@@ -56,6 +181,10 @@ storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view
                                                               const std::vector<storage::EdgeTypeId> &edge_types,
                                                               const VertexAccessor &dest,
                                                               storage::HopsLimit *hops_limit) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx() != nullptr) [[unlikely]]
+    return BranchEdges(storage::EdgeDirection::OUT, view, edge_types, &dest, hops_limit);
+#endif
   return impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit).transform(AsQueryResult);
 }
 

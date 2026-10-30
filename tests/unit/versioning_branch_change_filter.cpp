@@ -85,7 +85,9 @@ TEST(VersioningBranchChangeFilter, EachKindAnswersOnlyForItsOwnRecords) {
   EXPECT_FALSE(filters.MayHaveForkEdgeDeleted(G(5)));
   EXPECT_FALSE(filters.MayHavePropertyChange(G(5)));
   EXPECT_FALSE(filters.MayHavePropertyFieldChange(G(5), P(9))) << "edge pids must not open the vertex gate";
+  EXPECT_FALSE(filters.MayHaveAnyForkEdgeDeleted());
   filters.RecordForkEdgeDeleted(G(6));
+  EXPECT_TRUE(filters.MayHaveAnyForkEdgeDeleted());
   EXPECT_TRUE(filters.MayHaveForkEdgeDeleted(G(6)));
   EXPECT_FALSE(filters.MayHaveVertexDeleted(G(6)));
 
@@ -142,7 +144,7 @@ TEST(VersioningBranchChangeFilter, ConcurrentRecordsAreNeverMissedByReaders) {
     return filters.MayHavePropertyChange(gid) && filters.MayHaveLabelChange(gid) && filters.MayHaveEdgeChange(gid) &&
            filters.MayHaveVertexDeleted(gid) && filters.MayHavePropertyFieldChange(gid, pid) &&
            filters.MayHaveForkEdgePropertyFieldChange(gid, pid) && filters.MayHaveForkEdgeDeleted(gid) &&
-           filters.MayHaveAnyVertexDeleted();
+           filters.MayHaveAnyVertexDeleted() && filters.MayHaveAnyForkEdgeDeleted();
   };
 
   std::vector<std::thread> readers;

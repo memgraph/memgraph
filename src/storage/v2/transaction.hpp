@@ -54,6 +54,12 @@ namespace rocksdb {
 class Transaction;
 }  // namespace rocksdb
 
+#ifdef MG_ENTERPRISE
+namespace memgraph::versioning {
+class BranchContext;
+}  // namespace memgraph::versioning
+#endif
+
 namespace memgraph::storage {
 
 struct CommitCallbacks {
@@ -288,6 +294,10 @@ struct Transaction {
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
 #ifdef MG_ENTERPRISE
+  // Set only on the transactions a branch session reads and writes through (the fork reader and the diff engine's
+  // transaction); null on every other one. The query accessors reach the branch from the transaction they already
+  // point at, so they carry no branch state of their own. Non-owning.
+  versioning::BranchContext *branch_ctx{nullptr};
   // Read-only accessor at a past, pinned fork_ts (InMemoryStorage::HistoricalAccess). That tick is later
   // dispensed to a real transaction, so finalization must not MarkFinished it; the accessor's self-pin
   // is released instead.
