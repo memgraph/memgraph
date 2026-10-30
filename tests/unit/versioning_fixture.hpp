@@ -15,6 +15,7 @@
 
 #include <errno.h>  // program_invocation_short_name
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <exception>
@@ -65,6 +66,13 @@ inline Rows IntRows(InterpreterFaker &session, const std::string &query) {
     }
   }
   return rows;
+}
+
+inline std::vector<std::string> SortedNames(const memgraph::communication::bolt::Value &list) {
+  std::vector<std::string> out;
+  for (const auto &elem : list.ValueList()) out.emplace_back(elem.ValueString());
+  std::ranges::sort(out);
+  return out;
 }
 
 inline std::string ExplainText(InterpreterFaker &session, const std::string &query) {
@@ -192,6 +200,18 @@ class VersioningFixture : public ::testing::Test {
     const auto id = info.id;
     session.interpreter.current_db_.SetBranchContext(
         std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name, id), std::move(*checkout));
+  }
+
+  // Each InterpreterFaker ctor repoints interpreter_context.auth_checker at its own member, so it is reset to the
+  // fixture's faker afterwards.
+  std::vector<std::unique_ptr<InterpreterFaker>> SessionsOnBranch(int count, const std::string &name = "b") {
+    std::vector<std::unique_ptr<InterpreterFaker>> sessions;
+    for (int i = 0; i < count; ++i) {
+      sessions.push_back(std::make_unique<InterpreterFaker>(&interpreter_context, db));
+      Attach(*sessions.back(), name);
+    }
+    interpreter_context.auth_checker = &faker.auth_checker;
+    return sessions;
   }
 
   void Fork(InterpreterFaker &session, const std::string &name = "b") {
