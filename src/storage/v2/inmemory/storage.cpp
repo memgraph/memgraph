@@ -1026,7 +1026,17 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // is what excludes a reader that began in this commit's mint-to-publish window.
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
+#ifdef MG_ENTERPRISE
+  // A reader at fork pin P undoes deltas with commit_ts >= P, so the oldest pin must be strictly > commit_ts;
+  // P == C is reachable because RegisterForkPin does not increment timestamp_.
+  bool const no_fork_pin_needs_these_deltas = [&] {
+    auto guard = std::lock_guard{mem_storage->version_fork_pin_lock_};
+    return mem_storage->version_fork_pins_.empty() || *mem_storage->version_fork_pins_.begin() > *commit_timestamp_;
+  }();
+  if (no_older_transactions && no_newer_transactions && no_fork_pin_needs_these_deltas) [[unlikely]] {
+#else
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+#endif
     // STEP 0) Can only do fast discard if GC is not running
     //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
     //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
@@ -3054,6 +3064,30 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   return transaction;
 }
 
+#ifdef MG_ENTERPRISE
+uint64_t InMemoryStorage::RegisterForkPin() {
+  // Capture and pin under engine_lock_: GC reads OldestActive() without it and must not pass fork_ts in between.
+  auto engine_guard = std::lock_guard{engine_lock_};
+  const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
+  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  version_fork_pins_.insert(fork_ts);
+  return fork_ts;
+}
+
+void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
+  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  auto it = version_fork_pins_.find(fork_ts);
+  MG_ASSERT(it != version_fork_pins_.end(), "ReleaseForkPin called for an unregistered fork_ts");
+  version_fork_pins_.erase(it);
+}
+
+std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
+  auto guard = std::lock_guard{version_fork_pin_lock_};
+  if (version_fork_pins_.empty()) return std::nullopt;
+  return *version_fork_pins_.begin();
+}
+#endif
+
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
   // main_lock_, so draining under UNIQUE would deadlock.
@@ -3292,6 +3326,16 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
       oldest_active_start_timestamp = std::min(min_queued_bound, oldest_active_start_timestamp);
     }
   }
+
+#ifdef MG_ENTERPRISE
+  // Clamp the GC horizon (and so visibility_horizon below) to the oldest live fork pin.
+  {
+    auto guard = std::lock_guard{version_fork_pin_lock_};
+    if (!version_fork_pins_.empty()) {
+      oldest_active_start_timestamp = std::min(oldest_active_start_timestamp, *version_fork_pins_.begin());
+    }
+  }
+#endif
 
   // Horizon for the unlink gate, chain trim and index/constraint sweeps. A txn that began inside the front
   // commit window reads at that commit's ts, so the horizon must not pass it. OFF: identical to master.

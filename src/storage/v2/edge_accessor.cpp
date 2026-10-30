@@ -639,4 +639,12 @@ Gid EdgeAccessor::Gid() const noexcept {
   return edge_.gid;
 }
 
+#ifdef MG_ENTERPRISE
+// Without properties_on_edges, `edge_` holds a bare Gid (EdgeRef union), so `.ptr` must not be dereferenced.
+bool EdgeAccessor::MaybeBranchedHint() const {
+  if (!storage_->config_.salient.items.properties_on_edges) return false;
+  return edge_.ptr->branched();
+}
+#endif
+
 }  // namespace memgraph::storage
