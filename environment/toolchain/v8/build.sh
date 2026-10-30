@@ -123,37 +123,38 @@ if [[ ! -d $PREFIX ]] || [[ ! -w $PREFIX ]]; then
 fi
 
 # create archives directory
-# Host deps (apt): wget, gnupg, ca-certificates, git (LLVM/mgconsole/heaptrack
+# Host deps (apt): curl, gnupg, ca-certificates, git (LLVM/mgconsole/heaptrack
 # clones), coreutils (sha*sum), tar, gzip, bzip2, xz-utils.
 mkdir -p archives && pushd archives
-# download all archives
+# download all archives, refusing anything but HTTPS (redirects included)
+download () { curl -fL --proto '=https' --proto-redir '=https' "$@"; }
 if [[ ! -f gcc-$GCC_VERSION.tar.gz ]]; then
-    wget --https-only https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
-    wget --https-only https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
+    download -O https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
+    download -O https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
     gpg --keyserver keyserver.ubuntu.com --recv-keys 6C35B99309B5FA62 7F74F97C103468EE5D750B583AB00996FC26A641
     gpg --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 fi
 if [[ ! -f binutils-$BINUTILS_VERSION.tar.gz ]]; then
-    wget --https-only https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz
-    wget --https-only https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz.sig
+    download -O https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz
+    download -O https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz.sig
     gpg --keyserver keyserver.ubuntu.com --recv-keys 3A24BC1E8FB409FA9F14371813FCEF89DD9E3C4F
     gpg --verify binutils-$BINUTILS_VERSION.tar.gz.sig binutils-$BINUTILS_VERSION.tar.gz
 fi
 if [[ ! -f gdb-$GDB_VERSION.tar.gz ]]; then
-    wget --https-only https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
-    wget --https-only https://sourceware.org/pub/gdb/releases/sha512.sum
+    download -O https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
+    download -O https://sourceware.org/pub/gdb/releases/sha512.sum
     # sourceware's sha512.sum lists every gdb release. Feed only our line into
     # sha512sum -c — otherwise it exits non-zero on the missing-file entries
     # for the other releases and pipefail kills the script.
     grep " gdb-$GDB_VERSION.tar.gz\$" sha512.sum | sha512sum -c -
 fi
 if [[ ! -f cmake-$CMAKE_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
+    download -O https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
     CMAKE_SHA256="95d4721f3625fb0d9d6ca480dd59a46c84b4c157f7fadd2e9b179ef9c871174d"
     echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/cppcheck-opensource/cppcheck/archive/refs/tags/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
+    download https://github.com/cppcheck-opensource/cppcheck/archive/refs/tags/$CPPCHECK_VERSION.tar.gz -o cppcheck-$CPPCHECK_VERSION.tar.gz
     CPPCHECK_SHA256="ba750bd872ad7c01f951ff2d9dc8c68ea5852654545ec7a62a4c318d690c8e22"
     echo "$CPPCHECK_SHA256  cppcheck-$CPPCHECK_VERSION.tar.gz" | sha256sum -c -
 fi
@@ -161,60 +162,60 @@ if [[ ! -d llvmorg-$LLVM_VERSION ]]; then
     git clone --depth 1 --branch llvmorg-$LLVM_VERSION https://github.com/llvm/llvm-project.git llvmorg-$LLVM_VERSION
 fi
 if [[ ! -f pahole-gdb-master.zip ]]; then
-    wget --https-only https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
+    download https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -o pahole-gdb-master.zip
     echo "$PAHOLE_SHA256 pahole-gdb-master.zip" | sha256sum -c -
 fi
 if [[ ! -f swig-$SWIG_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
+    download https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -o swig-$SWIG_VERSION.tar.gz
     echo "$SWIG_SHA256 swig-$SWIG_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f pcre2-$PCRE2_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz
+    download -O https://github.com/PCRE2Project/pcre2/releases/download/pcre2-$PCRE2_VERSION/pcre2-$PCRE2_VERSION.tar.gz
     PCRE2_SHA256="c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16"
     echo "$PCRE2_SHA256  pcre2-$PCRE2_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f linux-$LINUX_HEADERS_VERSION.tar.xz ]]; then
-    wget --https-only https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$LINUX_HEADERS_VERSION.tar.xz
+    download -O https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$LINUX_HEADERS_VERSION.tar.xz
     LINUX_HEADERS_SHA256="ae6a3207f12aa4d6cfb0fa793ec9da4a6fcdfdcb57d869d63d6b77e3a8c1423d"
     echo "$LINUX_HEADERS_SHA256  linux-$LINUX_HEADERS_VERSION.tar.xz" | sha256sum -c -
 fi
 if [[ ! -f glibc-$GLIBC_VERSION.tar.xz ]]; then
-    wget --https-only https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz
+    download -O https://ftp.gnu.org/gnu/glibc/glibc-$GLIBC_VERSION.tar.xz
     GLIBC_SHA256="9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17"
     echo "$GLIBC_SHA256  glibc-$GLIBC_VERSION.tar.xz" | sha256sum -c -
 fi
 if [[ ! -f zlib-$ZLIB_VERSION.tar.gz ]]; then
-    wget --https-only https://zlib.net/zlib-$ZLIB_VERSION.tar.gz
+    download -O https://zlib.net/zlib-$ZLIB_VERSION.tar.gz
     ZLIB_SHA256="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
     echo "$ZLIB_SHA256  zlib-$ZLIB_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f ncurses-$NCURSES_VERSION.tar.gz ]]; then
-    wget --https-only https://invisible-island.net/archives/ncurses/ncurses-$NCURSES_VERSION.tar.gz
+    download -O https://invisible-island.net/archives/ncurses/ncurses-$NCURSES_VERSION.tar.gz
     NCURSES_SHA256="355b4cbbed880b0381a04c46617b7656e362585d52e9cf84a67e2009b749ff11"
     echo "$NCURSES_SHA256  ncurses-$NCURSES_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f curl-$CURL_VERSION.tar.gz ]]; then
-    wget --https-only https://curl.se/download/curl-$CURL_VERSION.tar.gz
+    download -O https://curl.se/download/curl-$CURL_VERSION.tar.gz
     CURL_SHA256="d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb"
     echo "$CURL_SHA256  curl-$CURL_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f openssl-$OPENSSL_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
+    download -O https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
     OPENSSL_SHA256="243a86649cf6f23eeb6a2ff2456e09e5d77dd9018a54d3d96b0c6bdd6ba6c7f1"
     echo "$OPENSSL_SHA256  openssl-$OPENSSL_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f libffi-$LIBFFI_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz
+    download -O https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz
     LIBFFI_SHA256="d5e9a6638ddbd2513ddb54518eb67e4bbe6fa707bcc01c10f6212f0a088d819d"
     echo "$LIBFFI_SHA256  libffi-$LIBFFI_VERSION.tar.gz" | sha256sum -c -
 fi
 if [[ ! -f Python-$PYTHON_VERSION.tgz ]]; then
-    wget --https-only https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
+    download -O https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
     PYTHON_SHA256="73ac8fe780227bf371add8373c3079f42a0dc62deff8d612cd15a618082ab623"
     echo "$PYTHON_SHA256  Python-$PYTHON_VERSION.tgz" | sha256sum -c -
 fi
 if [[ ! -f libipt-$LIBIPT_VERSION.tar.gz ]]; then
-    wget --https-only https://github.com/intel/libipt/archive/refs/tags/v$LIBIPT_VERSION.tar.gz -O libipt-$LIBIPT_VERSION.tar.gz
+    download https://github.com/intel/libipt/archive/refs/tags/v$LIBIPT_VERSION.tar.gz -o libipt-$LIBIPT_VERSION.tar.gz
     LIBIPT_SHA256="f09a18fefba81d4fc2530d90858789e0c596f1b634e5777e6ccaf492966e9845"
     echo "$LIBIPT_SHA256  libipt-$LIBIPT_VERSION.tar.gz" | sha256sum -c -
 fi

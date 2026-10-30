@@ -4,7 +4,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/lib.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
-    wget # used for archive download
+    wget # used by gcc download_prerequisites
+    curl-minimal # used for archive download (EL9 ships the curl binary as curl-minimal)
     coreutils-common gcc gcc-c++ make # generic build tools
     # NOTE: Pure libcurl conflicts with libcurl-minimal
     libcurl-devel # cmake build requires it
