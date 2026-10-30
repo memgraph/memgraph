@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -23,6 +24,38 @@
 
 namespace memgraph::query::plan {
 
+/// The frame slots a projection's one-pass read writes into, held for as long as one query is
+/// being planned.
+///
+/// A planner may weigh many plans for one query against the single symbol table that sizes a
+/// frame, and only the plan it settles on ever runs. Each projection therefore draws from a pool
+/// of its own: whichever plan is chosen gets slots nothing else is using, and the frame is as wide
+/// as that plan needs rather than as wide as every plan considered.
+class CachedPropertySlots {
+ public:
+  /// Draws a projection's slots in order, minting one only when the pool runs out.
+  class Pool {
+   public:
+    explicit Pool(std::vector<Symbol> *slots) : slots_{slots} {}
+
+    auto Next(SymbolTable &symbol_table) -> Symbol {
+      if (drawn_ == slots_->size()) slots_->push_back(symbol_table.CreateAnonymousSymbol());
+      return (*slots_)[drawn_++];
+    }
+
+   private:
+    std::vector<Symbol> *slots_;
+    size_t drawn_{0};
+  };
+
+  /// The named expressions identify the projection: a plan holds its own copy of the pointers, so
+  /// two plans for one query name the same projection and a second projection names itself.
+  auto PoolFor(std::vector<NamedExpression *> const &projection) -> Pool { return Pool{&slots_[projection]}; }
+
+ private:
+  std::map<std::vector<NamedExpression *>, std::vector<Symbol>> slots_;
+};
+
 namespace impl {
 
 /// Walks one Produce's named expressions, counting the lookups worth caching and then swapping the
@@ -32,7 +65,7 @@ namespace impl {
 /// and keeps reading properties as it did.
 class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  enum class Phase : uint8_t { GATHER, REPLACE, RETUNE };
+  enum class Phase : uint8_t { GATHER, PROBE, REPLACE, RETUNE };
 
   ProducePropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
@@ -84,6 +117,14 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void SetCachedSymbols(std::vector<std::pair<Symbol, CachedSymbolsOfProperty>> cached) { cached_ = std::move(cached); }
 
+  /// Whether the later phases would change anything in this expression, asked before either of
+  /// them writes to it. Only one they would change needs a copy of its own.
+  auto WouldRewrite(NamedExpression *named_expression) -> bool {
+    probe_found_ = false;
+    Run(Phase::PROBE, named_expression);
+    return probe_found_;
+  }
+
  private:
   void Visit(PropertyLookup &op) override {
     // Only a lookup straight off a symbol qualifies: a nested path such as `n.a.b` reads a map, not the record.
@@ -105,6 +146,15 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         auto &properties = found->properties;
         if (!std::ranges::contains(properties, op.property_.ix, &PropertyIx::ix)) {
           properties.push_back(op.property_);
+        }
+        return;
+      }
+      case Phase::PROBE: {
+        // Retuning acts on any lookup of a symbol read in one pass, and replacing on a subset of
+        // those, so one found here is one a later phase would write to.
+        auto const &symbol = symbol_table_->at(*identifier);
+        if (std::ranges::any_of(cached_, [&symbol](auto const &entry) { return entry.first == symbol; })) {
+          probe_found_ = true;
         }
         return;
       }
@@ -135,9 +185,13 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     }
   }
 
+  /// Whether this phase reaches what only retuning acts on. Probing asks what retuning would do,
+  /// so it has to reach as far.
+  auto Retuning() const -> bool { return phase_ == Phase::RETUNE || phase_ == Phase::PROBE; }
+
   /// Descends where the caching phases will not, so that only retuning sees these.
   void DescendOnlyToRetune(Expression *&first, Expression *&second) {
-    if (phase_ != Phase::RETUNE) return;
+    if (!Retuning()) return;
     AcceptExpression(first);
     AcceptExpression(second);
   }
@@ -245,12 +299,12 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   void Visit(OrOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
 
   void Visit(ListLiteral &op) override {
-    if (phase_ != Phase::RETUNE) return;
+    if (!Retuning()) return;
     for (auto *&element : op.elements_) AcceptExpression(element);
   }
 
   void Visit(MapLiteral &op) override {
-    if (phase_ != Phase::RETUNE) return;
+    if (!Retuning()) return;
     for (auto &[_, element] : op.elements_) AcceptExpression(element);
   }
 
@@ -260,13 +314,15 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   std::vector<Expression *> prev_expressions_;
   std::vector<Gathered> gathered_;
   std::vector<std::pair<Symbol, CachedSymbolsOfProperty>> cached_;
+  bool probe_found_{false};
 };
 
 template <class TDbAccessor>
 class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
+  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
+                          CachedPropertySlots *slots)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), slots_(slots) {}
 
   ~CachePropertiesRewriter() override = default;
 
@@ -280,6 +336,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto input = op.input();
     if (!input) return true;
 
+    auto pool = slots_->PoolFor(op.named_expressions_);
     auto cacher = ProducePropertyLookupCacher{symbol_table_, ast_storage_};
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(ProducePropertyLookupCacher::Phase::GATHER, named_expression);
@@ -298,7 +355,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cached_properties.reserve(candidate.properties.size());
       cached_by_property.reserve(candidate.properties.size());
       for (auto const &property : candidate.properties) {
-        auto const &output_symbol = symbol_table_->CreateAnonymousSymbol();
+        auto const output_symbol = pool.Next(*symbol_table_);
         cached_by_property.emplace_back(ProducePropertyLookupCacher::PropertyIndex{property}, output_symbol);
         cached_properties.push_back(CachedProperty{db_->NameToProperty(property.name), output_symbol});
       }
@@ -308,13 +365,16 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
 
     if (groups.empty()) return true;
 
-    // The variable-start planner rewrites several candidate plans that share one AST, so the replacement has to
-    // happen on this plan's own copy of the named expressions.
+    cacher.SetCachedSymbols(std::move(cached_by_symbol));
+
+    // The planner may weigh several candidate plans for one query, and they share the expressions
+    // they were planned from, so a phase below writes to this plan's own copy. One the phases
+    // leave alone is shared as it stands: copying it would duplicate all it holds, down to a
+    // whole subquery, once for every candidate.
     for (auto *&named_expression : op.named_expressions_) {
-      named_expression = named_expression->Clone(ast_storage_);
+      if (cacher.WouldRewrite(named_expression)) named_expression = named_expression->Clone(ast_storage_);
     }
 
-    cacher.SetCachedSymbols(std::move(cached_by_symbol));
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(ProducePropertyLookupCacher::Phase::REPLACE, named_expression);
     }
@@ -330,6 +390,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
+  CachedPropertySlots *slots_;
 };
 
 }  // namespace impl
@@ -337,9 +398,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteCacheProperties(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db) {
+                                                        TDbAccessor *db, CachedPropertySlots *slots) {
   if (!FLAGS_query_cache_properties) return root_op;
-  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db};
+  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, slots};
   root_op->Accept(rewriter);
   return root_op;
 }
