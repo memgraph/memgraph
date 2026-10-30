@@ -170,6 +170,33 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
             3);
 }
 
+// Two patterns in one MATCH may not both use the same relationship, and a variable-length
+// relationship is still relationships for that purpose. The check runs over the symbols the
+// second pattern brings in, so it has to recognise a symbol holding a list of relationships as
+// well as one holding a single relationship. Written both ways round because only the second
+// pattern's symbols are checked, so one order exercises the list and the other does not.
+TYPED_TEST(QueryExecution, EdgeUniquenessAcrossPatternsOverAVariableLengthRelationship) {
+  this->Execute("CREATE (:A)-[:T]->(:B)");
+
+  // The graph holds one relationship, and it cannot serve both patterns, so there is nothing
+  // to count and nothing to find.
+  auto counted = this->Execute("MATCH (n:A) RETURN COUNT { MATCH (a)-[r*1..1]->(b), (c)-[e]->(d) RETURN 1 } AS k");
+  EXPECT_EQ(counted[0][0].ValueInt(), 0);
+
+  auto found = this->Execute("MATCH (n:A) RETURN EXISTS { MATCH (a)-[r*1..1]->(b), (c)-[e]->(d) RETURN 1 } AS k");
+  EXPECT_FALSE(found[0][0].ValueBool());
+
+  auto reversed = this->Execute("MATCH (n:A) RETURN COUNT { MATCH (c)-[e]->(d), (a)-[r*1..1]->(b) RETURN 1 } AS k");
+  EXPECT_EQ(reversed[0][0].ValueInt(), 0);
+
+  // Two relationships do give the patterns something to match, so the check is not refusing
+  // everything.
+  this->Execute("MATCH (n) DETACH DELETE n");
+  this->Execute("CREATE (:A)-[:T]->(:B), (:A)-[:T]->(:B)");
+  auto pairs = this->Execute("MATCH (n:A) RETURN COUNT { MATCH (a)-[r*1..1]->(b), (c)-[e]->(d) RETURN 1 } AS k");
+  EXPECT_EQ(pairs[0][0].ValueInt(), 2);
+}
+
 TYPED_TEST(QueryExecution, NamedPathOverBoundNodeInSubqueryBody) {
   // A named path over nothing but one already-bound node is built on the value the caller bound.
   this->Execute("CREATE (:Node)");
