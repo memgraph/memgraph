@@ -410,16 +410,29 @@ class EdgesChunkedIterable {
 };
 
 class EdgesIterable final {
+#ifdef MG_ENTERPRISE
+  using EdgeSet =
+      std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>>;
+  // A branch edge index scan is materialized: its edges are already stamped.
+  using Materialized = std::vector<EdgeAccessor>;
+
+  std::variant<storage::EdgesIterable, EdgeSet *, std::shared_ptr<Materialized>> iterable_;
+#else
   std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                                           utils::Allocator<EdgeAccessor>> *>
       iterable_;
+#endif
 
  public:
   class Iterator final {
+#ifdef MG_ENTERPRISE
+    std::variant<storage::EdgesIterable::Iterator, EdgeSet::iterator, Materialized::iterator> it_;
+#else
     std::variant<storage::EdgesIterable::Iterator,
                  std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                     utils::Allocator<EdgeAccessor>>::iterator>
         it_;
+#endif
 
    public:
     explicit Iterator(storage::EdgesIterable::Iterator it) : it_(std::move(it)) {}
@@ -427,6 +440,10 @@ class EdgesIterable final {
     explicit Iterator(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                          utils::Allocator<EdgeAccessor>>::iterator it)
         : it_(it) {}
+#ifdef MG_ENTERPRISE
+
+    explicit Iterator(Materialized::iterator it) : it_(it) {}
+#endif
 
     EdgeAccessor operator*() const {
       return std::visit([](auto &it_) { return EdgeAccessor(*it_); }, it_);
@@ -448,6 +465,21 @@ class EdgesIterable final {
                                             utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
 
+#ifdef MG_ENTERPRISE
+  explicit EdgesIterable(std::shared_ptr<Materialized> edges) : iterable_(std::move(edges)) {}
+
+  Iterator begin() {
+    return std::visit(utils::Overloaded{[](storage::EdgesIterable &iterable) { return Iterator(iterable.begin()); },
+                                        [](auto &edges) { return Iterator(edges->begin()); }},
+                      iterable_);
+  }
+
+  Iterator end() {
+    return std::visit(utils::Overloaded{[](storage::EdgesIterable &iterable) { return Iterator(iterable.end()); },
+                                        [](auto &edges) { return Iterator(edges->end()); }},
+                      iterable_);
+  }
+#else
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{
@@ -469,6 +501,7 @@ class EdgesIterable final {
                                   utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
         iterable_);
   }
+#endif
 };
 
 using PointIterable = query_iterable<storage::PointIterable>;
@@ -522,6 +555,12 @@ class DbAccessor final {
                                   std::optional<utils::Bound<storage::PropertyValue>> const &upper);
   VerticesIterable BranchVertices(storage::View view, storage::PropertyId property,
                                   storage::PropertyValueRange const &range);
+  // Edge index scans: main@fork's index merged with the diff engine's (branch-native edges), minus the edges the branch
+  // hid, plus the fork edges whose property it wrote. A full-scan fallback when the index is not visible at the fork.
+  EdgesIterable BranchEdges(storage::View view, storage::EdgeTypeId edge_type);
+  EdgesIterable BranchEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                            storage::PropertyValueRange const &range);
+  EdgesIterable BranchEdges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range);
 
   // Branch deletes: diff-engine objects are deleted in the diff engine; a fork vertex or edge gets the overlay's delete
   // flag, so a DETACH DELETE of a fork vertex deletes only its diff-engine edges for real and hides its fork edges.
@@ -724,6 +763,10 @@ class DbAccessor final {
       -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchEdges(view, edge_type);
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
@@ -737,10 +780,18 @@ class DbAccessor final {
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchEdges(view, edge_type, property, range);
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, property, range, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchEdges(view, property, range);
+#endif
     return EdgesIterable(accessor_->Edges(property, range, view));
   }
 

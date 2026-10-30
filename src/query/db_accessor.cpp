@@ -12,6 +12,7 @@
 #include "query/db_accessor.hpp"
 #ifdef MG_ENTERPRISE
 #include <algorithm>
+#include <iterator>
 #include <unordered_set>
 #endif
 #include <cppitertools/filter.hpp>
@@ -239,14 +240,26 @@ std::optional<VertexAccessor> DbAccessor::BranchFindVertex(storage::Gid gid, sto
   return std::nullopt;
 }
 
-std::optional<EdgeAccessor> DbAccessor::BranchFindEdge(storage::Gid gid, storage::View view) {
-  if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) return EdgeAccessor(*diff_edge, branch_ctx_);
-  for (auto vertex : branch_ctx_->Vertices(view)) {
-    for (auto &edge : branch_ctx_->ResolveEdges(vertex.Gid(), storage::EdgeDirection::OUT, view)) {
-      if (edge.Gid() == gid) return EdgeAccessor(edge, branch_ctx_);
+namespace {
+// Every branch edge once, through its FROM vertex's OUT adjacency, O(V+E); stops when `fn(edge)` returns true.
+template <typename Fn>
+void ForEachBranchEdge(versioning::BranchContext &ctx, storage::View view, Fn &&fn) {
+  for (auto vertex : ctx.Vertices(view)) {
+    for (auto &edge : ctx.ResolveEdges(vertex.Gid(), storage::EdgeDirection::OUT, view)) {
+      if (fn(edge)) return;
     }
   }
-  return std::nullopt;
+}
+}  // namespace
+
+std::optional<EdgeAccessor> DbAccessor::BranchFindEdge(storage::Gid gid, storage::View view) {
+  if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) return EdgeAccessor(*diff_edge, branch_ctx_);
+  std::optional<EdgeAccessor> found;
+  ForEachBranchEdge(*branch_ctx_, view, [&](storage::EdgeAccessor &edge) {
+    if (edge.Gid() == gid) found.emplace(edge, branch_ctx_);
+    return found.has_value();
+  });
+  return found;
 }
 
 std::optional<EdgeAccessor> DbAccessor::BranchFindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid,
@@ -668,6 +681,138 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::Propert
       [&] { return branch_ctx_->historical().Vertices(property, range, storage::View::OLD); },
       [&] { return accessor_->Vertices(property, range, view); },
       [&](storage::PropertyValue const &value) { return BranchValueInRange(range, value); });
+}
+
+namespace {
+using MaterializedEdges = std::vector<EdgeAccessor>;
+using KeyedEdge = std::pair<storage::PropertyValue, EdgeAccessor>;
+
+// Ascending by value, ties by gid: the order the planner relies on when it drops ORDER BY for an edge-property index.
+void SortByValueThenGid(std::vector<KeyedEdge> &edges) {
+  std::ranges::sort(edges, [](KeyedEdge const &a, KeyedEdge const &b) {
+    if (a.first < b.first) return true;
+    if (b.first < a.first) return false;
+    return a.second.Gid() < b.second.Gid();
+  });
+}
+
+EdgesIterable FromKeyed(std::vector<KeyedEdge> &&keyed) {
+  auto result = std::make_shared<MaterializedEdges>();
+  result->reserve(keyed.size());
+  for (auto &entry : keyed) result->push_back(std::move(entry.second));
+  return EdgesIterable(std::move(result));
+}
+
+// Full-scan fallback for an edge-property index not visible at the fork, in index order. `keep` filters the edge,
+// `in_range` its non-null branch value.
+template <typename Keep, typename InRange>
+EdgesIterable MaterializeSortedEdgePropertyScan(versioning::BranchContext &ctx, storage::View view,
+                                                storage::PropertyId property, Keep &&keep, InRange &&in_range) {
+  std::vector<KeyedEdge> keyed;
+  ForEachBranchEdge(ctx, view, [&](storage::EdgeAccessor &raw) {
+    EdgeAccessor candidate(raw, &ctx);
+    if (!keep(candidate)) return false;
+    auto value = candidate.GetProperty(view, property);
+    if (value.has_value() && !value->IsNull() && in_range(*value)) keyed.emplace_back(std::move(*value), candidate);
+    return false;
+  });
+  SortByValueThenGid(keyed);
+  return FromKeyed(std::move(keyed));
+}
+
+// Merges, by value, the diff engine's index (branch-native edges), main@fork's index minus edges the branch hid or
+// whose property it wrote, and those written fork edges re-read on the branch. O(log E + fork matches + touched).
+template <typename InRange>
+EdgesIterable MergeEdgePropertyScan(versioning::BranchContext &ctx, storage::View view, storage::PropertyId property,
+                                    std::optional<storage::EdgeTypeId> edge_type, storage::EdgesIterable diff_stream,
+                                    storage::EdgesIterable fork_stream, InRange &&in_range) {
+  auto const by_value = [](KeyedEdge const &a, KeyedEdge const &b) { return a.first < b.first; };
+  // One snapshot up front: every transaction visible to this scan recorded its edges before this point.
+  auto const touched = ctx.core()->EdgePropertyTouchedSnapshot(property);
+
+  std::vector<KeyedEdge> native;
+  for (auto raw : diff_stream) {
+    auto value = raw.GetProperty(property, view);
+    if (value.has_value()) native.emplace_back(std::move(*value), EdgeAccessor(raw, &ctx));
+  }
+
+  std::vector<KeyedEdge> untouched;
+  for (auto raw : fork_stream) {
+    if (touched->contains(raw.Gid().AsUint()) || ctx.IsForkEdgeHidden(raw, view)) continue;
+    auto value = raw.GetProperty(property, storage::View::OLD);
+    if (value.has_value()) untouched.emplace_back(std::move(*value), EdgeAccessor(raw, &ctx));
+  }
+
+  std::vector<KeyedEdge> changed;
+  for (auto const &[edge_gid, from_gid] : *touched) {
+    auto fork = ctx.FindForkEdge(storage::Gid::FromUint(edge_gid), storage::Gid::FromUint(from_gid));
+    if (!fork || (edge_type && fork->EdgeType() != *edge_type) || ctx.IsForkEdgeHidden(*fork, view)) continue;
+    EdgeAccessor candidate(*fork, &ctx);
+    auto value = candidate.GetProperty(view, property);
+    if (value.has_value() && !value->IsNull() && in_range(*value)) changed.emplace_back(std::move(*value), candidate);
+  }
+  SortByValueThenGid(changed);
+
+  std::vector<KeyedEdge> fork_side;
+  fork_side.reserve(untouched.size() + changed.size());
+  std::ranges::merge(untouched, changed, std::back_inserter(fork_side), by_value);
+  std::vector<KeyedEdge> merged;
+  merged.reserve(native.size() + fork_side.size());
+  std::ranges::merge(native, fork_side, std::back_inserter(merged), by_value);
+  return FromKeyed(std::move(merged));
+}
+}  // namespace
+
+// Unsorted: the diff engine's hits (branch-native edges) and main@fork's minus the edges the branch hid. A fork edge
+// never changes type.
+EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::EdgeTypeId edge_type) {
+  auto &ctx = *branch_ctx_;
+  auto result = std::make_shared<MaterializedEdges>();
+  if (!ctx.historical().EdgeTypeIndexReady(edge_type)) {
+    ForEachBranchEdge(ctx, view, [&](storage::EdgeAccessor &raw) {
+      if (raw.EdgeType() == edge_type) result->emplace_back(raw, branch_ctx_);
+      return false;
+    });
+    return EdgesIterable(std::move(result));
+  }
+  for (auto raw : accessor_->Edges(edge_type, view)) result->emplace_back(raw, branch_ctx_);
+  for (auto raw : ctx.historical().Edges(edge_type, storage::View::OLD)) {
+    if (!ctx.IsForkEdgeHidden(raw, view)) result->emplace_back(raw, branch_ctx_);
+  }
+  return EdgesIterable(std::move(result));
+}
+
+EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                      storage::PropertyValueRange const &range) {
+  auto &ctx = *branch_ctx_;
+  auto const in_range = [&](storage::PropertyValue const &value) { return BranchValueInRange(range, value); };
+  if (!ctx.historical().EdgeTypePropertyIndexReady(edge_type, property)) {
+    return MaterializeSortedEdgePropertyScan(
+        ctx, view, property, [edge_type](EdgeAccessor &e) { return e.EdgeType() == edge_type; }, in_range);
+  }
+  return MergeEdgePropertyScan(ctx,
+                               view,
+                               property,
+                               edge_type,
+                               accessor_->Edges(edge_type, property, range, view),
+                               ctx.historical().Edges(edge_type, property, range, storage::View::OLD),
+                               in_range);
+}
+
+EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::PropertyId property,
+                                      storage::PropertyValueRange const &range) {
+  auto &ctx = *branch_ctx_;
+  auto const in_range = [&](storage::PropertyValue const &value) { return BranchValueInRange(range, value); };
+  if (!ctx.historical().EdgePropertyIndexReady(property)) {
+    return MaterializeSortedEdgePropertyScan(ctx, view, property, [](EdgeAccessor &) { return true; }, in_range);
+  }
+  return MergeEdgePropertyScan(ctx,
+                               view,
+                               property,
+                               std::nullopt,
+                               accessor_->Edges(property, range, view),
+                               ctx.historical().Edges(property, range, storage::View::OLD),
+                               in_range);
 }
 
 namespace {
