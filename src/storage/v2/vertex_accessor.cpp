@@ -1274,7 +1274,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
 }
 
 int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &edges, edge_store &result_edges,
-                                                         HopsLimit *hops_limit) const {
+                                                         HopsLimit *hops_limit) {
   if (edges.empty()) return 0;
 
   if (hops_limit && hops_limit->IsUsed()) {
@@ -1291,7 +1291,7 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &edges, edge
 
 int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &edges, edge_store &result_edges,
                                                       const std::vector<EdgeTypeId> &edge_types,
-                                                      const VertexAccessor *destination, HopsLimit *hops_limit) const {
+                                                      const VertexAccessor *destination, HopsLimit *hops_limit) {
   if (edges.empty()) return 0;
 
   // Growing a doubling at a time reallocates and copies a high-degree list repeatedly, each new
