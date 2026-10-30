@@ -68,9 +68,21 @@ class VertexAccessor final {
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 #endif
 
-  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+  storage::Result<bool> AddLabel(storage::LabelId label) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchAddLabel(label);
+#endif
+    return impl_.AddLabel(label);
+  }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::Result<bool> RemoveLabel(storage::LabelId label) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchRemoveLabel(label);
+#endif
+    return impl_.RemoveLabel(label);
+  }
 
 #ifdef MG_ENTERPRISE
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
@@ -153,15 +165,27 @@ class VertexAccessor final {
 #endif
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchSetProperty(key, value);
+#endif
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchInitProperties(properties);
+#endif
     return impl_.InitProperties(properties);
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchUpdateProperties(properties);
+#endif
     return impl_.UpdateProperties(properties);
   }
 
@@ -170,6 +194,10 @@ class VertexAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchClearProperties();
+#endif
     return impl_.ClearProperties();
   }
 
@@ -238,6 +266,17 @@ class VertexAccessor final {
   storage::Result<void> BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
                                                  std::span<storage::PropertyValue> out, storage::View view) const;
   storage::Result<size_t> BranchDegree(storage::EdgeDirection direction, storage::View view) const;
+
+  // Branch writes: forwarders to the BranchContext write resolver, which writes a fork vertex's stub and a native
+  // vertex directly. A write to a vertex the branch deleted fails with DELETED_OBJECT.
+  storage::Result<bool> BranchAddLabel(storage::LabelId label);
+  storage::Result<bool> BranchRemoveLabel(storage::LabelId label);
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
 
   bool BranchIsDeleted() const;
 
