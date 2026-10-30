@@ -5428,8 +5428,8 @@ std::vector<Symbol> CacheProperties::OutputSymbols(const SymbolTable &symbol_tab
 std::vector<Symbol> CacheProperties::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   for (const auto &group : groups_) {
-    symbols.reserve(symbols.size() + group.properties.size());
-    for (const auto &cached : group.properties) {
+    symbols.reserve(symbols.size() + group.properties().size());
+    for (const auto &cached : group.properties()) {
       symbols.emplace_back(cached.output_symbol);
     }
   }
@@ -5445,9 +5445,9 @@ std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) con
 
 std::string CacheProperties::ToString(const DbAccessor *dba) const {
   return fmt::format("CacheProperties {{{}}}", utils::IterableToString(groups_, ", ", [&](const auto &group) {
-                       return utils::IterableToString(group.properties, ", ", [&](const auto &cached) {
+                       return utils::IterableToString(group.properties(), ", ", [&](const auto &cached) {
                          return fmt::format("{}.{} -> {}",
-                                            group.input_symbol.name(),
+                                            group.input_symbol().name(),
                                             dba->PropertyToName(cached.property_id),
                                             cached.output_symbol.name());
                        });
@@ -5458,7 +5458,7 @@ CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CachePropert
                                                               metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
   auto total = std::size_t{0};
-  for (auto const &group : self_.groups_) total += group.properties.size();
+  for (auto const &group : self_.groups_) total += group.properties().size();
   values_.resize(total);
 }
 
@@ -5477,17 +5477,17 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
   // Every property of a group answers Null together, whether because the symbol holds no record
   // or because the caller may read none of them.
   auto answer_with_null = [&](CachedPropertyGroup const &group) {
-    for (auto const &cached : group.properties) {
+    for (auto const &cached : group.properties()) {
       frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
     }
   };
 
   auto values_begin = std::size_t{0};
   for (auto const &group : self_.groups_) {
-    auto const slots = std::span{values_}.subspan(values_begin, group.properties.size());
-    values_begin += group.properties.size();
+    auto const slots = std::span{values_}.subspan(values_begin, group.properties().size());
+    values_begin += group.properties().size();
 
-    auto const &input_value = frame[group.input_symbol];
+    auto const &input_value = frame[group.input_symbol()];
     auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
     auto const reads_a_record = reads_a_vertex || input_value.type() == TypedValue::Type::Edge;
 
@@ -5511,10 +5511,10 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // A lookup answers Null for a property the caller may not read without ever reaching the record,
     // so a group of nothing but denied properties must not read one either: doing so would report a
     // deleted or missing record for a read the query was never allowed to make.
-    allowed_.assign(group.properties.size(), true);
+    allowed_.assign(group.properties().size(), true);
     auto any_allowed = false;
-    for (std::size_t slot = 0; slot != group.properties.size(); ++slot) {
-      auto const &cached = group.properties[group.ordered().position_lookup()[slot]];
+    for (std::size_t slot = 0; slot != group.properties().size(); ++slot) {
+      auto const &cached = group.properties()[group.ordered().position_lookup()[slot]];
       allowed_[slot] =
           reads_a_vertex ? PropertyReadAllowed(
                                context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
@@ -5535,7 +5535,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
-      const auto &cached = group.properties[group.ordered().position_lookup()[slot]];
+      const auto &cached = group.properties()[group.ordered().position_lookup()[slot]];
       auto &value = slots[slot];
 #ifdef MG_ENTERPRISE
       // Decided above, before the record was read.
