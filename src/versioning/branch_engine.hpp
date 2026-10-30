@@ -19,11 +19,19 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/vertices_iterable.hpp"
+#include "storage/v2/view.hpp"
+#include "utils/logging.hpp"
 #include "versioning/branch_change_filter.hpp"
 #include "versioning/branch_change_kind.hpp"
 #include "versioning/stub_index.hpp"
@@ -219,6 +227,193 @@ class BranchCore {
 
   // Owns the stubs the diff engine's deltas and indexes point at; ~BranchCore resets diff_engine_ first.
   StubIndex stub_index_;
+};
+
+// One session's view of a branch: a shared BranchCore plus per-transaction state. Reads resolve diff-engine-first,
+// falling back to the historical base (main at fork_ts); a fork vertex's or fork edge's changes are read from the
+// overlay store by gid.
+//
+// The per-transaction slots (`current_diff_txn_`, `historical_`, `overlay_txn_`) are opened by OpenHistorical +
+// SetCurrentDiffTxn and released by EndTransaction. One session, one transaction at a time; concurrent sessions each
+// hold their own BranchContext over the same core.
+//
+// historical_ holds main's READ storage guard only while a branch transaction is open.
+class BranchContext {
+ public:
+  using BuildError = BranchCore::BuildError;
+
+  // Builds a private, unregistered core and wraps it (unit tests; production attaches to the registry's core).
+  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
+                                                                                 uint64_t fork_ts);
+
+  explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
+
+  BranchContext(const BranchContext &) = delete;
+  BranchContext &operator=(const BranchContext &) = delete;
+  BranchContext(BranchContext &&) = delete;
+  BranchContext &operator=(BranchContext &&) = delete;
+
+  ~BranchContext() { EndTransaction(); }
+
+  const std::shared_ptr<BranchCore> &core() const { return core_; }
+
+  storage::InMemoryStorage &diff_engine() { return core_->diff_engine(); }
+
+  // Valid between OpenHistorical and EndTransaction.
+  storage::Storage::Accessor &historical() {
+    MG_ASSERT(historical_ != nullptr, "BranchContext::historical: no branch transaction is open.");
+    return *historical_;
+  }
+
+  // Opens a historical accessor on main at fork_ts (holding main's READ guard). Fails, leaving nothing open, if
+  // fork_ts is no longer pinned. Call BEFORE opening the diff-engine accessor: lock order is main READ -> diff engine.
+  std::expected<void, BuildError> OpenHistorical();
+
+  // Starts the overlay transaction at the diff transaction's snapshot.
+  void SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn);
+
+  // OpenHistorical + SetCurrentDiffTxn, for callers that already hold the diff-engine accessor (tests).
+  std::expected<void, BuildError> BeginTransaction(storage::Storage::Accessor *diff_txn) {
+    if (auto opened = OpenHistorical(); !opened) return opened;
+    SetCurrentDiffTxn(diff_txn);
+    return {};
+  }
+
+  // Aborts the overlay transaction unless it committed, clears both slots and releases main's READ guard. Idempotent.
+  void EndTransaction() noexcept;
+
+  storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
+
+  // Deletion follows the overlay's MVCC at `view` (own writes, snapshots, rollback). False for native gids (their
+  // deletes are ordinary diff-engine deletes) and for fork vertices the branch never deleted.
+  bool IsVertexDeleted(storage::Gid gid, storage::View view);
+  // `fork_vertex` is a main@fork accessor; a clear branched() bit means the overlay is empty, so the lookup is skipped.
+  bool IsForkVertexDeleted(const storage::VertexAccessor &fork_vertex, storage::View view);
+  // True when the fork edge is deleted on the branch (its overlay version) or either fork endpoint is. False for a
+  // branch-native edge.
+  bool IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view);
+
+  // The overlay version of a fork vertex visible to the current diff txn at `view`; null for a non-fork gid or when the
+  // branch changed nothing. Valid only while the branch txn is open (OpenHistorical..EndTransaction): use it inside
+  // the calling function and never store or return it.
+  const OverlayVersion *ReadOverlayVersion(storage::Gid gid, storage::View view);
+  // True when the overlay has a version of the fork vertex visible to this transaction.
+  bool HasVertexOverlay(storage::Gid gid);
+
+  // As ReadOverlayVersion, for a fork edge.
+  const OverlayVersion *ReadEdgeOverlayVersion(storage::Gid edge_gid, storage::View view);
+
+  bool IsForkVertexGid(storage::Gid gid) const;
+  bool IsForkEdgeGid(storage::Gid gid) const;
+
+  // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when an anchor recorded it.
+  std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
+  // The current diff txn's vertex for `gid`: a fork gid resolves only through the stub index, a native gid only
+  // through the diff engine's skiplist.
+  std::optional<storage::VertexAccessor> FindStub(storage::Gid gid, storage::View view);
+
+  // The fork edge `edge_gid` (historical_, View::OLD) out of fork vertex `from_gid`.
+  std::optional<storage::EdgeAccessor> FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid);
+
+  // Point lookup: a fork gid resolves to its fork accessor unless the branch deleted it, a native gid to the diff
+  // engine's vertex.
+  std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
+
+  // Diff-engine-ONLY point lookup by edge gid (no historical_ fallback): branch-native edges, which hang off
+  // diff-engine vertices or anchor stubs.
+  std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
+  // Same, walking the known FROM vertex's adjacency instead of scanning every vertex.
+  std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
+
+  // Gid-ordered streaming union: every historical_ vertex as its fork accessor (dropped if the branch deleted it), then
+  // the diff engine's vertices_, which hold only branch-native creates (gids at or above the vertex floor, above every
+  // fork gid). One O(H + D) forward pass.
+  class UnionVerticesIterable {
+   public:
+    class Iterator {
+     public:
+      using difference_type = std::ptrdiff_t;
+      using value_type = storage::VertexAccessor;
+
+      Iterator() = default;
+      Iterator(storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
+               storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
+               BranchContext *ctx, storage::View view);
+
+      storage::VertexAccessor operator*() const { return *current_; }
+
+      Iterator &operator++();
+
+      // Only compares "reached end"; mid-iteration positions are not comparable.
+      bool operator==(const Iterator &other) const { return done_ == other.done_; }
+
+     private:
+      void SeekNext();
+
+      std::optional<storage::VerticesIterable::Iterator> hist_it_;
+      std::optional<storage::VerticesIterable::Iterator> hist_end_;
+      std::optional<storage::VerticesIterable::Iterator> diff_it_;
+      std::optional<storage::VerticesIterable::Iterator> diff_end_;
+      std::optional<storage::VertexAccessor> current_;
+      BranchContext *ctx_{nullptr};
+      storage::View view_{storage::View::NEW};
+      bool done_{true};
+    };
+
+    Iterator begin();
+
+    Iterator end() { return Iterator{}; }
+
+   private:
+    friend class BranchContext;
+
+    UnionVerticesIterable(storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices,
+                          BranchContext *ctx, storage::View view);
+
+    storage::VerticesIterable hist_vertices_;
+    storage::VerticesIterable diff_vertices_;
+    BranchContext *ctx_;
+    storage::View view_;
+  };
+
+  UnionVerticesIterable Vertices(storage::View view);
+
+  // Union of historical_'s incident edges (always View::OLD) with branch-native ones from the diff engine. Reads
+  // overlay the branch's changes on a fork edge by gid. Eager (degree-bounded). Fork edges deleted on the branch, or
+  // whose other endpoint is deleted at `view`, are dropped. A deleted vertex yields no edges and sets
+  // `*vertex_deleted`.
+  std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
+                                                  storage::View view, bool *vertex_deleted = nullptr);
+
+  // Forwarders to the core's change filters; MayHave* let readers skip the resolve when a kind is definitely unchanged.
+  bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
+
+  bool MayHaveForkEdgeDeleted(storage::Gid edge_gid) const noexcept { return core_->MayHaveForkEdgeDeleted(edge_gid); }
+
+  bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
+
+ private:
+  // The branch marked fork edge `edge_gid` deleted, as seen at `view`.
+  bool IsForkEdgeDeleted(storage::Gid edge_gid, storage::View view);
+
+  // The overlay version at store key `key` (a vertex gid or EdgeKey) visible to this transaction at `view`, or null.
+  // Valid until EndTransaction.
+  const OverlayVersion *ReadVersion(uint64_t key, storage::View view);
+
+  // Advances the overlay command id to the diff transaction's.
+  void SyncOverlayCommand() noexcept;
+
+  void StartOverlayTransaction();
+
+  std::shared_ptr<BranchCore> core_;
+  // current_diff_txn_ is not owned: it points at the session's diff-engine accessor for one transaction.
+  storage::Storage::Accessor *current_diff_txn_{nullptr};
+  std::unique_ptr<storage::Storage::Accessor> historical_;
+  // Lives from SetCurrentDiffTxn to EndTransaction.
+  std::unique_ptr<OverlayTransaction> overlay_txn_;
+  // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor never yields a wrong
+  // pointer; reset per transaction.
+  StubIndex::Cursor stub_cursor_;
 };
 
 }  // namespace memgraph::versioning
