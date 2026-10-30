@@ -15,6 +15,7 @@
 
 #include <errno.h>  // program_invocation_short_name
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <exception>
@@ -60,6 +61,13 @@ inline Rows IntRows(InterpreterFaker &session, const std::string &query) {
     }
   }
   return rows;
+}
+
+inline std::vector<std::string> SortedNames(const memgraph::communication::bolt::Value &list) {
+  std::vector<std::string> out;
+  for (const auto &elem : list.ValueList()) out.emplace_back(elem.ValueString());
+  std::ranges::sort(out);
+  return out;
 }
 
 inline std::string ExplainText(InterpreterFaker &session, const std::string &query) {
@@ -188,6 +196,18 @@ class VersioningFixture : public ::testing::Test {
         version_store,
         name,
         info->number);
+  }
+
+  // `count` more sessions attached to the existing branch `name`. Built on the calling thread: each faker repoints the
+  // context's auth checker at itself, so the pointer is reset to the fixture's.
+  std::vector<std::unique_ptr<InterpreterFaker>> SessionsOnBranch(int count, const std::string &name = "b") {
+    std::vector<std::unique_ptr<InterpreterFaker>> sessions;
+    for (int i = 0; i < count; ++i) {
+      sessions.push_back(std::make_unique<InterpreterFaker>(&interpreter_context, db));
+      Attach(*sessions.back(), name);
+    }
+    interpreter_context.auth_checker = &faker.auth_checker;
+    return sessions;
   }
 
   // Creates branch `name` off main and moves `session` onto it (leaving any branch it was on).

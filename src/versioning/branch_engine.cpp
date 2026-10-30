@@ -1267,7 +1267,7 @@ storage::Result<bool> BranchContext::InitProperties(storage::VertexAccessor &ver
   return InitPropertiesAt(vertex, properties);
 }
 
-storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(storage::VertexAccessor &vertex,
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(const storage::VertexAccessor &vertex,
                                                                              PropertyMap &properties) {
   return UpdatePropertiesAt(vertex, properties);
 }
