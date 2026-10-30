@@ -2913,9 +2913,23 @@ void NextPermittedEdge(mgp_edges_iterator::RealCursor &c, const mgp_vertex &sour
 }  // namespace
 #endif
 
+memgraph::storage::EdgeTypeId mgp_graph::KnownEdgeType(const char *name) {
+  // A procedure uses a handful of types. Only the first 16 are remembered, so a procedure that uses more looks the
+  // rest up every time, after comparing them with the remembered ones.
+  constexpr size_t kMaxKnownEdgeTypes = 16;
+  for (auto const &[known, id] : known_edge_types) {
+    if (std::strcmp(known.c_str(), name) == 0) return id;
+  }
+  auto id = std::visit([name](auto *impl) { return impl->NameToEdgeType(name); }, CheckedImpl());
+  if (known_edge_types.size() < kMaxKnownEdgeTypes) known_edge_types.emplace_back(name, id);
+  return id;
+}
+
 namespace {
+/// `types` set: only edges of those types, checked by the storage (an empty set matches nothing).
 template <bool ForIn>
-mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
+mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory,
+                                      std::optional<std::span<const mgp_edge_type>> types = std::nullopt) {
   auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
   MG_ASSERT(it != nullptr);
 
@@ -2928,18 +2942,51 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
     }
     auto *vg = (*vg_acc)->getGraph();
     auto edges = ForIn ? vg->InEdges(v->GetVirtualNode().Gid()) : vg->OutEdges(v->GetVirtualNode().Gid());
-    auto &vc = it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(edges);
+    auto &vc = [&]() -> mgp_edges_iterator::VirtualCursor & {
+      if (!types) return it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(edges);
+      memgraph::utils::pmr::vector<const memgraph::query::VirtualEdge *> kept(it->GetMemoryResource());
+      for (const auto *edge : edges) {
+        if (std::ranges::any_of(*types, [edge](const auto &type) { return edge->EdgeTypeName() == type.name; })) {
+          kept.push_back(edge);
+        }
+      }
+      return it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(std::move(kept));
+    }();
     if (vc.it != vc.edges.end()) {
       it->current_e.emplace(**vc.it, v->graph, it->GetMemoryResource());
     }
     return it.release();
   }
 
-  auto maybe_edges = v->VisitReal([v](auto &impl) {
+  // The storage reads an empty type list as every type, so asking for no types stops here. The degree read makes
+  // the same deleted and visibility check, for the graph's view, that reading the edges would.
+  if (types && types->empty()) {
+    auto maybe_degree = v->VisitReal([v](auto &impl) {
+      if constexpr (ForIn) {
+        return impl.InDegree(v->graph->view);
+      } else {
+        return impl.OutDegree(v->graph->view);
+      }
+    });
+    if (!maybe_degree) {
+      ThrowOnReadError(
+          maybe_degree.error(), ForIn ? "get the inbound edges of" : "get the outbound edges of", ObjectKind::Vertex);
+    }
+    it->cursor.emplace<mgp_edges_iterator::RealCursor>(memgraph::query::ExpandedEdges{}, ForIn);
+    return it.release();
+  }
+  std::vector<memgraph::storage::EdgeTypeId> type_ids;
+  if (types) {
+    type_ids.reserve(types->size());
+    for (const auto &type : *types) {
+      type_ids.push_back(v->graph->KnownEdgeType(type.name));
+    }
+  }
+  auto maybe_edges = v->VisitReal([v, &types, &type_ids](auto &impl) {
     if constexpr (ForIn) {
-      return impl.InEdges(v->graph->view);
+      return types ? impl.InEdges(v->graph->view, type_ids) : impl.InEdges(v->graph->view);
     } else {
-      return impl.OutEdges(v->graph->view);
+      return types ? impl.OutEdges(v->graph->view, type_ids) : impl.OutEdges(v->graph->view);
     }
   });
   if (!maybe_edges) {
@@ -2981,6 +3028,29 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 
 mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions([v, memory] { return MakeEdgesIterator<false>(v, memory); }, result);
+}
+
+namespace {
+std::span<const mgp_edge_type> EdgeTypesArg(const mgp_edge_type *types, size_t num_types) {
+  if (types == nullptr && num_types != 0) {
+    throw std::invalid_argument{"types is NULL but num_types is not 0"};
+  }
+  const std::span<const mgp_edge_type> span{types, num_types};
+  if (std::ranges::any_of(span, [](const auto &type) { return type.name == nullptr; })) {
+    throw std::invalid_argument{"an edge type in types has a NULL name"};
+  }
+  return span;
+}
+}  // namespace
+
+mgp_error mgp_vertex_iter_in_edges_by_types(mgp_vertex *v, const mgp_edge_type *types, size_t num_types,
+                                            mgp_memory *memory, mgp_edges_iterator **result) {
+  return WrapExceptions([=] { return MakeEdgesIterator<true>(v, memory, EdgeTypesArg(types, num_types)); }, result);
+}
+
+mgp_error mgp_vertex_iter_out_edges_by_types(mgp_vertex *v, const mgp_edge_type *types, size_t num_types,
+                                             mgp_memory *memory, mgp_edges_iterator **result) {
+  return WrapExceptions([=] { return MakeEdgesIterator<false>(v, memory, EdgeTypesArg(types, num_types)); }, result);
 }
 
 mgp_error mgp_edges_iterator_underlying_graph_is_mutable(mgp_edges_iterator *it, int *result) {
