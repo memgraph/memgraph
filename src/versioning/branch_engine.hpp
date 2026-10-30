@@ -107,6 +107,11 @@ class BranchCore {
 
   const ForkPoint &fork() const { return fork_; }
 
+  // Main's approximate counts at the fork (its uncollected deleted vertices and open transactions' objects included),
+  // plus the diff engine's (branch-created objects), minus the base vertices and edges deleted or hidden by committed
+  // branch transactions; never below zero. Independent of main's later writes.
+  ObjectCounts ApproximateCounts() const;
+
   // The base vertices and edges deleted by the committed branch transactions so far.
   ObjectCounts BaseDeletes() const noexcept {
     return {.vertices = deleted_base_vertices_.load(std::memory_order_relaxed),
@@ -410,6 +415,11 @@ class BranchContext {
   // an edge id names no endpoints and main has no fork-time index by edge id.
   std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
+  // The edge `edge_gid` by id alone: a base gid through main's own lookup at the fork, at main's cost (nullopt if
+  // hidden on the branch), a native gid through the diff engine; never an overlay. Finds only an edge main still holds:
+  // a base edge main deleted since the fork needs the FROM-vertex overload.
+  std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::View view);
+
   // `vertex` as the query layer holds it: the base vertex when `vertex` is the diff-engine overlay of one (e.g. the
   // endpoint of a branch-native edge on a base vertex), else `vertex` itself.
   storage::VertexAccessor BaseIdentity(const storage::VertexAccessor &vertex);
@@ -431,6 +441,10 @@ class BranchContext {
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
   // Same, walking the FROM vertex's adjacency.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
+
+  // See BranchCore::ApproximateCounts.
+  int64_t ApproximateVertexCount();
+  int64_t ApproximateEdgeCount();
 
   // Base vertices (minus branch-deleted ones), then native ones, in gid order.
   class UnionVerticesIterable {
