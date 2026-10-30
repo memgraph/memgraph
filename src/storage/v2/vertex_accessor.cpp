@@ -1081,7 +1081,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
         });
   }
 
-  // Projection (filter and, for a bounded read, hops truncation) runs on the replay result.
   edge_store result_edges;
   if (edge_types.empty() && !destination) {
     auto const projected_count = HandleExpansionsWithoutEdgeTypes(in_edges, result_edges, hops_limit);
@@ -1187,7 +1186,6 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
         });
   }
 
-  // Projection (filter and, for a bounded read, hops truncation) runs on the replay result.
   edge_store result_edges;
   if (edge_types.empty() && !destination) {
     auto const projected_count = HandleExpansionsWithoutEdgeTypes(out_edges, result_edges, hops_limit);
