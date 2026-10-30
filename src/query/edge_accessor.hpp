@@ -102,6 +102,9 @@ class EdgeAccessor final {
       return BranchReadPropertyValues(ordered_properties, out, view);
     return impl_.ReadPropertyValues(ordered_properties, out, view);
   }
+
+  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
+  std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
 #else
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
