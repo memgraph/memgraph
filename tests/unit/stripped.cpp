@@ -297,14 +297,20 @@ TEST(QueryStripper, TrueLiteral) {
   StrippedQuery stripped("RETURN trUE");
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_PROP_EQ(SingleLiteral(stripped), TypedValue(true));
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedBooleanToken);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN trUE");
 }
 
 TEST(QueryStripper, FalseLiteral) {
   StrippedQuery stripped("RETURN fAlse");
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_PROP_EQ(SingleLiteral(stripped), TypedValue(false));
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedBooleanToken);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN fAlse");
+}
+
+TEST(QueryStripper, BooleanKeywordAsMapKey) {
+  StrippedQuery stripped("RETURN {fAlse: 1}");
+  EXPECT_EQ(stripped.literals().size(), 2);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN { fAlse : " + kStrippedIntToken + " }");
 }
 
 TEST(QueryStripper, NullLiteral) {
@@ -636,10 +642,9 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
   }
   {
-    StrippedQuery stripped("RETURN [CASE WHEN true THEN 2 END-1]");
+    StrippedQuery stripped("RETURN [CASE WHEN trUE THEN 2 END-1]");
     EXPECT_EQ(stripped.stripped_query().str(),
-              "RETURN [ CASE WHEN " + kStrippedBooleanToken + " THEN " + kStrippedIntToken + " END - " +
-                  kStrippedIntToken + " ]");
+              "RETURN [ CASE WHEN trUE THEN " + kStrippedIntToken + " END - " + kStrippedIntToken + " ]");
   }
 }
 
