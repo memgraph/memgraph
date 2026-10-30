@@ -476,7 +476,16 @@ jobs:
           curl -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/${K8S_ARCH}/kubectl"
           chmod +x "$EKS_TOOLS/kubectl"
 
-          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$EKS_TOOLS" USE_SUDO=false bash
+          # Pinned Helm release, checked against the SHA256s published on get.helm.sh.
+          # Bump the version together with both hashes.
+          HELM_VERSION="v3.22.1"
+          HELM_SHA256="${{ inputs.arch == 'arm' && '4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d' || '896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea' }}"
+          HELM_TARBALL="${{ runner.temp }}/helm.tar.gz"
+          curl -fsSL --proto "=https" --proto-redir "=https" --tlsv1.2 -o "$HELM_TARBALL" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-${K8S_ARCH}.tar.gz"
+          echo "$HELM_SHA256  $HELM_TARBALL" | sha256sum -c -
+          tar -xzf "$HELM_TARBALL" -C "$EKS_TOOLS" --strip-components=1 "linux-${K8S_ARCH}/helm"
+          rm -f "$HELM_TARBALL"
 
           curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_${EKSCTL_ARCH}.tar.gz" | tar -xz -C "$EKS_TOOLS"
 
