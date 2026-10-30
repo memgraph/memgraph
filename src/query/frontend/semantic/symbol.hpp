@@ -61,6 +61,10 @@ class Symbol {
 
   Type type() const { return type_; }
 
+  // Whether the symbol binds one vertex or one edge, which is what can be asked for a property. A
+  // relationship matched over a variable length binds the list it matched, so it answers false.
+  bool BindsOneRecord() const { return type_ == Type::VERTEX || type_ == Type::EDGE; }
+
   bool user_declared() const { return user_declared_; }
 
   int64_t token_position() const { return token_position_; }

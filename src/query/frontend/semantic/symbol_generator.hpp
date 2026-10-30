@@ -212,8 +212,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                     int token_position = -1);
 
-  // Returns a freshly generated anonymous symbol.
-  auto CreateAnonymousSymbol(Symbol::Type type = Symbol::Type::ANY);
+  // Returns a freshly generated anonymous symbol, typed as anything. What an anonymous symbol binds
+  // is a subquery's or a comprehension's result, whose type is not known here.
+  auto CreateAnonymousSymbol();
 
   auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
   // Returns the symbol by name. If the mapping already exists, checks if the

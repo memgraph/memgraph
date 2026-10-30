@@ -20,6 +20,7 @@ namespace memgraph::storage {
 
 struct Vertex;
 class VertexAccessor;
+class OrderedPropertyPaths;
 struct Indices;
 struct Constraints;
 class Storage;
@@ -88,9 +89,13 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
-                                                                      View view) const;
+  /// Reads `ordered_properties` into `out`, one slot each, in one pass over the record. A property
+  /// the edge does not carry reads as Null, so the slots line up whatever it holds, and a buffer
+  /// kept between rows reads a row without allocating.
+  ///
+  /// Configured without properties on edges, every slot reads Null, as asking one at a time does.
+  Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                  View view) const;
 
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;

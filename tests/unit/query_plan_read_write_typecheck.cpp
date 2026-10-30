@@ -65,6 +65,22 @@ TYPED_TEST(ReadWriteTypeCheckTest, NONEOps) {
   this->CheckPlanType(produce.get(), RWType::NONE);
 }
 
+// Reading properties of records an operator below has already produced is not what makes a
+// query a read, any more than returning them is: whatever produced those records says so
+// itself. So a write that projects properties of what it wrote is still a write, and a plan is
+// labelled the same whether or not its property reads were gathered into one pass.
+TYPED_TEST(ReadWriteTypeCheckTest, ReadingAlreadyProducedRecordsIsNoReadOfItsOwn) {
+  std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();
+  std::shared_ptr<LogicalOperator> cache = std::make_shared<CacheProperties>(
+      once, this->GetSymbol("n"), std::vector<memgraph::query::plan::CachedProperty>{});
+  this->CheckPlanType(cache.get(), RWType::NONE);
+
+  std::shared_ptr<LogicalOperator> create_node = std::make_shared<CreateNode>(once, NodeCreationInfo());
+  std::shared_ptr<LogicalOperator> over_a_write = std::make_shared<CacheProperties>(
+      create_node, this->GetSymbol("n"), std::vector<memgraph::query::plan::CachedProperty>{});
+  this->CheckPlanType(over_a_write.get(), RWType::W);
+}
+
 TYPED_TEST(ReadWriteTypeCheckTest, CreateNode) {
   std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();
   std::shared_ptr<LogicalOperator> create_node = std::make_shared<CreateNode>(once, NodeCreationInfo());

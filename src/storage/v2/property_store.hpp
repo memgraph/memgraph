@@ -32,6 +32,7 @@ DECLARE_uint64(storage_floating_point_resolution_bits);
 namespace memgraph::storage {
 
 struct PropertyPath;
+class OrderedPropertyPaths;
 template <typename T>
 struct IndexedPropertyDecoder;
 
@@ -93,14 +94,14 @@ class PropertyStore {
   /// complexity of this function is O(n).
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
 
-  /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
+  /// Extracts property values for all paths in `ordered_properties`, in that order. Any missing properties will be
   /// represented by Null. The time complexity of this function is O(n).
-  /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
-  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
+  /// Use `ApplyPermutation` or `position_lookup()` to get back to the order the paths were supplied in.
+  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths const &ordered_properties) const;
 
   /// As above, but writes into the caller-provided `out` (one slot per ordered property, same single pass), so a
   /// fixed-size buffer can be filled without a heap allocation. `out.size()` must equal `ordered_properties.size()`.
-  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+  void ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths const &ordered_properties,
                                           std::span<PropertyValue> out) const;
 
   /// Checks whether the property `property` is equal to the specified value
@@ -109,21 +110,16 @@ class PropertyStore {
   /// O(n).
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
 
-  /// Checks whether the properties `ordered_properties` are equal to the
-  /// specified values `values`. This function doesn't perform any memory
-  /// allocations while performing the equality check. The time complexity of
-  /// this function is O(n). `position_lookup` is an ordering mapping of values
-  /// to match given property from `ordered_properties`, hence value for
-  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The results
-  /// written to `result` correspond to `ordered_properties`.
+  /// Checks whether the properties `ordered_properties` are equal to `values`, without allocating,
+  /// in O(n). `values` is in the order the paths were supplied in, so the value compared against
+  /// `paths()[0]` is `values[position_lookup()[0]]`, and `result` corresponds to `paths()`.
   ///
-  /// `result` is supplied by the caller, and its previous contents are discarded: the comparison
-  /// itself never allocated, a returned vector did, and both callers walk index entries in a loop.
-  void ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
-                          std::span<std::size_t const> position_lookup, std::vector<bool> &result) const;
+  /// `result` is the caller's so that walking index entries allocates once per loop rather than
+  /// once per entry. Its previous contents are discarded.
+  void ArePropertiesEqual(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue const> values,
+                          std::vector<bool> &result) const;
 
-  /// Returns all properties currently stored in the store. The time complexity
-  /// of this function is O(n).
+  /// Returns every property the store holds, in O(n).
   /// @throw std::bad_alloc
   std::map<PropertyId, PropertyValue> Properties() const;
 

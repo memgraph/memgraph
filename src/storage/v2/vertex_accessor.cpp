@@ -22,6 +22,7 @@
 #include "storage/v2/hops_limit.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -837,48 +838,43 @@ std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelI
   return transaction_->active_indices_->vector_->IndexedProperties(labels);
 }
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
-    std::span<PropertyId const> properties, View view) const {
+Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
+                                                std::span<PropertyValue> out, View view) const {
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  MG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
+            "Replaying a property delta over a set of paths handles only single-property paths");
+  auto const paths = ordered_properties.paths();
   bool exists = true;
   bool deleted = false;
-  std::vector<PropertyValue> property_values;
-  property_values.reserve(properties.size());
   Delta *delta = nullptr;
   VertexReadLock read_lock{vertex_};
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    auto property_paths = properties |
-                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                          r::to<std::vector<storage::PropertyPath>>();
-    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    vertex_->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
+    // Reading one property at a time decodes, so reading a set of them has to as well.
+    auto const decoder = IndexedPropertyDecoder<Vertex>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_};
+    for (auto &value : out) decoder.DecodeProperty(value);
     delta = vertex_->delta();
   }
-  auto properties_map =
-      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
-      }) |
-      r::to<std::map<PropertyId, PropertyValue>>();
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
-      // Note: We don't have specific cache for properties by IDs, so we skip caching for now
     }
 
     auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, paths, out](const Delta &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Deleted_ActionMethod(deleted),
             Exists_ActionMethod(exists),
-            Properties_ActionMethod(properties_map)
+            PropertyValues_ActionMethod(paths, out)
           });
           // clang-format on
         });
@@ -887,13 +883,12 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      // Note: We don't cache this specific subset of properties for now
     }
   }
 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
-  return std::move(properties_map);
+  return {};
 }
 
 auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {

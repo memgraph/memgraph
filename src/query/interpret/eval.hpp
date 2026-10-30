@@ -84,6 +84,22 @@ bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAn
   LOG_FATAL("Unexpected storage::Error");
 }
 
+/// Throws the query error for a record whose property could not be read. Kept out of line for the
+/// same reason as the labels above: a read calls it only on failure.
+[[noreturn, gnu::cold, gnu::noinline]] inline void ThrowPropertyReadError(storage::Error error) {
+  switch (error) {
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to get a property from a deleted object.");
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+    case storage::Error::SERIALIZATION_ERROR:
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Unexpected error when getting a property.");
+  }
+  LOG_FATAL("Unexpected storage::Error");
+}
+
 class VirtualNode;
 class VirtualEdge;
 
@@ -1211,18 +1227,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
     }
-    if (!maybe_prop) {
-      switch (maybe_prop.error()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get a property from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting a property.");
-      }
-    }
+    if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
     return *std::move(maybe_prop);
   }
 
@@ -1241,18 +1246,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(view_, prop_id);
     }
-    if (!maybe_prop) {
-      switch (maybe_prop.error()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get a property from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting a property.");
-      }
-    }
+    if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
     return *maybe_prop;
   }
 

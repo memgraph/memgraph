@@ -14,6 +14,7 @@
 
 #include <mgcxx_text_search.hpp>
 #include <nlohmann/json.hpp>
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -62,78 +63,100 @@ std::string MakeIndexPath(const std::string &base_path, std::string_view index_n
   return (std::filesystem::path(base_path) / index_name).string();
 }
 
+namespace {
+// Property types that are indexed in Tantivy are Bool, Int, Double, and String. A value of any
+// other type, Null among them, contributes nothing to a document.
+void SerializeOne(nlohmann::json &into, NameIdMapper *name_id_mapper, PropertyId prop_id,
+                  PropertyValue const &prop_value) {
+  switch (prop_value.type()) {
+    case PropertyValue::Type::Bool:
+      into[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueBool();
+      break;
+    case PropertyValue::Type::Int:
+      into[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueInt();
+      break;
+    case PropertyValue::Type::Double:
+      into[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueDouble();
+      break;
+    case PropertyValue::Type::String:
+      into[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueString();
+      break;
+    case PropertyValue::Type::Null:
+    case PropertyValue::Type::List:
+    case PropertyValue::Type::Map:
+    case PropertyValue::Type::TemporalData:
+    case PropertyValue::Type::ZonedTemporalData:
+    default:
+      break;
+  }
+}
+
+void StringifyOne(std::vector<std::string> &into, PropertyValue const &prop_value) {
+  switch (prop_value.type()) {
+    case PropertyValue::Type::Bool:
+      into.emplace_back(prop_value.ValueBool() ? "true" : "false");
+      break;
+    case PropertyValue::Type::Int:
+      into.push_back(std::to_string(prop_value.ValueInt()));
+      break;
+    case PropertyValue::Type::Double:
+      into.push_back(std::to_string(prop_value.ValueDouble()));
+      break;
+    case PropertyValue::Type::String:
+      into.push_back(prop_value.ValueString());
+      break;
+    case PropertyValue::Type::Null:
+    case PropertyValue::Type::List:
+    case PropertyValue::Type::Map:
+    case PropertyValue::Type::TemporalData:
+    case PropertyValue::Type::ZonedTemporalData:
+    default:
+      break;
+  }
+}
+
 nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
                                    NameIdMapper *name_id_mapper) {
-  // Property types that are indexed in Tantivy are Bool, Int, Double, and String.
   nlohmann::json serialized_properties = nlohmann::json::value_t::object;
   for (const auto &[prop_id, prop_value] : properties) {
-    switch (prop_value.type()) {
-      case PropertyValue::Type::Bool:
-        serialized_properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueBool();
-        break;
-      case PropertyValue::Type::Int:
-        serialized_properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueInt();
-        break;
-      case PropertyValue::Type::Double:
-        serialized_properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueDouble();
-        break;
-      case PropertyValue::Type::String:
-        serialized_properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueString();
-        break;
-      case PropertyValue::Type::Null:
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::Map:
-      case PropertyValue::Type::TemporalData:
-      case PropertyValue::Type::ZonedTemporalData:
-      default:
-        continue;
-    }
+    SerializeOne(serialized_properties, name_id_mapper, prop_id, prop_value);
+  }
+  return serialized_properties;
+}
+
+nlohmann::json SerializeProperties(std::span<PropertyPath const> paths, std::span<PropertyValue const> values,
+                                   NameIdMapper *name_id_mapper) {
+  nlohmann::json serialized_properties = nlohmann::json::value_t::object;
+  for (auto const &[path, prop_value] : rv::zip(paths, values)) {
+    SerializeOne(serialized_properties, name_id_mapper, path.back(), prop_value);
   }
   return serialized_properties;
 }
 
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties) {
   std::vector<std::string> indexable_properties_as_string;
-  for (const auto &[_, prop_value] : properties) {
-    switch (prop_value.type()) {
-      case PropertyValue::Type::Bool:
-        indexable_properties_as_string.emplace_back(prop_value.ValueBool() ? "true" : "false");
-        break;
-      case PropertyValue::Type::Int:
-        indexable_properties_as_string.push_back(std::to_string(prop_value.ValueInt()));
-        break;
-      case PropertyValue::Type::Double:
-        indexable_properties_as_string.push_back(std::to_string(prop_value.ValueDouble()));
-        break;
-      case PropertyValue::Type::String:
-        indexable_properties_as_string.push_back(prop_value.ValueString());
-        break;
-      case PropertyValue::Type::Null:
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::Map:
-      case PropertyValue::Type::TemporalData:
-      case PropertyValue::Type::ZonedTemporalData:
-      default:
-        continue;
-    }
-  }
+  for (const auto &[_, prop_value] : properties) StringifyOne(indexable_properties_as_string, prop_value);
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
-                                                      std::span<PropertyId const> properties) {
-  if (properties.empty()) {
-    return property_store.Properties();
-  }
+std::string StringifyProperties(std::span<PropertyValue const> values) {
+  std::vector<std::string> indexable_properties_as_string;
+  indexable_properties_as_string.reserve(values.size());
+  for (auto const &prop_value : values) StringifyOne(indexable_properties_as_string, prop_value);
+  return utils::Join(indexable_properties_as_string, " ");
+}
 
-  auto property_paths = properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
-                        r::to<std::vector<PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
+}  // namespace
 
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
-         }) |
-         r::to<std::map<PropertyId, PropertyValue>>();
+TextIndexFields TextFieldsOf(const std::map<PropertyId, PropertyValue> &properties, NameIdMapper *name_id_mapper) {
+  return {.properties = SerializeProperties(properties, name_id_mapper),
+          .all_property_values = StringifyProperties(properties)};
+}
+
+TextIndexFields TextFieldsOf(std::span<PropertyPath const> paths, std::span<PropertyValue const> values,
+                             NameIdMapper *name_id_mapper) {
+  return {.properties = SerializeProperties(paths, values, name_id_mapper),
+          .all_property_values = StringifyProperties(values)};
 }
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
@@ -173,17 +196,6 @@ void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span
       entry.to_remove.insert(edge);
     }
   }
-}
-
-std::vector<PropertyId> FilterPropertiesToIndex(std::span<const PropertyId> index_properties,
-                                                std::vector<PropertyId> entity_properties) {
-  if (index_properties.empty()) return entity_properties;
-  std::vector<PropertyId> result;
-  result.reserve(index_properties.size());
-  std::ranges::copy_if(index_properties, std::back_inserter(result), [&](auto prop) {
-    return std::ranges::contains(entity_properties, prop);
-  });
-  return result;
 }
 
 bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,

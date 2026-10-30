@@ -5677,3 +5677,44 @@ TEST_P(StorageEdgeCreateAbort, FailureOnToVertexLeavesFromVertexWritable) {
   ASSERT_TRUE(from);
   EXPECT_TRUE(from->SetProperty(prop, memgraph::storage::PropertyValue(2)).has_value());
 }
+
+// An edge keeps its properties in the same store a vertex does, so it answers a set of them in one
+// pass over the record the same way. Values come back in the order the read needed, and anything
+// the edge does not carry reads back as Null so every slot is filled.
+TEST_P(StorageEdgeTest, EdgeReadsASetOfPropertiesInOnePass) {
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
+      {.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
+                             .storage_light_edge = GetParam().light_edge}}}));
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  auto vertex = acc->CreateVertex();
+  auto et = acc->NameToEdgeType("et");
+  auto edge = acc->CreateEdge(&vertex, &vertex, et).value();
+
+  // Interned in this order, so their ids ascend in it and name order is the order the record holds.
+  auto const first = acc->NameToProperty("first");
+  auto const second = acc->NameToProperty("second");
+  auto const absent = acc->NameToProperty("absent");
+
+  if (GetParam().properties_on_edges) {
+    ASSERT_TRUE(edge.SetProperty(first, memgraph::storage::PropertyValue(7)).has_value());
+    ASSERT_TRUE(edge.SetProperty(second, memgraph::storage::PropertyValue("seven")).has_value());
+  }
+
+  auto const paths =
+      memgraph::storage::OrderedPropertyPaths{std::vector<memgraph::storage::PropertyPath>{first, second, absent}};
+  auto values = std::array<memgraph::storage::PropertyValue, 3>{};
+  auto const read = edge.ReadPropertyValues(paths, values, memgraph::storage::View::NEW);
+  ASSERT_TRUE(read.has_value());
+
+  if (GetParam().properties_on_edges) {
+    EXPECT_EQ(values[0].ValueInt(), 7);
+    EXPECT_EQ(values[1].ValueString(), "seven");
+  } else {
+    // An edge that holds no properties answers Null for every one asked for, which is what reading
+    // them one at a time does, so moving a read into one pass cannot change an answer.
+    EXPECT_TRUE(values[0].IsNull());
+    EXPECT_TRUE(values[1].IsNull());
+  }
+  EXPECT_TRUE(values[2].IsNull());
+}

@@ -19,6 +19,8 @@
 
 namespace memgraph::storage {
 
+/// A property backed by a vector index is stored as its index ids alone; the vector itself is
+/// fetched from the index as the value is read. A read that skips this answers an empty list.
 template <typename T>
 struct IndexedPropertyDecoder {
   Indices *indices;
