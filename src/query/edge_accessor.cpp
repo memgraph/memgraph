@@ -64,6 +64,25 @@ storage::Result<void> EdgeAccessor::BranchReadPropertyValues(storage::OrderedPro
   return branch_ctx()->ReadPropertyValues(impl_, ordered_properties, out, view);
 }
 
+storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
+                                                                        const storage::PropertyValue &value) {
+  return branch_ctx()->SetProperty(impl_, key, value);
+}
+
+storage::Result<bool> EdgeAccessor::BranchInitProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  return branch_ctx()->InitProperties(impl_, properties);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+EdgeAccessor::BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  return branch_ctx()->UpdateProperties(impl_, properties);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAccessor::BranchClearProperties() {
+  return branch_ctx()->ClearProperties(impl_);
+}
+
 // A native edge is the diff engine's own object, so its flag says; a fork edge is deleted when the branch hid it.
 bool EdgeAccessor::BranchIsDeleted() const {
   if (impl_.storage_ == &branch_ctx()->diff_engine()) return impl_.IsDeleted();
