@@ -35,6 +35,7 @@ documentation and/or software.
 
 /* system implementation headers */
 #include <cstdio>
+#include <cstring>
 
 // Constants for MD5Transform routine.
 #define S11 7
@@ -222,7 +223,7 @@ void MD5::transform(const uint1 block[blocksize]) {
   state[3] += d;
 
   // Zeroize sensitive information.
-  memset(x, 0, sizeof x);
+  explicit_bzero(x, sizeof x);
 }
 
 //////////////////////////////
@@ -290,8 +291,8 @@ MD5 &MD5::finalize() {
     encode(digest, state, 16);
 
     // Zeroize sensitive information.
-    memset(buffer, 0, sizeof buffer);
-    memset(count, 0, sizeof count);
+    explicit_bzero(buffer, sizeof buffer);
+    explicit_bzero(count, sizeof count);
 
     finalized = true;
   }
