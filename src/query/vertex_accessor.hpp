@@ -122,6 +122,11 @@ class VertexAccessor final {
       return BranchReadPropertyValues(ordered_properties, out, view);
     return impl_.ReadPropertyValues(ordered_properties, out, view);
   }
+
+  // Unlike its siblings, not branch-redirected: index metadata comes from impl_'s transaction.
+  std::vector<storage::PropertyId> VectorIndexedProperties(std::span<storage::LabelId const> labels) const {
+    return impl_.VectorIndexedProperties(labels);
+  }
 #else
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
