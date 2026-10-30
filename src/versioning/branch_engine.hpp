@@ -143,6 +143,15 @@ class BranchCore {
   // overlay write; a rolled-back write leaves the gid recorded (superset, never a miss).
   void RecordLabelTouched(storage::LabelId label, storage::Gid gid);
 
+  // Bumped (release) by every RecordLabelTouched of a label hashing to this slot; label-cache validation token.
+  uint64_t LabelTouchedVersion(storage::LabelId label) const noexcept {
+    return label_touched_versions_[label.AsUint() % kTouchedGateBits].load(std::memory_order_acquire);
+  }
+
+  // Replaces `out` with the gids recorded for `label` after the first `from` (insertion order, no deleted gids);
+  // returns the LabelTouchedVersion read under the same lock as the copy. O(new entries).
+  uint64_t LabelTouchedTail(storage::LabelId label, size_t from, std::vector<uint64_t> &out);
+
   // Immutable set of fork gids that a scan of `label` must resolve: the label's touched gids plus every deleted gid.
   // Cached per label until the next insert, so repeated scans share one copy.
   using LabelTouchedSet = absl::flat_hash_set<uint64_t>;
@@ -241,8 +250,14 @@ class BranchCore {
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> label_touched_gate_{};
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> property_touched_gate_{};
 
+  // Per-label (id mod 256) so unrelated property/edge/delete touches do not invalidate label caches; collisions only
+  // cost an extra tail fetch. Written under touched_mutex_.
+  std::array<std::atomic<uint64_t>, kTouchedGateBits> label_touched_versions_{};
+
   std::mutex touched_mutex_;
   absl::flat_hash_map<storage::LabelId, LabelTouchedSet> label_touched_;
+  // Append-only insertion-order mirror of label_touched_ (one entry per new set insert), for incremental readers.
+  absl::flat_hash_map<storage::LabelId, std::vector<uint64_t>> label_touched_log_;
   LabelTouchedSet deleted_exact_;
   uint64_t touched_version_{1};
   absl::flat_hash_map<storage::LabelId, CachedLabelSnapshot> label_snapshots_;
@@ -514,7 +529,29 @@ class BranchContext {
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 
+  bool MayHaveAnyVertexDeleted() const noexcept { return core_->MayHaveAnyVertexDeleted(); }
+
   bool MayHaveForkEdgeDeleted(storage::Gid edge_gid) const noexcept { return core_->MayHaveForkEdgeDeleted(edge_gid); }
+
+  bool MayHaveForkEdgePropertyChange(storage::Gid edge_gid) const noexcept {
+    return core_->MayHaveForkEdgePropertyChange(edge_gid);
+  }
+
+  bool MayHaveForkEdgePropertyFieldChange(storage::Gid edge_gid, storage::PropertyId pid) const noexcept {
+    return core_->MayHaveForkEdgePropertyFieldChange(edge_gid, pid);
+  }
+
+  bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
+    return core_->MayHavePropertyFieldChange(gid, pid);
+  }
+
+  bool MayHaveLabelChange(storage::Gid gid) const noexcept { return core_->MayHaveLabelChange(gid); }
+
+  // Exact: true iff a branch write to `label` on fork vertex `gid` was recorded (superset after a rollback). Deletes
+  // are not included. Session-local cache, grown from the core's per-label log only when the label's slot moved.
+  bool LabelMayHaveChanged(storage::LabelId label, storage::Gid gid);
+
+  bool MayHavePropertyChange(storage::Gid gid) const noexcept { return core_->MayHavePropertyChange(gid); }
 
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
@@ -603,6 +640,16 @@ class BranchContext {
   // Last-page cache for StubIndex lookups; one session uses a context at a time. A stale cursor never yields a wrong
   // pointer; reset per transaction.
   StubIndex::Cursor stub_cursor_;
+
+  // Session-local mirror of BranchCore's label-touched gids for LabelMayHaveChanged, grown incrementally from the
+  // label's append-only log; `consumed` is the log prefix already merged into `gids`.
+  struct LabelGidCache {
+    absl::flat_hash_set<uint64_t> gids;
+    size_t consumed{0};
+    uint64_t seen_slot{UINT64_MAX};
+  };
+
+  absl::flat_hash_map<storage::LabelId, LabelGidCache> label_gid_cache_;
 };
 
 }  // namespace memgraph::versioning
