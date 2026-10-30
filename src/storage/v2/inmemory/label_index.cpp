@@ -246,6 +246,7 @@ bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {
   return it->second->status.IsReady();
 }
 
+#ifdef MG_ENTERPRISE
 bool InMemoryLabelIndex::ActiveIndices::IndexVisibleAt(LabelId label, uint64_t timestamp) const {
   auto it = index_container_->find(label);
   if (it == index_container_->end()) [[unlikely]] {
@@ -253,6 +254,7 @@ bool InMemoryLabelIndex::ActiveIndices::IndexVisibleAt(LabelId label, uint64_t t
   }
   return it->second->status.IsVisible(timestamp);
 }
+#endif
 
 std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   std::vector<LabelId> ret;

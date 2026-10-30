@@ -118,7 +118,11 @@ class SubgraphVertexAccessor final {
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties)
+#ifndef MG_ENTERPRISE
+      const
+#endif
+  {
     return impl_.UpdateProperties(properties);
   }
 
@@ -546,11 +550,11 @@ class VerticesChunkCollection final {
 
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
+#ifdef MG_ENTERPRISE
   // Non-null iff this belongs to a branch's transaction, where `accessor_` is the branch's diff-engine
   // accessor. Non-const: BranchContext's resolve/COW methods mutate it.
   versioning::BranchContext *branch_ctx_{nullptr};
 
-#ifdef MG_ENTERPRISE
   static bool VertexHasLabel(VertexAccessor &v, storage::View view, storage::LabelId label) {
     auto has_label = v.HasLabel(view, label);
     return has_label.has_value() && *has_label;
@@ -1112,11 +1116,15 @@ class DbAccessor final {
 #endif
 
  public:
+#ifdef MG_ENTERPRISE
   explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
       : accessor_(accessor), branch_ctx_(branch_ctx) {}
 
   // Non-null iff this accessor serves a branch's transaction (never on main).
   versioning::BranchContext *branch_context() const { return branch_ctx_; }
+#else
+  explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
+#endif
 
   void EnableDeltaChainCache() { accessor_->GetTransaction()->EnableDeltaChainCache(); }
 

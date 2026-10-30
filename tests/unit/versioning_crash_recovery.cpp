@@ -46,6 +46,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/versioning_startup_refusal.hpp"
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_engine.hpp"
@@ -746,10 +747,9 @@ void BuildMiddleScenario(MiddleScenario &out) {
 
 // Finalized file (the summary is intact) with the middle transaction's CRC damaged.
 // Expected to pass: ListWalFiles trusts the summary (wal.cpp, no scan), so replay runs into t2's end marker
-// and the CRC check throws (branch_recovery.cpp). ReplayBranchWal turns it into an error
-// (branch_recovery.cpp) and RecoverBranchContents drops that branch only, with a warning
-// (branch_recovery.cpp); the files stay on disk. Branch "c" and main are untouched.
-TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAFinalizedBranchWalDropsThatBranchOnly) {
+// and the CRC check throws (branch_recovery.cpp). ReplayBranchWal turns it into an error and RecoverBranchContents
+// reports it, so startup is refused and every file stays as it is.
+TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAFinalizedBranchWalRefusesStartup) {
   MiddleScenario s;
   ASSERT_NO_FATAL_FAILURE(BuildMiddleScenario(s));
   const auto wal = NewestWalFile(BranchWalDir(s.b_number));
@@ -757,15 +757,9 @@ TEST_F(VersioningCrashRecoveryTest, MiddleTransactionDamagedInAFinalizedBranchWa
   ASSERT_EQ(txns.size(), 3u);
   ASSERT_NO_FATAL_FAILURE(FlipByte(wal, txns[1].end - 1));
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  EXPECT_FALSE(db.version_store()->Exists("b"));
-  ASSERT_TRUE(db.version_store()->Exists("c"));
-  EXPECT_EQ(DumpMain(db), s.main_dump);
-  auto c = Checkout(db, "c");
-  ASSERT_NE(c, nullptr);
-  EXPECT_EQ(DumpBranch(db, *c), s.c_dump);
-  EXPECT_TRUE(fs::exists(wal)) << "a dropped branch keeps its files";
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory, MakeConfig(/*recover_on_startup=*/true), {"Database '", "[b]", "branch 'b'", "DROP BRANCH"});
+  EXPECT_TRUE(fs::exists(wal));
 }
 
 // The same damage in a file that was never finalized (a crash image): the scan stops at the first transaction whose CRC
@@ -862,9 +856,9 @@ TEST_F(VersioningCrashRecoveryTest, MainWalTornInItsLastTransactionKeepsMainAtTh
 // The branch is forked after main's last transaction, and that transaction is torn: main's recovery loses a commit the
 // ledger's fork point already includes (nothing compares the ledger's fork point with what main recovered). The branch
 // has an overlay record for a vertex that only the lost transaction created.
-// Expected: the database starts, main is at its previous transaction, and the branch is dropped: replaying the overlay
-// record for the missing fork vertex throws (DeriveVertex), so the branch is dropped with a warning.
-TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNeverLeavesTheBranchOverLostState) {
+// Expected: startup is refused: replaying the overlay record for the missing fork vertex throws (DeriveVertex), and
+// the files stay as they are.
+TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnRefusesStartup) {
   std::vector<VertexDump> main_prev;
   ms::Gid late;
   {
@@ -913,10 +907,8 @@ TEST_F(VersioningCrashRecoveryTest, MainTornAtTheTransactionABranchForkedOnNever
     ASSERT_NO_FATAL_FAILURE(RestoreImage());
     ASSERT_NO_FATAL_FAILURE(CrashAt(wal, cut));
 
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    EXPECT_EQ(DumpMain(db), main_prev);
-    EXPECT_FALSE(db.version_store()->Exists("b")) << "the branch's overlay record names a vertex main lost";
+    memgraph::tests::ExpectStartupRefused(
+        kStorageDirectory, MakeConfig(/*recover_on_startup=*/true), {"Database '", "[b]", "DROP BRANCH"});
   }
 }
 
@@ -1091,8 +1083,8 @@ TEST_F(VersioningCrashRecoveryTest, TornFirstTransactionOfALaterRunKeepsTheEarli
 // ---- 7. A file missing from the sequence-number chain -----------------------------------------------------------
 //
 // Main fails startup when its WAL chain has a gap or lacks its first file, and ignores a damaged newest file. The
-// branch equivalent drops that branch only. Each transaction below fills a 1 KiB WAL file, so one run writes files 0, 1
-// and 2.
+// branch equivalent refuses startup as well. Each transaction below fills a 1 KiB WAL file, so one run writes files 0,
+// 1 and 2.
 
 struct ChainScenario {
   uint64_t number{0};
@@ -1164,11 +1156,9 @@ void BuildTwoRunChainScenario(ChainScenario &out, Expected &final_state) {
   out.main_dump = DumpMain(db);
 }
 
-void ExpectBranchDropped(const ChainScenario &s) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  EXPECT_FALSE(db.version_store()->Exists("b"));
-  EXPECT_EQ(DumpMain(db), s.main_dump) << "main must keep starting";
+void ExpectStartupRefusedOverBranchB() {
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory, MakeConfig(/*recover_on_startup=*/true), {"Database '", "[b]", "branch 'b'", "DROP BRANCH"});
 }
 
 TEST_F(VersioningCrashRecoveryTest, ControlTheUndamagedChainRecoversAllThreeFiles) {
@@ -1178,29 +1168,29 @@ TEST_F(VersioningCrashRecoveryTest, ControlTheUndamagedChainRecoversAllThreeFile
   ASSERT_NO_FATAL_FAILURE(ExpectRecovers(s.after[2]));
 }
 
-TEST_F(VersioningCrashRecoveryTest, UnreadableMiddleFileIsAGapAndDropsTheBranch) {
+TEST_F(VersioningCrashRecoveryTest, UnreadableMiddleFileIsAGapAndRefusesStartup) {
   ChainScenario s;
   ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
   ASSERT_NO_FATAL_FAILURE(ListChain(s));
   fs::resize_file(s.wals[1], 10);
-  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
-  for (const auto &wal : s.wals) EXPECT_TRUE(fs::exists(wal)) << "a dropped branch keeps its files";
+  ASSERT_NO_FATAL_FAILURE(ExpectStartupRefusedOverBranchB());
+  for (const auto &wal : s.wals) EXPECT_TRUE(fs::exists(wal)) << "a refused startup keeps the files";
 }
 
-TEST_F(VersioningCrashRecoveryTest, MissingMiddleFileIsAGapAndDropsTheBranch) {
+TEST_F(VersioningCrashRecoveryTest, MissingMiddleFileIsAGapAndRefusesStartup) {
   ChainScenario s;
   ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
   ASSERT_NO_FATAL_FAILURE(ListChain(s));
   fs::remove(s.wals[1]);
-  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+  ASSERT_NO_FATAL_FAILURE(ExpectStartupRefusedOverBranchB());
 }
 
-TEST_F(VersioningCrashRecoveryTest, MissingFirstFileDropsTheBranch) {
+TEST_F(VersioningCrashRecoveryTest, MissingFirstFileRefusesStartup) {
   ChainScenario s;
   ASSERT_NO_FATAL_FAILURE(BuildChainScenario(s));
   ASSERT_NO_FATAL_FAILURE(ListChain(s));
   fs::remove(s.wals[0]);
-  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+  ASSERT_NO_FATAL_FAILURE(ExpectStartupRefusedOverBranchB());
 }
 
 TEST_F(VersioningCrashRecoveryTest, UnreadableNewestFileIsSkippedWithoutAGap) {
@@ -1227,7 +1217,7 @@ TEST_F(VersioningCrashRecoveryTest, MissingLastFileOfTheFirstRunIsAGapAcrossRest
   ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
   ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
   fs::remove(s.wals[2]);
-  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+  ASSERT_NO_FATAL_FAILURE(ExpectStartupRefusedOverBranchB());
 }
 
 TEST_F(VersioningCrashRecoveryTest, MissingFirstFileOfTheSecondRunIsAGapAcrossRestarts) {
@@ -1236,7 +1226,7 @@ TEST_F(VersioningCrashRecoveryTest, MissingFirstFileOfTheSecondRunIsAGapAcrossRe
   ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
   ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
   fs::remove(s.wals[3]);
-  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+  ASSERT_NO_FATAL_FAILURE(ExpectStartupRefusedOverBranchB());
 }
 
 TEST_F(VersioningCrashRecoveryTest, MissingMiddleFileOfTheFirstRunIsAGapAcrossRestarts) {
@@ -1245,12 +1235,11 @@ TEST_F(VersioningCrashRecoveryTest, MissingMiddleFileOfTheFirstRunIsAGapAcrossRe
   ASSERT_NO_FATAL_FAILURE(BuildTwoRunChainScenario(s, final_state));
   ASSERT_NO_FATAL_FAILURE(ListChain(s, 5));
   fs::remove(s.wals[1]);
-  ASSERT_NO_FATAL_FAILURE(ExpectBranchDropped(s));
+  ASSERT_NO_FATAL_FAILURE(ExpectStartupRefusedOverBranchB());
 }
 
-// A branch directory that cannot be read must not stop the branches after it from recovering, nor leave main free to
-// hand out gids those branches use.
-TEST_F(VersioningCrashRecoveryTest, AnUnreadableBranchDirectoryDoesNotStopTheOtherBranches) {
+// A branch directory that cannot be read refuses startup instead of dropping the branch.
+TEST_F(VersioningCrashRecoveryTest, AnUnreadableBranchDirectoryRefusesStartup) {
   if (::geteuid() == 0) GTEST_SKIP() << "root bypasses directory permissions";
 
   uint64_t a_number = 0;
@@ -1300,16 +1289,6 @@ TEST_F(VersioningCrashRecoveryTest, AnUnreadableBranchDirectoryDoesNotStopTheOth
 
   fs::permissions(a_dir, fs::perms::none);
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-
-  EXPECT_FALSE(db.version_store()->Exists("a")) << "a branch whose files cannot be read is dropped, not kept empty";
-  ASSERT_TRUE(db.version_store()->Exists("b"));
-  auto b = Checkout(db, "b");
-  ASSERT_NE(b, nullptr);
-  EXPECT_EQ(DumpBranch(db, *b), b_before);
-
-  auto acc = db.Access(ms::WRITE);
-  auto fresh = acc->CreateVertex();
-  EXPECT_GT(fresh.Gid().AsUint(), b_native_gid) << "main must not reissue a gid branch b uses";
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory, MakeConfig(/*recover_on_startup=*/true), {"Database '", "[a]", "branch 'a'", "DROP BRANCH"});
 }

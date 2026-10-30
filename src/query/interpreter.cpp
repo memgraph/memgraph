@@ -6819,10 +6819,17 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
       .rw_type = RWType::NONE};
 }
 
+#ifdef MG_ENTERPRISE
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
                             memgraph::dbms::DatabaseAccess &db, const std::function<void()> &under_exclusive_access) {
   Callback callback;
   callback.fn = [current_mode, requested_mode, &db, under_exclusive_access]() mutable {
+#else
+Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
+                            memgraph::dbms::DatabaseAccess &db) {
+  Callback callback;
+  callback.fn = [current_mode, requested_mode, &db]() mutable {
+#endif
     if (current_mode == requested_mode) {
       return std::vector<std::vector<TypedValue>>();
     }
@@ -6836,8 +6843,12 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       // Bounded wait rather than a single-shot check: transient accessor holders (a /metrics scrape,
       // a Lab session between queries) release within ms; 3s rides them out but still refuses a busy DB.
       constexpr auto kSwitchToDiskExclusiveTimeout = std::chrono::seconds{3};
+#ifdef MG_ENTERPRISE
       if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [&under_exclusive_access](auto &in) {
             under_exclusive_access();
+#else
+      if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [](auto &in) {
+#endif
             if (!in.streams()->GetStreamInfo().empty()) {
               throw utils::BasicException(
                   "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
@@ -6953,16 +6964,14 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   }
   MG_ASSERT(current_db.db_acc_, "Storage Mode query expects a current DB");
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+#ifdef MG_ENTERPRISE
   // Checked again under the exclusive hold the switch itself takes: CREATE BRANCH only holds main shared, so a branch
   // can appear between this early check and the switch.
-#ifdef MG_ENTERPRISE
   const auto refuse_with_branches = [vs = db_acc->version_store()] {
     ThrowIfBranchesExist(vs, "switch storage mode", "strand their fork-point history");
   };
-#else
-  const auto refuse_with_branches = [] {};
-#endif
   refuse_with_branches();
+#endif
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
@@ -6997,7 +7006,11 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
   if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
       requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+#ifdef MG_ENTERPRISE
     callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc, refuse_with_branches).fn;
+#else
+    callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc).fn;
+#endif
   } else {
     // TODO: this needs to be filtered to just db_acc->storage()
     if (ActiveTransactionsExist(interpreter_context)) {
@@ -7006,6 +7019,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
           "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
     }
 
+#ifdef MG_ENTERPRISE
     callback = [requested_mode,
                 storage = static_cast<storage::InMemoryStorage *>(db_acc->storage()),
                 refuse_with_branches]() -> std::function<void()> {
@@ -7014,6 +7028,13 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
         storage->SetStorageMode(requested_mode, refuse_with_branches);
       };
     }();
+#else
+    callback = [requested_mode,
+                storage = static_cast<storage::InMemoryStorage *>(db_acc->storage())]() -> std::function<void()> {
+      // SetStorageMode will probably be handled at the Database level
+      return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
+    }();
+#endif
   }
 
   return PreparedQuery{

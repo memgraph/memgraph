@@ -297,12 +297,14 @@ bool InMemoryEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId property) c
   return it->second->status_.IsReady();
 }
 
+#ifdef MG_ENTERPRISE
 bool InMemoryEdgePropertyIndex::ActiveIndices::IndexVisibleAt(PropertyId property, uint64_t timestamp) const {
   auto const &indices = index_container_->indices_;
   auto it = indices.find(property);
   if (it == indices.end()) return false;
   return it->second->status_.IsVisible(timestamp);
 }
+#endif
 
 std::vector<PropertyId> InMemoryEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   auto ret = std::vector<PropertyId>{};

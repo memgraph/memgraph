@@ -78,7 +78,9 @@ struct EdgeTypeIndexActiveIndices {
 
   virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
 
+#ifdef MG_ENTERPRISE
   virtual bool IndexVisibleAt(EdgeTypeId edge_type, uint64_t timestamp) const { return IndexReady(edge_type); }
+#endif
 
   virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
 

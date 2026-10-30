@@ -652,7 +652,9 @@ int main(int argc, char **argv) {
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .experimental_commit_lock_narrowing =
           memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING),
+#ifdef MG_ENTERPRISE
       .experimental_versioning = memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VERSIONING),
+#endif
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",

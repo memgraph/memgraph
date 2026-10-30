@@ -11,7 +11,9 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
 #include <optional>
+#endif
 #include <variant>
 
 #include "storage/v2/all_vertices_iterable.hpp"
@@ -104,6 +106,7 @@ class VerticesIterable final {
       return std::visit([](auto const &it) -> value_type const & { return *it; }, data_);
     }
 
+#ifdef MG_ENTERPRISE
     // Zero-copy access to the CURRENT row's already-resolved index key, for the variants backed by
     // a label-property index scan (Asc/Desc, any composite arity) -- avoids a per-row
     // GetProperty(View::...) re-read in callers (e.g. the branch label-property merge in
@@ -123,6 +126,7 @@ class VerticesIterable final {
           },
           data_);
     }
+#endif
 
     Iterator &operator++() {
       std::visit([](auto &it) { ++it; }, data_);

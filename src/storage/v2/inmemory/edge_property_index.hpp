@@ -243,7 +243,9 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     bool IndexExists(PropertyId property) const override;
 
     bool IndexReady(PropertyId property) const override;
+#ifdef MG_ENTERPRISE
     bool IndexVisibleAt(PropertyId property, uint64_t timestamp) const override;
+#endif
 
     std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
 

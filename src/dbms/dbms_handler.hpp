@@ -1050,8 +1050,12 @@ class DbmsHandler {
       Get(kDefaultDB);
     } catch (const UnknownDatabaseException &) {
       // No default DB restored, create it
-      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").has_value(),
-                "Failed while creating the default database");
+      try {
+        MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").has_value(),
+                  "Failed while creating the default database");
+      } catch (const std::exception &e) {
+        LOG_FATAL("Failed while creating the default database ({}); aborting.", e.what());
+      }
     }
 
     // For back-compatibility...

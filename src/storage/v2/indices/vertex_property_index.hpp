@@ -79,7 +79,9 @@ struct VertexPropertyIndexActiveIndices {
 
   virtual bool IndexReady(PropertyId property) const = 0;
 
+#ifdef MG_ENTERPRISE
   virtual bool IndexVisibleAt(PropertyId property, uint64_t timestamp) const { return IndexReady(property); }
+#endif
 
   virtual std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const = 0;
 

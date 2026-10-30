@@ -38,6 +38,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/versioning_startup_refusal.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/branch_ledger.hpp"
@@ -564,12 +565,10 @@ TEST_F(VersioningBranchRecoveryTest, ABranchWithoutWritesIsStillBuiltOnFirstChec
   EXPECT_EQ(v1->props.at("p"), ms::PropertyValue(1)) << "the branch still reads main at its fork";
 }
 
-TEST_F(VersioningBranchRecoveryTest, ACorruptBranchWalDropsThatBranchOnly) {
+TEST_F(VersioningBranchRecoveryTest, ACorruptBranchWalRefusesStartup) {
   Base base{};
   Workload workload{};
   uint64_t b_number = 0;
-  std::vector<VertexDump> c_before;
-  std::vector<VertexDump> main_before;
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -587,8 +586,6 @@ TEST_F(VersioningBranchRecoveryTest, ACorruptBranchWalDropsThatBranchOnly) {
       ASSERT_TRUE(ctx.PrepareForkWrite(base.v4).has_value());
       ASSERT_TRUE(ctx.OverlaySetProperty(base.v4, ResolveNames(db).p, ms::PropertyValue(5)).has_value());
     });
-    c_before = DumpBranch(db, *c);
-    main_before = DumpMain(db);
   }
 
   ASSERT_GE(CountWalFiles(b_number), 1u);
@@ -596,21 +593,8 @@ TEST_F(VersioningBranchRecoveryTest, ACorruptBranchWalDropsThatBranchOnly) {
     if (entry.is_regular_file()) std::filesystem::resize_file(entry.path(), entry.file_size() / 2);
   }
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  EXPECT_FALSE(db.version_store()->Exists("b"));
-  ASSERT_TRUE(db.version_store()->Exists("c"));
-  EXPECT_EQ(DumpMain(db), main_before);
-
-  auto c = Checkout(db, "c");
-  ASSERT_NE(c, nullptr);
-  EXPECT_EQ(DumpBranch(db, *c), c_before);
-
-  auto ledger = mv::BranchLedger{kStorageDirectory / "branches" / "ledger"}.Read();
-  ASSERT_TRUE(ledger.has_value() && ledger->has_value());
-  ASSERT_EQ((*ledger)->branches.size(), 1u);
-  EXPECT_EQ((*ledger)->branches[0].name, "c");
-  EXPECT_EQ(Mem(db)->OldestForkPin(), db.version_store()->Get("c")->fork_ts) << "the dropped branch's pin is released";
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory, MakeConfig(/*recover_on_startup=*/true), {"Database '", "[b]", "branch 'b'", "DROP BRANCH"});
 }
 
 TEST_F(VersioningBranchRecoveryTest, ConcurrentFirstCheckoutsBuildTheBranchOnce) {

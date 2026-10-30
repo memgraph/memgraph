@@ -121,6 +121,7 @@ struct Config {
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
 
+#ifdef MG_ENTERPRISE
     // When set (and recover_on_startup is on), recovery stops at this durable timestamp instead of at the end of the
     // WAL chain; the files holding the rest are handed back through InMemoryStorage::TakeRecoveryTail.
     std::optional<uint64_t> recovery_history_bound{std::nullopt};  // PER DATABASE
@@ -133,6 +134,7 @@ struct Config {
     // .backup because recover_on_startup is off. For an owner that reads them itself before use (a branch diff engine
     // replaying its own WAL).
     bool keep_existing_files{false};  // PER DATABASE
+#endif
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
@@ -141,9 +143,11 @@ struct Config {
   // it, which is what lets an instance restart with the flag flipped and still recover what it wrote.
   bool experimental_commit_lock_narrowing{false};
 
+#ifdef MG_ENTERPRISE
   // Graph versioning (branches), --experimental-enabled=versioning. Startup-only and per-instance; kept out of
   // SalientConfig for the same reason as experimental_commit_lock_narrowing.
   bool experimental_versioning{false};
+#endif
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};

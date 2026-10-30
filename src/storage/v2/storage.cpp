@@ -77,8 +77,13 @@ utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
                  utils::MemoryTracker *db_embedding_memory_tracker,
-                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory,
-                 std::shared_ptr<NameIdMapper> shared_name_id_mapper)
+                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory
+#ifdef MG_ENTERPRISE
+                 ,
+                 std::shared_ptr<NameIdMapper> shared_name_id_mapper
+#endif
+                 )
+#ifdef MG_ENTERPRISE
     : name_id_mapper_(shared_name_id_mapper
                           ? std::move(shared_name_id_mapper)
                           : std::invoke([config, storage_mode]() -> std::shared_ptr<NameIdMapper> {
@@ -88,6 +93,15 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
                               }
                               return std::make_shared<NameIdMapper>();
                             })),
+#else
+    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+        if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
+          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
+                                                    config.disk.id_name_mapper_directory);
+        }
+        return std::make_unique<NameIdMapper>();
+      })),
+#endif
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
@@ -110,9 +124,11 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         };
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
+#ifdef MG_ENTERPRISE
   // At most one of the two is set.
   retention_floor_ = config_.durability.recovery_history_bound ? config_.durability.recovery_history_bound
                                                                : config_.durability.retention_floor;
+#endif
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
@@ -147,6 +163,7 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
              "an accessor's guard must be a held guard on its own storage's main_lock_");
 }
 
+#ifdef MG_ENTERPRISE
 Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
                             std::function<Transaction()> build_transaction,
                             const std::optional<std::chrono::milliseconds> timeout)
@@ -155,6 +172,7 @@ Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
       transaction_(build_transaction()),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ) {}
+#endif
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),

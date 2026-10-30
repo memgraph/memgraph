@@ -303,6 +303,7 @@ class DeltaGenerator final {
     timestamp_ = memgraph::storage::kTimestampInitialId;
   }
 
+#ifdef MG_ENTERPRISE
   // Writes an overlay record at the current timestamp; call between StartTx() and FinalizeOperationTx().
   void AppendOverlayPut(memgraph::storage::durability::OverlayPutData const &put) {
     auto const timestamp = timestamp_;
@@ -325,6 +326,7 @@ class DeltaGenerator final {
     }
     data_.emplace_back(timestamp, memgraph::storage::durability::WalDeltaData{std::move(expected)});
   }
+#endif
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
                        const std::vector<std::vector<std::string>> property_paths_as_str = {},
@@ -1427,6 +1429,7 @@ GENERATE_SIMPLE_TEST(InvalidTransactionOrdering, {
   TRANSACTION(true, { tx.CreateVertex(); });
 });
 
+#ifdef MG_ENTERPRISE
 namespace {
 using memgraph::storage::LabelId;
 using memgraph::storage::PropertyId;
@@ -1533,6 +1536,7 @@ TEST_P(WalFileTest, OverlayPutTruncatedFailsRecovery) {
   EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_files.front())),
                memgraph::storage::durability::RecoveryFailure);
 }
+#endif  // MG_ENTERPRISE
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, InvalidMarker) {

@@ -50,12 +50,16 @@ namespace memgraph::flags {
 auto const mapping = std::map{
     std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
     std::pair{"commit-lock-narrowing"sv, Experiments::COMMIT_LOCK_NARROWING},
+#ifdef MG_ENTERPRISE
     std::pair{"versioning"sv, Experiments::VERSIONING},
+#endif
 };
 auto const reverse_mapping = std::map{
     std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
     std::pair{Experiments::COMMIT_LOCK_NARROWING, "commit-lock-narrowing"sv},
+#ifdef MG_ENTERPRISE
     std::pair{Experiments::VERSIONING, "versioning"sv},
+#endif
 };
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 

@@ -11,8 +11,10 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <atomic>
+#endif
 
 namespace memgraph::utils {
 
@@ -37,6 +39,7 @@ class PointerPack {
 
   T *GetPtr() const { return reinterpret_cast<T *>(storage_ & kPtrMask); }
 
+#ifdef MG_ENTERPRISE
   /// Writers must hold the caller's lock; `atomic_ref` (relaxed) only keeps the store well-defined
   /// against a lock-free `GetRelaxed` reader.
   void SetPtr(T *ptr) {
@@ -44,15 +47,21 @@ class PointerPack {
     uintptr_t const flags = ref.load(std::memory_order_relaxed) & kFlagsMask;
     ref.store(reinterpret_cast<uintptr_t>(ptr) | flags, std::memory_order_relaxed);
   }
+#else
+  void SetPtr(T *ptr) { storage_ = reinterpret_cast<uintptr_t>(ptr) | (storage_ & kFlagsMask); }
+#endif
 
   /// Extracts the bit field at position @p Pos with @p Size bits.
+#ifdef MG_ENTERPRISE
   /// Plain load: the caller must hold the lock that serialises writers.
+#endif
   template <int Pos, int Size = 1>
   uintptr_t Get() const {
     static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
     return (storage_ >> Pos) & ((1UL << Size) - 1);
   }
 
+#ifdef MG_ENTERPRISE
   /// Sets the bit field at position @p Pos with @p Size bits to @p value. Writers must hold the caller's lock;
   /// `atomic_ref` is only for lock-free `GetRelaxed` readers, so multi-bit fields use load+store, not RMW.
   template <int Pos, int Size = 1>
@@ -95,6 +104,15 @@ class PointerPack {
       ref.fetch_and(~bit_mask, std::memory_order_relaxed);
     }
   }
+#else
+  /// Sets the bit field at position @p Pos with @p Size bits to @p value.
+  template <int Pos, int Size = 1>
+  void Set(uintptr_t value) {
+    static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
+    const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
+    storage_ = (storage_ & ~field_mask) | ((value << Pos) & field_mask);
+  }
+#endif
 
   operator T *() const { return GetPtr(); }  // NOLINT(google-explicit-constructor)
 

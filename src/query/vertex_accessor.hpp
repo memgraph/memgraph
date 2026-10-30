@@ -24,9 +24,11 @@
 #include "versioning/branch_change_kind.hpp"
 #endif
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::versioning {
 class BranchContext;
 }  // namespace memgraph::versioning
+#endif
 
 namespace memgraph::query {
 
@@ -37,17 +39,22 @@ class VertexAccessor final {
   // On a branch a fork vertex keeps its main@fork_ts accessor here even once changed; changes are reached by gid
   // (BranchContext::ReadOverlayVersion, Overlay* writes).
   storage::VertexAccessor impl_;
+#ifdef MG_ENTERPRISE
   // Non-null iff minted on a branch. A single raw pointer keeps this trivially copyable
   // and within mgp_vertex's kMaxMgpVertexSize budget; non-const because CowIfNeeded calls BranchContext::CowVertex.
   versioning::BranchContext *branch_ctx_{nullptr};
+#endif
 
   explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
 
+#ifdef MG_ENTERPRISE
   VertexAccessor(storage::VertexAccessor impl, versioning::BranchContext *branch_ctx)
       : impl_(impl), branch_ctx_(branch_ctx) {}
+#endif
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
+#ifdef MG_ENTERPRISE
   // On a branch a fork vertex is deleted only if the branch deleted it; main's flag on the fork accessor is irrelevant.
   bool IsDeleted() const;
 
@@ -55,6 +62,11 @@ class VertexAccessor final {
   // `MATCH (n) SET n.x=2 RETURN n.x`) still points at the pre-COW object. Out-of-line: BranchContext is only
   // forward-declared.
   auto Labels(storage::View view) const -> decltype(impl_.Labels(view));
+#else
+  bool IsDeleted() const { return impl_.vertex_->deleted(); }
+
+  auto Labels(storage::View view) const { return impl_.Labels(view); }
+#endif
 
   storage::Result<bool> AddLabel(storage::LabelId label) {
 #ifdef MG_ENTERPRISE
@@ -70,7 +82,13 @@ class VertexAccessor final {
     return impl_.RemoveLabel(label);
   }
 
+#ifdef MG_ENTERPRISE
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const;
+#else
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
+    return impl_.HasLabel(label, view);
+  }
+#endif
 
   storage::Result<bool> HasAnyLabel(storage::View view) const {
 #ifdef MG_ENTERPRISE
@@ -80,11 +98,23 @@ class VertexAccessor final {
     return impl_.HasAnyLabel(view);
   }
 
+#ifdef MG_ENTERPRISE
   auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
+#else
+  auto Properties(storage::View view) const { return impl_.Properties(view); }
+
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
+    return impl_.GetProperty(key, view);
+  }
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
+  }
+#endif
 
   // Vector indexes are global (main storage), so delegating to impl_ is correct on a branch.
   std::vector<storage::PropertyId> VectorIndexedProperties(std::span<storage::LabelId const> labels) const {
@@ -105,14 +135,19 @@ class VertexAccessor final {
     return impl_.InitProperties(properties);
   }
 
+#ifdef MG_ENTERPRISE
   // Non-const (unlike storage's UpdateProperties) because the branch path reassigns impl_ via CowIfNeeded.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-#ifdef MG_ENTERPRISE
     if (branch_ctx_ != nullptr) return BranchUpdateProperties(properties);
-#endif
     return impl_.UpdateProperties(properties);
   }
+#else
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    return impl_.UpdateProperties(properties);
+  }
+#endif
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
@@ -149,11 +184,17 @@ class VertexAccessor final {
 
   storage::Result<ExpandedEdgesResult> OutEdges(storage::View view) const;
 
+#ifdef MG_ENTERPRISE
   // On a branch the degree counts the union of historical and diff-engine edges (via ResolveEdges), not a cheaper
   // count. Out-of-line: BranchContext is only forward-declared.
   storage::Result<size_t> InDegree(storage::View view) const;
 
   storage::Result<size_t> OutDegree(storage::View view) const;
+#else
+  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
+
+  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+#endif
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 

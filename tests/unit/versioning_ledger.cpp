@@ -30,6 +30,7 @@
 #include "memory/db_arena.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/versioning_startup_refusal.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
@@ -315,22 +316,13 @@ std::unique_ptr<mv::BranchContext> CheckoutBranch(memgraph::dbms::Database &db, 
   EXPECT_TRUE(store->RecordGidFloors(info->number, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor()).has_value());
   return std::make_unique<mv::BranchContext>(*core, std::string{name});
 }
-
-std::vector<uint64_t> BranchDirectoryNumbers() {
-  std::vector<uint64_t> numbers;
-  for (const auto &entry : fs::directory_iterator(kRestartDirectory / "branches")) {
-    if (!entry.is_directory()) continue;
-    numbers.push_back(std::stoull(entry.path().filename().string()));
-  }
-  return numbers;
-}
 }  // namespace
 
 class BranchLedgerRestartTest : public ::testing::Test {
  protected:
 };
 
-TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {
+TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerRefusesStartup) {
   fs::remove_all(kRestartDirectory);
   const auto cleanup = [] {
     std::error_code ec;
@@ -369,26 +361,7 @@ TEST_F(BranchLedgerRestartTest, AnUnreadableLedgerNeverReusesABranchDirectory) {
   Spit(ledger_file, data);
   ASSERT_FALSE(BranchLedger{ledger_file}.Read().has_value()) << "the ledger must be unreadable";
 
-  uint64_t c_number = 0;
-  {
-    memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_FALSE(db.version_store()->Exists("b")) << "an unreadable ledger drops every branch";
-    auto info = db.version_store()->CreateBranch("c", "main");
-    ASSERT_TRUE(info.has_value());
-    c_number = info->number;
-    const auto numbers = BranchDirectoryNumbers();
-    for (const auto n : numbers) {
-      if (n == c_number) continue;
-      EXPECT_LT(n, c_number) << "branch number " << c_number << " must be greater than every existing directory";
-    }
-    EXPECT_NE(c_number, b_number) << "the new branch reuses a stale branches/<n> directory";
-  }
-
-  {
-    memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    EXPECT_TRUE(db.version_store()->Exists("c")) << "a new, legitimately empty branch must survive a restart";
-  }
+  memgraph::tests::ExpectStartupRefused(
+      kRestartDirectory, MakeRestartConfig(/*recover_on_startup=*/true), {"branch ledger", "cannot be read"});
   cleanup();
 }

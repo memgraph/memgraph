@@ -13,7 +13,9 @@
 
 #include <atomic>
 #include <exception>
+#ifdef MG_ENTERPRISE
 #include <functional>
+#endif
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -26,7 +28,9 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
+#ifdef MG_ENTERPRISE
 #include "utils/logging.hpp"
+#endif
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
@@ -53,9 +57,11 @@ namespace rocksdb {
 class Transaction;
 }  // namespace rocksdb
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::storage::durability {
 class WalFile;
 }  // namespace memgraph::storage::durability
+#endif
 
 namespace memgraph::storage {
 
@@ -195,8 +201,10 @@ struct Transaction {
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
+#ifdef MG_ENTERPRISE
     // Chokepoint for every MVCC delta creation (mvcc.hpp); metadata deltas (md_deltas) bypass it.
-    MG_ASSERT(!is_historical_, "Attempted a write through a historical (read-only) accessor");
+    DMG_ASSERT(!is_historical_, "Attempted a write through a historical (read-only) accessor");
+#endif
     if (commit_info != nullptr) return;
     commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
@@ -285,10 +293,12 @@ struct Transaction {
   bool commit_lock_narrowing{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
+#ifdef MG_ENTERPRISE
   // Read-only accessor at a past, pinned fork_ts (InMemoryStorage::HistoricalAccess). That tick is later
   // dispensed to a real transaction, so finalization must not MarkFinished it; the accessor's self-pin
   // is released instead (ReleaseForkPin, once, in Abort or the empty-delta commit path).
   bool is_historical_{false};
+#endif
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
@@ -372,10 +382,12 @@ struct Transaction {
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndicesPtr active_indices_;
   CommitCallbacks commit_callbacks_;
+#ifdef MG_ENTERPRISE
   /// Optional: appends extra records to this transaction's WAL transaction, after its deltas and before the
   /// transaction end, with the durable commit timestamp. Called under engine_lock_ and only when the transaction is
   /// written to a WAL file; never replicated. The owner clears it once the commit call returns.
   std::function<void(durability::WalFile &, uint64_t)> extra_wal_writer_;
+#endif
   /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
   /// cleared on successful commit (see commit_callbacks_.RunAll site).
   AbortCallbacks abort_callbacks_;

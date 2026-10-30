@@ -43,6 +43,7 @@ struct Edge {
 
   void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
+#ifdef MG_ENTERPRISE
   // Supplementary hint: branched() on the endpoint Vertex objects is what traversal fast paths key on.
   // Only set via BranchContext::MarkForkEdgeBranched, a no-op without properties_on_edges. Same
   // monotonic/lock-free-read contract as Vertex::branched() (vertex.hpp).
@@ -50,12 +51,17 @@ struct Edge {
 
   // Caller MUST hold `lock`.
   void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+#endif
 
  private:
   static constexpr int kDeletedBit = 0;
+#ifdef MG_ENTERPRISE
   static constexpr int kBranchedBit = 1;
 
   utils::PointerPack<Delta, 2> delta_{};
+#else
+  utils::PointerPack<Delta, 1> delta_{};
+#endif
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");

@@ -1963,6 +1963,7 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_NoPinReclaimsNormally) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
+#ifdef MG_ENTERPRISE
 // A live fork pin holds GC back from history at or after the fork point; releasing it lets GC reclaim.
 TEST_F(StorageV2GcMetricsTest, ForkPin_PinRetainsHistoryUntilReleased) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
@@ -2152,3 +2153,4 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_OldestForkPinTracksMinimumAndClearsWhenUn
   mem_storage->ReleaseForkPin(fork_ts_older);
   EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
 }
+#endif  // MG_ENTERPRISE

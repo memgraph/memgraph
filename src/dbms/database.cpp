@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fmt/format.h>
@@ -45,7 +46,9 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
 #include "versioning/branch_ledger.hpp"
 #include "versioning/branch_recovery.hpp"
@@ -170,9 +173,8 @@ auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetric
 
 #ifdef MG_ENTERPRISE
 struct BranchRecoveryPlan {
-  // Branches ordered by fork_ts; empty when the ledger is missing or unreadable.
+  // Branches ordered by fork_ts; empty when the ledger is missing.
   versioning::LedgerContents ledger;
-  bool ledger_unreadable{false};
   // Set when branches can be rebuilt: main is recovered up to this timestamp, the rest replayed.
   std::optional<uint64_t> bound;
   // Versioning is off but the branches are replayable: main recovers normally and the ledger and branch files are
@@ -204,16 +206,32 @@ uint64_t NextFreeBranchNumber(const std::filesystem::path &branches_directory) {
   return next;
 }
 
-// Runs before the storage exists; branches can only be rebuilt from the WAL.
-BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::filesystem::path &ledger_file) {
+// Startup refuses instead of dropping: nothing is deleted, rewritten or moved, so the user decides what happens to the
+// branches.
+[[noreturn]] void RefuseToStart(std::string_view database, std::string_view branches, std::string_view reason,
+                                std::string_view how) {
+  throw utils::BasicException(
+      std::string{fmt::format("Database '{}' has Graph Versioning branches [{}] that cannot be recovered: {}. Memgraph "
+                              "will not start, so no branch data is lost. To continue: {}.",
+                              database,
+                              branches,
+                              reason.ends_with('.') ? reason.substr(0, reason.size() - 1) : reason,
+                              how)});
+}
+
+// Runs before the storage exists; branches can only be rebuilt from the WAL. Throws instead of planning a drop.
+BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::filesystem::path &ledger_file,
+                                      bool on_disk) {
   BranchRecoveryPlan plan;
   auto read = versioning::BranchLedger{ledger_file}.Read();
   if (!read) {
-    spdlog::warn("Graph Versioning: the branch ledger '{}' cannot be read ({}); all branches are dropped.",
-                 ledger_file.string(),
-                 read.error());
-    plan.ledger_unreadable = true;
-    return plan;
+    throw utils::BasicException(std::string{fmt::format(
+        "Database '{}' has a Graph Versioning branch ledger '{}' that cannot be read: {}. Memgraph will not start, so "
+        "no branch data is lost. To continue: repair or restore the ledger file, or, if the branches are no longer "
+        "needed, start with the previous settings and run DROP BRANCH, or move the 'branches' directory away.",
+        config.salient.name.str(),
+        ledger_file.string(),
+        read.error())});
   }
   if (!read->has_value()) return plan;
 
@@ -221,15 +239,22 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   std::ranges::stable_sort(plan.ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
   if (plan.ledger.branches.empty()) return plan;
 
+  constexpr std::string_view kDropFirst = "start with the previous settings and run DROP BRANCH for them";
+
   // Checked first: branches that could not be rebuilt later are not worth hiding.
-  const bool can_replay = config.salient.storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
-                          versioning::BranchesDurable(config);
-  if (!can_replay) {
-    spdlog::warn(
-        "Graph Versioning: branches [{}] cannot be recovered without recovery on startup and a write-ahead log; they "
-        "are dropped.",
-        BranchNames(plan.ledger));
-    return plan;
+  const auto mode = on_disk ? storage::StorageMode::ON_DISK_TRANSACTIONAL : config.salient.storage_mode;
+  if (mode != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    RefuseToStart(config.salient.name.str(),
+                  BranchNames(plan.ledger),
+                  fmt::format("the {} storage mode does not support them", storage::StorageModeToString(mode)),
+                  fmt::format("start in the IN_MEMORY_TRANSACTIONAL storage mode, or {}", kDropFirst));
+  }
+  if (!versioning::BranchesDurable(config)) {
+    RefuseToStart(
+        config.salient.name.str(),
+        BranchNames(plan.ledger),
+        "they are rebuilt from the write-ahead log, which needs recovery on startup and the WAL",
+        fmt::format("restore --data-recovery-on-startup=true and --storage-wal-enabled=true, or {}", kDropFirst));
   }
 
   if (!config.experimental_versioning) {
@@ -242,17 +267,16 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   }
 
   if (config.experimental_commit_lock_narrowing) {
-    spdlog::warn(
-        "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing; the {} existing "
-        "branches [{}] are dropped.",
-        plan.ledger.branches.size(),
-        BranchNames(plan.ledger));
-    return plan;
+    RefuseToStart(config.salient.name.str(),
+                  BranchNames(plan.ledger),
+                  "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing",
+                  fmt::format("start without --experimental-enabled=commit-lock-narrowing, or {}", kDropFirst));
   }
 
   plan.bound = BranchRecoveryBound(plan.ledger);
   return plan;
 }
+
 #endif  // MG_ENTERPRISE
 
 }  // namespace
@@ -301,8 +325,27 @@ Database::Database(storage::Config config)
   std::vector<uint64_t> branch_pins;
 #endif
 
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
+  const std::string database_name{config.salient.name.str()};
+  const bool on_disk = config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL ||
+                       config.force_on_disk || utils::DirExists(config.disk.main_storage_directory);
+#ifdef MG_ENTERPRISE
+  branch_plan = PlanBranchRecovery(config, branch_ledger_file, on_disk);
+  // Never reuse the number of a branch directory that is still on disk.
+  branch_plan.ledger.next_number =
+      std::max(branch_plan.ledger.next_number, NextFreeBranchNumber(branch_ledger_file.parent_path()));
+#else
+  // Plain filesystem check: this build has no versioning logic, only the refusal to start over branch data.
+  if (const auto branches_directory = config.durability.storage_directory / "branches";
+      utils::DirExists(branches_directory)) {
+    throw utils::BasicException(std::string{fmt::format(
+        "Database '{}' contains Graph Versioning branches ({}), which need a Memgraph Enterprise build. Start it with "
+        "an enterprise build, or drop the branches there first.",
+        database_name,
+        branches_directory.string())});
+  }
+#endif
+
+  if (on_disk) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
                                                       std::move(invalidator),
@@ -311,12 +354,6 @@ Database::Database(storage::Config config)
                                                       db_arena_.get(),
                                                       &db_embedding_memory_tracker_);
   } else {
-#ifdef MG_ENTERPRISE
-    branch_plan = PlanBranchRecovery(config, branch_ledger_file);
-    // Never reuse the number of a branch directory that is still on disk.
-    branch_plan.ledger.next_number =
-        std::max(branch_plan.ledger.next_number, NextFreeBranchNumber(branch_ledger_file.parent_path()));
-#endif
     const auto create_storage = [&](storage::Config storage_config, storage::PlanInvalidatorPtr plan_invalidator) {
       return dbms::CreateInMemoryStorage(std::move(storage_config),
                                          std::move(plan_invalidator),
@@ -333,8 +370,18 @@ Database::Database(storage::Config config)
       if (branch_plan.hidden) config.durability.retention_floor = BranchRecoveryBound(branch_plan.ledger);
       storage_ = create_storage(std::move(config), std::move(invalidator));
     } else {
-      // Anything below that goes wrong drops the branches and recovers main as it would without them.
-      auto unbounded_config = config;
+      // A storage left behind by a failure must not write an exit snapshot over the files it recovered from.
+      const auto refuse = [&](const std::string &failure) {
+        if (storage_) {
+          storage_->config_.durability.snapshot_on_exit = false;
+          storage_.reset();
+        }
+        RefuseToStart(database_name,
+                      BranchNames(branch_plan.ledger),
+                      failure,
+                      "start with the previous settings and run DROP BRANCH for them, or repair or restore the "
+                      "snapshot and WAL files of the database");
+      };
       config.durability.recovery_history_bound = branch_plan.bound;
       std::string failure;
       try {
@@ -358,19 +405,7 @@ Database::Database(storage::Config config)
         }
       }
 
-      if (!failure.empty()) {
-        spdlog::warn("Graph Versioning: {}; branches [{}] are dropped and main is recovered without them.",
-                     failure,
-                     BranchNames(branch_plan.ledger));
-        if (storage_) {
-          // The discarded storage holds a partial state that an exit snapshot must not persist.
-          storage_->config_.durability.snapshot_on_exit = false;
-          storage_.reset();
-        }
-        branch_plan.bound.reset();
-        storage_ =
-            create_storage(std::move(unbounded_config), std::make_unique<PlanInvalidatorForDatabase>(plan_cache_));
-      }
+      if (!failure.empty()) refuse(failure);
     }
 #else
     storage_ = create_storage(std::move(config), std::move(invalidator));
@@ -391,24 +426,22 @@ Database::Database(storage::Config config)
     if (branch_plan.bound) {
       version_store_->Restore(branch_plan.ledger, branch_pins);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
-      versioning::RecoverBranchContents(*version_store_, *in_memory_storage);
+      if (auto recovered = versioning::RecoverBranchContents(*version_store_, *in_memory_storage); !recovered) {
+        in_memory_storage->config_.durability.snapshot_on_exit = false;
+        RefuseToStart(database_name,
+                      recovered.error().branches.empty() ? BranchNames(branch_plan.ledger)
+                                                         : utils::Join(recovered.error().branches, ", "),
+                      recovered.error().reason,
+                      "repair or restore the files under the 'branches' directory of the database, or start with the "
+                      "previous settings and run DROP BRANCH for the affected branches");
+      }
     } else if (branch_plan.hidden) {
       // Commits made while the branches are hidden must stay above every fork point.
       in_memory_storage->BumpClockPastDurable(branch_plan.ledger.branches.back().info.recorded_fork_ts);
       versioning::RaiseGidCountersForHiddenBranches(branch_plan.ledger, *in_memory_storage);
       version_store_->RestoreHidden(branch_plan.ledger);
-    } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {
-      version_store_->ResetLedger(branch_plan.ledger.next_number);
     } else {
       version_store_->Restore(branch_plan.ledger, {});
-    }
-  } else if (branch_plan.ledger_unreadable || !branch_plan.ledger.branches.empty()) {
-    // No VersionStore here to reset the ledger; a later transactional start must not restore the dropped branches.
-    if (auto written = versioning::BranchLedger{branch_ledger_file}.Write(
-            versioning::LedgerContents{.next_number = branch_plan.ledger.next_number, .branches = {}});
-        !written) {
-      spdlog::warn(
-          "Graph Versioning: failed to reset the branch ledger '{}': {}", branch_ledger_file.string(), written.error());
     }
   }
 #endif  // MG_ENTERPRISE

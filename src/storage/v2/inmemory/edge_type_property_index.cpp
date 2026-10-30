@@ -301,6 +301,7 @@ bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexReady(EdgeTypeId edge_ty
   return it->second->status.IsReady();
 }
 
+#ifdef MG_ENTERPRISE
 bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexVisibleAt(EdgeTypeId edge_type, PropertyId property,
                                                                   uint64_t timestamp) const {
   auto it = index_container_->find(std::make_pair(edge_type, property));
@@ -309,6 +310,7 @@ bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexVisibleAt(EdgeTypeId edg
   }
   return it->second->status.IsVisible(timestamp);
 }
+#endif
 
 std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::ActiveIndices::ListIndices(
     uint64_t start_timestamp) const {

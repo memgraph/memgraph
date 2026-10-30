@@ -116,6 +116,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
                                                                   const Config &config,
                                                                   memory::ArenaPool *db_arena_pool);
 
+#ifdef MG_ENTERPRISE
 /// Filled by Recovery::RecoverData when given a timestamp bound: what was left out of the recovered state.
 struct RecoveryTail {
   /// WAL files, in sequence order, with a delta above the bound. The first may straddle it; replay must skip deltas
@@ -124,6 +125,7 @@ struct RecoveryTail {
   /// Durable timestamp of the newest data recovered (at most the bound).
   uint64_t reached_timestamp{0};
 };
+#endif
 
 /// Records that a WAL file of epoch `epoch_id` brought the durable timestamp to `ldt`: extends the newest history
 /// entry when it is the same epoch, otherwise appends one and switches the current epoch.
@@ -133,8 +135,10 @@ void RecordWalEpoch(ReplicationStorageState &repl_storage_state, std::string con
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
+#ifdef MG_ENTERPRISE
   /// With `max_delta_timestamp`, recovers the state as of that durable timestamp: newest snapshot not above it (else
   /// WALs alone, which must start at sequence 0), replaying only transactions up to it. `tail` receives the rest.
+#endif
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(
@@ -144,8 +148,12 @@ struct Recovery {
       memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
       std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
-      memgraph::storage::DescriptionStore *description_store,
-      std::optional<uint64_t> max_delta_timestamp = std::nullopt, RecoveryTail *tail = nullptr);
+      memgraph::storage::DescriptionStore *description_store
+#ifdef MG_ENTERPRISE
+      ,
+      std::optional<uint64_t> max_delta_timestamp = std::nullopt, RecoveryTail *tail = nullptr
+#endif
+  );
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

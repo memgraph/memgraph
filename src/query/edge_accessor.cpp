@@ -24,14 +24,13 @@
 
 namespace memgraph::query {
 
+#ifdef MG_ENTERPRISE
 namespace {
 
 // A branch-native edge between a fork vertex and anything else has the fork vertex's diff-engine stub as its endpoint
 // (the diff engine needs a Vertex there); a fork vertex always surfaces as its fork accessor.
-VertexAccessor Endpoint(const storage::VertexAccessor &impl, [[maybe_unused]] versioning::BranchContext *branch_ctx) {
-#ifdef MG_ENTERPRISE
+VertexAccessor Endpoint(const storage::VertexAccessor &impl, versioning::BranchContext *branch_ctx) {
   if (branch_ctx != nullptr) return VertexAccessor(branch_ctx->ForkIdentity(impl), branch_ctx);
-#endif
   return VertexAccessor(impl);
 }
 
@@ -52,6 +51,19 @@ VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return Endpoint(impl_
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
   return Endpoint(impl_.DeletedEdgeFromVertex(), branch_ctx_);
 }
+#else
+VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+
+VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+
+/// When edge is deleted and you are accessing To vertex
+/// for_deleted_ flag will in this case be updated properly
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
+
+/// When edge is deleted and you are accessing From vertex
+/// for_deleted_ flag will in this case be updated properly
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const { return VertexAccessor(impl_.DeletedEdgeFromVertex()); }
+#endif
 
 bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -112,73 +124,57 @@ void RecordForkEdgeWrites(versioning::BranchContext &ctx, const storage::EdgeAcc
 }
 
 }  // namespace
-#endif
 
 // Out-of-line because BranchContext is only forward-declared in the header. Reads never write and never redirect impl_.
 auto EdgeAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) {
     auto target = ResolveReadTarget(*branch_ctx_, impl_, view, std::nullopt);
     if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
     if (target.kind == ReadTarget::Kind::kOverlay) return versioning::MergeProperties(*target.version, impl_);
   }
-#endif
   return impl_.Properties(view);
 }
 
 storage::Result<storage::PropertyValue> EdgeAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) {
     auto target = ResolveReadTarget(*branch_ctx_, impl_, view, key);
     if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
     if (target.kind == ReadTarget::Kind::kOverlay) return versioning::MergeGetProperty(*target.version, impl_, key);
   }
-#endif
   return impl_.GetProperty(key, view);
 }
 
 storage::Result<uint64_t> EdgeAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) {
     auto target = ResolveReadTarget(*branch_ctx_, impl_, view, key);
     if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
     if (target.kind == ReadTarget::Kind::kOverlay) return MergedGetPropertySize(*target.version, impl_, key);
   }
-#endif
   return impl_.GetPropertySize(key, view);
 }
 
 storage::Result<storage::PropertyValue> EdgeAccessor::SetProperty(storage::PropertyId key,
                                                                   const storage::PropertyValue &value) {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) return BranchSetProperty(key, value);
-#endif
   return impl_.SetProperty(key, value);
 }
 
 storage::Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) return BranchInitProperties(properties);
-#endif
   return impl_.InitProperties(properties);
 }
 
 storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
 EdgeAccessor::UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) return BranchUpdateProperties(properties);
-#endif
   return impl_.UpdateProperties(properties);
 }
 
 storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAccessor::ClearProperties() {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) return BranchClearProperties();
-#endif
   return impl_.ClearProperties();
 }
 
-#ifdef MG_ENTERPRISE
 storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
                                                                         const storage::PropertyValue &value) {
   auto &ctx = *branch_ctx_;

@@ -111,15 +111,6 @@ void VersionStore::RestoreHidden(const LedgerContents &contents) {
   PublishRetentionFloor();
 }
 
-void VersionStore::ResetLedger(uint64_t next_number) {
-  std::lock_guard ledger_guard{ledger_mutex_};
-  {
-    std::lock_guard guard{lock_};
-    next_number_ = next_number;
-  }
-  (void)WriteLedger(LedgerContents{.next_number = next_number, .branches = {}});
-}
-
 std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent) {
   std::lock_guard ledger_guard{ledger_mutex_};
 

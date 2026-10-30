@@ -94,16 +94,31 @@ using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &uuid,
                                         const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
-                                        Storage *storage, std::optional<uint64_t> retention_floor) -> OldSnapshotFiles;
+                                        Storage *storage
+#ifdef MG_ENTERPRISE
+                                        ,
+                                        std::optional<uint64_t> retention_floor
+#endif
+                                        ) -> OldSnapshotFiles;
 
+#ifdef MG_ENTERPRISE
 // With a `retention_floor`, the newest snapshot whose timestamp is at or below it is kept in addition to the
 // retention count (and stays at the front of `old_snapshot_files`).
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
                             utils::FileRetainer *file_retainer, std::optional<uint64_t> retention_floor = std::nullopt);
+#else
+void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
+                            utils::FileRetainer *file_retainer);
+#endif
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
-                                  utils::FileRetainer *file_retainer, std::optional<uint64_t> retention_floor);
+                                  utils::FileRetainer *file_retainer
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  std::optional<uint64_t> retention_floor
+#endif
+);
 
 /// Why `CreateSnapshot` didn't create a snapshot. Either way no partial snapshot is left behind.
 enum class SnapshotCreationError : uint8_t {

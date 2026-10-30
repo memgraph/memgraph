@@ -26,6 +26,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/versioning_startup_refusal.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/branch_ledger.hpp"
@@ -323,7 +324,7 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
             ms::PropertyValue(5));
 }
 
-TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedWithoutAWal) {
+TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithoutAWalAndTheBranchesComeBackWithIt) {
   Gids gids{};
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
@@ -332,34 +333,43 @@ TEST_F(VersioningDurabilityRestartTest, BranchesAreDroppedWithoutAWal) {
     ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
   }
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*wal=*/false)};
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory,
+      MakeConfig(/*recover_on_startup=*/true, /*wal=*/false),
+      {"Database '", "[b1]", "write-ahead log", "--storage-wal-enabled=true", "DROP BRANCH"});
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   ASSERT_NE(db.version_store(), nullptr);
-  EXPECT_TRUE(db.version_store()->Empty());
-  EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
-  auto ledger = ReadLedger();
-  ASSERT_TRUE(ledger.has_value());
-  EXPECT_TRUE(ledger->branches.empty());
-  EXPECT_EQ(ledger->next_number, 3u);
+  EXPECT_TRUE(db.version_store()->Exists("b1"));
   EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
 }
 
-TEST_F(VersioningDurabilityRestartTest, UnreadableLedgerDropsBranchesAndTheDatabaseStarts) {
-  Gids gids{};
+TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithoutRecoveryOnStartup) {
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    gids = CreateBase(db);
+    CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
+  }
+
+  memgraph::tests::ExpectStartupRefused(kStorageDirectory,
+                                        MakeConfig(/*recover_on_startup=*/false),
+                                        {"[b1]", "recovery on startup", "--data-recovery-on-startup=true"});
+}
+
+TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithAnUnreadableLedger) {
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBase(db);
     ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
   }
   std::ofstream{kStorageDirectory / "branches" / "ledger", std::ios::trunc} << "garbage";
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  EXPECT_TRUE(db.version_store()->Empty());
-  EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
-  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
-  ASSERT_TRUE(ReadLedger().has_value());
+  memgraph::tests::ExpectStartupRefused(kStorageDirectory,
+                                        MakeConfig(/*recover_on_startup=*/true),
+                                        {"Database '", "ledger", "cannot be read", "To continue"});
 }
 
 TEST_F(VersioningDurabilityRestartTest, DroppingABranchDeletesItsDirectory) {

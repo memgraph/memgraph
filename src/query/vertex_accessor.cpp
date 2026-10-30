@@ -158,39 +158,33 @@ auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdges
 
 }  // namespace
 
-bool VertexAccessor::IsDeleted() const {
 #ifdef MG_ENTERPRISE
+bool VertexAccessor::IsDeleted() const {
   if (branch_ctx_ != nullptr && branch_ctx_->IsForkVertexGid(impl_.Gid())) {
     return branch_ctx_->current_diff_txn() != nullptr && branch_ctx_->IsVertexDeleted(impl_.Gid(), storage::View::NEW);
   }
-#endif
   return impl_.vertex_->deleted();
 }
 
 // Un-branched main vertices are fork-identical, so a clear filter bit skips the merge. A delete records both the
 // label and property kinds, so deleted vertices always reach the overlay and fail the read.
 auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(view)) {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) && branch_ctx_->MayHaveLabelChange(impl_.Gid())) {
     return MergedLabels(*branch_ctx_, impl_, view);
   }
-#endif
   return impl_.Labels(view);
 }
 
 storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::LabelId label) const {
   // Merge only for a deleted fork vertex (must report DELETED_OBJECT) or one the branch wrote `label` on (exact).
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) &&
       ((branch_ctx_->MayHaveAnyVertexDeleted() && branch_ctx_->MayHaveVertexDeleted(impl_.Gid())) ||
        branch_ctx_->LabelMayHaveChanged(label, impl_.Gid()))) {
     return MergedHasLabel(*branch_ctx_, impl_, view, label);
   }
-#endif
   return impl_.HasLabel(label, view);
 }
 
-#ifdef MG_ENTERPRISE
 storage::Result<bool> VertexAccessor::BranchHasAnyLabel(storage::View view) const {
   if (MayHaveOverlay(*branch_ctx_, impl_) && branch_ctx_->MayHaveLabelChange(impl_.Gid())) {
     auto labels = MergedLabels(*branch_ctx_, impl_, view);
@@ -199,40 +193,32 @@ storage::Result<bool> VertexAccessor::BranchHasAnyLabel(storage::View view) cons
   }
   return impl_.HasAnyLabel(view);
 }
-#endif
 
 auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) &&
       branch_ctx_->MayHavePropertyChange(impl_.Gid())) {
     return MergedProperties(*branch_ctx_, impl_, view);
   }
-#endif
   return impl_.Properties(view);
 }
 
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   // A deleted vertex must fail the read, so a recorded delete also forces the merge.
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) &&
       (branch_ctx_->MayHavePropertyFieldChange(impl_.Gid(), key) || branch_ctx_->MayHaveVertexDeleted(impl_.Gid()))) {
     return MergedGetProperty(*branch_ctx_, impl_, view, key);
   }
-#endif
   return impl_.GetProperty(key, view);
 }
 
 storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr && MayHaveOverlay(*branch_ctx_, impl_) &&
       (branch_ctx_->MayHavePropertyFieldChange(impl_.Gid(), key) || branch_ctx_->MayHaveVertexDeleted(impl_.Gid()))) {
     return MergedGetPropertySize(*branch_ctx_, impl_, key, view);
   }
-#endif
   return impl_.GetPropertySize(key, view);
 }
 
-#ifdef MG_ENTERPRISE
 // Pre-condition: branch_ctx_ != nullptr.
 void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
   // A fork vertex keeps its fork accessor: the branch's changes are addressed by gid through the overlay API, so it
@@ -431,28 +417,26 @@ storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view
 
 storage::Result<ExpandedEdgesResult> VertexAccessor::OutEdges(storage::View view) const { return OutEdges(view, {}); }
 
-storage::Result<size_t> VertexAccessor::InDegree(storage::View view) const {
 #ifdef MG_ENTERPRISE
+storage::Result<size_t> VertexAccessor::InDegree(storage::View view) const {
   if (branch_ctx_ != nullptr) {
     bool vertex_deleted = false;
     auto const count = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, &vertex_deleted).size();
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     return count;
   }
-#endif
   return impl_.InDegree(view);
 }
 
 storage::Result<size_t> VertexAccessor::OutDegree(storage::View view) const {
-#ifdef MG_ENTERPRISE
   if (branch_ctx_ != nullptr) {
     bool vertex_deleted = false;
     auto const count = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, &vertex_deleted).size();
     if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
     return count;
   }
-#endif
   return impl_.OutDegree(view);
 }
+#endif
 
 }  // namespace memgraph::query

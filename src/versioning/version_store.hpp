@@ -35,7 +35,7 @@ namespace memgraph::versioning {
 
 class BranchCore;
 
-// Per-Database registry of branches. Starts empty; Database restores it at startup (Restore/ResetLedger). Once a
+// Per-Database registry of branches. Starts empty; Database restores it at startup (Restore/RestoreHidden). Once a
 // BranchLedger is attached, every CREATE/DROP and the first gid-floor record per branch is persisted to it.
 //
 // The GC fork pin held for each branch is injected as callbacks (Database binds them to
@@ -72,10 +72,6 @@ class VersionStore {
   // out or droppable, but still in every ledger write, in Empty() and in the retention floor. Does not write the
   // ledger.
   void RestoreHidden(const LedgerContents &contents);
-
-  // Startup only, before any other call. Discards unrecoverable branches: persists an empty registry that keeps
-  // `next_number` so branch numbers are still never reused. A write failure is logged, not fatal.
-  void ResetLedger(uint64_t next_number);
 
   // `name` must be new and `parent` must be "main" or an existing branch. On success acquires the fork pin; on
   // failure (including a ledger write failure) returns a user-facing message and changes no state (no pin held).

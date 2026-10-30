@@ -574,8 +574,10 @@ class NonConcurrentOutputFile {
   std::filesystem::path path_;
 };
 
+#ifdef MG_ENTERPRISE
 /// Flushes the directory entry changes (create, rename, unlink) of `dir` to disk.
 /// @return an error message (including strerror) if the directory cannot be opened or fsynced
 std::expected<void, std::string> SyncDirectory(const std::filesystem::path &dir);
+#endif
 
 }  // namespace memgraph::utils

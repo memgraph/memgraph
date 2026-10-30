@@ -42,6 +42,7 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/version_store.hpp"
@@ -608,31 +609,20 @@ void RaiseGidCountersForHiddenBranches(const LedgerContents &ledger, storage::In
   }
 }
 
-void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) {
+std::expected<void, BranchRecoveryFailure> RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) {
   const memory::DbArenaScope arena_scope{main.DbArenaPool()};
   const auto branches_dir = main.config_.durability.storage_directory / "branches";
   std::vector<std::shared_ptr<BranchCore>> recovered;
+  std::vector<std::string> failures;
+  std::vector<std::string> failed_branches;
 
-  const auto drop_unrecoverable =
-      [&](const std::string &name, const std::string &reason, const std::string &files_dir) {
-        // Keeping the branch with its contents lost would show main@fork as the branch's state, and its new commits
-        // would sit next to a WAL that cannot be replayed. Dropping it makes the loss visible; the files stay on disk.
-        spdlog::warn(
-            "Graph Versioning: the contents of branch '{}' cannot be recovered ({}); the branch is dropped. Its "
-            "files remain in '{}'.",
-            name,
-            reason,
-            files_dir);
-        try {
-          if (auto dropped = store.DropBranch(name, /*remove_files=*/false); !dropped) {
-            spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, dropped.error());
-          } else if (!*dropped) {
-            spdlog::warn("Graph Versioning: branch '{}' could not be dropped.", name);
-          }
-        } catch (const std::exception &e) {
-          spdlog::warn("Graph Versioning: branch '{}' could not be dropped: {}", name, e.what());
-        }
-      };
+  // Nothing is dropped or rewritten: keeping the branch with its contents lost would show main@fork as its state, so
+  // the caller refuses to start and leaves every file as it is.
+  const auto fail = [&](const std::string &name, const std::string &reason, const std::string &files_dir) {
+    failed_branches.push_back(name);
+    failures.push_back(
+        fmt::format("the contents of branch '{}' (files in '{}') cannot be recovered: {}", name, files_dir, reason));
+  };
 
   try {
     for (const auto &entry : store.List()) {
@@ -644,7 +634,7 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
         // No WAL means the branch never committed anything; its core is built empty on first checkout.
         const auto has_wal = HasRegularFiles(wal_dir);
         if (!has_wal) {
-          drop_unrecoverable(name, has_wal.error(), branch_dir.string());
+          fail(name, has_wal.error(), branch_dir.string());
           continue;
         }
         if (!*has_wal) continue;
@@ -660,17 +650,17 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
         store.ReleaseCheckout(attached->number);
 
         if (!core) {
-          drop_unrecoverable(name, core.error(), branch_dir.string());
+          fail(name, core.error(), branch_dir.string());
           continue;
         }
         recovered.push_back(std::move(*core));
         spdlog::info("Graph Versioning: recovered the contents of branch '{}'.", name);
       } catch (const std::exception &e) {
-        spdlog::error("Graph Versioning: recovering branch '{}' failed unexpectedly: {}", name, e.what());
+        fail(name, fmt::format("unexpected failure: {}", e.what()), branch_dir.string());
       }
     }
   } catch (const std::exception &e) {
-    spdlog::error("Graph Versioning: recovering branch contents failed unexpectedly: {}", e.what());
+    failures.push_back(fmt::format("unexpected failure: {}", e.what()));
   }
 
   // Unconditional: main's counters must clear every floor and recovered branch even after a failure above.
@@ -679,6 +669,10 @@ void RecoverBranchContents(VersionStore &store, storage::InMemoryStorage &main) 
   } catch (const std::exception &e) {
     spdlog::error("Graph Versioning: raising main's gid counters failed unexpectedly: {}", e.what());
   }
+
+  if (!failures.empty())
+    return std::unexpected(BranchRecoveryFailure{std::move(failed_branches), utils::Join(failures, "; ")});
+  return {};
 }
 
 }  // namespace memgraph::versioning
