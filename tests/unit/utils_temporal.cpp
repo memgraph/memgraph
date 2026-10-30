@@ -484,6 +484,70 @@ inline constexpr std::array parsing_test_local_time_basic{
 };
 }  // namespace
 
+TEST(TemporalTest, DurationConstructionRejectsNonFiniteAndOverflow) {
+  using memgraph::utils::Duration;
+  using memgraph::utils::DurationParameters;
+  namespace temporal = memgraph::utils::temporal;
+  constexpr auto kInf = std::numeric_limits<double>::infinity();
+  constexpr auto kNan = std::numeric_limits<double>::quiet_NaN();
+
+  EXPECT_THROW(Duration(DurationParameters{.day = kNan}), temporal::InvalidArgumentException);
+  EXPECT_THROW(Duration(DurationParameters{.second = kInf}), temporal::InvalidArgumentException);
+  EXPECT_THROW(Duration(DurationParameters{.microsecond = -kInf}), temporal::InvalidArgumentException);
+  EXPECT_THROW(Duration(DurationParameters{.day = kInf}), temporal::InvalidArgumentException);
+  try {
+    Duration d(DurationParameters{.hour = kNan});
+    FAIL();
+  } catch (const temporal::OverflowException &) {
+    FAIL() << "non-finite must not be an OverflowException";
+  } catch (const temporal::InvalidArgumentException &) {
+  }
+
+  EXPECT_THROW(Duration(DurationParameters{.day = 1e300}), temporal::OverflowException);
+  EXPECT_THROW(Duration(DurationParameters{.day = -1e300}), temporal::OverflowException);
+  EXPECT_THROW(Duration(DurationParameters{.day = 9223372036854775807.0}), temporal::OverflowException);
+  EXPECT_THROW(Duration(DurationParameters{.microsecond = 9223372036854775807.0}), temporal::OverflowException);
+  EXPECT_THROW(Duration(DurationParameters{.microsecond = -9223372036854777856.0}), temporal::OverflowException);
+  // sum overflows although each component fits
+  EXPECT_THROW(Duration(DurationParameters{.day = 106751991, .hour = 5}), temporal::OverflowException);
+  EXPECT_THROW(Duration(DurationParameters{.day = -106751991, .hour = -5}), temporal::OverflowException);
+
+  EXPECT_EQ(Duration(DurationParameters{.microsecond = -9223372036854775808.0}).microseconds,
+            std::numeric_limits<int64_t>::min());
+  EXPECT_EQ(
+      Duration(DurationParameters{.day = 1, .hour = 2, .minute = 3, .second = 4, .millisecond = 5, .microsecond = 6})
+          .microseconds,
+      86400000000LL + 2 * 3600000000LL + 3 * 60000000LL + 4000000LL + 5000LL + 6LL);
+  EXPECT_EQ(Duration(DurationParameters{.day = 106751991}).microseconds, 106751991LL * 86400000000LL);
+  EXPECT_EQ(Duration(DurationParameters{.day = -0.5}).microseconds, -43200000000LL);
+}
+
+TEST(TemporalTest, DurationStringRejectsNonDecimalNumbers) {
+  using memgraph::utils::ParseDurationParameters;
+  namespace temporal = memgraph::utils::temporal;
+  for (const auto *s : {"PnanD",
+                        "PinfD",
+                        "P-infD",
+                        "PInfinityD",
+                        "PNAND",
+                        "PT-nanS",
+                        "PT1nanS",
+                        "P1e300D",
+                        "P1E3D",
+                        "PT1e2H",
+                        "PT0x10S",
+                        "PT+5S",
+                        "PT-S",
+                        "P-D",
+                        "PT--5S",
+                        "P1e999D"}) {
+    EXPECT_THROW(ParseDurationParameters(s), temporal::InvalidArgumentException) << s;
+  }
+  EXPECT_DOUBLE_EQ(ParseDurationParameters("PT-5S").second, -5.0);
+  EXPECT_DOUBLE_EQ(ParseDurationParameters("P-1.5D").day, -1.5);
+  EXPECT_DOUBLE_EQ(ParseDurationParameters("PT.5S").second, 0.5);
+}
+
 TEST(TemporalTest, DurationArithmeticOverflowIsTypedInvalidArgument) {
   using memgraph::utils::Duration;
   namespace temporal = memgraph::utils::temporal;
@@ -1270,4 +1334,37 @@ TEST(TemporalTest, ZonedDateTimeComponents) {
 
   const auto alt_tz_2 = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone(std::chrono::minutes{-90})});
   EXPECT_EQ(alt_tz_2.GetTimezone().ToString(), "-90");
+}
+
+TEST(TemporalTest, DurationArithmeticRejectsOutOfRangeDates) {
+  using namespace memgraph::utils;
+  using memgraph::utils::temporal::InvalidArgumentException;
+  using memgraph::utils::temporal::OverflowException;
+
+  const Date date({2020, 1, 1});
+  // ~65536 years: wraps through std::chrono::year (a short) back into range unless checked first.
+  const Duration wrap_days(DurationParameters{.day = 23936253});
+  EXPECT_THROW(date + wrap_days, InvalidArgumentException);
+  EXPECT_THROW(date - wrap_days, InvalidArgumentException);
+  EXPECT_THROW(Duration(DurationParameters{.day = 3000000}) + date, InvalidArgumentException);
+
+  const LocalDateTime ldt({2020, 1, 1}, {0, 0, 0, 0, 0});
+  EXPECT_THROW(ldt + wrap_days, InvalidArgumentException);
+  EXPECT_THROW(ldt - wrap_days, InvalidArgumentException);
+
+  const ZonedDateTime zdt({{2020, 1, 1}, {0, 0, 0, 0, 0}, Timezone(std::chrono::minutes{0})});
+  EXPECT_THROW(zdt + Duration(DurationParameters{.day = 3000000}), InvalidArgumentException);
+  EXPECT_THROW(zdt - Duration(DurationParameters{.day = 3000000}), InvalidArgumentException);
+  EXPECT_THROW(zdt + wrap_days, InvalidArgumentException);
+  EXPECT_THROW(zdt + Duration(std::numeric_limits<int64_t>::max() - 1000), OverflowException);
+  EXPECT_THROW(zdt - Duration(std::numeric_limits<int64_t>::max() - 1000), InvalidArgumentException);
+
+  // Valid arithmetic and the exact year boundaries are unchanged.
+  EXPECT_EQ((date + Duration(DurationParameters{.day = 1})).ToString(), "2020-01-02");
+  EXPECT_EQ((date - Duration(DurationParameters{.day = 1})).ToString(), "2019-12-31");
+  EXPECT_EQ((Date({9999, 12, 30}) + Duration(DurationParameters{.day = 1})).ToString(), "9999-12-31");
+  EXPECT_THROW(Date({9999, 12, 31}) + Duration(DurationParameters{.day = 1}), InvalidArgumentException);
+  EXPECT_EQ((Date({0, 1, 2}) - Duration(DurationParameters{.day = 1})).ToString(), "0000-01-01");
+  EXPECT_THROW(Date({0, 1, 1}) - Duration(DurationParameters{.day = 1}), InvalidArgumentException);
+  EXPECT_EQ((zdt + Duration(DurationParameters{.hour = 25})).ToString(), "2020-01-02T01:00:00.000000+00:00");
 }
