@@ -973,6 +973,21 @@ add_unit_test(versioning_historical_access
     SOURCES versioning_historical_access.cpp
     LINK_TARGETS mg::storage storage_test_utils
 )
+
+add_unit_test(storage_v2_retention_floor
+    SOURCES storage_v2_retention_floor.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(versioning_bounded_recovery
+    SOURCES versioning_bounded_recovery.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(versioning_history_hooks
+    SOURCES versioning_history_hooks.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
