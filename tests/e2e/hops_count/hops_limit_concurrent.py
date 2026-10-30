@@ -76,9 +76,8 @@ def _write(driver, query):
 def _bounded_read(tx, query):
     """Run a bounded read and return (rows, metadata).
 
-    The pre-fix bug kills the instance inside this read, so the client sees the connection drop
-    instead of a result. Returning None there lets the test fail on its own assertion - the bounded
-    read must produce the snapshot-visible rows - rather than on the client-side exception.
+    The pre-fix bug kills the instance inside this read, so returning None there lets the test
+    fail on its own assertion (snapshot-visible rows) instead of on the client-side exception.
     """
     try:
         result = tx.run(query)
@@ -186,10 +185,9 @@ def test_hops_limit_no_cache_store():
         with driver.session() as session_a:
             tx = session_a.begin_transaction()
             assert tx.run(COUNT_OUT).single()["c"] == 5
-            # Two concurrent deletions leave two ADD_OUT_EDGE undo deltas on v:S. At the
-            # commit threshold of 2 the bounded expansion would cache the list it built,
-            # and the second expansion of v:S in the same command - with the budget now
-            # exhausted - would be served that list instead of computing zero edges.
+            # Two concurrent deletions leave two ADD_OUT_EDGE undo deltas on v:S; with the
+            # --delta-chain-cache-threshold=2 workload config the bounded expansion would cache
+            # its list, which the second expansion of v:S would then wrongly be served.
             _write(driver, "MATCH (v:S)-[r]->(:W) WITH r LIMIT 2 DELETE r")
             result = tx.run(
                 "USING HOPS LIMIT 2 "
