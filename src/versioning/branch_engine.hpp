@@ -15,10 +15,12 @@
 #include <atomic>
 #include <cstdint>
 #include <expected>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -230,8 +232,9 @@ class BranchCore {
 };
 
 // One session's view of a branch: a shared BranchCore plus per-transaction state. Reads resolve diff-engine-first,
-// falling back to the historical base (main at fork_ts); a fork vertex's or fork edge's changes are read from the
-// overlay store by gid.
+// falling back to the historical base (main at fork_ts). A fork vertex's or fork edge's changes are written to the
+// overlay store by gid; a branch-created edge on a fork vertex first materializes an empty anchor stub in the diff
+// engine (`CowVertex`), then is created on it.
 //
 // The per-transaction slots (`current_diff_txn_`, `historical_`, `overlay_txn_`) are opened by OpenHistorical +
 // SetCurrentDiffTxn and released by EndTransaction. One session, one transaction at a time; concurrent sessions each
@@ -282,7 +285,22 @@ class BranchContext {
   // Aborts the overlay transaction unless it committed, clears both slots and releases main's READ guard. Idempotent.
   void EndTransaction() noexcept;
 
+  // Fork vertex gids this transaction has written in the overlay.
+  std::vector<uint64_t> OverlayWrittenGids() const;
+
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
+
+  struct CowError {
+    std::string message;
+  };
+
+  // Returns the diff engine's vertex for `gid`, materializing an empty delta-less anchor stub if none exists (a fork
+  // vertex's labels/properties stay in historical_ and the overlay). CowError if deleted on the branch.
+  std::expected<storage::VertexAccessor, CowError> CowVertex(storage::Gid gid);
+
+  // Before an overlay write of fork vertex `gid`: CowError if it is deleted on the branch or missing from the fork
+  // state, else sets main's `branched()` hint bit. Allocates no stub.
+  std::expected<void, CowError> PrepareForkWrite(storage::Gid gid);
 
   // Deletion follows the overlay's MVCC at `view` (own writes, snapshots, rollback). False for native gids (their
   // deletes are ordinary diff-engine deletes) and for fork vertices the branch never deleted.
@@ -292,6 +310,9 @@ class BranchContext {
   // True when the fork edge is deleted on the branch (its overlay version) or either fork endpoint is. False for a
   // branch-native edge.
   bool IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view);
+
+  // Gid-keyed access to a fork vertex's branch-side changes; callers hold the fork accessor (historical_, View::OLD).
+  // A caller that must report a failed prepare (a delete on this branch) calls PrepareForkWrite first.
 
   // The overlay version of a fork vertex visible to the current diff txn at `view`; null for a non-fork gid or when the
   // branch changed nothing. Valid only while the branch txn is open (OpenHistorical..EndTransaction): use it inside
@@ -303,8 +324,28 @@ class BranchContext {
   // As ReadOverlayVersion, for a fork edge.
   const OverlayVersion *ReadEdgeOverlayVersion(storage::Gid edge_gid, storage::View view);
 
+  storage::Result<bool> OverlayAddLabel(storage::Gid gid, storage::LabelId label);
+  storage::Result<bool> OverlayRemoveLabel(storage::Gid gid, storage::LabelId label);
+  storage::Result<storage::PropertyValue> OverlaySetProperty(storage::Gid gid, storage::PropertyId key,
+                                                             const storage::PropertyValue &value);
+  storage::Result<bool> OverlayInitProperties(storage::Gid gid,
+                                              std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  OverlayUpdateProperties(storage::Gid gid, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> OverlayClearProperties(storage::Gid gid);
+  // False if the vertex was already deleted on the branch. Edges are NOT touched: incident fork edges are hidden by the
+  // delete flag, diff-engine edges are the caller's to delete.
+  storage::Result<bool> OverlayMarkDeleted(storage::Gid gid);
+
+  // The fork accessor for a stub accessor (`v` itself for anything else). Only for results that surface a stub, e.g.
+  // the endpoints of a branch-native edge or hits of the diff engine's indexes.
+  storage::VertexAccessor ForkIdentity(const storage::VertexAccessor &v);
+
   bool IsForkVertexGid(storage::Gid gid) const;
   bool IsForkEdgeGid(storage::Gid gid) const;
+
+  // Creates a branch-native vertex in the diff engine at a gid taken from main's counter.
+  storage::VertexAccessor CreateNativeVertex();
 
   // Fork-state vertex (historical_, View::OLD). Uses the stub index's fork pointer when an anchor recorded it.
   std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
@@ -386,6 +427,12 @@ class BranchContext {
                                                   storage::View view, bool *vertex_deleted = nullptr);
 
   // Forwarders to the core's change filters; MayHave* let readers skip the resolve when a kind is definitely unchanged.
+  void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept { core_->RecordVertexChange(gid, kind); }
+
+  void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { core_->RecordEdgeChange(endpoint_gid); }
+
+  void RecordVertexDeleted(storage::Gid gid) { core_->RecordVertexDeleted(gid); }
+
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 
   bool MayHaveForkEdgeDeleted(storage::Gid edge_gid) const noexcept { return core_->MayHaveForkEdgeDeleted(edge_gid); }
@@ -393,15 +440,48 @@ class BranchContext {
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
  private:
+  bool IsStub(const storage::VertexAccessor &diff_vertex) const {
+    return diff_vertex.storage_ == &core_->diff_engine() && IsForkVertexGid(diff_vertex.Gid());
+  }
+
   // The branch marked fork edge `edge_gid` deleted, as seen at `view`.
   bool IsForkEdgeDeleted(storage::Gid edge_gid, storage::View view);
+
+  // OverlayAddLabel (`add`) / OverlayRemoveLabel on fork vertex `gid`.
+  storage::Result<bool> OverlayToggleLabel(storage::Gid gid, storage::LabelId label, bool add);
+
+  // Sets the monotonic `branched()` hint bit on `main_vertex` under its lock; callers hold no diff-engine lock.
+  void MarkMainObjectBranched(storage::Vertex *main_vertex);
 
   // The overlay version at store key `key` (a vertex gid or EdgeKey) visible to this transaction at `view`, or null.
   // Valid until EndTransaction.
   const OverlayVersion *ReadVersion(uint64_t key, storage::View view);
 
+  // One store write; a serialization error also poisons the diff transaction, as storage's PrepareForWrite does.
+  template <typename Mutator>
+  storage::Result<bool> WriteOverlay(uint64_t key, Mutator &&mutate);
+
+  // The property writes of a fork object, shared by vertices and edges: `key` is the store key, `fork_*` the fork
+  // object's own value(s) (View::OLD).
+  storage::Result<storage::PropertyValue> OverlaySetPropertyAt(uint64_t key, storage::PropertyId pid,
+                                                               const storage::PropertyValue &value,
+                                                               const storage::PropertyValue &fork_value);
+  storage::Result<bool> OverlayInitPropertiesAt(
+      uint64_t key, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+      const std::map<storage::PropertyId, storage::PropertyValue> &fork_props);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  OverlayUpdatePropertiesAt(uint64_t key, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                            const std::map<storage::PropertyId, storage::PropertyValue> &fork_props);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> OverlayClearPropertiesAt(
+      uint64_t key, const std::map<storage::PropertyId, storage::PropertyValue> &fork_props);
+
   // Advances the overlay command id to the diff transaction's.
   void SyncOverlayCommand() noexcept;
+
+  // After this txn marked fork vertex `gid` deleted: false (poisoning the txn) if its anchor carries a delta that
+  // this txn cannot write over, i.e. a branch-created edge from a transaction that is in flight or committed after
+  // this one started.
+  bool CanDeleteAnchor(storage::Gid gid);
 
   void StartOverlayTransaction();
 
