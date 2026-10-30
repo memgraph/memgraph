@@ -256,6 +256,74 @@ def type_any():
     pass
 
 
+class Proc:
+    def add_arg(self, name: str, cypher_type: Any):
+        pass
+
+    def add_opt_arg(self, name: str, cypher_type: Any, default: Any):
+        pass
+
+    def add_result(self, name: str, cypher_type: Any):
+        pass
+
+    def add_deprecated_result(self, name: str, cypher_type: Any):
+        pass
+
+
+class Func:
+    def add_arg(self, name: str, cypher_type: Any):
+        pass
+
+    def add_opt_arg(self, name: str, cypher_type: Any, default: Any):
+        pass
+
+
+class Module:
+    def add_read_procedure(self, wrapper) -> Proc:  # type: ignore
+        return Proc()
+
+    def add_write_procedure(self, wrapper) -> Proc:  # type: ignore
+        return Proc()
+
+    def add_batch_read_procedure(self, wrapper, initializer, cleanup) -> Proc:  # type: ignore
+        return Proc()
+
+    def add_batch_write_procedure(self, wrapper, initializer, cleanup) -> Proc:  # type: ignore
+        return Proc()
+
+    def add_function(self, wrapper) -> Func:  # type: ignore
+        return Func()
+
+
+class Utils:
+    @staticmethod
+    def is_enterprise_valid() -> bool:  # type: ignore
+        pass
+
+
+class Logger:
+    def info(self, out: str):
+        pass
+
+    def warning(self, out: str):
+        pass
+
+    def critical(self, out: str):
+        pass
+
+    def error(self, out: str):
+        pass
+
+    def trace(self, out: str):
+        pass
+
+    def debug(self, out: str):
+        pass
+
+
+_LOGGER = Logger()
+
+
 class _MODULE:
     @staticmethod
     def add_read_procedure(wrapper):
