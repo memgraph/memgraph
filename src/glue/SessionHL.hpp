@@ -155,6 +155,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  memgraph::communication::bolt::PendingOutcome FinishPendingCommit() { return this->FinishPendingCommit_(*this); }
+
+  memgraph::communication::bolt::PendingOutcome FinishPendingBegin() { return this->FinishPendingBegin_(*this); }
+
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
   metrics::DatabaseMetricHandles *GetMetricHandles() {

@@ -14,6 +14,7 @@
 #include "utils/exceptions.hpp"
 
 #include <fmt/format.h>
+#include <chrono>
 
 namespace memgraph::query {
 
@@ -634,6 +635,29 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
  public:
   ShowSchemaInfoInMulticommandTxException() : MulticommandTxException("Show schema info query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
+};
+
+/// Thrown from Interpreter::Commit() before any mutation, so retry is safe. Only parking-capable (Bolt) interpreters
+/// throw it, under commit-lock-narrowing; never surfaced to the client.
+class CommitWouldBlockException final : public std::exception {
+ public:
+  CommitWouldBlockException() = default;
+
+  const char *what() const noexcept override { return "commit_mutex_ held by another committer; park and retry"; }
+};
+
+/// Thrown from CurrentDB::SetupDatabaseTransaction() before a storage txn opens, so retry is safe. Same gating as
+/// CommitWouldBlockException; never surfaced to the client. Carries the finite storage-access deadline.
+class BeginWouldBlockException final : public std::exception {
+ public:
+  explicit BeginWouldBlockException(std::chrono::steady_clock::time_point deadline) : deadline_{deadline} {}
+
+  const char *what() const noexcept override { return "main_lock_ contended; park and retry BEGIN"; }
+
+  std::chrono::steady_clock::time_point deadline() const noexcept { return deadline_; }
+
+ private:
+  std::chrono::steady_clock::time_point deadline_;
 };
 
 }  // namespace memgraph::query
