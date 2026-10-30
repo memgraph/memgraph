@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_accessor.hpp"
+#include <algorithm>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -711,21 +712,30 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
+template <bool kCompact, typename OnLocked>
+Result<PropertyValue> VertexAccessor::GetPropertyImpl(PropertyId property, View view, OnLocked &&on_locked) const {
+  constexpr bool kHook = !std::is_null_pointer_v<std::remove_cvref_t<OnLocked>>;
+  static_assert(kCompact || !kHook);
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
   VertexReadLock read_lock{vertex_};
-  auto value = std::invoke([&]() -> PropertyValue {
+  auto value = [&]() -> PropertyValue {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     delta = vertex_->delta();
-    auto prop_value = vertex_->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Vertex>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
-    return prop_value;
-  });
+    if constexpr (kCompact) {
+      auto raw = vertex_->properties.GetProperty(property);
+      if constexpr (kHook) on_locked(raw);
+      return raw;
+    } else {
+      auto prop_value = vertex_->properties.GetProperty(
+          property,
+          IndexedPropertyDecoder<Vertex>{
+              .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+      return prop_value;
+    }
+  }();
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
@@ -754,13 +764,48 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      cache.StoreProperty(view, vertex_, property, value);
+      // Embeddings are not cached: it would pin O(dim) floats per vertex for the whole transaction.
+      if (!(kCompact && value.IsVectorIndexId())) cache.StoreProperty(view, vertex_, property, value);
     }
   }
 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(value);
+}
+
+Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
+  return GetPropertyImpl<false>(property, view, nullptr);
+}
+
+Result<PropertyValue> VertexAccessor::GetPropertyCompact(PropertyId property, View view) const {
+  return GetPropertyImpl<true>(property, view, nullptr);
+}
+
+bool VertexAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
+  // Only the live ref (empty list) may read the index, which is correct only for the live value; delta refs carry
+  // their own floats. The index is read speculatively under the vertex lock and kept only if the live ref survives.
+  bool live_read_ok = false;
+  const auto maybe_value = GetPropertyImpl<true>(property, view, [&](const PropertyValue &raw) {
+    if (!raw.IsVectorIndexId() || !raw.ValueVectorIndexList().empty()) return;
+    const auto &ids = raw.ValueVectorIndexIds();
+    if (ids.empty()) return;
+    live_read_ok = storage_->indices_.vector_index_.GetVectorInto(vertex_, ids[0], out);
+  });
+  if (!maybe_value) return false;
+  if (maybe_value->IsVectorIndexId()) {
+    if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
+      out.assign(floats.begin(), floats.end());
+      return true;
+    }
+    return !maybe_value->ValueVectorIndexIds().empty() && live_read_ok;
+  }
+  // Left the index (e.g. label removal) and was rewritten to a plain numeric list.
+  if (!maybe_value->IsAnyList()) return false;
+  const auto floats = TryListToVector(*maybe_value);
+  if (!floats) return false;
+  out.assign(floats->begin(), floats->end());
+  return true;
 }
 
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
@@ -783,7 +828,8 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
+template <bool kCompact>
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesImpl(View view) const {
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
@@ -792,8 +838,12 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+    if constexpr (kCompact) {
+      properties = vertex_->properties.Properties();
+    } else {
+      properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
+          .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+    }
     delta = vertex_->delta();
   }
 
@@ -824,13 +874,28 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      cache.StoreProperties(view, vertex_, properties);
+      if constexpr (kCompact) {
+        // A cached entry fixes one mode (floats vs. index ids) and would hand the wrong form to a read in the other.
+        const bool has_embedding =
+            std::ranges::any_of(properties, [](const auto &kv) { return kv.second.IsVectorIndexId(); });
+        if (!has_embedding) cache.StoreProperties(view, vertex_, properties);
+      } else {
+        cache.StoreProperties(view, vertex_, properties);
+      }
     }
   }
 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
+}
+
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
+  return PropertiesImpl<false>(view);
+}
+
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesCompact(View view) const {
+  return PropertiesImpl<true>(view);
 }
 
 std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelId const> labels) const {

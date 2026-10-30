@@ -267,6 +267,15 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
     }
 
+    case query::TypedValue::Type::VectorRef: {
+      // Same wire shape as a List of Doubles, without materializing in the query arena.
+      const auto floats = value.ReadVectorRef();
+      std::vector<Value> values;
+      values.reserve(floats.size());
+      for (const float f : floats) values.emplace_back(static_cast<double>(f));
+      return storage::Result<Value>{std::in_place, std::move(values)};
+    }
+
     // Unsupported conversions
     case query::TypedValue::Type::Function: {
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");

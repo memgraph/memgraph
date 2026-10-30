@@ -40,8 +40,8 @@ bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b);
 
 /// Reads a pair of containers equality did not decide equal.
 ///
-/// @pre `a` is a list or a map. Only those two hold a value equality declines
-/// to decide, other than a Null or a NaN standing on its own.
+/// @pre `a` is a list, a map or a lazy embedding. Only those hold a value
+/// equality declines to decide, other than a Null or a NaN standing on its own.
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b);
 
 /// Reads a pair of points equality did not decide equal. A point holds its
@@ -54,14 +54,15 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b);
 /// The types equality declines to decide against themselves, as a bit per type,
 /// so that ruling a type out is one test rather than one per type.
 ///
-/// The two containers are absent because a container is answered for before
-/// equality is asked at all.
+/// A list and a map are absent because they are answered for before equality is
+/// asked at all. A lazy embedding is present: it can hold a NaN.
 ///
 /// One bit per type is only a mask while the types fit the word holding it.
 static_assert(TypedValue::kTypeCount <= std::numeric_limits<unsigned>::digits, "More types than a bit each fits in");
 inline constexpr unsigned kDeclinedOver = (1U << static_cast<unsigned>(TypedValue::Type::Double)) |
                                           (1U << static_cast<unsigned>(TypedValue::Type::Point2d)) |
-                                          (1U << static_cast<unsigned>(TypedValue::Type::Point3d));
+                                          (1U << static_cast<unsigned>(TypedValue::Type::Point3d)) |
+                                          (1U << static_cast<unsigned>(TypedValue::Type::VectorRef));
 
 inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && rhs.IsNull();
@@ -98,6 +99,10 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.type() == TypedValue::Type::Double) {
     return std::isnan(lhs.UnsafeValueDouble()) && rhs.type() == TypedValue::Type::Double &&
            std::isnan(rhs.UnsafeValueDouble());
+  }
+
+  if (lhs.type() == TypedValue::Type::VectorRef) {
+    return EquivalentOfContainers(lhs, rhs);
   }
 
   return EquivalentOfPoints(lhs, rhs);

@@ -96,11 +96,33 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Like GetProperty, but an embedding stays its compact VectorIndexId reference instead of being reconstructed.
+  /// @throw std::bad_alloc
+  Result<PropertyValue> GetPropertyCompact(PropertyId property, View view) const;
+
+  /// Fill `out` with the numeric list visible at `view` (index-backed or plain); false if it is not a numeric list.
+  bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
+
+ private:
+  /// For kCompact, a non-null `on_locked(const PropertyValue &)` sees the raw value under the vertex lock.
+  // Inlined so the eager GetProperty/Properties wrappers compile to the hot read they replaced.
+  template <bool kCompact, typename OnLocked>
+  [[gnu::always_inline]] Result<PropertyValue> GetPropertyImpl(PropertyId property, View view,
+                                                               OnLocked &&on_locked) const;
+
+  template <bool kCompact>
+  [[gnu::always_inline]] Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
+
+ public:
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+
+  /// Like Properties, but embeddings stay compact VectorIndexId references.
+  /// @throw std::bad_alloc
+  Result<std::map<PropertyId, PropertyValue>> PropertiesCompact(View view) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,

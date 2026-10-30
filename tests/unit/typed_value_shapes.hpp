@@ -37,12 +37,13 @@ inline constexpr std::array kEveryTypedValueType{
     query::TypedValue::Type::Map,           query::TypedValue::Type::Path,
     query::TypedValue::Type::Graph,         query::TypedValue::Type::VirtualGraph,
     query::TypedValue::Type::Function,      query::TypedValue::Type::VirtualEdge,
-    query::TypedValue::Type::VirtualNode,
+    query::TypedValue::Type::VirtualNode,   query::TypedValue::Type::VectorRef,
 };
 
 /// The types whose value is held in the union outright, owning nothing that has to be released:
 /// the numbers, the two accessors, which name a record and the transaction reading it, and the
-/// temporals, the enum and the points.
+/// temporals, the enum and the points. `VectorRef` owns nothing either but is wider than the inline
+/// copy, so it sits past this group and is not listed.
 ///
 /// `TypedValue` answers this from where a type sits in the declaration, which is what makes the
 /// question one comparison. Listing the types here by name gives the test an account of its own to
@@ -66,9 +67,11 @@ inline constexpr std::array kTypesWithoutAnAllocation{
 };
 
 /// The types no shape is made of. A function is bound to a call rather than
-/// held as a value a test can write down, and the three virtual types are made
-/// by a projection out of values it has already produced.
+/// held as a value a test can write down, the three virtual types are made
+/// by a projection out of values it has already produced, and a lazy embedding
+/// names a stored vector the index holds.
 inline constexpr std::array kUnshapedTypedValueTypes{
+    query::TypedValue::Type::VectorRef,
     query::TypedValue::Type::Function,
     query::TypedValue::Type::VirtualGraph,
     query::TypedValue::Type::VirtualEdge,

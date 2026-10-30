@@ -140,9 +140,9 @@ LicenseChecker global_license_checker;
 
 LicenseChecker::~LicenseChecker() { Finalize(); }
 
-void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
-  spdlog::trace("License revalidation started");
-
+namespace {
+// Shared by RevalidateLicense and the test-only EnableTesting/DisableTesting so tests hit the real routing.
+void ApplyLicenseMemoryLimit(int64_t memory_limit, std::optional<LicenseType> license_type) {
   // Passing 0 to SetHardLimit restores the limit to maximum_hard_limit_ (the --memory-limit flag value)
   // if --memory-limit was configured. If it was not (maximum_hard_limit_ == 0), this is a no-op.
   constexpr int64_t kUseDefaultMemoryLimit = 0;
@@ -153,31 +153,37 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     bool operator==(const PreviousMemoryState &) const = default;
   };
 
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static utils::Synchronized<std::optional<PreviousMemoryState>, utils::SpinLock> previous_memory_limit;
-  const auto set_memory_limit = [](int64_t memory_limit, std::optional<LicenseType> license_type = std::nullopt) {
-    auto locked = previous_memory_limit.Lock();
-    const PreviousMemoryState current{.limit = memory_limit, .type = license_type};
-    if (*locked && **locked == current) return;
+  auto locked = previous_memory_limit.Lock();
+  const PreviousMemoryState current{.limit = memory_limit, .type = license_type};
+  if (*locked && **locked == current) {
+    return;
+  }
 
-    if (license_type == LicenseType::AI_PLATFORM && memory_limit > 0) {
-      // AI_PLATFORM: limit graph memory only; total falls back to --memory-limit
-      utils::total_memory_tracker.SetHardLimit(kUseDefaultMemoryLimit);
-      utils::graph_memory_tracker.SetHardLimit(memory_limit);
-    } else {
-      // ENTERPRISE / no license: limit total memory, clear graph limit
-      utils::graph_memory_tracker.ResetLimit();
-      utils::total_memory_tracker.SetHardLimit(memory_limit);
-    }
+  if (license_type == LicenseType::AI_PLATFORM && memory_limit > 0) {
+    // AI_PLATFORM: limit graph memory only; total falls back to --memory-limit
+    utils::total_memory_tracker.SetHardLimit(kUseDefaultMemoryLimit);
+    utils::graph_memory_tracker.SetHardLimit(memory_limit);
+  } else {
+    // ENTERPRISE / no license: limit total memory, clear graph limit
+    utils::graph_memory_tracker.ResetLimit();
+    utils::total_memory_tracker.SetHardLimit(memory_limit);
+  }
 
-    *locked = current;
-  };
+  *locked = current;
+}
+}  // namespace
+
+void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
+  spdlog::trace("License revalidation started");
 
   if (enterprise_enabled_) [[unlikely]] {
     atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
       s.valid = true;
       return s;
     });
-    set_memory_limit(0, state_.load(std::memory_order_acquire).type);
+    ApplyLicenseMemoryLimit(0, state_.load(std::memory_order_acquire).type);
     return;
   }
 
@@ -229,7 +235,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       s.valid = false;
       return s;
     });
-    set_memory_limit(0);
+    ApplyLicenseMemoryLimit(0, std::nullopt);
     return;
   }
 
@@ -256,7 +262,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
       locked->emplace(winner.key, winner.org);
       (*locked)->is_valid = true;
       (*locked)->license = winner.license;
-      set_memory_limit(winner.license.memory_limit, winner.license.type);
+      ApplyLicenseMemoryLimit(winner.license.memory_limit, winner.license.type);
     }
   }
 
@@ -275,12 +281,19 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
+void LicenseChecker::EnableTesting(const LicenseType license_type, const int64_t memory_limit) {
+  EnableTesting(license_type);
+  ApplyLicenseMemoryLimit(memory_limit, license_type);
+}
+
 void LicenseChecker::DisableTesting() {
   enterprise_enabled_ = false;
   {
     auto locked = previous_license_info_.Lock();
     locked->reset();
   }
+  // Reset any limit installed by EnableTesting(type, memory_limit).
+  ApplyLicenseMemoryLimit(0, std::nullopt);
   atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
     s.valid = false;
     return s;

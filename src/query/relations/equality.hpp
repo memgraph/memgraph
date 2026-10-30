@@ -39,6 +39,14 @@ namespace memgraph::query::relations::equality {
 TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b, TypedValue::allocator_type alloc);
 TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, TypedValue::allocator_type alloc);
 
+/// Equality where either side is a lazy embedding, which reads as the list of doubles it materializes to.
+/// Reading allocates on the heap, so this stays cold. Two embeddings compare as floats (NaN included, as
+/// widening is exact); against a plain List elementwise; against anything else false.
+///
+/// @pre At least one is a VectorRef.
+[[gnu::cold, gnu::noinline]] TypedValue EqualOfAnyVectorRef(const TypedValue &a, const TypedValue &b,
+                                                            TypedValue::allocator_type alloc);
+
 /// Whether a Null sits anywhere within the value, however deeply nested.
 ///
 /// Ask this before answering equality from anything other than this relation. A
@@ -81,7 +89,11 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   // defined in the value's own translation unit and are calls anywhere else.
   // Every element of a container reaches this.
   if (a.type() != b.type()) {
-    if (!AreMixedNumbers(a.type(), b.type())) return TypedValue(false, alloc);
+    if (!AreMixedNumbers(a.type(), b.type())) {
+      if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
+        return EqualOfAnyVectorRef(a, b, alloc);
+      return TypedValue(false, alloc);
+    }
     return TypedValue(std::is_eq(ComparePayloadOfMixedNumbers(a, b)), alloc);
   }
 
@@ -128,6 +140,8 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Graph:
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported comparison operator");
+    case TypedValue::Type::VectorRef:
+      return EqualOfAnyVectorRef(a, b, alloc);
     case TypedValue::Type::Function:
     case TypedValue::Type::Null:
       LOG_FATAL("Unhandled comparison for types");

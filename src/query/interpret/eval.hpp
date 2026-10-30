@@ -492,7 +492,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       // Exceptions have higher priority than returning nulls when list expression
       // is not null.
-      if (list.type() != TypedValue::Type::List) {
+      if (!list.IsList()) {
         throw QueryRuntimeException("IN expected a list, got {}.", list.type());
       }
       const auto &list_value = list.ValueList();
@@ -609,12 +609,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+      const auto &vertex = lhs_ptr->ValueVertex();
+      if (ctx_->lazy_vector_refs) [[unlikely]]
+        return LazyPropertyValue(vertex, index.ValueString());
+      return {GetProperty(vertex, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+      const auto &edge = lhs_ptr->ValueEdge();
+      if (ctx_->lazy_vector_refs) [[unlikely]]
+        return LazyPropertyValue(edge, index.ValueString());
+      return {GetProperty(edge, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
     // lhs is Null
@@ -643,7 +649,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto _list = op.list_->Accept(*this);
     if (_list.type() == TypedValue::Type::Null) {
       is_null = true;
-    } else if (_list.type() != TypedValue::Type::List) {
+    } else if (!_list.IsList()) {
       throw QueryRuntimeException("Expected a list to slice, got {}.", _list.type());
     }
 
@@ -826,11 +832,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                  user_or_role_,
                                  triggering_user_,
 #ifdef MG_ENTERPRISE
-                                 auth_checker_
+                                 auth_checker_,
 #else
-                                 nullptr
+                                 nullptr,
 #endif
-    };
+                                 ctx_->lazy_vector_refs};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
@@ -869,7 +875,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("REDUCE expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -890,7 +896,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -914,7 +920,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
 
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("List comprehension expected a list, got {}.", list_value.type());
     }
 
@@ -990,7 +996,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("ALL expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1027,7 +1033,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("SINGLE expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1075,7 +1081,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("ANY expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1113,7 +1119,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.IsNull()) {
       return TypedValue(ctx_->memory);
     }
-    if (list_value.type() != TypedValue::Type::List) {
+    if (!list_value.IsList()) {
       throw QueryRuntimeException("NONE expected a list, got {}.", list_value.type());
     }
     auto &list = list_value.ValueList();
@@ -1197,11 +1203,49 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 #endif
 
+  // The one place a VectorRef is created, only under the lazy-refs gate; eager reads (floats filled) become a List.
+  template <class TRecordAccessor, class TPropertyValue>
+  TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
+                               TPropertyValue &&raw) {
+    if (raw.IsVectorIndexId() && ctx_->lazy_vector_refs) [[unlikely]]
+      return MakeVectorRef(record_accessor, prop_id);
+    return {std::forward<TPropertyValue>(raw), GetNameIdMapper(), ctx_->memory};
+  }
+
   template <class TRecordAccessor>
+  [[gnu::cold, gnu::noinline]] TypedValue MakeVectorRef(const TRecordAccessor &record_accessor,
+                                                        storage::PropertyId prop_id) {
+    return TypedValue(VectorRefValue{record_accessor.impl_, prop_id, view_}, ctx_->memory);
+  }
+
+  template <class TRecordAccessor>
+  [[gnu::cold, gnu::noinline]] TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor,
+                                                            const PropertyIx &prop) {
+    auto raw = GetProperty<true>(record_accessor, prop);
+    return MakePropertyValue(record_accessor, ctx_->properties[prop.ix], std::move(raw));
+  }
+
+  template <class TRecordAccessor>
+  [[gnu::cold, gnu::noinline]] TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor,
+                                                            const std::string_view name) {
+    auto raw = GetProperty<true>(record_accessor, name);
+    return MakePropertyValue(record_accessor, dba_->NameToProperty(name), std::move(raw));
+  }
+
+  template <bool kCompact, class TRecordAccessor>
+  static auto ReadProperty(const TRecordAccessor &record_accessor, storage::View view, storage::PropertyId prop) {
+    if constexpr (kCompact) {
+      return record_accessor.GetPropertyCompact(view, prop);
+    } else {
+      return record_accessor.GetProperty(view, prop);
+    }
+  }
+
+  template <bool kCompact = false, class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    auto maybe_prop = ReadProperty<kCompact>(record_accessor, view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1209,7 +1253,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
+      maybe_prop = ReadProperty<kCompact>(record_accessor, storage::View::NEW, ctx_->properties[prop.ix]);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1226,12 +1270,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *std::move(maybe_prop);
   }
 
-  template <class TRecordAccessor>
+  template <bool kCompact = false, class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
+    auto maybe_prop = ReadProperty<kCompact>(record_accessor, view_, prop_id);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1239,7 +1283,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, prop_id);
+      maybe_prop = ReadProperty<kCompact>(record_accessor, view_, prop_id);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1273,7 +1317,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    auto maybe_props = record_accessor.Properties(view_);
+    // Lazy mode reads embeddings compact; CachedPropertyValue wraps them, so the cached map never holds floats.
+    const auto read = [&](storage::View view) {
+      return ctx_->lazy_vector_refs ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
+    };
+    auto maybe_props = read(view_);
     if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1281,7 +1329,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_props = record_accessor.Properties(storage::View::NEW);
+      maybe_props = read(storage::View::NEW);
     }
     if (!maybe_props) {
       switch (maybe_props.error()) {
@@ -1324,7 +1372,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (property == it->second.properties.end()) {
       return TypedValue(ctx_->memory);
     }
-    return {property->second, GetNameIdMapper(), ctx_->memory};
+    return MakePropertyValue(record_accessor, property_id, property->second);
   }
 
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }

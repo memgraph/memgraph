@@ -38,6 +38,38 @@ class VirtualGraph;  // fwd declare
 class VirtualEdge;   // fwd declare
 class VirtualNode;   // fwd declare
 
+/// Lazy handle for a vector-index embedding: an accessor copy plus the property id; no floats are read
+/// until ReadVectorRef() / ValueList(). Hand-rolled tagged union (not std::variant) so the tag packs
+/// after the accessor and the handle fits TypedValue's widest union member.
+struct VectorRefValue {
+  VectorRefValue(storage::VertexAccessor entity, storage::PropertyId prop, storage::View view)
+      : vertex{entity}, prop{prop}, view{view}, is_edge_{false} {}
+
+  VectorRefValue(storage::EdgeAccessor entity, storage::PropertyId prop, storage::View view)
+      : edge{entity}, prop{prop}, view{view}, is_edge_{true} {}
+
+  template <class F>
+  decltype(auto) Visit(F &&f) const {
+    if (is_edge_) return std::forward<F>(f)(edge);
+    return std::forward<F>(f)(vertex);
+  }
+
+  union {
+    storage::VertexAccessor vertex;
+    storage::EdgeAccessor edge;
+  };
+
+  storage::PropertyId prop;
+  // View the ref was read under; materialization re-reads through the same MVCC chain, staying snapshot-consistent.
+  storage::View view;
+
+ private:
+  bool is_edge_;
+};
+
+static_assert(std::is_trivially_copyable_v<VectorRefValue>);
+static_assert(std::is_trivially_destructible_v<VectorRefValue>);
+
 namespace {
 template <typename T>
 concept TypedValueValidPrimativeType =
@@ -122,7 +154,10 @@ class TypedValue {
     VirtualGraph,
     Function,
     VirtualEdge,
-    VirtualNode
+    VirtualNode,
+    // Last so every other type keeps its value. Owns nothing but is wider than the inline group, so it is
+    // copied case by case.
+    VectorRef
   };
 
   /// Where the first group above ends. Naming it here puts the boundary beside the order that
@@ -133,7 +168,7 @@ class TypedValue {
   ///
   /// Kept beside the enumeration rather than beside any one table built over
   /// it, so that a type added here is counted everywhere at once.
-  static constexpr auto kTypeCount = std::to_underlying(Type::VirtualNode) + 1U;
+  static constexpr auto kTypeCount = std::to_underlying(Type::VectorRef) + 1U;
 
   /// Whether a value of this type owns something that has to be released, which is also what
   /// decides how it is copied.
@@ -242,6 +277,10 @@ class TypedValue {
 
   explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {})
       : alloc_{alloc}, held_inline_{.point_3d_v = value}, type_(Type::Point3d) {}
+
+  explicit TypedValue(VectorRefValue ref, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VectorRef) {
+    std::construct_at(&vector_ref_v, ref);
+  }
 
   // conversion function to storage::ExternalPropertyValue
   explicit operator storage::ExternalPropertyValue() const;
@@ -576,7 +615,35 @@ class TypedValue {
   VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, held_inline_.double_v)
   VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  // A VectorRef is a lazy list: the first list access caches the materialized List in place, also via const.
+  // Do not share a VectorRef across threads before that first access.
+  TVector &ValueList() {
+    if (type_ != Type::List) [[unlikely]]
+      return SlowValueList();
+    return list_v;
+  }
+
+  const TVector &ValueList() const {
+    if (type_ != Type::List) [[unlikely]]
+      return SlowValueList();
+    return list_v;
+  }
+
+  /// A plain List or a VectorRef.
+  bool IsList() const { return type_ == Type::List || type_ == Type::VectorRef; }
+
+  /// Strictly a materialized List (false for a VectorRef).
+  bool IsPlainList() const { return type_ == Type::List; }
+
+  const TVector &UnsafeValueList() const {
+    if (type_ == Type::VectorRef) [[unlikely]]
+      MaterializeInPlace();
+    return list_v;
+  }
+
+  /// Read a VectorRef's floats by value without materializing. Requires type() == Type::VectorRef.
+  std::vector<float> ReadVectorRef() const;
+
   VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, held_inline_.vertex_v)
   VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, held_inline_.edge_v)
@@ -595,6 +662,7 @@ class TypedValue {
   VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
+  VALUE_AND_TYPE_GETTERS(VectorRefValue, VectorRef, vector_ref_v)
 
 #undef VALUE_AND_TYPE_GETTERS
 #undef VALUE_AND_TYPE_GETTERS_PRIMITIVE
@@ -801,6 +869,13 @@ class TypedValue {
   void CopyComplexValue(TypedValue const &other);
   TypedValue &MoveAssignComplex(TypedValue &&other);
 
+  // Cold: materialize a VectorRef into a List (const cache), else throw.
+  const TVector &SlowValueList() const;
+
+  TVector &SlowValueList() { return const_cast<TVector &>(std::as_const(*this).SlowValueList()); }
+
+  void MaterializeInPlace() const;
+
   [[no_unique_address]] allocator_type alloc_{};
 
   /// The value of every type that owns no allocation, which is every type up to
@@ -810,7 +885,8 @@ class TypedValue {
   ///
   /// Which types belong here still has to agree with where the enumeration puts that boundary,
   /// and nothing checks the two against each other. A type that owns no allocation has to be
-  /// declared here rather than in the outer union, or it is copied at this union's width.
+  /// declared here rather than in the outer union, or it is copied at this union's width, unless
+  /// it is wider than this group (VectorRef) and is copied case by case.
   union ValueHeldInline {
     bool bool_v;
     int64_t int_v;
@@ -840,7 +916,8 @@ class TypedValue {
     // complexity so it shouldn't be a problem. This is maybe even faster
     // because of data locality.
     TString string_v;
-    TVector list_v;
+    // mutable: a VectorRef materializes into list_v on first list access, also through a const reference.
+    mutable TVector list_v;
     TMap map_v;
     std::unique_ptr<Path> path_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
@@ -849,13 +926,16 @@ class TypedValue {
     std::function<void(TypedValue *)> function_v;
     std::unique_ptr<VirtualEdge> virtual_edge_v;
     std::unique_ptr<VirtualNode> virtual_node_v;
+    mutable VectorRefValue vector_ref_v;
   };
 
   /**
    * The Type of property.
    */
-  Type type_;
+  mutable Type type_;
 };
+
+static_assert(sizeof(VectorRefValue) <= sizeof(TypedValue::TMap));
 
 /**
  * An exception raised by the TypedValue system. Typically when

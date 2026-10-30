@@ -406,21 +406,29 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+template <bool kCompact, typename OnResolved>
+Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View view, OnResolved &&on_resolved) const {
+  constexpr bool kHoldLock = !std::is_null_pointer_v<std::remove_cvref_t<OnResolved>>;
+  static_assert(kCompact || !kHoldLock);
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
   std::optional<PropertyValue> value;
   Delta *delta = nullptr;
+  auto guard = std::shared_lock{edge_.ptr->lock};
   {
-    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    value.emplace(edge_.ptr->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Edge>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    if constexpr (kCompact) {
+      value.emplace(edge_.ptr->properties.GetProperty(property));
+    } else {
+      value.emplace(edge_.ptr->properties.GetProperty(
+          property,
+          IndexedPropertyDecoder<Edge>{
+              .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    }
     delta = edge_.ptr->delta();
   }
+  if constexpr (!kHoldLock) guard.unlock();
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -449,7 +457,16 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   });
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if constexpr (kHoldLock) on_resolved(*value);
   return *std::move(value);
+}
+
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+  return GetPropertyImpl<false>(property, view, nullptr);
+}
+
+Result<PropertyValue> EdgeAccessor::GetPropertyCompact(PropertyId property, View view) const {
+  return GetPropertyImpl<true>(property, view, nullptr);
 }
 
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
@@ -473,7 +490,8 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+template <bool kCompact>
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesImpl(View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
@@ -482,8 +500,12 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    if constexpr (kCompact) {
+      properties = edge_.ptr->properties.Properties();
+    } else {
+      properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+          .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    }
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -524,6 +546,41 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
   return std::move(properties);
+}
+
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+  return PropertiesImpl<false>(view);
+}
+
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesCompact(View view) const {
+  return PropertiesImpl<true>(view);
+}
+
+bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
+  // A delta-carried ref holds its own floats for `view`; only the live ref (empty list) may read the usearch
+  // index, which is written at SetProperty time. That read runs under the edge lock (SetProperty holds it).
+  bool found = false;
+  const auto maybe_value = GetPropertyImpl<true>(property, view, [&](const PropertyValue &value) {
+    if (!value.IsVectorIndexId()) return;
+    if (!value.ValueVectorIndexList().empty()) return;
+    const auto &ids = value.ValueVectorIndexIds();
+    if (ids.empty()) return;
+    found = storage_->indices_.vector_edge_index_.GetVectorInto(edge_.ptr, ids[0], out);
+  });
+  if (!maybe_value) return false;
+  if (maybe_value->IsVectorIndexId()) {
+    if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
+      out.assign(floats.begin(), floats.end());
+      return true;
+    }
+    return found;
+  }
+  // Left the index (e.g. index drop) and was rewritten to a plain numeric list.
+  if (!maybe_value->IsAnyList()) return false;
+  const auto floats = TryListToVector(*maybe_value);
+  if (!floats) return false;
+  out.assign(floats->begin(), floats->end());
+  return true;
 }
 
 std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {

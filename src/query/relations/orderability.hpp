@@ -72,6 +72,17 @@ std::partial_ordering PlacePoints(Point const &a, Point const &b) {
 /// handed a pair of unlike things.
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
+/// Two lazy embeddings, ordered as the lists of doubles they stand for (a NaN sorts as it does in a list).
+/// Each is read by value, so neither is materialized into the query's arena.
+///
+/// @pre Both are VectorRef.
+std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const &b);
+
+/// An embedding against a list, in either order, which share a position though unlike in type.
+///
+/// @pre One is a VectorRef and the other a List.
+[[gnu::cold]] std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b);
+
 namespace detail {
 
 /// Where each type sits in the order a sort reads, lowest first, as a table.
@@ -119,6 +130,7 @@ inline constexpr auto kPositions = [] {
       case VirtualEdge:
         return 4;
       case List:
+      case VectorRef:
         return 5;
       case Path:
         return 6;
@@ -198,6 +210,7 @@ constexpr bool ValidFor(TypedValue::Type type) {
     case Enum:
     case Point2d:
     case Point3d:
+    case VectorRef:
       return true;
   }
   return false;
@@ -211,7 +224,8 @@ constexpr bool ValidFor(TypedValue::Type type) {
 /// is a fact about the pair rather than about the column.
 inline std::optional<TypedValue::Type> UnorderedTypeWithin(TypedValue const &value) {
   if (!ValidFor(value.type())) return value.type();
-  if (!value.IsList()) return std::nullopt;
+  // An embedding is a list of doubles, which a sort places, so there is nothing to read through.
+  if (!value.IsPlainList()) return std::nullopt;
 
   for (auto const &element : value.ValueList()) {
     if (auto const unordered = UnorderedTypeWithin(element)) return unordered;
@@ -273,6 +287,8 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
         return std::partial_ordering::equivalent;
       case List:
         return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
+      case VectorRef:
+        return CompareOfVectorRefs(a, b);
 
       // The types `ValidFor` denies. Named so that a type added to the value has
       // to be placed, and broken out of rather than throwing here, so the
@@ -304,7 +320,13 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
 
     // Every other unlike pair is placed by where its two types sit. A null is
     // last of them, so it sorts after everything without being asked about here.
-    return detail::kPositions[static_cast<unsigned>(a.type())] <=> detail::kPositions[static_cast<unsigned>(b.type())];
+    auto const placed =
+        detail::kPositions[static_cast<unsigned>(a.type())] <=> detail::kPositions[static_cast<unsigned>(b.type())];
+
+    // Unlike types share a position only as an embedding against a list; the numbers were answered above.
+    if (std::is_eq(placed)) [[unlikely]]
+      return CompareOfTiedTypes(a, b);
+    return placed;
   }
 }
 

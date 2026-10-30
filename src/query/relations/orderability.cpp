@@ -13,6 +13,9 @@
 
 #include <algorithm>
 #include <optional>
+#include <span>
+
+#include "utils/logging.hpp"
 
 import memgraph.storage.property_value;
 
@@ -40,6 +43,7 @@ constexpr std::optional<storage::Stretch> StoredRunOf(TypedValue::Type type) {
     case String:
       return storage::StretchOf(storage::PropertyValueType::String);
     case List:
+    case VectorRef:
       return storage::StretchOf(storage::PropertyValueType::List);
     case Map:
       return storage::StretchOf(storage::PropertyValueType::Map);
@@ -106,11 +110,40 @@ static_assert(ASortRefinesTheStoredOrder(),
               "A sort and the stored order place two types differently, so a scan standing in for a sort would hand "
               "back a column in an order the sort would not");
 
+/// Elementwise as the list of doubles the floats stand for, each pair going through Compare so that a NaN,
+/// an Int, a Null or any other element is placed exactly as it is in a list.
+template <bool ListFirst>
+std::partial_ordering CompareFloatsWithList(std::span<const float> floats, TypedValue::TVector const &list) {
+  auto const common = std::min(floats.size(), list.size());
+  for (auto i = 0UZ; i != common; ++i) {
+    TypedValue const as_double{static_cast<double>(floats[i])};
+    auto const order = ListFirst ? Compare(list[i], as_double) : Compare(as_double, list[i]);
+    if (!std::is_eq(order)) return order;
+  }
+  return ListFirst ? list.size() <=> floats.size() : floats.size() <=> list.size();
+}
+
 }  // namespace
 
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
   return std::lexicographical_compare_three_way(
       a.begin(), a.end(), b.begin(), b.end(), [](TypedValue const &x, TypedValue const &y) { return Compare(x, y); });
+}
+
+std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const &b) {
+  DMG_ASSERT(a.IsVectorRef() && b.IsVectorRef(), "Both sides must be VectorRef");
+  auto const floats_a = a.ReadVectorRef();
+  auto const floats_b = b.ReadVectorRef();
+  return std::lexicographical_compare_three_way(
+      floats_a.begin(), floats_a.end(), floats_b.begin(), floats_b.end(), [](float x, float y) {
+        return PlaceDoubles(x, y);
+      });
+}
+
+std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b) {
+  if (a.IsVectorRef() && b.IsPlainList()) return CompareFloatsWithList<false>(a.ReadVectorRef(), b.UnsafeValueList());
+  DMG_ASSERT(a.IsPlainList() && b.IsVectorRef(), "Only a VectorRef against a List shares a position with unlike types");
+  return CompareFloatsWithList<true>(b.ReadVectorRef(), a.UnsafeValueList());
 }
 
 }  // namespace memgraph::query::relations::orderability

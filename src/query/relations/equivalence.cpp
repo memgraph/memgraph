@@ -66,10 +66,29 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b) {
 
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
   // A container is equivalent only to a container of its own kind, so a pair of
-  // unlike types is settled without walking either.
-  if (a.type() != b.type()) return false;
+  // unlike types is settled without walking either. Except an embedding, which
+  // is equivalent to the list it materializes to.
+  if (a.type() != b.type()) {
+    if (!a.IsVectorRef() && !b.IsVectorRef()) return false;
+    auto const &embedding = a.IsVectorRef() ? a : b;
+    auto const &other = a.IsVectorRef() ? b : a;
+    if (!other.IsPlainList()) return false;
+    DMG_ASSERT(embedding.IsVectorRef() && other.IsPlainList());
+
+    auto const floats = embedding.ReadVectorRef();
+    return std::ranges::equal(floats, other.UnsafeValueList(), [](float x, TypedValue const &y) {
+      return Equivalent(TypedValue(static_cast<double>(x)), y);
+    });
+  }
 
   switch (a.type()) {
+    case TypedValue::Type::VectorRef: {
+      // Floats widen exactly, so comparing them directly matches comparing the lists of doubles (NaN == NaN).
+      auto const floats_a = a.ReadVectorRef();
+      auto const floats_b = b.ReadVectorRef();
+      return std::ranges::equal(
+          floats_a, floats_b, [](float x, float y) { return x == y || (std::isnan(x) && std::isnan(y)); });
+    }
     case TypedValue::Type::List:
       return EquivalentOfLists(a.UnsafeValueList(), b.UnsafeValueList());
     case TypedValue::Type::Map:
@@ -78,6 +97,21 @@ bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
       LOG_FATAL("Asked of a pair that is not a pair of containers");
   }
 }
+
+namespace {
+
+// Cold and out of line to keep Hash's frame small. Must equal the hash of the materialized list of doubles.
+[[gnu::cold, gnu::noinline]] size_t HashOfVectorRef(const TypedValue &value) {
+  auto const floats = value.ReadVectorRef();
+
+  struct FloatAsDoubleHash {
+    size_t operator()(float element) const { return Hash(TypedValue(static_cast<double>(element))); }
+  };
+
+  return utils::FnvCollection<std::vector<float>, float, FloatAsDoubleHash>{}(floats);
+}
+
+}  // namespace
 
 size_t Hash(const TypedValue &value) {
   switch (value.type()) {
@@ -163,6 +197,8 @@ size_t Hash(const TypedValue &value) {
       throw TypedValueException("Unsupported hash function for Graph");
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported hash function for VirtualGraph");
+    case TypedValue::Type::VectorRef:
+      return HashOfVectorRef(value);
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }

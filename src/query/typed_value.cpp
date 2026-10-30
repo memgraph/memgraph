@@ -232,6 +232,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vec = value.ValueVectorIndexList();
+      DMG_ASSERT(!vec.empty(), "compact VectorIndexId must go through MakePropertyValue");
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
@@ -377,6 +378,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vec = other.ValueVectorIndexList();
+      DMG_ASSERT(!vec.empty(), "compact VectorIndexId must go through MakePropertyValue");
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
@@ -695,6 +697,13 @@ TypedValue::operator storage::ExternalPropertyValue() const {
       return storage::ExternalPropertyValue(held_inline_.point_2d_v);
     case TypedValue::Type::Point3d:
       return storage::ExternalPropertyValue(held_inline_.point_3d_v);
+    case Type::VectorRef: {
+      const auto floats = ReadVectorRef();
+      std::vector<storage::ExternalPropertyValue> list;
+      list.reserve(floats.size());
+      for (const float f : floats) list.emplace_back(static_cast<double>(f));
+      return storage::ExternalPropertyValue(std::move(list));
+    }
     case Type::Vertex:
     case Type::Edge:
     case Type::VirtualEdge:
@@ -785,6 +794,9 @@ void TypedValue::CopyComplexValue(TypedValue const &other) {
       alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
       return;
     }
+    case Type::VectorRef:
+      std::construct_at(&vector_ref_v, other.vector_ref_v);
+      return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -889,6 +901,9 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
         alloc_trait::construct(alloc_, &virtual_graph_v, graph_ptr);
       }
       break;
+    case Type::VectorRef:
+      std::construct_at(&vector_ref_v, other.vector_ref_v);
+      break;
   }
 }
 
@@ -964,6 +979,14 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(held_inline_.point_2d_v);
     case TypedValue::Type::Point3d:
       return storage::PropertyValue(held_inline_.point_3d_v);
+    case Type::VectorRef: {
+      // Same DoubleList a literal list of doubles stores, so a persisted copy is re-indexed like any other.
+      const auto floats = ReadVectorRef();
+      storage::PropertyValue::list_t list;
+      list.reserve(floats.size());
+      for (const float f : floats) list.emplace_back(static_cast<double>(f));
+      return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
+    }
     case Type::Vertex:
     case Type::Edge:
     case Type::VirtualEdge:
@@ -978,6 +1001,34 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
 
 __attribute__((cold, noinline)) void TypedValue::ThrowTypeMismatch(Type expected) const {
   throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, expected);
+}
+
+std::vector<float> TypedValue::ReadVectorRef() const {
+  MG_ASSERT(type_ == Type::VectorRef, "ReadVectorRef called on non-VectorRef TypedValue");
+  std::vector<float> floats;
+  const bool ok = vector_ref_v.Visit(
+      [&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, floats); });
+  if (!ok) floats.clear();
+  return floats;
+}
+
+__attribute__((cold, noinline)) void TypedValue::MaterializeInPlace() const {
+  if (type_ != Type::VectorRef) return;
+  const auto floats = ReadVectorRef();
+  TVector list(alloc_);
+  list.reserve(floats.size());
+  for (const float f : floats) list.emplace_back(static_cast<double>(f));
+  std::destroy_at(&vector_ref_v);
+  std::construct_at(&list_v, std::move(list));
+  type_ = Type::List;
+}
+
+const TypedValue::TVector &TypedValue::SlowValueList() const {
+  if (type_ == Type::VectorRef) {
+    MaterializeInPlace();
+    return list_v;
+  }
+  ThrowTypeMismatch(Type::List);
 }
 
 bool TypedValue::ContainsDeleted() const {
@@ -1017,6 +1068,8 @@ bool TypedValue::ContainsDeleted() const {
     case Type::VirtualGraph:
     case Type::Function:
       throw TypedValueException("Value of unknown type");
+    case Type::VectorRef:
+      return false;
   }
   return false;
 }
@@ -1040,6 +1093,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Enum:
     case Type::Point2d:
     case Type::Point3d:
+    case Type::VectorRef:
       return true;
     case Type::Vertex:
     case Type::Edge:
@@ -1100,6 +1154,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "virtual_graph";
     case TypedValue::Type::Function:
       return os << "function";
+    case TypedValue::Type::VectorRef:
+      return os << "list";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -1359,6 +1415,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Point3d:
           held_inline_.point_3d_v = other.held_inline_.point_3d_v;
           break;
+        case Type::VectorRef:
+          std::construct_at(&vector_ref_v, other.vector_ref_v);
+          break;
       }
       return *this;
     }
@@ -1473,6 +1532,9 @@ TypedValue &TypedValue::MoveAssignComplex(TypedValue &&other) {
         case Type::Point3d:
           held_inline_.point_3d_v = other.held_inline_.point_3d_v;
           break;
+        case Type::VectorRef:
+          std::construct_at(&vector_ref_v, other.vector_ref_v);
+          break;
       }
 
       return *this;
@@ -1547,7 +1609,9 @@ void TypedValue::DestroyValue() {
     case Type::Point2d:
     case Type::Point3d:
     case Type::ZonedDateTime:
-      // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
+    case Type::VectorRef:
+      // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB;
+      // VectorRef is trivially destructible.
       break;
     case Type::Function:
       std::destroy_at(&function_v);
@@ -1941,6 +2005,7 @@ void to_json(nlohmann::json &j, TypedValue const &value) {
       j = value.ValueString();
       break;
     case TypedValue::Type::List:
+    case TypedValue::Type::VectorRef:
       j = value.ValueList();
       break;
     case TypedValue::Type::Map:
