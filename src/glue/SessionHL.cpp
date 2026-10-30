@@ -50,6 +50,7 @@
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/temporal.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -187,6 +188,20 @@ std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
         e.what()};
   }
   if (dynamic_cast<memgraph::query::ArithmeticException const *>(&e) != nullptr) {
+    throw memgraph::communication::bolt::VerboseError{
+        memgraph::communication::bolt::VerboseError::Classification::CLIENT_ERROR,
+        "Statement",
+        "ArithmeticError",
+        e.what()};
+  }
+  throw memgraph::communication::bolt::ClientError(e.what());
+}
+
+// Temporal errors are bad input or an unrepresentable result; retrying cannot change the outcome, so they
+// must not fall through to the TransientError mapping of plain BasicExceptions.
+[[noreturn]] void RewrapTemporalException(memgraph::utils::temporal::InvalidArgumentException const &e) {
+  memgraph::metrics::IncrementCounter(GetExceptionName(e));
+  if (dynamic_cast<memgraph::utils::temporal::OverflowException const *>(&e) != nullptr) {
     throw memgraph::communication::bolt::VerboseError{
         memgraph::communication::bolt::VerboseError::Classification::CLIENT_ERROR,
         "Statement",
@@ -562,6 +577,8 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    RewrapTemporalException(e);
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
     // i. e. client will be encouraged to retry execution because it
@@ -588,6 +605,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    RewrapTemporalException(e);
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
     // i. e. client will be encouraged to retry execution because it
@@ -651,6 +670,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    RewrapTemporalException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -717,6 +738,8 @@ void SessionHL::RollbackTransaction() {
     // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    RewrapTemporalException(e);
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
     // i. e. client will be encouraged to retry execution because it
@@ -746,6 +769,8 @@ bolt_map_t SessionHL::CommitTransaction() {
     // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    RewrapTemporalException(e);
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
     // i. e. client will be encouraged to retry execution because it

@@ -625,8 +625,8 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
 }
 
 Timezone::Timezone(const std::chrono::minutes offset) {
-  if (std::abs(offset.count()) > MAX_OFFSET_MINUTES) {
-    throw utils::BasicException("Zone offset not in valid range: -18:00 to +18:00");
+  if (offset.count() > MAX_OFFSET_MINUTES || offset.count() < -MAX_OFFSET_MINUTES) {
+    throw temporal::InvalidArgumentException("Zone offset not in valid range: -18:00 to +18:00");
   }
   offset_ = offset;
 }
@@ -1129,7 +1129,7 @@ DurationParameters ParseDurationParameters(std::string_view string) {
     return *maybe_duration_parameters;
   }
 
-  throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
+  throw temporal::InvalidArgumentException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
 }
 
 namespace {
@@ -1214,7 +1214,7 @@ std::string Duration::ToString() const {
 
 Duration Duration::operator-() const {
   if (microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
-    throw temporal::InvalidArgumentException("Duration arithmetic overflows");
+    throw temporal::OverflowException("Duration arithmetic overflows");
   }
   Duration result{-microseconds};
   return result;

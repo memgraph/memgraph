@@ -484,6 +484,34 @@ inline constexpr std::array parsing_test_local_time_basic{
 };
 }  // namespace
 
+TEST(TemporalTest, DurationArithmeticOverflowIsTypedInvalidArgument) {
+  using memgraph::utils::Duration;
+  namespace temporal = memgraph::utils::temporal;
+  constexpr auto kMax = std::numeric_limits<int64_t>::max();
+  constexpr auto kMin = std::numeric_limits<int64_t>::min();
+
+  EXPECT_THROW((void)(Duration(kMax) + Duration(1)), temporal::OverflowException);
+  EXPECT_THROW((void)(Duration(kMin) + Duration(-1)), temporal::OverflowException);
+  EXPECT_THROW((void)(Duration(0) - Duration(kMin)), temporal::OverflowException);
+  EXPECT_THROW((void)(-Duration(kMin)), temporal::OverflowException);
+
+  try {
+    (void)(Duration(kMax) + Duration(1));
+    FAIL() << "expected an exception";
+  } catch (const temporal::InvalidArgumentException &) {
+  }
+}
+
+TEST(TemporalTest, TimezoneOffsetOutOfRangeIsInvalidArgument) {
+  using memgraph::utils::Timezone;
+  namespace temporal = memgraph::utils::temporal;
+  EXPECT_THROW(Timezone(std::chrono::minutes{std::numeric_limits<int64_t>::min()}), temporal::InvalidArgumentException);
+  EXPECT_THROW(Timezone(std::chrono::minutes{1081}), temporal::InvalidArgumentException);
+  EXPECT_THROW(Timezone(std::chrono::minutes{-1081}), temporal::InvalidArgumentException);
+  EXPECT_NO_THROW(Timezone(std::chrono::minutes{1080}));
+  EXPECT_NO_THROW(Timezone(std::chrono::minutes{-1080}));
+}
+
 TEST(TemporalTest, DateParsing) {
   for (const auto &[string, date_parameters] : parsing_test_dates_extended) {
     ASSERT_EQ(memgraph::utils::ParseDateParameters(string).first, date_parameters);

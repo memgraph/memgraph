@@ -59,6 +59,12 @@ struct InvalidArgumentException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(InvalidArgumentException)
 };
+
+/// A result that is not representable in the temporal type.
+struct OverflowException : public InvalidArgumentException {
+  using InvalidArgumentException::InvalidArgumentException;
+  SPECIALIZE_GET_EXCEPTION_NAME(OverflowException)
+};
 }  // namespace temporal
 
 struct DurationParameters {
@@ -99,11 +105,11 @@ struct Duration {
 
   friend Duration operator+(const Duration &lhs, const Duration rhs) {
     if (Overflows(lhs.microseconds, rhs.microseconds)) {
-      throw utils::BasicException("Duration arithmetic overflows");
+      throw temporal::OverflowException("Duration arithmetic overflows");
     }
 
     if (Underflows(lhs.microseconds, rhs.microseconds)) {
-      throw utils::BasicException("Duration arithmetic underflows");
+      throw temporal::OverflowException("Duration arithmetic underflows");
     }
 
     return Duration(lhs.microseconds + rhs.microseconds);
