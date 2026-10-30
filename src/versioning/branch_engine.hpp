@@ -492,6 +492,11 @@ class BranchContext {
   // fork-time index by edge id, so the FROM vertex is required; finding an edge without it would scan all of main.
   std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
+  // The edge `edge_gid` by id alone: a fork gid through main's own lookup at the fork, at main's cost (nullopt if
+  // hidden on the branch), a native gid through the diff engine; never a stub. Finds only an edge main still holds: a
+  // fork edge main deleted since the fork needs the FROM-vertex overload.
+  std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::View view);
+
   // `vertex` as the query layer holds it: the fork vertex when `vertex` is the diff-engine stub of one (e.g. the
   // endpoint of a branch-native edge on a fork vertex), else `vertex` itself.
   storage::VertexAccessor ForkIdentity(const storage::VertexAccessor &vertex);
@@ -522,6 +527,13 @@ class BranchContext {
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
   // Same, walking the known FROM vertex's adjacency instead of scanning every vertex.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
+
+  // ---- Counts
+
+  // Approximate counts, as Storage::Accessor reports them on main: main's current count plus the branch-native objects,
+  // less the fork vertices (edges) committed branch transactions deleted (hid).
+  int64_t ApproximateVertexCount();
+  int64_t ApproximateEdgeCount();
 
   // ---- Scans and adjacency
 

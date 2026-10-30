@@ -34,6 +34,11 @@
 #include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
+#ifdef MG_ENTERPRISE
+#include "query/typed_value.hpp"
+#include "query/vertex_accessor.hpp"
+#include "versioning/branch_engine.hpp"
+#endif
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -279,6 +284,53 @@ TEST_F(VectorIndexTest, ToBoltVertexOmitsVectorIndexedPropertyWhenFlagOn) {
   EXPECT_TRUE(without_prop->properties.contains("title"));
   EXPECT_TRUE(without_prop->properties.contains("tags"));
 }
+
+#ifdef MG_ENTERPRISE
+// The branch arm of ToBoltVertex hides vector-indexed properties like the storage arm. The vertex is untouched on the
+// branch, so reads fall through to main@fork, while index metadata still comes from impl_'s transaction.
+TEST_F(VectorIndexTest, ToBoltVertexBranchArmOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_index_branch_arm_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
+  set_omit(false);
+
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto storage_vertex =
+      this->CreateVertex(acc.get(),
+                         test_property,
+                         PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)}),
+                         test_label);
+  ASSERT_TRUE(storage_vertex.SetProperty(acc->NameToProperty("title"), PropertyValue("t")).has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  const auto fork_ts = mem_storage->RegisterForkPin();
+  memgraph::utils::OnScopeExit release_pin{[&] { mem_storage->ReleaseForkPin(fork_ts); }};
+  auto branch_ctx = memgraph::versioning::BranchContext::BuildFromFork(*mem_storage, fork_ts);
+  ASSERT_TRUE(branch_ctx.has_value());
+  acc->GetTransaction()->branch_ctx = branch_ctx->get();
+  memgraph::query::VertexAccessor const query_vertex(storage_vertex, branch_ctx->get());
+
+  auto with_prop =
+      memgraph::glue::ToBoltValue(memgraph::query::TypedValue{query_vertex}, this->storage.get(), View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->ValueVertex().properties.contains(test_property.data()));
+  EXPECT_TRUE(with_prop->ValueVertex().properties.contains("title"));
+
+  set_omit(true);
+  auto without_prop =
+      memgraph::glue::ToBoltValue(memgraph::query::TypedValue{query_vertex}, this->storage.get(), View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->ValueVertex().properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->ValueVertex().properties.contains("title"));
+}
+#endif
 
 TEST_F(VectorIndexTest, ConcurrencyTest) {
   this->CreateIndex(2, 10);
