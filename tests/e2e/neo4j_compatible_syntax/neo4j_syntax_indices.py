@@ -141,31 +141,24 @@ def test_neo4j_syntax_create_and_drop_constraints(cursor):
 
 
 def test_boolean_map_key_literal(cursor):
-    # An unquoted `false` map key materializes as 'false', same as the backticked spelling.
     rows = execute_and_fetch_all(cursor, "RETURN {false:1} AS m, {`false`:1} AS ctrl_m")
     assert rows[0][0] == {"false": 1}
     assert rows[0][1] == {"false": 1}
-    # keys() returns the map-key spelling.
     assert execute_and_fetch_all(cursor, "RETURN keys({false:1}) AS k")[0][0] == ["false"]
     assert execute_and_fetch_all(cursor, "RETURN keys({`false`:1}) AS k")[0][0] == ["false"]
     assert execute_and_fetch_all(cursor, "RETURN keys({fAlse:1}) AS k")[0][0] == ["fAlse"]
-    # Lookup by the written key hits; the other boolean spelling does not.
     assert execute_and_fetch_all(cursor, "WITH {false:1} AS m RETURN m['false'] AS v, m['true'] AS v2")[0] == (1, None)
-    # `true` and `false` stay distinct keys.
     rows, err = _try_execute(cursor, "RETURN keys({true:1,false:2}) AS k")
     assert err is None and sorted(rows[0][0]) == ["false", "true"], (rows, err)
-    # `RETURN false` still returns the boolean False.
+    # Control: a boolean in expression position is still a literal.
     assert execute_and_fetch_all(cursor, "RETURN false")[0][0] is False
-    # Non-aliased boolean RETURN items keep distinct names.
     rows, err = _try_execute(cursor, "RETURN false, true")
     assert err is None and rows == [(False, True)], (rows, err)
-    # An aliased output name keeps the written spelling in the header.
     cursor.execute("RETURN 1 AS false")
     assert _column_names(cursor) == ["false"]
 
 
 def test_boolean_name_positions(cursor):
-    # Stored property names keep the spelling (map literal as property value and as property-set map).
     assert execute_and_fetch_all(cursor, "CREATE (n) SET n.p = {false:1} RETURN n.p AS p")[0][0] == {"false": 1}
     assert execute_and_fetch_all(cursor, "CREATE (n) SET n = {false:1} RETURN properties(n) AS props")[0][0] == {
         "false": 1
@@ -173,16 +166,13 @@ def test_boolean_name_positions(cursor):
     assert execute_and_fetch_all(cursor, "CREATE (n) SET n.false = 1 RETURN properties(n) AS props")[0][0] == {
         "false": 1
     }
-    # Map-projection explicit pair and dot selector.
     assert execute_and_fetch_all(cursor, "WITH {a:1} AS n RETURN n{false: 1} AS m")[0][0] == {"false": 1}
     assert execute_and_fetch_all(cursor, "WITH {a:1} AS n RETURN n{.false} AS m")[0][0] == {"false": None}
     # Shorthand `n{false}` names a variable; the unbound error names the written spelling.
     rows, err = _try_execute(cursor, "WITH {a:1} AS n RETURN n{false} AS m")
     assert err is not None and "Unbound variable: false." in err, (rows, err)
-    # Labels and relationship types keep the spelling.
     assert execute_and_fetch_all(cursor, "CREATE (n:false) RETURN labels(n) AS l")[0][0] == ["false"]
     assert execute_and_fetch_all(cursor, "CREATE (a)-[r:false]->(b) RETURN type(r) AS t")[0][0] == "false"
-    # Pattern variable bindings keep the written spelling.
     cursor.execute("MATCH (n)-[false]->(m) RETURN *")
     assert sorted(_column_names(cursor)) == ["false", "m", "n"]
     cursor.execute("MATCH (a)-[*WSHORTEST (r, n | 1) false]->(b) RETURN *")
@@ -192,10 +182,8 @@ def test_boolean_name_positions(cursor):
     # `false.l` does not resolve through a different binding named `true`.
     rows, err = _try_execute(cursor, "CREATE (true {l:'K'}) CREATE (n: false.l) RETURN 1")
     assert err is not None and "Unbound variable: false." in err, (rows, err)
-    # The enum value access error names the written spelling.
     rows, err = _try_execute(cursor, "RETURN e::false")
     assert err is not None and "'false'" in err, (rows, err)
-    # Parameter names keep the spelling: the two spellings are two entries.
     execute_and_fetch_all(cursor, "SET PARAMETER false = 1")
     execute_and_fetch_all(cursor, "SET PARAMETER true = 2")
     names = [row[0] for row in execute_and_fetch_all(cursor, "SHOW PARAMETERS")]
@@ -203,19 +191,16 @@ def test_boolean_name_positions(cursor):
 
 
 def test_boolean_ddl_schema_keys(cursor):
-    # DDL index property key spelling.
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Lk(false)")
     assert ("label+property", "Lk", ["false"], 0) in _index_rows(cursor)
     # Index DDL variables `false` and `true` are different variables.
     rows, err = _try_execute(cursor, "CREATE INDEX FOR (false:Lk2) ON (true.x)")
     assert err is not None, (rows, err)
-    # Constraint property key spelling.
     execute_and_fetch_all(cursor, "CREATE CONSTRAINT FOR (n:Lc) REQUIRE (n.false) IS UNIQUE")
     assert ("unique", "Lc", ["false"], "") in _constraint_rows(cursor)
     # Constraint DDL variables `false` and `true` are different variables.
     rows, err = _try_execute(cursor, "CREATE CONSTRAINT FOR (false:Lc2) REQUIRE (true.x) IS UNIQUE")
     assert err is not None, (rows, err)
-    # The index hint property key reaches the plan.
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Lh(false)")
     plan = _explain(cursor, "USING INDEX :Lh(false) MATCH (n:Lh) WHERE n.false = 1 RETURN n")
     assert any("ScanAllByLabelProperties (n :Lh {false})" in line for line in plan), plan
