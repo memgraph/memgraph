@@ -76,6 +76,25 @@ storage::Result<void> EdgeAccessor::BranchReadPropertyValues(storage::OrderedPro
   return branch_ctx()->ReadPropertyValues(impl_, ordered_properties, out, view);
 }
 
+storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
+                                                                        const storage::PropertyValue &value) {
+  return branch_ctx()->SetProperty(impl_, key, value);
+}
+
+storage::Result<bool> EdgeAccessor::BranchInitProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  return branch_ctx()->InitProperties(impl_, properties);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+EdgeAccessor::BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  return branch_ctx()->UpdateProperties(impl_, properties);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAccessor::BranchClearProperties() {
+  return branch_ctx()->ClearProperties(impl_);
+}
+
 bool EdgeAccessor::BranchIsDeleted() const {
   // Main's IsDeleted is false for every edge when it keeps no edge properties.
   if (branch_ctx()->PropertyWritesDisabled(impl_)) return false;
