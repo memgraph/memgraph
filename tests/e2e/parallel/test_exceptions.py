@@ -315,7 +315,8 @@ class TestArithmeticExceptions:
             # Force parallel execution and trigger division by zero for some elements
             memgraph.fetch_all(pq("MATCH (n:A) RETURN n.p / (n.p - 5) AS result"))
 
-        assert "invalid types" in str(excinfo.value).lower()
+        assert "division by zero in '/'" in str(excinfo.value).lower()
+        assert "ArithmeticError" in getattr(excinfo.value, "code", "")
 
 
 class TestOrderByExceptions:

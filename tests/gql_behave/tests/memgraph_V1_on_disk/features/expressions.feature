@@ -141,3 +141,59 @@ Feature: Expressions
         Then the result should be:
             | result |
             | true   |
+
+    Scenario Outline: Integer arithmetic that leaves the int64 range raises an error
+        Given an empty graph
+        When executing query:
+            """
+            RETURN <expression> AS r
+            """
+        Then an error should be raised
+
+        Examples:
+            | expression                                |
+            | 9223372036854775807 + 1                   |
+            | (-9223372036854775807 - 1) - 1            |
+            | 9223372036854775807 * 2                   |
+            | (-9223372036854775807 - 1) * -1           |
+            | -(-9223372036854775807 - 1)               |
+            | (-9223372036854775807 - 1) / -1           |
+            | 1 / 0                                     |
+            | 1 % 0                                     |
+
+    Scenario Outline: Integer arithmetic at the edge of the int64 range
+        Given an empty graph
+        When executing query:
+            """
+            RETURN <expression> AS r
+            """
+        Then the result should be:
+            | r       |
+            | <value> |
+
+        Examples:
+            | expression                                  | value                |
+            | (-9223372036854775807 - 1) % -1             | 0                    |
+            | (-9223372036854775807 - 1) / 1              | -9223372036854775808 |
+            | (-9223372036854775807 - 1 + 1) / -1         | 9223372036854775807  |
+            | 9223372036854775807 - 1 + 1                 | 9223372036854775807  |
+
+    Scenario: Constant folding leaves an overflow in an untaken branch unevaluated
+        Given an empty graph
+        When executing query:
+            """
+            RETURN CASE WHEN false THEN 9223372036854775807 + 1 ELSE 0 END AS r
+            """
+        Then the result should be:
+            | r |
+            | 0 |
+
+    Scenario: Double division by zero does not raise
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 5.0 / 0 AS r
+            """
+        Then the result should be:
+            | r   |
+            | inf |
