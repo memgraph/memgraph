@@ -20,8 +20,6 @@
 #include <optional>
 #include <string_view>
 
-#include "dbms/database.hpp"
-#include "memory/db_arena.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -46,13 +44,11 @@ ms::Config MakeConfig(bool recover_on_startup, uint64_t snapshot_retention_count
   };
 }
 
-auto *Mem(memgraph::dbms::Database &db) { return static_cast<ms::InMemoryStorage *>(db.storage()); }
-
 void Commit(ms::Storage::Accessor &acc) {
   ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-void Snapshot(memgraph::dbms::Database &db) { ASSERT_TRUE(Mem(db)->CreateSnapshot(/*force=*/true).has_value()); }
+void Snapshot(ms::InMemoryStorage &db) { ASSERT_TRUE(db.CreateSnapshot(/*force=*/true).has_value()); }
 
 size_t CountFiles(std::string_view subdirectory) {
   const auto dir = kStorageDirectory / subdirectory;
@@ -67,30 +63,30 @@ struct Gids {
   ms::Gid v1, v2, v3, e1, v4;
 };
 
-Gids CreateBase(memgraph::dbms::Database &db) {
-  const auto p = db.storage()->NameToProperty("p");
+Gids CreateBase(ms::InMemoryStorage &db) {
+  const auto p = db.NameToProperty("p");
   auto acc = db.Access(ms::WRITE);
   auto v1 = acc->CreateVertex();
   auto v2 = acc->CreateVertex();
   auto v3 = acc->CreateVertex();
   EXPECT_TRUE(v1.SetProperty(p, ms::PropertyValue(1)).has_value());
-  auto e1 = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("T"));
+  auto e1 = acc->CreateEdge(&v1, &v2, db.NameToEdgeType("T"));
   EXPECT_TRUE(e1.has_value());
   Gids gids{v1.Gid(), v2.Gid(), v3.Gid(), e1->Gid(), ms::kInvalidGid};
   Commit(*acc);
   return gids;
 }
 
-void SetV1(memgraph::dbms::Database &db, const Gids &g, int64_t value) {
+void SetV1(ms::InMemoryStorage &db, const Gids &g, int64_t value) {
   auto acc = db.Access(ms::WRITE);
   auto v1 = acc->FindVertex(g.v1, ms::View::OLD);
   ASSERT_TRUE(v1.has_value());
-  ASSERT_TRUE(v1->SetProperty(db.storage()->NameToProperty("p"), ms::PropertyValue(value)).has_value());
+  ASSERT_TRUE(v1->SetProperty(db.NameToProperty("p"), ms::PropertyValue(value)).has_value());
   Commit(*acc);
 }
 
 // update v1.p, detach-delete v2, delete v3, create v4.
-Gids MoveMainOn(memgraph::dbms::Database &db, Gids g) {
+Gids MoveMainOn(ms::InMemoryStorage &db, Gids g) {
   SetV1(db, g, 10);
   auto acc = db.Access(ms::WRITE);
   auto v2 = acc->FindVertex(g.v2, ms::View::OLD);
@@ -104,11 +100,11 @@ Gids MoveMainOn(memgraph::dbms::Database &db, Gids g) {
 }
 
 // The state CreateBase left, before MoveMainOn.
-void ExpectBaseState(memgraph::dbms::Database &db, const Gids &g) {
+void ExpectBaseState(ms::InMemoryStorage &db, const Gids &g) {
   auto acc = db.Access(ms::READ);
   auto v1 = acc->FindVertex(g.v1, ms::View::OLD);
   ASSERT_TRUE(v1.has_value());
-  EXPECT_EQ(*v1->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD), ms::PropertyValue(1));
+  EXPECT_EQ(*v1->GetProperty(db.NameToProperty("p"), ms::View::OLD), ms::PropertyValue(1));
   EXPECT_TRUE(acc->FindVertex(g.v2, ms::View::OLD).has_value()) << "vertex deleted after the floor must be present";
   EXPECT_TRUE(acc->FindVertex(g.v3, ms::View::OLD).has_value());
   auto out = v1->OutEdges(ms::View::OLD);
@@ -119,7 +115,7 @@ void ExpectBaseState(memgraph::dbms::Database &db, const Gids &g) {
 }
 
 // Moves main on past the floor and takes three snapshots above it under a retention count of 1.
-void SnapshotPastTheFloor(memgraph::dbms::Database &db, Gids &gids, bool snapshot_below_floor) {
+void SnapshotPastTheFloor(ms::InMemoryStorage &db, Gids &gids, bool snapshot_below_floor) {
   gids = MoveMainOn(db, gids);
   Snapshot(db);
   SetV1(db, gids, 11);
@@ -146,22 +142,20 @@ TEST_P(RetentionFloorSnapshotTest, ForkPinFloorSurvivesSnapshotRetention) {
   Gids gids{};
   uint64_t floor = 0;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
     gids = CreateBase(db);
     if (snapshot_below_floor) Snapshot(db);
-    EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
-    floor = Mem(db)->RegisterBranchForkPin() - 1;
-    EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
+    EXPECT_FALSE(db.RetentionFloor().has_value());
+    floor = db.RegisterBranchForkPin() - 1;
+    EXPECT_EQ(db.RetentionFloor(), floor);
     SnapshotPastTheFloor(db, gids, snapshot_below_floor);
     // A later pin does not raise the floor.
-    Mem(db)->RegisterBranchForkPin();
-    EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
+    db.RegisterBranchForkPin();
+    EXPECT_EQ(db.RetentionFloor(), floor);
   }
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  EXPECT_EQ(Mem(db)->RetentionFloor(), floor) << "the recovery bound seeds the floor";
+  ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
+  EXPECT_EQ(db.RetentionFloor(), floor) << "the recovery bound seeds the floor";
   ExpectBaseState(db, gids);
 }
 
@@ -171,21 +165,18 @@ TEST_P(RetentionFloorSnapshotTest, ConfiguredFloorSurvivesSnapshotRetention) {
   Gids gids{};
   uint64_t floor = 0;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
     gids = CreateBase(db);
     if (snapshot_below_floor) Snapshot(db);
-    floor = Mem(db)->RegisterForkPin() - 1;
+    floor = db.RegisterForkPin() - 1;
   }
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, floor)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
+    ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, floor)};
+    EXPECT_EQ(db.RetentionFloor(), floor);
     SnapshotPastTheFloor(db, gids, snapshot_below_floor);
   }
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
   ExpectBaseState(db, gids);
 }
 
@@ -194,21 +185,20 @@ INSTANTIATE_TEST_SUITE_P(Retention, RetentionFloorSnapshotTest, ::testing::Bool(
 });
 
 TEST_F(RetentionFloorTest, ClearingTheFloorLetsRetentionCleanUpAgain) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
   auto gids = CreateBase(db);
   Snapshot(db);
-  const auto fork_ts = Mem(db)->RegisterBranchForkPin();
+  const auto fork_ts = db.RegisterBranchForkPin();
   SetV1(db, gids, 2);
   Snapshot(db);
   SetV1(db, gids, 3);
   Snapshot(db);
   ASSERT_EQ(CountFiles("snapshots"), 2U);
-  EXPECT_TRUE(Mem(db)->RetentionFloor().has_value());
+  EXPECT_TRUE(db.RetentionFloor().has_value());
 
   const auto wal_files_with_floor = CountFiles("wal");
-  Mem(db)->ReleaseForkPin(fork_ts);
-  Mem(db)->SetRetentionFloor(std::nullopt);
+  db.ReleaseForkPin(fork_ts);
+  db.SetRetentionFloor(std::nullopt);
   SetV1(db, gids, 4);
   Snapshot(db);
   EXPECT_EQ(CountFiles("snapshots"), 1U);
@@ -216,10 +206,9 @@ TEST_F(RetentionFloorTest, ClearingTheFloorLetsRetentionCleanUpAgain) {
 }
 
 TEST_F(RetentionFloorTest, RetentionIsUnchangedWithoutAFloor) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/2)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ms::InMemoryStorage db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/2)};
   auto gids = CreateBase(db);
-  EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
+  EXPECT_FALSE(db.RetentionFloor().has_value());
   for (int i = 0; i < 4; ++i) {
     Snapshot(db);
     SetV1(db, gids, i);

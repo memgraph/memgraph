@@ -966,7 +966,7 @@ add_unit_test(versioning_historical_access
 
 add_unit_test(storage_v2_retention_floor
     SOURCES storage_v2_retention_floor.cpp
-    LINK_TARGETS mg::storage mg-dbms
+    LINK_TARGETS mg::storage
 )
 
 add_unit_test(versioning_bounded_recovery
@@ -996,7 +996,12 @@ add_unit_test(versioning_gate
 
 add_unit_test(versioning_ledger
     SOURCES versioning_ledger.cpp
-    LINK_TARGETS mg::versioning
+    LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_durability_restart
+    SOURCES versioning_durability_restart.cpp
+    LINK_TARGETS mg::versioning mg::storage mg-dbms
 )
 
 add_unit_test(versioning_version_store
