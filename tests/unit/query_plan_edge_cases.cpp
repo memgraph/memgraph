@@ -367,6 +367,52 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
   CHECK_CACHE_PROPERTIES_RESULTS();
 }
 
+// A lookup the pass cannot take, because it sits where it may never be evaluated, still answers
+// what it answered before: changing how it reads must not change what it reads. Asked with the
+// rewrite off as well, so the expectations are the ones the old reading gives rather than
+// whatever the new one happens to produce.
+#define CHECK_LEFTOVER_LOOKUP_RESULTS()                                                                        \
+  do {                                                                                                         \
+    using BoltValue = memgraph::communication::bolt::Value;                                                    \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                \
+    this->Execute("CREATE ({a: 1, b: 2, c: 1, d: 5})");                                                        \
+                                                                                                               \
+    /* The disjunction is answered by its first operand, so the second is never read. */                       \
+    auto disjunction = this->Execute("MATCH (n) RETURN n.a AS a, n.b AS b, n.c = 1 OR n.missing = 2 AS flag"); \
+    ASSERT_EQ(disjunction.size(), 1);                                                                          \
+    EXPECT_EQ(disjunction[0][0].ValueInt(), 1);                                                                \
+    EXPECT_EQ(disjunction[0][1].ValueInt(), 2);                                                                \
+    EXPECT_TRUE(disjunction[0][2].ValueBool());                                                                \
+                                                                                                               \
+    /* A property the record does not carry reads as Null, so the disjunction is Null. */                      \
+    auto absent = this->Execute("MATCH (n) RETURN n.a AS a, n.b AS b, n.nope = 1 OR n.alsonope = 2 AS flag");  \
+    ASSERT_EQ(absent.size(), 1);                                                                               \
+    EXPECT_EQ(absent[0][2].type(), BoltValue::Type::Null);                                                     \
+                                                                                                               \
+    /* A map literal is built from its entries, so the lookups inside it are left where they are. */           \
+    auto mapped = this->Execute("MATCH (n) RETURN n.c AS c, n.d AS d, {a: n.a, b: n.b} AS m");                 \
+    ASSERT_EQ(mapped.size(), 1);                                                                               \
+    EXPECT_EQ(mapped[0][0].ValueInt(), 1);                                                                     \
+    EXPECT_EQ(mapped[0][1].ValueInt(), 5);                                                                     \
+    EXPECT_EQ(mapped[0][2].ValueMap().at("a").ValueInt(), 1);                                                  \
+    EXPECT_EQ(mapped[0][2].ValueMap().at("b").ValueInt(), 2);                                                  \
+                                                                                                               \
+    auto listed = this->Execute("MATCH (n) RETURN n.a AS a, n.b AS b, [n.c, n.d] AS rest");                    \
+    ASSERT_EQ(listed.size(), 1);                                                                               \
+    EXPECT_EQ(listed[0][2].ValueList().at(0).ValueInt(), 1);                                                   \
+    EXPECT_EQ(listed[0][2].ValueList().at(1).ValueInt(), 5);                                                   \
+  } while (false)
+
+TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_LEFTOVER_LOOKUP_RESULTS();
+}
+
+TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_LEFTOVER_LOOKUP_RESULTS();
+}
+
 TYPED_TEST(QueryExecution, CachePropertiesReadsARelationshipsProperties) {
   // A relationship keeps its properties in the same store a node does, so a projection of two of
   // them is the same shape the rewrite is for. The second is missing on one relationship, so the

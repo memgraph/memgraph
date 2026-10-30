@@ -32,7 +32,7 @@ namespace impl {
 /// replaced; a subexpression this visitor refuses to enter simply keeps reading properties the old way.
 class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  enum class Phase : uint8_t { GATHER, REPLACE };
+  enum class Phase : uint8_t { GATHER, REPLACE, RETUNE };
 
   ProducePropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
@@ -108,6 +108,17 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         }
         return;
       }
+      case Phase::RETUNE: {
+        auto const &symbol = symbol_table_->at(*identifier);
+        auto const group =
+            std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
+        if (group == cached_.end()) return;
+        // A lookup still standing on a symbol whose properties were read in one pass is one the
+        // pass could not take, because it sits where it may never be evaluated. Loading every
+        // property for it would read the record a second time over, so it reads its own.
+        op.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_OWN_PROPERTY;
+        return;
+      }
       case Phase::REPLACE: {
         auto const &symbol = symbol_table_->at(*identifier);
         auto const group =
@@ -122,6 +133,13 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
     }
+  }
+
+  /// Descends where the caching phases will not, so that only retuning sees these.
+  void DescendOnlyToRetune(Expression *&first, Expression *&second) {
+    if (phase_ != Phase::RETUNE) return;
+    AcceptExpression(first);
+    AcceptExpression(second);
   }
 
   void AcceptExpression(Expression *&expr) {
@@ -184,9 +202,9 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   // AND stops on a false first operand and OR on a true one, so whether the second is evaluated is
   // decided as the row runs. Caching a lookup reachable only through one would read a record the
   // query never asked to be read, and answer with an error where the lookup was never to happen.
-  void Visit(AndOperator &op) override {}
+  void Visit(AndOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
 
-  void Visit(OrOperator &op) override {}
+  void Visit(OrOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
 
   // An Aggregation's inner expression is evaluated by the Aggregate operator below this Produce, so a cache inserted
   // above it would leave the slot unwritten. Pattern comprehensions and subqueries are likewise evaluated by a
@@ -201,9 +219,15 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void Visit(IfOperator &op) override {}
 
-  void Visit(ListLiteral &op) override {}
+  void Visit(ListLiteral &op) override {
+    if (phase_ != Phase::RETUNE) return;
+    for (auto *&element : op.elements_) AcceptExpression(element);
+  }
 
-  void Visit(MapLiteral &op) override {}
+  void Visit(MapLiteral &op) override {
+    if (phase_ != Phase::RETUNE) return;
+    for (auto &[_, element] : op.elements_) AcceptExpression(element);
+  }
 
   void Visit(MapProjectionLiteral &op) override {}
 
@@ -298,6 +322,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     cacher.SetCachedSymbols(std::move(cached_by_symbol));
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(ProducePropertyLookupCacher::Phase::REPLACE, named_expression);
+    }
+    for (auto *&named_expression : op.named_expressions_) {
+      cacher.Run(ProducePropertyLookupCacher::Phase::RETUNE, named_expression);
     }
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
