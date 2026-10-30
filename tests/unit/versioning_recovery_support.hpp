@@ -371,7 +371,7 @@ inline std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db,
   });
   EXPECT_TRUE(core.has_value());
   if (!core) return nullptr;
-  return std::make_unique<mv::BranchContext>(*core);
+  return std::make_unique<mv::BranchContext>(*core, std::string{name}, info.id);
 }
 
 struct Env {
