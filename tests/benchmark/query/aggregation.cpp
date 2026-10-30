@@ -347,6 +347,24 @@ void ProjectThreeProperties(benchmark::State &state) {
            "RETURN i.value AS v, i.quantity AS q, i.category AS c");
 }
 
+// A projection whose lookups cannot all be read in one pass. A disjunction may never evaluate its
+// second operand, so reading what it names ahead of the row's turn would do work the query avoids
+// and could refuse a query that answers. Those lookups are therefore left where they are, and the
+// row pays for the pass that reads the rest as well as for whatever the leftovers cost.
+void ProjectWithLookupsBehindADisjunction(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN i.value AS v, i.quantity AS q, i.category = 'a' OR i.region = 'b' AS flag");
+}
+
+// The same shape with the leftover lookups inside a map literal, which is left alone for its own
+// reason: a map is built from its entries rather than read from a frame.
+void ProjectWithLookupsInsideAMap(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN i.value AS v, i.quantity AS q, {category: i.category, region: i.region} AS m");
+}
+
 // The control for the projection: one lookup, so there is nothing to read in one pass and nothing to
 // save. A change that reads a row's properties together must leave this where it is.
 void ProjectOneProperty(benchmark::State &state) {
@@ -558,6 +576,8 @@ BENCHMARK(SinglePropertyRead)->Unit(kUnit);
 BENCHMARK(TwoDistinctProperties)->Unit(kUnit);
 BENCHMARK(SumAvgNumeric)->Unit(kUnit);
 BENCHMARK(ProjectThreeProperties)->Unit(kUnit);
+BENCHMARK(ProjectWithLookupsBehindADisjunction)->Unit(kUnit);
+BENCHMARK(ProjectWithLookupsInsideAMap)->Unit(kUnit);
 BENCHMARK(ProjectOneProperty)->Unit(kUnit);
 BENCHMARK(ProjectAcrossTwoSymbols)->Unit(kUnit);
 BENCHMARK(GroupBySingleKey)->Unit(kUnit);
