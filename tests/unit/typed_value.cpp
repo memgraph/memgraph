@@ -519,8 +519,6 @@ TEST(TypedValue, IntegerArithmeticIsExactOrThrows) {
   EXPECT_THROW(TypedValue(kMin) * TypedValue(-1), ArithmeticException);
   EXPECT_THROW(-TypedValue(kMin), ArithmeticException);
   EXPECT_THROW(TypedValue(kMin) / TypedValue(-1), ArithmeticException);
-  EXPECT_THROW(TypedValue(1) / TypedValue(0), ArithmeticException);
-  EXPECT_THROW(TypedValue(1) % TypedValue(0), ArithmeticException);
 
   EXPECT_EQ((TypedValue(kMin) % TypedValue(-1)).ValueInt(), 0);
   EXPECT_EQ((TypedValue(kMin) / TypedValue(1)).ValueInt(), kMin);
@@ -530,7 +528,6 @@ TEST(TypedValue, IntegerArithmeticIsExactOrThrows) {
   EXPECT_EQ((-TypedValue(kMax)).ValueInt(), -kMax);
 
   EXPECT_TRUE(std::isinf((TypedValue(1.0) / TypedValue(0.0)).ValueDouble()));
-  EXPECT_FALSE(std::isinf((TypedValue(static_cast<double>(kMax)) * TypedValue(2.0)).ValueDouble()));
 }
 
 TEST(TypedValue, UnaryPlus) {

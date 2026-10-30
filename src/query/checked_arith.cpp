@@ -31,8 +31,6 @@ const char *Symbol(ArithOp op) {
       return "/";
     case ArithOp::Mod:
       return "%";
-    case ArithOp::Abs:
-      return "abs";
   }
   return "?";
 }
