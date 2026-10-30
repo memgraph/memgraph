@@ -26,6 +26,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
@@ -58,8 +59,14 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
 
 }  // namespace
 
+bool BranchCore::WritesWal(const storage::InMemoryStorage &main) {
+  return main.config_.durability.snapshot_wal_mode ==
+         storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+}
+
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<RecordedFloors> recorded) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number,
+    std::optional<RecordedFloors> recorded) {
   // Attribute the diff engine's allocations to main's tenant arena pool.
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
@@ -81,10 +88,14 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   config.salient.uuid = utils::UUID{};
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
-  config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
+  bool const durable = branch_number.has_value() && WritesWal(main);
+  config.durability.snapshot_wal_mode = durable
+                                            ? storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
+                                            : storage::Config::Durability::SnapshotWalMode::DISABLED;
+  // The branch WAL is never snapshotted; a default (disabled) interval keeps the periodic snapshot from firing.
   config.durability.snapshot_interval = utils::SchedulerInterval{};
   config.durability.recover_on_startup = false;
-  // Main's retention needs are not the diff engine's.
+  // Main's retention needs are not the diff engine's: they would pin its WAL for no reason.
   config.durability.recovery_history_bound.reset();
   config.durability.retention_floor.reset();
   config.durability.snapshot_on_exit = false;
@@ -92,7 +103,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // Without durability, a stale path is one flip away from aliasing main's live data, so it is unique per build.
   {
     const auto diff_engine_directory =
-        config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
+        durable ? main.config_.durability.storage_directory / "branches" / std::to_string(*branch_number)
+                : config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
     config.durability.storage_directory = diff_engine_directory;
     config.durability.root_data_directory = diff_engine_directory;
     config.disk = storage::Config::DiskConfig{};
@@ -122,8 +134,12 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.GetSharedNameIdMapper());
   diff_engine->ReportNameOf(main);
 
-  // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards.
-  MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
+  // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards. Mirror
+  // commits are rebuilt on every build, so they stay out of the branch WAL.
+  {
+    const storage::InMemoryStorage::SuppressWalScope no_wal{*diff_engine};
+    MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
+  }
 
   // After the fork pin: every gid visible at fork_ts is below these floors, every later allocation (main or any
   // branch) is at or above them.
@@ -215,8 +231,8 @@ std::shared_ptr<const BranchCore::EdgeTouchedMap> BranchCore::EdgePropertyTouche
 }
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts) {
-  auto core = BranchCore::Build(main, fork_ts);
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
+  auto core = BranchCore::Build(main, fork_ts, branch_number);
   if (!core) return std::unexpected(std::move(core.error()));
   return std::make_unique<BranchContext>(std::move(*core));
 }
@@ -242,6 +258,7 @@ void BranchContext::SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) {
 
 void BranchContext::StartOverlayTransaction() {
   auto const *txn = current_diff_txn_->GetTransaction();
+  edge_ends_.clear();
   overlay_txn_ = std::make_unique<OverlayTransaction>(txn->start_timestamp, txn->transaction_id, txn->isolation_level);
   // The pin was taken before the diff transaction started, so it is normally already <= its start; a caller that
   // opened the diff transaction first (tests) gets the pin lowered.
@@ -261,6 +278,7 @@ void BranchContext::EndTransaction() noexcept {
     overlay_txn_.reset();
   }
   current_diff_txn_ = nullptr;
+  edge_ends_.clear();
   historical_.reset();
   stub_cursor_.Reset();
   if (snapshot_pin_) {
@@ -304,6 +322,53 @@ std::vector<uint64_t> BranchContext::OverlayWrittenGids() const {
   return gids;
 }
 
+void BranchContext::RecordEdgeEnds(const storage::EdgeAccessor &fork_edge) {
+  if (!core_->wal_enabled()) return;
+  auto const key = EdgeKey(fork_edge.Gid().AsUint());
+  if (edge_ends_.contains(key)) return;
+  edge_ends_.emplace(key, std::pair{fork_edge.FromVertex().Gid().AsUint(), fork_edge.ToVertex().Gid().AsUint()});
+}
+
+void BranchContext::AppendOverlayRecords(storage::durability::WalFile &wal, uint64_t durable_ts) {
+  // View::NEW: the transaction's newest version of each key, published or not.
+  for (auto const key : overlay_txn_->writes()) {
+    auto const *version = core_->overlay_store().Read(key, *overlay_txn_, storage::View::NEW);
+    if (version == nullptr) continue;
+
+    storage::durability::OverlayPutData data;
+    data.key = key;
+    data.deleted = version->deleted();
+    if (IsEdgeKey(key)) {
+      auto const ends = edge_ends_.find(key);
+      MG_ASSERT(ends != edge_ends_.end(),
+                "BranchContext: overlay write of edge key {} recorded no endpoints, so its WAL record cannot be built.",
+                key & ~kEdgeKeyBit);
+      data.from_gid = ends->second.first;
+      data.to_gid = ends->second.second;
+    }
+    auto const added = version->added_labels();
+    auto const removed = version->removed_labels();
+    auto const removed_pids = version->removed_pids();
+    data.added_labels.assign(added.begin(), added.end());
+    data.removed_labels.assign(removed.begin(), removed.end());
+    data.removed_properties.assign(removed_pids.begin(), removed_pids.end());
+    auto changed = version->properties().Properties();
+    data.properties.reserve(changed.size());
+    for (auto &[pid, value] : changed) data.properties.emplace_back(pid, std::move(value));
+    wal.AppendOverlayPut(data, durable_ts);
+  }
+}
+
+void BranchContext::InstallOverlayWalWriter() {
+  if (!core_->wal_enabled()) return;
+  current_diff_txn_->GetTransaction()->extra_wal_writer_ =
+      [this](storage::durability::WalFile &wal, uint64_t durable_ts) { AppendOverlayRecords(wal, durable_ts); };
+}
+
+void BranchContext::ClearOverlayWalWriter() noexcept {
+  if (current_diff_txn_ != nullptr) current_diff_txn_->GetTransaction()->extra_wal_writer_ = nullptr;
+}
+
 void BranchContext::AddOverlayCommitCallback() {
   // Runs inside the diff commit's publication, under engine_lock_ and before any later snapshot can start; the
   // diff commit cannot fail once it gets here, so neither can the overlay's.
@@ -320,6 +385,12 @@ std::exception_ptr BranchContext::StampOverlayOnlyCommit() {
   uint64_t const commit_ts = diff_engine().timestamp_++;
   accessor.GetCommitTimestamp().emplace(commit_ts);
   try {
+    // Durable before visible: the overlay is published only after its WAL transaction is written.
+    if (core_->wal_enabled()) {
+      diff_engine().AppendWalOnlyTransaction(commit_ts, [this](storage::durability::WalFile &wal, uint64_t durable_ts) {
+        AppendOverlayRecords(wal, durable_ts);
+      });
+    }
     core_->overlay_store().Commit(*overlay_txn_, commit_ts);
   } catch (...) {
     return std::current_exception();
@@ -338,6 +409,8 @@ std::expected<void, storage::StorageManipulationError> BranchContext::CommitTran
 
   if (diff_has_deltas) {
     AddOverlayCommitCallback();
+    auto const clear_writer = utils::OnScopeExit{[this]() noexcept { ClearOverlayWalWriter(); }};
+    InstallOverlayWalWriter();
     return current_diff_txn_->PrepareForCommitPhase(std::move(commit_args));
   }
 
@@ -357,9 +430,11 @@ std::expected<void, storage::StorageManipulationError> BranchContext::PeriodicCo
   auto *txn = current_diff_txn_->GetTransaction();
   bool const diff_has_deltas = !txn->deltas.empty() || !txn->md_deltas.empty();
   bool const wrote = overlay_txn_->has_writes();
+  auto const clear_writer = utils::OnScopeExit{[this]() noexcept { ClearOverlayWalWriter(); }};
 
   if (wrote && diff_has_deltas) {
     AddOverlayCommitCallback();
+    InstallOverlayWalWriter();
   } else if (wrote) {
     // The diff PeriodicCommit finishes an empty batch without a timestamp and cannot fail; hand it ours first, so its
     // FinalizeTransaction marks it finished.
@@ -788,6 +863,7 @@ storage::Result<storage::PropertyValue> BranchContext::EdgeOverlaySetProperty(co
                                                                               const storage::PropertyValue &value) {
   auto fork_value = fork_edge.GetProperty(key, storage::View::OLD);
   if (!fork_value) return std::unexpected{fork_value.error()};
+  RecordEdgeEnds(fork_edge);
   return OverlaySetPropertyAt(EdgeKey(fork_edge.Gid().AsUint()), key, value, *fork_value);
 }
 
@@ -795,6 +871,7 @@ storage::Result<bool> BranchContext::EdgeOverlayInitProperties(
     const storage::EdgeAccessor &fork_edge, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   auto fork_props = fork_edge.Properties(storage::View::OLD);
   if (!fork_props) return std::unexpected{fork_props.error()};
+  RecordEdgeEnds(fork_edge);
   return OverlayInitPropertiesAt(EdgeKey(fork_edge.Gid().AsUint()), properties, *fork_props);
 }
 
@@ -803,6 +880,7 @@ BranchContext::EdgeOverlayUpdateProperties(const storage::EdgeAccessor &fork_edg
                                            std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   auto fork_props = fork_edge.Properties(storage::View::OLD);
   if (!fork_props) return std::unexpected{fork_props.error()};
+  RecordEdgeEnds(fork_edge);
   return OverlayUpdatePropertiesAt(EdgeKey(fork_edge.Gid().AsUint()), properties, *fork_props);
 }
 
@@ -810,6 +888,7 @@ storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchCon
     const storage::EdgeAccessor &fork_edge) {
   auto fork_props = fork_edge.Properties(storage::View::OLD);
   if (!fork_props) return std::unexpected{fork_props.error()};
+  RecordEdgeEnds(fork_edge);
   return OverlayClearPropertiesAt(EdgeKey(fork_edge.Gid().AsUint()), *fork_props);
 }
 
@@ -905,6 +984,7 @@ storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor 
   RecordEdgeChange(to_gid);
   core_->RecordForkEdgeDeleted(edge_gid);
 
+  RecordEdgeEnds(fork_edge);
   return WriteOverlay(EdgeKey(edge_gid.AsUint()), [](OverlayState &state) {
     if (state.deleted) return false;
     state.MarkDeleted();

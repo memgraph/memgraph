@@ -1028,6 +1028,11 @@ add_unit_test(versioning_branch_engine
     SOURCES versioning_branch_engine.cpp
     LINK_TARGETS mg::versioning mg::storage mg-memory-utils
 )
+
+add_unit_test(versioning_branch_wal
+    SOURCES versioning_branch_wal.cpp
+    LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
