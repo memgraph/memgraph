@@ -450,7 +450,8 @@ class BranchContext {
                                        std::map<storage::PropertyId, storage::PropertyValue> &properties);
   // As storage's: the changes are (key, old, new), and the untouched old properties are merged into `properties`.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(storage::VertexAccessor &vertex, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  UpdateProperties(const storage::VertexAccessor &vertex,
+                   std::map<storage::PropertyId, storage::PropertyValue> &properties);
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties(
       storage::VertexAccessor &vertex);
 

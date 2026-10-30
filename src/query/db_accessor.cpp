@@ -10,6 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/db_accessor.hpp"
+#ifdef MG_ENTERPRISE
+#include <algorithm>
+#include <iterator>
+#include <unordered_set>
+#endif
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 #include "query/graph.hpp"
@@ -243,6 +248,96 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view) {
     return {branch_ctx_->historical().Vertices(storage::View::OLD), branch_ctx_};
   }
   return {branch_ctx_->Vertices(view), branch_ctx_};
+}
+
+storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
+DbAccessor::BranchDetachDelete(std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
+  using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+  auto &ctx = *branch_ctx_;
+  constexpr auto kView = storage::View::NEW;
+  auto const is_native = [&](const auto &object) { return object.impl_.storage_ == &ctx.diff_engine(); };
+
+  // Already deleted (by this statement or an earlier one): a no-op, as on main.
+  std::erase_if(nodes, [&](const VertexAccessor &node) {
+    return is_native(node) ? !accessor_->FindVertex(node.Gid(), kView).has_value()
+                           : ctx.IsForkVertexDeleted(node.impl_, kView);
+  });
+  std::erase_if(edges, [&](const EdgeAccessor &edge) {
+    return is_native(edge) ? !ctx.FindDiffEdge(edge.Gid(), edge.impl_.from_vertex_->gid, kView).has_value()
+                           : ctx.IsForkEdgeHidden(edge.impl_, kView);
+  });
+
+  // The edges the statement deletes by themselves; an edge of a deleted vertex is not deleted twice.
+  std::unordered_set<storage::Gid> seen_edges;
+  std::erase_if(edges, [&](const EdgeAccessor &edge) { return !seen_edges.insert(edge.Gid()).second; });
+
+  // The edges each fork vertex loses with it, listed before any write: a plain DELETE fails like main's while a visible
+  // edge is left, and an edge between two deleted vertices is taken by the first one.
+  struct ForkNode {
+    VertexAccessor *node;
+    std::vector<EdgeAccessor> fork_edges;
+  };
+
+  std::vector<ForkNode> fork_nodes;
+  std::vector<storage::EdgeAccessor> native_edges;  // handed to the diff engine's delete
+  for (auto &edge : edges) {
+    if (is_native(edge)) native_edges.push_back(edge.impl_);
+  }
+  for (auto &node : nodes) {
+    if (is_native(node)) continue;
+    auto &fork_node = fork_nodes.emplace_back(&node);
+    for (auto const direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
+      auto incident =
+          direction == storage::EdgeDirection::OUT ? ctx.OutEdges(node.impl_, kView) : ctx.InEdges(node.impl_, kView);
+      if (!incident) return std::unexpected{incident.error()};
+      for (auto &raw : *incident) {
+        if (!seen_edges.insert(raw.Gid()).second) continue;
+        if (!detach) return std::unexpected{storage::Error::VERTEX_HAS_EDGES};
+        if (raw.storage_ == &ctx.diff_engine()) {
+          native_edges.push_back(raw);
+        } else {
+          fork_node.fork_edges.emplace_back(raw, branch_ctx_);
+        }
+      }
+    }
+  }
+
+  std::vector<VertexAccessor> deleted_vertices;
+  std::vector<EdgeAccessor> deleted_edges;
+
+  for (auto &edge : edges) {
+    if (is_native(edge)) continue;
+    auto deleted = ctx.DeleteForkEdge(edge.impl_);
+    if (!deleted) return std::unexpected{deleted.error()};
+    if (*deleted) deleted_edges.push_back(edge);
+  }
+
+  // The native vertices, and the native edges of the fork vertices and the edges deleted by themselves.
+  std::vector<storage::VertexAccessor *> native_nodes;
+  for (auto &node : nodes) {
+    if (is_native(node)) native_nodes.push_back(&node.impl_);
+  }
+  if (!native_nodes.empty() || !native_edges.empty()) {
+    std::vector<storage::EdgeAccessor *> native_edge_ptrs;
+    native_edge_ptrs.reserve(native_edges.size());
+    for (auto &edge : native_edges) native_edge_ptrs.push_back(&edge);
+    auto res = accessor_->DetachDelete(std::move(native_nodes), std::move(native_edge_ptrs), detach);
+    if (!res) return std::unexpected{res.error()};
+    if (*res) {
+      for (const auto &v : (*res)->first) deleted_vertices.emplace_back(v, branch_ctx_);
+      for (const auto &e : (*res)->second) deleted_edges.emplace_back(e, branch_ctx_);
+    }
+  }
+
+  for (auto &[node, fork_edges] : fork_nodes) {
+    auto deleted = ctx.DeleteForkVertex(node->Gid());
+    if (!deleted) return std::unexpected{deleted.error()};
+    if (!*deleted) continue;
+    deleted_vertices.push_back(*node);
+    std::ranges::move(fork_edges, std::back_inserter(deleted_edges));
+  }
+
+  return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
 #endif

@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <tuple>
 #include <vector>
 
 #include "versioning/branch_engine.hpp"
@@ -70,6 +71,33 @@ storage::Result<void> VertexAccessor::BranchReadPropertyValues(storage::OrderedP
                                                                std::span<storage::PropertyValue> out,
                                                                storage::View view) const {
   return branch_ctx()->ReadPropertyValues(impl_, ordered_properties, out, view);
+}
+
+storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
+  return branch_ctx()->AddLabel(impl_, label);
+}
+
+storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) {
+  return branch_ctx()->RemoveLabel(impl_, label);
+}
+
+storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storage::PropertyId key,
+                                                                          const storage::PropertyValue &value) {
+  return branch_ctx()->SetProperty(impl_, key, value);
+}
+
+storage::Result<bool> VertexAccessor::BranchInitProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  return branch_ctx()->InitProperties(impl_, properties);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+VertexAccessor::BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  return branch_ctx()->UpdateProperties(impl_, properties);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> VertexAccessor::BranchClearProperties() {
+  return branch_ctx()->ClearProperties(impl_);
 }
 
 // A native vertex is the diff engine's own object, so its flag says; a fork vertex's flag is main's, not the branch's.
