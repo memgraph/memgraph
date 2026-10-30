@@ -1,0 +1,6 @@
+query: >
+  RETURN bitwise.op(-1, '>>>', 60) AS symbol, bitwise.op(-1, 'RIGHT SHIFT UNSIGNED', 60) AS word, bitwise.op(60, '>>>', 2) AS positive;
+output:
+  - symbol: 15
+    word: 15
+    positive: 15
