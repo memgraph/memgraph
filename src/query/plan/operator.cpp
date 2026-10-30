@@ -5474,6 +5474,14 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
   auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
 
+  // Every property of a group answers Null together, whether because the symbol holds no record
+  // or because the caller may read none of them.
+  auto answer_with_null = [&](CachedPropertyGroup const &group) {
+    for (auto const &cached : group.properties) {
+      frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+    }
+  };
+
   auto values_begin = std::size_t{0};
   for (auto const &group : self_.groups_) {
     auto const slots = std::span{values_}.subspan(values_begin, group.properties.size());
@@ -5493,11 +5501,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
     if (!reads_a_record) {
-      // Null, from an OPTIONAL MATCH that found nothing. Only this group's slots: a row where one
-      // symbol is Null says nothing about the others.
-      for (const auto &cached : group.properties) {
-        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
-      }
+      // Null, from an OPTIONAL MATCH that found nothing. Only this group: a row where one symbol
+      // is Null says nothing about the others.
+      answer_with_null(group);
       continue;
     }
 
@@ -5516,9 +5522,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       any_allowed = any_allowed || allowed_[slot];
     }
     if (!any_allowed) {
-      for (const auto &cached : group.properties) {
-        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
-      }
+      answer_with_null(group);
       continue;
     }
 #endif
@@ -5528,18 +5532,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     auto const read =
         reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
                        : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
-    if (!read) {
-      switch (read.error()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get a property from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting a property.");
-      }
-    }
+    if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
       const auto &cached = group.properties[group.ordered().position_lookup()[slot]];

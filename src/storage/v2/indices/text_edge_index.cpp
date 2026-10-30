@@ -112,22 +112,23 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
     const auto edges_accessor = vertex.OutEdges(View::NEW, {index_info.edge_type}).value();
     for (const auto &edge : edges_accessor.edges) {
       if (index_info.properties.empty()) {
-        auto const edge_properties = edge.Properties(View::NEW).value();
+        auto fields = TextFieldsOf(edge.Properties(View::NEW).value(), name_id_mapper);
         TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(),
                                           edge.FromVertex().Gid().AsInt(),
                                           edge.ToVertex().Gid().AsInt(),
-                                          SerializeProperties(edge_properties, name_id_mapper),
-                                          StringifyProperties(edge_properties),
+                                          std::move(fields.properties),
+                                          std::move(fields.all_property_values),
                                           index_data.context);
         continue;
       }
       // Throws if the edge cannot be read, as reading its properties one set at a time did.
       edge.ReadPropertyValues(ordered, values, View::NEW).value();
+      auto fields = TextFieldsOf(ordered.paths(), values, name_id_mapper);
       TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(),
                                         edge.FromVertex().Gid().AsInt(),
                                         edge.ToVertex().Gid().AsInt(),
-                                        SerializeProperties(ordered.paths(), values, name_id_mapper),
-                                        StringifyProperties(values),
+                                        std::move(fields.properties),
+                                        std::move(fields.all_property_values),
                                         index_data.context);
     }
   }
@@ -171,11 +172,12 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
         if (index_info.properties.empty()) {
           auto const edge_properties = edge->properties.Properties();
           if (edge_properties.empty()) continue;
+          auto fields = TextFieldsOf(edge_properties, name_id_mapper);
           TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
                                             vertex.gid.AsInt(),
                                             to_vertex->gid.AsInt(),
-                                            SerializeProperties(edge_properties, name_id_mapper),
-                                            StringifyProperties(edge_properties),
+                                            std::move(fields.properties),
+                                            std::move(fields.all_property_values),
                                             context);
           continue;
         }
@@ -187,11 +189,12 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
         // just avoids building one.
         if (std::ranges::all_of(values, [](PropertyValue const &value) { return value.IsNull(); })) continue;
 
+        auto fields = TextFieldsOf(ordered.paths(), values, name_id_mapper);
         TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
                                           vertex.gid.AsInt(),
                                           to_vertex->gid.AsInt(),
-                                          SerializeProperties(ordered.paths(), values, name_id_mapper),
-                                          StringifyProperties(values),
+                                          std::move(fields.properties),
+                                          std::move(fields.all_property_values),
                                           context);
       }
     }
@@ -459,20 +462,21 @@ void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMa
 
     for (const auto &edge_with_vertices : pending.to_add) {
       if (index_data_ptr->properties.empty()) {
-        auto const edge_properties = edge_with_vertices.edge->properties.Properties();
+        auto fields = TextFieldsOf(edge_with_vertices.edge->properties.Properties(), name_id_mapper);
         docs_to_add.push_back({.edge_gid = edge_with_vertices.edge->gid.AsInt(),
                                .from_vertex_gid = edge_with_vertices.from_vertex->gid.AsInt(),
                                .to_vertex_gid = edge_with_vertices.to_vertex->gid.AsInt(),
-                               .properties = SerializeProperties(edge_properties, name_id_mapper),
-                               .all_property_values = StringifyProperties(edge_properties)});
+                               .properties = std::move(fields.properties),
+                               .all_property_values = std::move(fields.all_property_values)});
         continue;
       }
       edge_with_vertices.edge->properties.ExtractPropertyValuesMissingAsNull(ordered, values);
+      auto fields = TextFieldsOf(ordered.paths(), values, name_id_mapper);
       docs_to_add.push_back({.edge_gid = edge_with_vertices.edge->gid.AsInt(),
                              .from_vertex_gid = edge_with_vertices.from_vertex->gid.AsInt(),
                              .to_vertex_gid = edge_with_vertices.to_vertex->gid.AsInt(),
-                             .properties = SerializeProperties(ordered.paths(), values, name_id_mapper),
-                             .all_property_values = StringifyProperties(values)});
+                             .properties = std::move(fields.properties),
+                             .all_property_values = std::move(fields.all_property_values)});
     }
 
     const std::lock_guard lock(index_data_ptr->write_mutex);
