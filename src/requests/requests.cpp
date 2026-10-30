@@ -158,7 +158,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_in_seconds);
-  curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+  curl_easy_setopt(curl, CURLOPT_SSLVERSION, static_cast<long>(CURL_SSLVERSION_TLSv1_2));  // NOLINT(google-runtime-int)
   SetCaInfo(curl);
 
   // Enable progress callback so an in-flight transfer can be aborted
@@ -235,7 +235,7 @@ std::expected<void, DownloadError> DownloadToSink(const std::string &url, WriteS
   curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
   // TLS below 1.2 is deprecated. Stating the floor here keeps it independent of what the TLS backend
   // this is built against happens to permit.
-  curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+  curl_easy_setopt(curl, CURLOPT_SSLVERSION, static_cast<long>(CURL_SSLVERSION_TLSv1_2));  // NOLINT(google-runtime-int)
   SetCaInfo(curl);
 
   auto const res = curl_easy_perform(curl);
