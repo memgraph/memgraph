@@ -42,6 +42,7 @@
 #include "ctre.hpp"
 #include "flags/bolt.hpp"
 #include "memory/query_memory_control.hpp"
+#include "query/checked_arith.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
@@ -7694,7 +7695,8 @@ class AggregateCursor : public Cursor {
   ///
   /// Where the two are the same kind of number the addition happens in place, sparing a result
   /// value per row. An integer total meeting a double stops being an integer, and addition owns
-  /// that rule, so that pair is handed to it.
+  /// that rule, so that pair is handed to it. An integer total that would overflow becomes a double
+  /// and stays one.
   static void AddInto(TypedValue &total, const TypedValue &addend) {
     if (total.IsDouble()) {
       total.ValueDouble() +=
@@ -7702,7 +7704,13 @@ class AggregateCursor : public Cursor {
       return;
     }
     if (total.IsInt() && addend.IsInt()) {
-      total.ValueInt() += addend.UnsafeValueInt();
+      int64_t sum;
+      if (TryAdd(total.UnsafeValueInt(), addend.UnsafeValueInt(), sum)) [[likely]] {
+        total.ValueInt() = sum;
+      } else {
+        total = TypedValue(static_cast<double>(total.UnsafeValueInt()) + static_cast<double>(addend.UnsafeValueInt()),
+                           total.get_allocator());
+      }
       return;
     }
     total = total + addend;
@@ -11732,6 +11740,29 @@ void MergeDeriveSlot(VirtualGraph &main_vg, Dedup &main_dedup, const VirtualGrap
   main_vg.Merge(other_vg, aliases);
 }
 
+// SUM/AVG arithmetic for merging partial aggregates: an integer overflow promotes to double instead of throwing.
+TypedValue SumDomainAdd(const TypedValue &a, const TypedValue &b) {
+  if (a.IsInt() && b.IsInt()) {
+    int64_t r;
+    if (TryAdd(a.UnsafeValueInt(), b.UnsafeValueInt(), r)) [[likely]]
+      return TypedValue(r, a.get_allocator());
+    return TypedValue(static_cast<double>(a.UnsafeValueInt()) + static_cast<double>(b.UnsafeValueInt()),
+                      a.get_allocator());
+  }
+  return a + b;
+}
+
+TypedValue SumDomainSub(const TypedValue &a, const TypedValue &b) {
+  if (a.IsInt() && b.IsInt()) {
+    int64_t r;
+    if (TrySub(a.UnsafeValueInt(), b.UnsafeValueInt(), r)) [[likely]]
+      return TypedValue(r, a.get_allocator());
+    return TypedValue(static_cast<double>(a.UnsafeValueInt()) - static_cast<double>(b.UnsafeValueInt()),
+                      a.get_allocator());
+  }
+  return a - b;
+}
+
 void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const auto &aggregations) {
   for (auto other_itr = other_aggregation.begin(); other_itr != other_aggregation.end();) {
     auto node = other_aggregation.extract(other_itr++);
@@ -11794,10 +11825,11 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           case Aggregation::Op::SUM:
           case Aggregation::Op::AVG: {
             TypedValue left_sum{0};
-            std::ranges::for_each(other_unique_values, [&](const auto &val) { left_sum = left_sum + val; });
+            std::ranges::for_each(other_unique_values,
+                                  [&](const auto &val) { left_sum = SumDomainAdd(left_sum, val); });
 
             if (agg_op == Aggregation::Op::SUM) {
-              main_value = main_value + other_value - left_sum;
+              main_value = SumDomainAdd(main_value, SumDomainSub(other_value, left_sum));
             } else {
               // Reconstructing AVG is hard with simple subtraction,
               // typically simpler to reconstruct from the set or keep Sum/Count separate until Produce.
@@ -11897,10 +11929,12 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
       }
 
       switch (agg_op) {
-        case Aggregation::Op::COUNT:
-          [[fallthrough]];
-        case Aggregation::Op::SUM: {
+        case Aggregation::Op::COUNT: {
           main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::SUM: {
+          main_value = SumDomainAdd(main_value, other_value);
           break;
         }
         case Aggregation::Op::AVG: {
