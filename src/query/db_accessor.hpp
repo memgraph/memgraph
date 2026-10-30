@@ -504,6 +504,11 @@ class DbAccessor final {
   // flag, so a DETACH DELETE of a fork vertex deletes only its diff-engine edges for real and hides its fork edges.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach);
+
+  // Branch-native edge at a gid from main's counter. The diff engine needs both endpoints resident, so a fork endpoint
+  // is anchored by its stub; the endpoints' accessors stay as they are.
+  storage::Result<EdgeAccessor> BranchInsertEdge(const VertexAccessor &from, const VertexAccessor &to,
+                                                 storage::EdgeTypeId edge_type);
 #endif
 
  public:
@@ -719,12 +724,24 @@ class DbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchInsertEdge(*from, *to, edge_type);
+#endif
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     return EdgeAccessor(*maybe_edge);
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      auto res = BranchDetachDelete({}, {*edge}, false);
+      if (!res) return std::unexpected{res.error()};
+      if (!*res || (*res)->second.empty()) return std::optional<EdgeAccessor>{};
+      return std::make_optional<EdgeAccessor>((*res)->second.front());
+    }
+#endif
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (!res) {
       return std::unexpected{res.error()};

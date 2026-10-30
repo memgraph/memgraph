@@ -16,6 +16,7 @@
 #include <map>
 #include <optional>
 
+#include "query/exceptions.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/vertex_overlay.hpp"
 #endif
@@ -55,6 +56,29 @@ ReadTarget ResolveReadTarget(versioning::BranchContext &ctx, const storage::Edge
     return {.kind = ReadTarget::Kind::kOverlay, .version = version};
   }
   return {};
+}
+
+using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
+
+// False for a branch-native edge, which is written in the diff engine as is. A fork edge gets its branched bit; one
+// hidden on the branch (or any edge with edge properties disabled) throws.
+bool PrepareBranchEdgeWrite(versioning::BranchContext &ctx, const storage::EdgeAccessor &impl) {
+  if (impl.storage_ == &ctx.diff_engine()) return false;
+  if (auto prepared = ctx.PrepareForkEdgeWrite(impl); !prepared) throw QueryRuntimeException(prepared.error().message);
+  return true;
+}
+
+// The fork edge's change filter and the edge-property scans' touched set, recorded before the overlay write.
+void RecordForkEdgeWrite(versioning::BranchContext &ctx, const storage::EdgeAccessor &fork_edge,
+                         storage::PropertyId pid) {
+  auto &core = *ctx.core();
+  core.RecordForkEdgeProperty(fork_edge.Gid(), pid);
+  core.RecordEdgePropertyTouched(pid, fork_edge.Gid(), fork_edge.from_vertex_->gid);
+}
+
+void RecordForkEdgeWrites(versioning::BranchContext &ctx, const storage::EdgeAccessor &fork_edge,
+                          const PropertyMap &properties) {
+  for (const auto &[pid, _] : properties) RecordForkEdgeWrite(ctx, fork_edge, pid);
 }
 
 }  // namespace
@@ -126,6 +150,38 @@ storage::Result<uint64_t> EdgeAccessor::BranchGetPropertySize(storage::PropertyI
   if (target.kind == ReadTarget::Kind::kHidden) return std::unexpected{storage::Error::DELETED_OBJECT};
   if (target.kind == ReadTarget::Kind::kOverlay) return versioning::MergeGetPropertySize(*target.version, impl_, key);
   return impl_.GetPropertySize(key, view);
+}
+
+storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
+                                                                        const storage::PropertyValue &value) {
+  auto &ctx = *branch_ctx_;
+  if (!PrepareBranchEdgeWrite(ctx, impl_)) return impl_.SetProperty(key, value);
+  RecordForkEdgeWrite(ctx, impl_, key);
+  return ctx.EdgeOverlaySetProperty(impl_, key, value);
+}
+
+storage::Result<bool> EdgeAccessor::BranchInitProperties(PropertyMap &properties) {
+  auto &ctx = *branch_ctx_;
+  if (!PrepareBranchEdgeWrite(ctx, impl_)) return impl_.InitProperties(properties);
+  RecordForkEdgeWrites(ctx, impl_, properties);
+  return ctx.EdgeOverlayInitProperties(impl_, properties);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+EdgeAccessor::BranchUpdateProperties(PropertyMap &properties) const {
+  auto &ctx = *branch_ctx_;
+  if (!PrepareBranchEdgeWrite(ctx, impl_)) return impl_.UpdateProperties(properties);
+  RecordForkEdgeWrites(ctx, impl_, properties);
+  return ctx.EdgeOverlayUpdateProperties(impl_, properties);
+}
+
+// The removed keys are known only after the write.
+storage::Result<PropertyMap> EdgeAccessor::BranchClearProperties() {
+  auto &ctx = *branch_ctx_;
+  if (!PrepareBranchEdgeWrite(ctx, impl_)) return impl_.ClearProperties();
+  auto result = ctx.EdgeOverlayClearProperties(impl_);
+  if (result) RecordForkEdgeWrites(ctx, impl_, *result);
+  return result;
 }
 
 #endif
