@@ -13,6 +13,7 @@
 // sessions attached to branches through the C++ API (the branch statements are not in the grammar yet).
 #pragma once
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <exception>
@@ -58,6 +59,13 @@ inline Rows IntRows(InterpreterFaker &session, const std::string &query) {
     }
   }
   return rows;
+}
+
+inline std::vector<std::string> SortedNames(const memgraph::communication::bolt::Value &list) {
+  std::vector<std::string> out;
+  for (const auto &elem : list.ValueList()) out.emplace_back(elem.ValueString());
+  std::ranges::sort(out);
+  return out;
 }
 
 inline std::string ExplainText(InterpreterFaker &session, const std::string &query) {

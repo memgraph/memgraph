@@ -113,10 +113,18 @@ class SubgraphVertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
+#ifdef MG_ENTERPRISE
+  // Non-const like query::VertexAccessor's.
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    return impl_.UpdateProperties(properties);
+  }
+#else
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
     return impl_.UpdateProperties(properties);
   }
+#endif
 
   VertexAccessor GetVertexAccessor() const;
 };
@@ -491,6 +499,11 @@ class DbAccessor final {
   std::optional<EdgeAccessor> BranchFindEdge(storage::Gid gid, storage::View view);
   std::optional<EdgeAccessor> BranchFindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
   VerticesIterable BranchVertices(storage::View view);
+
+  // Branch deletes: diff-engine objects are deleted in the diff engine; a fork vertex or edge gets the overlay's delete
+  // flag, so a DETACH DELETE of a fork vertex deletes only its diff-engine edges for real and hides its fork edges.
+  storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
+      std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach);
 #endif
 
  public:
@@ -693,7 +706,16 @@ class DbAccessor final {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, range, view, num_chunks)};
   }
 
+#ifdef MG_ENTERPRISE
+  // On a branch the gid comes from main's counter, so it never collides with a fork or later main gid.
+  VertexAccessor InsertVertex() {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return VertexAccessor(branch_ctx_->CreateNativeVertex(), branch_ctx_);
+    return VertexAccessor(accessor_->CreateVertex());
+  }
+#else
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+#endif
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
@@ -720,6 +742,14 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      auto res = BranchDetachDelete({*vertex_accessor}, {}, true);
+      if (!res) return std::unexpected{res.error()};
+      if (!*res || (*res)->first.empty()) return std::optional<ReturnType>{};
+      return std::make_optional<ReturnType>((*res)->first.front(), std::move((*res)->second));
+    }
+#endif
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -741,6 +771,14 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      auto res = BranchDetachDelete({*vertex_accessor}, {}, false);
+      if (!res) return std::unexpected{res.error()};
+      if (!*res || (*res)->first.empty()) return std::optional<VertexAccessor>{};
+      return std::make_optional<VertexAccessor>((*res)->first.front());
+    }
+#endif
     auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -758,6 +796,10 @@ class DbAccessor final {
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchDetachDelete(std::move(nodes), std::move(edges), detach);
+#endif
     std::vector<storage::VertexAccessor *> nodes_impl;
     std::vector<storage::EdgeAccessor *> edges_impl;
 

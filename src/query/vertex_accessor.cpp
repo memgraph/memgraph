@@ -19,8 +19,11 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <tuple>
 #include <vector>
 
+#include "query/exceptions.hpp"
+#include "versioning/branch_change_kind.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/vertex_overlay.hpp"
 #endif
@@ -42,6 +45,34 @@ auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdges
 // Fork vertices the branch never wrote are fork-identical; branch-native vertices are complete and never merged.
 bool MayHaveOverlay(versioning::BranchContext &ctx, const storage::VertexAccessor &impl) {
   return impl.storage_ != &ctx.diff_engine() && impl.vertex_->branched();
+}
+
+using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
+
+// Readies `vertex` for a branch write of `kind` and records it in the change filters; returns whether it is a fork
+// vertex. A fork vertex keeps its fork accessor (the overlay is addressed by gid, no stub is needed); a branch-native
+// one is re-pointed at the current diff transaction's vertex. Throws if the branch deleted the vertex.
+bool PrepareBranchWrite(VertexAccessor &vertex, versioning::BranchChangeKind kind) {
+  auto &ctx = *vertex.branch_ctx_;
+  auto const gid = vertex.Gid();
+  bool const fork = ctx.IsForkVertexGid(gid);
+  if (fork) {
+    if (auto prepared = ctx.PrepareForkWrite(gid); !prepared) throw QueryRuntimeException(prepared.error().message);
+  } else {
+    auto cowed = ctx.CowVertex(gid);
+    if (!cowed) throw QueryRuntimeException(cowed.error().message);
+    vertex.impl_ = *cowed;
+  }
+  ctx.RecordVertexChange(gid, kind);
+  return fork;
+}
+
+// Feeds GetProperty's per-key filter and, for a fork vertex, the property scans' touched set.
+void RecordPropertyWrites(versioning::BranchContext &ctx, storage::Gid gid, bool fork, const PropertyMap &properties) {
+  for (auto const &[pid, _] : properties) {
+    ctx.core()->RecordPropertyFieldChange(gid, pid);
+    if (fork) ctx.core()->RecordPropertyTouched(pid, gid);
+  }
 }
 
 #endif
@@ -116,6 +147,57 @@ storage::Result<uint64_t> VertexAccessor::BranchGetPropertySize(storage::Propert
   if (version == nullptr) return impl_.GetPropertySize(key, view);
   if (version->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
   return versioning::MergeGetPropertySize(*version, impl_, key);
+}
+
+// A fork vertex's label write is recorded as touched before anything else, so a failed write leaves a superset.
+storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
+  auto &ctx = *branch_ctx_;
+  if (ctx.IsForkVertexGid(Gid())) ctx.core()->RecordLabelTouched(label, Gid());
+  if (!PrepareBranchWrite(*this, versioning::BranchChangeKind::kLabel)) return impl_.AddLabel(label);
+  return ctx.OverlayAddLabel(Gid(), label);
+}
+
+storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) {
+  auto &ctx = *branch_ctx_;
+  if (ctx.IsForkVertexGid(Gid())) ctx.core()->RecordLabelTouched(label, Gid());
+  if (!PrepareBranchWrite(*this, versioning::BranchChangeKind::kLabel)) return impl_.RemoveLabel(label);
+  return ctx.OverlayRemoveLabel(Gid(), label);
+}
+
+storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storage::PropertyId key,
+                                                                          const storage::PropertyValue &value) {
+  auto &ctx = *branch_ctx_;
+  bool const fork = PrepareBranchWrite(*this, versioning::BranchChangeKind::kProperty);
+  ctx.core()->RecordPropertyFieldChange(Gid(), key);
+  if (!fork) return impl_.SetProperty(key, value);
+  ctx.core()->RecordPropertyTouched(key, Gid());
+  return ctx.OverlaySetProperty(Gid(), key, value);
+}
+
+storage::Result<bool> VertexAccessor::BranchInitProperties(PropertyMap &properties) {
+  auto &ctx = *branch_ctx_;
+  bool const fork = PrepareBranchWrite(*this, versioning::BranchChangeKind::kProperty);
+  RecordPropertyWrites(ctx, Gid(), fork, properties);
+  if (!fork) return impl_.InitProperties(properties);
+  return ctx.OverlayInitProperties(Gid(), properties);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+VertexAccessor::BranchUpdateProperties(PropertyMap &properties) {
+  auto &ctx = *branch_ctx_;
+  bool const fork = PrepareBranchWrite(*this, versioning::BranchChangeKind::kProperty);
+  RecordPropertyWrites(ctx, Gid(), fork, properties);
+  if (!fork) return impl_.UpdateProperties(properties);
+  return ctx.OverlayUpdateProperties(Gid(), properties);
+}
+
+// The cleared keys are known only from the result, so they are recorded after the write (still before the commit).
+storage::Result<PropertyMap> VertexAccessor::BranchClearProperties() {
+  auto &ctx = *branch_ctx_;
+  bool const fork = PrepareBranchWrite(*this, versioning::BranchChangeKind::kProperty);
+  auto result = fork ? ctx.OverlayClearProperties(Gid()) : impl_.ClearProperties();
+  if (result) RecordPropertyWrites(ctx, Gid(), fork, *result);
+  return result;
 }
 
 // The union of the fork and diff-engine edges (ResolveEdges), not a cheaper count.
