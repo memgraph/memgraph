@@ -23,11 +23,17 @@
 
 namespace memgraph::versioning {
 
+namespace {
+constexpr std::string_view kFrozenMessage = "Graph Versioning branches are not available on a REPLICA.";
+}  // namespace
+
 VersionStore::VersionStore(std::function<uint64_t()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}
 
 VersionStore::~VersionStore() {
-  memgraph::metrics::Metrics().global.versioning_active_branches->Decrement(static_cast<double>(branches_.size()));
+  auto &global = memgraph::metrics::Metrics().global;
+  global.versioning_active_branches->Decrement(static_cast<double>(branches_.size()));
+  global.versioning_active_sessions->Decrement(static_cast<double>(total_checkouts_));
 }
 
 void VersionStore::SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback) {
@@ -39,27 +45,34 @@ void VersionStore::PublishRetentionFloor() const {
   std::optional<uint64_t> oldest_fork_ts;
   {
     std::lock_guard guard{lock_};
-    for (const auto &[_, info] : branches_) {
+    const auto note = [&](const BranchInfo &info) {
       oldest_fork_ts = oldest_fork_ts ? std::min(*oldest_fork_ts, info.recorded_fork_ts) : info.recorded_fork_ts;
-    }
+    };
+    for (const auto &[_, info] : branches_) note(info);
+    for (const auto &branch : hidden_) note(branch.info);
   }
-  if (!oldest_fork_ts) return retention_floor_callback_(std::nullopt);
+  if (!oldest_fork_ts) {
+    retention_floor_callback_(std::nullopt);
+    return;
+  }
   retention_floor_callback_(RecoverableBelow(*oldest_fork_ts));
 }
 
 void VersionStore::AttachLedger(std::filesystem::path file) {
   std::lock_guard guard{ledger_mutex_};
+  branches_root_ = file.parent_path();
   ledger_.emplace(std::move(file));
 }
 
 LedgerContents VersionStore::SnapshotLocked() const {
   LedgerContents out;
   out.next_number = next_number_;
-  out.branches.reserve(branches_.size());
+  out.branches.reserve(branches_.size() + hidden_.size());
   for (const auto &[name, info] : branches_) {
     auto &entry = out.branches.emplace_back(name, info);
     entry.info.fork_ts = info.recorded_fork_ts;
   }
+  out.branches.insert(out.branches.end(), hidden_.begin(), hidden_.end());
   std::ranges::sort(out.branches, std::less{}, [](const auto &b) { return b.info.number; });
   return out;
 }
@@ -90,13 +103,23 @@ void VersionStore::Restore(const LedgerContents &contents, std::span<const uint6
   PublishRetentionFloor();
 }
 
+void VersionStore::RestoreHidden(const LedgerContents &contents) {
+  {
+    std::lock_guard guard{lock_};
+    next_number_ = contents.next_number;
+    hidden_ = contents.branches;
+  }
+  PublishRetentionFloor();
+}
+
 std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent) {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   {
     std::lock_guard guard{lock_};
-    if (branches_.contains(name)) {
+    if (frozen_) return std::unexpected(std::string{kFrozenMessage});
+    if (branches_.contains(name) || std::ranges::any_of(hidden_, [&](const auto &b) { return b.name == name; })) {
       return std::unexpected(fmt::format("Branch '{}' already exists.", name));
     }
     if (parent != "main" && !branches_.contains(parent)) {
@@ -136,30 +159,102 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   return info;
 }
 
-std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name) {
+std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name, bool remove_files) {
+  return DropBranchImpl(name, remove_files, /*force=*/false);
+}
+
+std::expected<bool, std::string> VersionStore::ForceDropBranch(std::string_view name) {
+  return DropBranchImpl(name, /*remove_files=*/true, /*force=*/true);
+}
+
+std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view name, bool remove_files, bool force) {
   std::lock_guard ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   {
     std::lock_guard guard{lock_};
-    if (!branches_.contains(name)) return false;
+    auto it = branches_.find(name);
+    if (it == branches_.end()) return false;
+    if (!force && checked_out_.contains(it->second.number)) return false;
     next = SnapshotLocked();
     std::erase_if(next.branches, [&](const LedgerBranch &b) { return b.name == name; });
+    dropping_.emplace(name);
   }
 
-  if (auto written = WriteLedger(next); !written) return std::unexpected(std::move(written.error()));
+  if (auto written = WriteLedger(next); !written) {
+    std::lock_guard guard{lock_};
+    dropping_.erase(dropping_.find(name));
+    return std::unexpected(std::move(written.error()));
+  }
 
+  uint64_t number = 0;
   {
     std::lock_guard guard{lock_};
     auto it = branches_.find(name);
+    number = it->second.number;
     release_pin_(it->second.fork_ts);
     branches_.erase(it);
+    dropping_.erase(dropping_.find(name));
 
     memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
     memgraph::metrics::Metrics().global.versioning_active_branches->Decrement();
   }
   PublishRetentionFloor();
+  if (remove_files && !branches_root_.empty()) RemoveOrDefer(number);
   return true;
+}
+
+std::expected<void, std::string> VersionStore::FreezeAndDropAll() {
+  std::lock_guard ledger_guard{ledger_mutex_};
+
+  LedgerContents next;
+  bool was_frozen = false;
+  {
+    std::lock_guard guard{lock_};
+    was_frozen = frozen_;
+    frozen_ = true;
+    next = SnapshotLocked();
+    next.branches.clear();
+  }
+
+  if (auto written = WriteLedger(next); !written) {
+    std::lock_guard guard{lock_};
+    frozen_ = was_frozen;
+    return std::unexpected(std::move(written.error()));
+  }
+
+  std::vector<uint64_t> dropped_numbers;
+  {
+    std::lock_guard guard{lock_};
+    dropped_numbers.reserve(branches_.size() + hidden_.size());
+    for (const auto &branch : hidden_) dropped_numbers.push_back(branch.info.number);
+    hidden_.clear();
+    for (const auto &[branch_name, info] : branches_) {
+      release_pin_(info.fork_ts);
+      dropped_numbers.push_back(info.number);
+    }
+    const auto dropped = static_cast<double>(branches_.size());
+    branches_.clear();
+
+    auto &global = memgraph::metrics::Metrics().global;
+    global.versioning_branches_dropped->Increment(dropped);
+    global.versioning_active_branches->Decrement(dropped);
+  }
+  PublishRetentionFloor();
+  if (!branches_root_.empty()) {
+    for (const auto number : dropped_numbers) RemoveOrDefer(number);
+  }
+  return {};
+}
+
+void VersionStore::Unfreeze() {
+  std::lock_guard guard{lock_};
+  frozen_ = false;
+}
+
+bool VersionStore::Frozen() const {
+  std::lock_guard guard{lock_};
+  return frozen_;
 }
 
 std::optional<BranchInfo> VersionStore::Get(std::string_view name) const {
@@ -187,9 +282,94 @@ bool VersionStore::Exists(std::string_view name) const {
   return branches_.contains(name);
 }
 
+bool VersionStore::IsLive(std::string_view name, uint64_t number) const {
+  std::lock_guard guard{lock_};
+  auto it = branches_.find(name);
+  return it != branches_.end() && it->second.number == number;
+}
+
 bool VersionStore::Empty() const {
   std::lock_guard guard{lock_};
-  return branches_.empty();
+  return branches_.empty() && hidden_.empty();
+}
+
+std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
+  std::lock_guard guard{lock_};
+  if (frozen_) return std::unexpected(std::string{kFrozenMessage});
+  auto it = branches_.find(name);
+  if (it == branches_.end() || dropping_.contains(name)) {
+    return std::unexpected(fmt::format("Branch '{}' does not exist.", name));
+  }
+  ++checked_out_[it->second.number];
+  ++total_checkouts_;
+
+  memgraph::metrics::Metrics().global.versioning_active_sessions->Increment();
+  return it->second;
+}
+
+void VersionStore::ReleaseCheckout(uint64_t number) {
+  std::unique_lock guard{lock_};
+  if (auto it = checked_out_.find(number); it != checked_out_.end()) {
+    --total_checkouts_;
+    if (--it->second == 0) checked_out_.erase(it);
+    memgraph::metrics::Metrics().global.versioning_active_sessions->Decrement();
+  }
+  guard.unlock();
+  SweepPendingRemovals();
+}
+
+size_t VersionStore::CheckoutCount(std::string_view name) const {
+  std::lock_guard guard{lock_};
+  const auto branch = branches_.find(name);
+  if (branch == branches_.end()) return 0;
+  const auto it = checked_out_.find(branch->second.number);
+  return it == checked_out_.end() ? 0 : it->second;
+}
+
+void VersionStore::RemoveOrDefer(uint64_t number) {
+  auto directory = branches_root_ / std::to_string(number);
+  const auto attached = [&] {
+    std::lock_guard guard{lock_};
+    return checked_out_.contains(number);
+  }();
+  if (attached) {
+    spdlog::info("Graph Versioning: branch directory {} will be removed once its last session detaches.",
+                 directory.string());
+    std::lock_guard guard{pending_mutex_};
+    pending_removals_.push_back({.number = number, .directory = std::move(directory)});
+  } else {
+    RemoveDirectory(directory);
+  }
+  SweepPendingRemovals();
+}
+
+void VersionStore::SweepPendingRemovals() {
+  {
+    std::lock_guard guard{pending_mutex_};
+    if (pending_removals_.empty()) return;
+  }
+  std::vector<std::filesystem::path> ready;
+  {
+    std::lock_guard guard{lock_};
+    std::lock_guard pending_guard{pending_mutex_};
+    for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {
+      if (!checked_out_.contains(it->number)) {
+        ready.push_back(std::move(it->directory));
+        it = pending_removals_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (const auto &directory : ready) RemoveDirectory(directory);
+}
+
+void VersionStore::RemoveDirectory(const std::filesystem::path &directory) {
+  std::error_code ec;
+  std::filesystem::remove_all(directory, ec);
+  if (ec) {
+    spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
+  }
 }
 
 }  // namespace memgraph::versioning

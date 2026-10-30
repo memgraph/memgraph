@@ -240,6 +240,9 @@ TEST_F(BranchLedgerTest, LedgerWriteFailureLeavesNoPinOrBranch) {
   EXPECT_FALSE(dropped.has_value());
   EXPECT_TRUE(store->Exists("a"));
   EXPECT_EQ(live_.size(), live_before);
+  auto attach = store->TryAcquireCheckout("a");
+  ASSERT_TRUE(attach.has_value()) << "a failed drop must not leave the branch unattachable";
+  store->ReleaseCheckout(attach->number);
 
   fs::remove(tmp);
   auto b = store->CreateBranch("b", "main");
