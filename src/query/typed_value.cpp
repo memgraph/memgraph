@@ -1618,6 +1618,7 @@ TypedValue operator+(const TypedValue &a) {
   throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
 }
 
+namespace {
 /**
  * Raises a TypedValueException if the given values do not support arithmetic
  * operations. If they do, nothing happens.
@@ -1629,7 +1630,7 @@ TypedValue operator+(const TypedValue &a) {
  *  @param op_name Name of the operation, used only for exception description,
  *  if raised.
  */
-static void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, bool string_ok, const char *op_name) {
+void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, bool string_ok, const char *op_name) {
   auto is_legal = [string_ok](const TypedValue &value) {
     return value.IsNumeric() || (string_ok && value.type() == TypedValue::Type::String);
   };
@@ -1642,8 +1643,6 @@ static void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
     throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
   }
 }
-
-namespace {
 
 /// Appends @p value to @p out as string concatenation renders it. Appends rather than returns so
 /// the only buffer it passes through is the one it ends up in.
