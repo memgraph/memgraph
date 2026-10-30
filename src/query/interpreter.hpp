@@ -45,6 +45,7 @@
 #include "coordination/utils.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "versioning/branch_engine.hpp"
 #endif
 
 namespace memgraph::query {
@@ -270,6 +271,14 @@ struct CurrentDB {
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
+#ifdef MG_ENTERPRISE
+  // Detaches on destruction; otherwise the branch's attach count leaks.
+  ~CurrentDB() {
+    RestoreSessionBranch();
+    ClearBranchContext();
+  }
+
+#endif
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
@@ -278,11 +287,26 @@ struct CurrentDB {
     // Move the outgoing Accessor out of db_acc_ under the lock, then let it destruct AFTER the lock is
     // released (see db_acc_mutex_ for why: its dtor can block on a foreign GKInternals::mutex_).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
+#ifdef MG_ENTERPRISE
+    bool same_db{false};
+#endif
     {
       std::lock_guard lock{db_acc_mutex_};
+#ifdef MG_ENTERPRISE
+      // Called with the SAME db whenever a RUN "extra" field changes (RuntimeConfig::Configure), so only a genuinely
+      // different database (compared by identity, not name) resets the branch.
+      same_db = db_acc_.has_value() && *db_acc_ == new_db;
+#endif
       old_db = std::exchange(db_acc_, std::move(new_db));
       in_explicit_db_ = in_explicit_db;
     }
+#ifdef MG_ENTERPRISE
+    // Before old_db destructs: the checkout is released through a raw VersionStore pointer owned by the old Database.
+    if (!same_db) {
+      RestoreSessionBranch();
+      LeaveBranch();
+    }
+#endif
   }
 
   void ResetDB() {
@@ -302,6 +326,12 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+#ifdef MG_ENTERPRISE
+    // After the accessors (the diff-engine one lives in the branch's core), before old_db releases the Database pin
+    // that keeps the checkout's VersionStore alive.
+    RestoreSessionBranch();
+    LeaveBranch();
+#endif
     old_db.reset();  // db access released last; still outside db_acc_mutex_
   }
 
@@ -320,6 +350,13 @@ struct CurrentDB {
         old_db.swap(db_acc_);
       }
     }
+#ifdef MG_ENTERPRISE
+    // Leave the branch while old_db still pins the Database: the checkout is released on its VersionStore.
+    if (old_db) {
+      RestoreSessionBranch();
+      LeaveBranch();
+    }
+#endif
     return old_db.has_value();
   }
 
@@ -350,6 +387,56 @@ struct CurrentDB {
     return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
   }
 
+#ifdef MG_ENTERPRISE
+  // The session's active branch; std::nullopt means `main`. Without a branch context it names a branch that is gone
+  // (see ThrowIfBranchGone).
+  std::optional<std::string> const &CurrentVersion() const { return current_version_; }
+
+  void LeaveBranch() {
+    ClearBranchContext();
+    current_version_.reset();
+  }
+
+  // Caller contract: TryAcquireCheckout(context's name) already succeeded, `number` is its checkout number, and any
+  // previous context was released or parked. The context must be built with the branch's name.
+  void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
+                        uint64_t number) {
+    DMG_ASSERT(!context->name().empty(), "SetBranchContext: context has no branch name.");
+    branch_context_ = std::move(context);
+    branch_context_version_store_ = version_store;
+    foreign_branch_number_.store(number, std::memory_order_release);
+    current_version_ = branch_context_->name();
+    branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
+  }
+
+  // A branch dropped under the session (DROP BRANCH ... FORCE, replica demotion) never falls back to `main`: every
+  // query throws here until the session switches.
+  // `on_replica` swaps the USE BRANCH hint, refused on a REPLICA, for USE DATABASE alone.
+  void ThrowIfBranchGone(bool on_replica = false);
+
+  // Parks the session's branch so another can be attached; Restore puts it back (releasing what was attached
+  // meanwhile), Discard drops it. USE BRANCH keeps the old branch on failure; USING BRANCH is per-transaction.
+  void ParkSessionBranch();
+  void RestoreSessionBranch();
+  void DiscardParkedBranch();
+
+  // Branch the session's transactions run on, by number; 0 for main. Readable from any thread; also the owner's
+  // record of the attached checkout number.
+  uint64_t foreign_branch_number() const { return foreign_branch_number_.load(std::memory_order_acquire); }
+
+  bool OnBranch(uint64_t number) { return branch_context() != nullptr && foreign_branch_number() == number; }
+
+  // Attaches this fresh nested session (mgp_execute_query) to the branch `outer` is on, with its own counted
+  // checkout. Throws QueryRuntimeException (nothing held) if the checkout is refused.
+  void AttachBranchOf(versioning::VersionStore *version_store, versioning::BranchContext const &outer);
+
+  // nullptr on `main`.
+  versioning::BranchContext *branch_context() { return branch_context_.get(); }
+
+  // Per-checkout plan cache; nullptr on `main`. Kept separate so branch plans never mix with main's.
+  query::PlanCacheLRU *branch_plan_cache() { return branch_plan_cache_.get(); }
+
+#endif
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
@@ -372,6 +459,35 @@ struct CurrentDB {
   // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
   // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
+#ifdef MG_ENTERPRISE
+
+ private:
+  struct ParkedBranch {
+    std::optional<std::string> version;
+    std::unique_ptr<versioning::BranchContext> context;
+    std::unique_ptr<query::PlanCacheLRU> plan_cache;
+    versioning::VersionStore *version_store{nullptr};
+    uint64_t number{0};
+  };
+
+  // Out of line so main's SetupDatabaseTransaction pays one check on current_version_.
+  void SetupBranchTransaction(std::optional<storage::IsolationLevel> override_isolation_level,
+                              storage::StorageAccessType acc_type, std::chrono::seconds timeout);
+
+  // Detaches from the branch (ReleaseCheckout) and tears down the context. No-op when none is held.
+  void ClearBranchContext();
+
+  std::optional<std::string> current_version_;
+  std::unique_ptr<versioning::BranchContext> branch_context_;
+  // Non-null iff branch_context_ is non-null.
+  std::unique_ptr<query::PlanCacheLRU> branch_plan_cache_;
+  std::optional<ParkedBranch> parked_branch_;
+  std::atomic<uint64_t> foreign_branch_number_{0};
+
+  // Not owned; non-null iff branch_context_ is, so ReleaseCheckout hits the granting VersionStore even after db_acc_
+  // is reassigned.
+  versioning::VersionStore *branch_context_version_store_{nullptr};
+#endif
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
