@@ -32,7 +32,7 @@ namespace impl {
 /// replaced; a subexpression this visitor refuses to enter simply keeps reading properties the old way.
 class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  enum class Phase : uint8_t { GATHER, REPLACE };
+  enum class Phase : uint8_t { GATHER, REPLACE, RETUNE };
 
   ProducePropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
@@ -108,6 +108,17 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         }
         return;
       }
+      case Phase::RETUNE: {
+        auto const &symbol = symbol_table_->at(*identifier);
+        auto const group =
+            std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
+        if (group == cached_.end()) return;
+        // A lookup still standing on a symbol whose properties were read in one pass is one the
+        // pass could not take, because it sits where it may never be evaluated. Loading every
+        // property for it would read the record a second time over, so it reads its own.
+        op.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_OWN_PROPERTY;
+        return;
+      }
       case Phase::REPLACE: {
         auto const &symbol = symbol_table_->at(*identifier);
         auto const group =
@@ -122,6 +133,13 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
     }
+  }
+
+  /// Descends where the caching phases will not, so that only retuning sees these.
+  void DescendOnlyToRetune(Expression *&first, Expression *&second) {
+    if (phase_ != Phase::RETUNE) return;
+    AcceptExpression(first);
+    AcceptExpression(second);
   }
 
   void AcceptExpression(Expression *&expr) {
@@ -174,10 +192,9 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
-/// An expression this traversal does not enter. Whatever lookups it holds keep reading properties
-/// the way they already did, so declining one is always safe; what it costs is the pass. Each
-/// group below is one reason for declining, and which group a node is in is the whole of why it
-/// is here.
+/// An expression no phase enters. Whatever lookups it holds keep reading properties the way they
+/// already did, so declining one is always safe; what it costs is the pass. Each group below is one
+/// reason for declining, and which group a node is in is the whole of why it is here.
 #define NOT_ENTERED(TOp) \
   void Visit(TOp &op) override {}
 
@@ -187,11 +204,10 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(PatternComprehension)
   NOT_ENTERED(SubqueryExpression)
 
-  // May never be evaluated at all: AND stops on a false first operand, OR on a true one, and the
-  // other two pick a branch as the row runs. Reading ahead for one of these would read a record
-  // the query never asked for, and could refuse a query that answers.
-  NOT_ENTERED(AndOperator)
-  NOT_ENTERED(OrOperator)
+  // May never be evaluated at all, so reading ahead for one would read a record the query never
+  // asked for, and could refuse a query that answers. The two short circuits below are declined
+  // outright; AND and OR are declined for the same reason but still entered to retune, which is
+  // further down.
   NOT_ENTERED(IfOperator)
   NOT_ENTERED(Coalesce)
 
@@ -215,8 +231,6 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   // Always evaluated, so entering these would be safe. They are left for a later pass rather than
   // for a reason, which is worth saying so that the safety of the groups above is not read onto
   // them.
-  NOT_ENTERED(ListLiteral)
-  NOT_ENTERED(MapLiteral)
   NOT_ENTERED(MapProjectionLiteral)
   NOT_ENTERED(ListSlicingOperator)
   NOT_ENTERED(LabelsTest)
@@ -224,6 +238,27 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(RegexMatch)
 
 #undef NOT_ENTERED
+
+  // Entered to retune and for nothing else. Nothing inside is ever read ahead: a short circuit may
+  // never evaluate what it holds, and a literal is built from its entries rather than read from a
+  // frame. What retuning changes is only how a lookup left standing here reads, never whether or
+  // when it is evaluated.
+  //
+  // These are the ones that pay twice without it, since the pass has already read the record and
+  // loading every property again for them reads it a second time over.
+  void Visit(AndOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
+
+  void Visit(OrOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
+
+  void Visit(ListLiteral &op) override {
+    if (phase_ != Phase::RETUNE) return;
+    for (auto *&element : op.elements_) AcceptExpression(element);
+  }
+
+  void Visit(MapLiteral &op) override {
+    if (phase_ != Phase::RETUNE) return;
+    for (auto &[_, element] : op.elements_) AcceptExpression(element);
+  }
 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
@@ -288,6 +323,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     cacher.SetCachedSymbols(std::move(cached_by_symbol));
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(ProducePropertyLookupCacher::Phase::REPLACE, named_expression);
+    }
+    for (auto *&named_expression : op.named_expressions_) {
+      cacher.Run(ProducePropertyLookupCacher::Phase::RETUNE, named_expression);
     }
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
