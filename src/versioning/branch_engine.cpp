@@ -1219,9 +1219,13 @@ void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
     return;
   }
 
-  if (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
-    current_ = **diff_it_;
+  while (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
+    const storage::VertexAccessor native = **diff_it_;
     ++(*diff_it_);
+    // The diff iterator checked it when stepping onto it, which can be a row early: checked again, as main's scan
+    // checks the vertex it steps onto.
+    if (!native.IsVisible(view_)) continue;
+    current_ = native;
     done_ = false;
     return;
   }

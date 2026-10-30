@@ -555,7 +555,21 @@ class BranchContext {
 
   bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return core_->MayHaveEdgeChange(gid); }
 
+  // Write epochs for this session's View::NEW index scans in flight: bumped by every branch write that can bring an
+  // existing object into a scan (a label added, a property set). Ids share slots; a collision only costs a re-scan.
+  enum class ScanInput : uint8_t { kLabel, kProperty };
+
+  void BumpScanEpoch(ScanInput input, uint64_t id) noexcept { ++scan_epochs_[ScanEpochSlot(input, id)]; }
+
+  uint64_t ScanEpoch(ScanInput input, uint64_t id) const noexcept { return scan_epochs_[ScanEpochSlot(input, id)]; }
+
  private:
+  static constexpr size_t kScanEpochSlots = 64;
+
+  static size_t ScanEpochSlot(ScanInput input, uint64_t id) noexcept {
+    return ((id << 1U) | static_cast<uint64_t>(input)) % kScanEpochSlots;
+  }
+
   bool IsStub(const storage::VertexAccessor &diff_vertex) const {
     return diff_vertex.storage_ == &core_->diff_engine() && IsForkVertexGid(diff_vertex.Gid());
   }
@@ -650,6 +664,8 @@ class BranchContext {
   };
 
   absl::flat_hash_map<storage::LabelId, LabelGidCache> label_gid_cache_;
+
+  std::array<uint64_t, kScanEpochSlots> scan_epochs_{};
 };
 
 }  // namespace memgraph::versioning

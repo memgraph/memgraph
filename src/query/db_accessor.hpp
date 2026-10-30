@@ -54,6 +54,7 @@ enum class text_search_mode;
 
 #include <cstdint>
 #ifdef MG_ENTERPRISE
+#include <functional>
 #include <memory>
 #endif
 #include <optional>
@@ -132,6 +133,82 @@ class SubgraphVertexAccessor final {
 
 namespace memgraph::query {
 
+#ifdef MG_ENTERPRISE
+/// Where an object sits in a branch index scan, in main's index order: the key (empty for an unordered scan), fork
+/// objects before branch-native ones (which are newer), then the object's address.
+struct BranchScanPosition {
+  std::vector<storage::PropertyValue> key;
+  bool native;
+  uintptr_t address;
+};
+
+bool BranchScanBefore(BranchScanPosition const &a, BranchScanPosition const &b, bool descending = false);
+
+/// A branch index scan, materialized in index order. A View::OLD scan cannot see the writes of the running command, so
+/// its elements are yielded as they are. A View::NEW scan steps like main's index iterators: an element is checked
+/// again when the scan steps onto it, and a write that may bring an object into the scan (BranchContext::ScanEpoch)
+/// re-materializes it, continuing after the position the scan last stepped onto. One cursor at a time.
+template <typename T>
+class BranchScan final {
+ public:
+  struct Live {
+    std::function<std::vector<T>()> rescan;  // leaves out objects created after the scan started
+    // The element's position while the scan still matches it at the scan's view.
+    std::function<std::optional<BranchScanPosition>(T &)> locate;
+    std::function<uint64_t()> epoch;
+    bool descending;
+  };
+
+  class Iterator {
+   public:
+    Iterator(BranchScan *scan, size_t index) : scan_(scan), index_(index) {}
+
+    T const &operator*() const { return scan_->elements_[index_]; }
+
+    Iterator &operator++() {
+      index_ = scan_->Next(index_ + 1);
+      return *this;
+    }
+
+    bool operator==(Iterator const &other) const { return index_ == other.index_; }
+
+   private:
+    BranchScan *scan_;
+    size_t index_;
+  };
+
+  explicit BranchScan(std::vector<T> elements) : elements_(std::move(elements)) {}
+
+  BranchScan(std::vector<T> elements, Live live);
+
+  Iterator begin() {
+    cursor_.reset();
+    return {this, Next(0)};
+  }
+
+  Iterator end() { return {this, kEnd}; }
+
+ private:
+  static constexpr size_t kEnd = SIZE_MAX;
+
+  // The index of the first element from `from` on that the scan yields, or kEnd.
+  size_t Next(size_t from) {
+    if (!live_) return from < elements_.size() ? from : kEnd;
+    return NextLive(from);
+  }
+
+  size_t NextLive(size_t from);
+
+  std::vector<T> elements_;
+  std::optional<Live> live_;
+  uint64_t epoch_seen_{0};
+  std::optional<BranchScanPosition> cursor_;
+};
+
+extern template class BranchScan<VertexAccessor>;
+extern template class BranchScan<EdgeAccessor>;
+
+#endif
 class VerticesIterable final {
 #ifdef MG_ENTERPRISE
   using VertexSet = std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
@@ -170,7 +247,7 @@ class VerticesIterable final {
   };
 
   // A branch index scan that merges main@fork with the branch is materialized: its vertices are already stamped.
-  using Materialized = std::vector<VertexAccessor>;
+  using Materialized = BranchScan<VertexAccessor>;
 
   std::variant<storage::VerticesIterable, VertexSet *, std::shared_ptr<UnionIterable>, std::shared_ptr<Materialized>>
       iterable_;
@@ -185,7 +262,7 @@ class VerticesIterable final {
  public:
   class Iterator final {
 #ifdef MG_ENTERPRISE
-    std::variant<storage::VerticesIterable::Iterator, VertexSet::iterator, BoxedUnionIterator, Materialized::iterator>
+    std::variant<storage::VerticesIterable::Iterator, VertexSet::iterator, BoxedUnionIterator, Materialized::Iterator>
         it_;
     versioning::BranchContext *branch_ctx_{nullptr};
 #else
@@ -208,7 +285,7 @@ class VerticesIterable final {
 
     VertexAccessor operator*() const {
       return std::visit(utils::Overloaded{[](VertexSet::iterator const &it) { return *it; },
-                                          [](Materialized::iterator const &it) { return *it; },
+                                          [](Materialized::Iterator const &it) { return *it; },
                                           [this](auto const &it) { return VertexAccessor(*it, branch_ctx_); }},
                         it_);
     }
@@ -414,7 +491,7 @@ class EdgesIterable final {
   using EdgeSet =
       std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>>;
   // A branch edge index scan is materialized: its edges are already stamped.
-  using Materialized = std::vector<EdgeAccessor>;
+  using Materialized = BranchScan<EdgeAccessor>;
 
   std::variant<storage::EdgesIterable, EdgeSet *, std::shared_ptr<Materialized>> iterable_;
 #else
@@ -426,7 +503,7 @@ class EdgesIterable final {
  public:
   class Iterator final {
 #ifdef MG_ENTERPRISE
-    std::variant<storage::EdgesIterable::Iterator, EdgeSet::iterator, Materialized::iterator> it_;
+    std::variant<storage::EdgesIterable::Iterator, EdgeSet::iterator, Materialized::Iterator> it_;
 #else
     std::variant<storage::EdgesIterable::Iterator,
                  std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
@@ -442,7 +519,7 @@ class EdgesIterable final {
         : it_(it) {}
 #ifdef MG_ENTERPRISE
 
-    explicit Iterator(Materialized::iterator it) : it_(it) {}
+    explicit Iterator(Materialized::Iterator it) : it_(it) {}
 #endif
 
     EdgeAccessor operator*() const {

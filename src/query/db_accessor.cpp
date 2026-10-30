@@ -13,6 +13,7 @@
 #ifdef MG_ENTERPRISE
 #include <algorithm>
 #include <iterator>
+#include <tuple>
 #include <unordered_set>
 #endif
 #include <cppitertools/filter.hpp>
@@ -281,43 +282,104 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view) {
   return {branch_ctx_->Vertices(view), branch_ctx_};
 }
 
+bool BranchScanBefore(BranchScanPosition const &a, BranchScanPosition const &b, bool descending) {
+  if (a.key != b.key) return descending ? b.key < a.key : a.key < b.key;
+  return std::tie(a.native, a.address) < std::tie(b.native, b.address);
+}
+
+template <typename T>
+BranchScan<T>::BranchScan(std::vector<T> elements, Live live)
+    : elements_(std::move(elements)), live_(std::move(live)), epoch_seen_(live_->epoch()) {}
+
+template <typename T>
+size_t BranchScan<T>::NextLive(size_t from) {
+  auto &live = *live_;
+  if (auto const epoch = live.epoch(); epoch != epoch_seen_) {
+    epoch_seen_ = epoch;
+    elements_ = live.rescan();
+    from = 0;
+    if (cursor_) {
+      auto const after = std::ranges::partition_point(elements_, [&](T &element) {
+        auto const position = live.locate(element);
+        DMG_ASSERT(position, "A re-materialized branch scan holds an element it does not match");
+        return !BranchScanBefore(*cursor_, *position, live.descending);
+      });
+      from = static_cast<size_t>(after - elements_.begin());
+    }
+  }
+  for (; from < elements_.size(); ++from) {
+    if (auto position = live.locate(elements_[from])) {
+      cursor_ = std::move(*position);
+      return from;
+    }
+  }
+  return kEnd;
+}
+
+template class BranchScan<VertexAccessor>;
+template class BranchScan<EdgeAccessor>;
+
 namespace {
 using Materialized = std::vector<VertexAccessor>;
+using VertexScan = BranchScan<VertexAccessor>;
 using TouchedGids = versioning::BranchCore::LabelTouchedSet;
 // A vertex's index key: one value per indexed property path.
 using BranchKey = std::vector<storage::PropertyValue>;
+using ScanInput = versioning::BranchContext::ScanInput;
 
 bool VertexHasLabel(VertexAccessor &vertex, storage::View view, storage::LabelId label) {
   auto has_label = vertex.HasLabel(view, label);
   return has_label.has_value() && *has_label;
 }
 
-// Full scan of the branch, O(V); the fallback for an index not visible at the fork.
-template <typename Pred>
-VerticesIterable MaterializeFilteredScan(versioning::BranchContext &ctx, storage::View view, Pred &&predicate) {
-  auto result = std::make_shared<Materialized>();
-  for (auto raw : ctx.Vertices(view)) {
-    VertexAccessor candidate(raw, &ctx);
-    if (predicate(candidate)) result->push_back(candidate);
-  }
-  return VerticesIterable(std::move(result));
+BranchScanPosition VertexPosition(versioning::BranchContext &ctx, VertexAccessor const &vertex, BranchKey key) {
+  return {.key = std::move(key),
+          .native = !ctx.IsForkVertexGid(vertex.Gid()),
+          .address = reinterpret_cast<uintptr_t>(vertex.impl_.vertex_)};
 }
 
-// Full-scan fallback for an ordered index scan: the planner elides ORDER BY when it picks the index, so the vertices
-// whose `extract` yields a key come back sorted by it (stable, so ties stay in gid order).
-template <typename Key, typename Extract, typename Less>
-VerticesIterable MaterializeSortedScan(versioning::BranchContext &ctx, storage::View view, Extract &&extract,
-                                       Less &&less) {
-  std::vector<std::pair<Key, VertexAccessor>> keyed;
+// Wraps a vertex scan that `build` materializes in index order. `key_of` is the vertex's key while the scan still
+// matches it at `view`; `epoch` sums the scan epochs of the inputs that can bring a vertex in.
+template <typename Build, typename KeyOf, typename Epoch>
+VerticesIterable MakeVertexScan(versioning::BranchContext &ctx, storage::View view, Build build, KeyOf key_of,
+                                Epoch epoch, storage::IndexOrder order = storage::IndexOrder::ASC) {
+  if (view == storage::View::OLD) return VerticesIterable(std::make_shared<VertexScan>(build()));
+  // As main's scans: an object created after the scan started is never yielded.
+  auto const gid_floor = ctx.core()->main().vertex_id_.load(std::memory_order_acquire);
+  VertexScan::Live live{.rescan =
+                            [build, gid_floor] {
+                              auto elements = build();
+                              std::erase_if(elements,
+                                            [&](VertexAccessor const &v) { return v.Gid().AsUint() >= gid_floor; });
+                              return elements;
+                            },
+                        .locate = [&ctx, key_of](VertexAccessor &v) -> std::optional<BranchScanPosition> {
+                          auto key = key_of(v);
+                          if (!key) return std::nullopt;
+                          return VertexPosition(ctx, v, std::move(*key));
+                        },
+                        .epoch = std::move(epoch),
+                        .descending = order == storage::IndexOrder::DESC};
+  return VerticesIterable(std::make_shared<VertexScan>(build(), std::move(live)));
+}
+
+// Full scan of the branch in index order, O(V log V); the fallback for an index not visible at the fork. `key_of` is
+// the vertex's key if it is in the scan.
+template <typename KeyOf>
+Materialized MaterializeFilteredScan(versioning::BranchContext &ctx, storage::View view, KeyOf &&key_of,
+                                     storage::IndexOrder order = storage::IndexOrder::ASC) {
+  std::vector<std::pair<BranchScanPosition, VertexAccessor>> keyed;
   for (auto raw : ctx.Vertices(view)) {
     VertexAccessor candidate(raw, &ctx);
-    if (auto key = extract(candidate)) keyed.emplace_back(std::move(*key), candidate);
+    if (auto key = key_of(candidate)) keyed.emplace_back(VertexPosition(ctx, candidate, std::move(*key)), candidate);
   }
-  std::ranges::stable_sort(keyed, [&](auto const &a, auto const &b) { return less(a.first, b.first); });
-  auto result = std::make_shared<Materialized>();
-  result->reserve(keyed.size());
-  for (auto &entry : keyed) result->push_back(entry.second);
-  return VerticesIterable(std::move(result));
+  bool const descending = order == storage::IndexOrder::DESC;
+  std::ranges::sort(keyed,
+                    [&](auto const &a, auto const &b) { return BranchScanBefore(a.first, b.first, descending); });
+  Materialized result;
+  result.reserve(keyed.size());
+  for (auto &entry : keyed) result.push_back(entry.second);
+  return result;
 }
 
 std::optional<BranchKey> ReadBranchKey(VertexAccessor &vertex, storage::View view,
@@ -376,12 +438,10 @@ class TouchedSet {
     if (seen_.insert(raw.Gid()).second) items_.push_back(ctx_->ForkIdentity(raw));
   }
 
-  // The fork vertices named by a touched-gid snapshot, in gid order. The snapshot is a superset of the changed
-  // vertices; every candidate is rechecked on its branch state.
+  // The fork vertices named by a touched-gid snapshot. The snapshot is a superset of the changed vertices; every
+  // candidate is rechecked on its branch state.
   void AddForkVertices(TouchedGids const &gids) {
-    std::vector<uint64_t> sorted(gids.begin(), gids.end());
-    std::ranges::sort(sorted);
-    for (auto const gid : sorted) {
+    for (auto const gid : gids) {
       if (auto fork = ctx_->FindForkVertex(storage::Gid::FromUint(gid))) Add(*fork);
     }
   }
@@ -416,54 +476,42 @@ std::vector<storage::VertexAccessor> SplitForkStream(versioning::BranchContext &
   return untouched;
 }
 
-// Merges the untouched fork stream (already in index order) with the touched candidates that `accept` their branch
-// key, sorted by (key, gid) in `order`. O(fork matches + touched log touched).
-template <typename ReadKey, typename Accept>
-VerticesIterable MergeOverlay(versioning::BranchContext &ctx, std::vector<storage::VertexAccessor> const &untouched,
-                              TouchedSet const &touched, storage::IndexOrder order, ReadKey &&read_key,
-                              Accept &&accept) {
-  auto result = std::make_shared<Materialized>();
+// Merges the untouched fork stream (already in index order) with the touched candidates that `key_of` keeps, in index
+// order. O(fork matches + touched log touched).
+template <typename ReadKey, typename KeyOf>
+Materialized MergeOverlay(versioning::BranchContext &ctx, std::vector<storage::VertexAccessor> const &untouched,
+                          TouchedSet const &touched, storage::IndexOrder order, ReadKey &&read_key, KeyOf &&key_of) {
+  Materialized result;
   if (touched.items().empty()) {
-    result->reserve(untouched.size());
-    for (auto const &raw : untouched) result->emplace_back(raw, &ctx);
-    return VerticesIterable(std::move(result));
+    result.reserve(untouched.size());
+    for (auto const &raw : untouched) result.emplace_back(raw, &ctx);
+    return result;
   }
 
-  struct Keyed {
-    BranchKey key;
-    VertexAccessor vertex;
-  };
-
-  std::vector<Keyed> changed;
+  std::vector<std::pair<BranchScanPosition, VertexAccessor>> changed;
   changed.reserve(touched.items().size());
   for (auto const &raw : touched.items()) {
     VertexAccessor candidate(raw, &ctx);
-    auto key = read_key(candidate);
-    if (key && accept(candidate, *key)) changed.push_back(Keyed{std::move(*key), candidate});
+    if (auto key = key_of(candidate)) changed.emplace_back(VertexPosition(ctx, candidate, std::move(*key)), candidate);
   }
-  bool const asc = order == storage::IndexOrder::ASC;
-  auto const before = [asc](BranchKey const &ak, storage::Gid ag, BranchKey const &bk, storage::Gid bg) {
-    if (ak < bk) return asc;
-    if (bk < ak) return !asc;
-    return asc ? ag < bg : bg < ag;
-  };
-  std::ranges::sort(
-      changed, [&](Keyed const &a, Keyed const &b) { return before(a.key, a.vertex.Gid(), b.key, b.vertex.Gid()); });
+  bool const descending = order == storage::IndexOrder::DESC;
+  std::ranges::sort(changed,
+                    [&](auto const &a, auto const &b) { return BranchScanBefore(a.first, b.first, descending); });
 
-  result->reserve(untouched.size() + changed.size());
+  result.reserve(untouched.size() + changed.size());
   size_t next = 0;
   for (auto const &raw : untouched) {
     VertexAccessor fork_vertex(raw, &ctx);
     if (next < changed.size()) {
-      auto const fork_key = read_key(fork_vertex).value_or(BranchKey{});
-      while (next < changed.size() && before(changed[next].key, changed[next].vertex.Gid(), fork_key, raw.Gid())) {
-        result->push_back(changed[next++].vertex);
+      auto const position = VertexPosition(ctx, fork_vertex, read_key(fork_vertex).value_or(BranchKey{}));
+      while (next < changed.size() && BranchScanBefore(changed[next].first, position, descending)) {
+        result.push_back(changed[next++].second);
       }
     }
-    result->push_back(fork_vertex);
+    result.push_back(fork_vertex);
   }
-  for (; next < changed.size(); ++next) result->push_back(changed[next].vertex);
-  return VerticesIterable(std::move(result));
+  for (; next < changed.size(); ++next) result.push_back(changed[next].second);
+  return result;
 }
 
 // Nothing relevant changed on the branch (the caller checked) and the diff engine's index has no hit: the answer is
@@ -483,167 +531,205 @@ std::optional<VerticesIterable> LazyForkOnlyScan(storage::Storage::Accessor &dif
 // engine; `in_range` is the predicate on a candidate's branch value.
 template <typename ForkScan, typename DiffScan, typename InRange>
 VerticesIterable BranchPropertyScan(storage::Storage::Accessor &diff, versioning::BranchContext &ctx,
-                                    storage::View view, storage::PropertyId property, ForkScan &&fork_scan,
-                                    DiffScan &&diff_scan, InRange &&in_range) {
+                                    storage::View view, storage::PropertyId property, ForkScan fork_scan,
+                                    DiffScan diff_scan, InRange in_range) {
+  auto const key_of = [view, property, in_range](VertexAccessor &v) -> std::optional<BranchKey> {
+    auto value = v.GetProperty(view, property);
+    if (!value.has_value() || value->IsNull() || !in_range(*value)) return std::nullopt;
+    return BranchKey{std::move(*value)};
+  };
+  auto const epoch = [&ctx, property] { return ctx.ScanEpoch(ScanInput::kProperty, property.AsUint()); };
   if (!ctx.historical().VertexPropertyIndexReady(property) || !diff.VertexPropertyIndexReady(property)) {
-    return MaterializeSortedScan<storage::PropertyValue>(
-        ctx,
-        view,
-        [&](VertexAccessor &v) -> std::optional<storage::PropertyValue> {
-          auto value = v.GetProperty(view, property);
-          if (!value.has_value() || value->IsNull() || !in_range(*value)) return std::nullopt;
-          return std::move(*value);
-        },
-        std::less<>{});
+    return MakeVertexScan(
+        ctx, view, [&ctx, view, key_of] { return MaterializeFilteredScan(ctx, view, key_of); }, key_of, epoch);
   }
   auto &core = *ctx.core();
   auto const index_size = [&] { return diff.ApproximateVertexCount(property); };
-  // The lock-free gate first (set before commit; clear means an empty snapshot), then the snapshot.
-  bool diff_has_hit = false;
-  if (!core.MayHavePropertyTouched(property) && !ctx.MayHaveAnyVertexDeleted()) {
-    if (auto lazy = LazyForkOnlyScan(diff, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
-    diff_has_hit = true;
+  // OLD only (a NEW scan must see the writes the same query makes while it iterates). The lock-free gate first (set
+  // before commit; clear means an empty snapshot), then the snapshot.
+  if (view == storage::View::OLD && !ctx.MayHaveAnyVertexDeleted()) {
+    bool diff_has_hit = false;
+    if (!core.MayHavePropertyTouched(property)) {
+      if (auto lazy = LazyForkOnlyScan(diff, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
+      diff_has_hit = true;
+    }
+    if (!diff_has_hit && core.PropertyTouchedSnapshot(property)->empty()) {
+      if (auto lazy = LazyForkOnlyScan(diff, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
+    }
   }
-  auto const property_touched = core.PropertyTouchedSnapshot(property);
-  if (!diff_has_hit && property_touched->empty() && !ctx.MayHaveAnyVertexDeleted()) {
-    if (auto lazy = LazyForkOnlyScan(diff, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
-  }
-  TouchedSet touched{ctx};
-  for (auto raw : diff_scan()) touched.Add(raw);
-  touched.AddForkVertices(*property_touched);
-  auto const untouched = SplitForkStream(ctx, fork_scan(), touched);
-  return MergeOverlay(
-      ctx,
-      untouched,
-      touched,
-      storage::IndexOrder::ASC,
-      [&](VertexAccessor &v) -> std::optional<BranchKey> {
-        auto value = v.GetProperty(view, property);
-        if (!value.has_value()) return std::nullopt;
-        return BranchKey{std::move(*value)};
-      },
-      [&](VertexAccessor &, BranchKey const &key) { return !key[0].IsNull() && in_range(key[0]); });
+  auto const build = [&ctx, view, property, fork_scan, diff_scan, key_of] {
+    TouchedSet touched{ctx};
+    for (auto raw : diff_scan()) touched.Add(raw);
+    touched.AddForkVertices(*ctx.core()->PropertyTouchedSnapshot(property));
+    auto const untouched = SplitForkStream(ctx, fork_scan(), touched);
+    return MergeOverlay(
+        ctx,
+        untouched,
+        touched,
+        storage::IndexOrder::ASC,
+        [&](VertexAccessor &v) -> std::optional<BranchKey> {
+          auto value = v.GetProperty(view, property);
+          if (!value.has_value()) return std::nullopt;
+          return BranchKey{std::move(*value)};
+        },
+        key_of);
+  };
+  return MakeVertexScan(ctx, view, build, key_of, epoch);
 }
 }  // namespace
 
-// Unsorted: main@fork's label index, minus fork vertices the branch removed the label from or deleted, plus the diff
-// engine's hits (branch-native vertices) and fork vertices that gained the label.
+// Unsorted (index order is by address): main@fork's label index, minus fork vertices the branch removed the label from
+// or deleted, plus fork vertices that gained the label, then the diff engine's hits (branch-native vertices).
 VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::LabelId label) {
   auto &ctx = *branch_ctx_;
-  auto &historical = ctx.historical();
-  if (!historical.LabelIndexReady(label)) {
-    return MaterializeFilteredScan(ctx, view, [=](VertexAccessor &v) { return VertexHasLabel(v, view, label); });
+  auto const key_of = [view, label](VertexAccessor &v) -> std::optional<BranchKey> {
+    if (!VertexHasLabel(v, view, label)) return std::nullopt;
+    return BranchKey{};
+  };
+  auto const epoch = [&ctx, label] { return ctx.ScanEpoch(ScanInput::kLabel, label.AsUint()); };
+  if (!ctx.historical().LabelIndexReady(label)) {
+    return MakeVertexScan(
+        ctx, view, [&ctx, view, key_of] { return MaterializeFilteredScan(ctx, view, key_of); }, key_of, epoch);
   }
 
-  // One snapshot up front: every transaction visible to this scan recorded its gids before this point. It also holds
-  // every deleted fork gid.
-  auto const label_touched = ctx.core()->LabelTouchedSnapshot(label);
-
-  // OLD only: a NEW scan must see deletes the same query makes while it iterates.
-  if (view == storage::View::OLD && label_touched->empty()) {
+  // OLD only: a NEW scan must see the writes the same query makes while it iterates.
+  if (view == storage::View::OLD && ctx.core()->LabelTouchedSnapshot(label)->empty()) {
     auto native = accessor_->Vertices(label, view);
-    if (native.begin() == native.end()) return {historical.Vertices(label, storage::View::OLD), branch_ctx_};
+    if (native.begin() == native.end()) return {ctx.historical().Vertices(label, storage::View::OLD), branch_ctx_};
   }
 
-  auto result = std::make_shared<Materialized>();
-  result->reserve(historical.ApproximateVertexCount(label));
-  for (auto raw : historical.Vertices(label, storage::View::OLD)) {
-    VertexAccessor candidate(raw, branch_ctx_);
-    if (raw.vertex_->branched() && label_touched->contains(raw.Gid().AsUint()) && ctx.HasVertexOverlay(raw.Gid()) &&
-        !VertexHasLabel(candidate, view, label)) {
-      continue;
+  auto const build = [this, view, label] {
+    auto &ctx = *branch_ctx_;
+    auto &historical = ctx.historical();
+    // One snapshot up front: every transaction visible to this scan recorded its gids before this point. It also holds
+    // every deleted fork gid.
+    auto const label_touched = ctx.core()->LabelTouchedSnapshot(label);
+    Materialized fork_part;
+    fork_part.reserve(historical.ApproximateVertexCount(label));
+    for (auto raw : historical.Vertices(label, storage::View::OLD)) {
+      VertexAccessor candidate(raw, branch_ctx_);
+      if (raw.vertex_->branched() && label_touched->contains(raw.Gid().AsUint()) && ctx.HasVertexOverlay(raw.Gid()) &&
+          !VertexHasLabel(candidate, view, label)) {
+        continue;
+      }
+      fork_part.push_back(candidate);
     }
-    result->push_back(candidate);
-  }
-  for (auto raw : accessor_->Vertices(label, view)) result->emplace_back(raw, branch_ctx_);
 
-  // Fork vertices that gained the label, in gid order; those that had it at the fork came from main's index above.
-  std::vector<uint64_t> gained(label_touched->begin(), label_touched->end());
-  std::ranges::sort(gained);
-  for (auto const gid : gained) {
-    auto const fork_gid = storage::Gid::FromUint(gid);
-    if (ctx.IsVertexDeleted(fork_gid, view)) continue;
-    auto fork = ctx.FindForkVertex(fork_gid);
-    if (!fork) continue;
-    auto had = fork->HasLabel(label, storage::View::OLD);
-    if (had.has_value() && *had) continue;
-    VertexAccessor candidate(*fork, branch_ctx_);
-    if (VertexHasLabel(candidate, view, label)) result->push_back(candidate);
-  }
-  return VerticesIterable(std::move(result));
+    // Fork vertices that gained the label, merged in by address; those that had it at the fork came from main's index.
+    auto const by_address = [](VertexAccessor const &a, VertexAccessor const &b) {
+      return a.impl_.vertex_ < b.impl_.vertex_;
+    };
+    auto const fork_end = fork_part.size();
+    for (auto const gid : *label_touched) {
+      auto const fork_gid = storage::Gid::FromUint(gid);
+      if (ctx.IsVertexDeleted(fork_gid, view)) continue;
+      auto fork = ctx.FindForkVertex(fork_gid);
+      if (!fork) continue;
+      auto had = fork->HasLabel(label, storage::View::OLD);
+      if (had.has_value() && *had) continue;
+      VertexAccessor candidate(*fork, branch_ctx_);
+      if (VertexHasLabel(candidate, view, label)) fork_part.push_back(candidate);
+    }
+    std::sort(fork_part.begin() + static_cast<std::ptrdiff_t>(fork_end), fork_part.end(), by_address);
+    std::inplace_merge(
+        fork_part.begin(), fork_part.begin() + static_cast<std::ptrdiff_t>(fork_end), fork_part.end(), by_address);
+
+    for (auto raw : accessor_->Vertices(label, view)) fork_part.emplace_back(raw, branch_ctx_);
+    return fork_part;
+  };
+  return MakeVertexScan(ctx, view, build, key_of, epoch);
 }
 
 VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::LabelId label,
-                                            std::span<storage::PropertyPath const> properties,
-                                            std::span<storage::PropertyValueRange const> property_ranges,
+                                            std::span<storage::PropertyPath const> properties_span,
+                                            std::span<storage::PropertyValueRange const> ranges_span,
                                             storage::IndexOrder order) {
   auto &ctx = *branch_ctx_;
   auto &core = *ctx.core();
-  auto &historical = ctx.historical();
-  auto const read_key = [&](VertexAccessor &v) { return ReadBranchKey(v, view, properties); };
-  if (!historical.LabelPropertyIndexReady(label, properties) ||
+  // Copies: a NEW scan re-materializes after the planner's ranges are gone.
+  std::vector<storage::PropertyPath> const properties(properties_span.begin(), properties_span.end());
+  std::vector<storage::PropertyValueRange> const property_ranges(ranges_span.begin(), ranges_span.end());
+  auto const key_of = [view, label, properties, property_ranges](VertexAccessor &v) -> std::optional<BranchKey> {
+    if (!VertexHasLabel(v, view, label)) return std::nullopt;
+    auto key = ReadBranchKey(v, view, properties);
+    if (!key || !BranchKeyInRange(*key, property_ranges)) return std::nullopt;
+    return key;
+  };
+  auto const epoch = [&ctx, label, properties] {
+    auto sum = ctx.ScanEpoch(ScanInput::kLabel, label.AsUint());
+    for (auto const &path : properties) sum += ctx.ScanEpoch(ScanInput::kProperty, path.front().AsUint());
+    return sum;
+  };
+  if (!ctx.historical().LabelPropertyIndexReady(label, properties) ||
       !accessor_->LabelPropertyIndexReady(label, properties)) {
-    return MaterializeSortedScan<BranchKey>(
+    return MakeVertexScan(
         ctx,
         view,
-        [&](VertexAccessor &v) -> std::optional<BranchKey> {
-          if (!VertexHasLabel(v, view, label)) return std::nullopt;
-          auto key = read_key(v);
-          if (!key || !BranchKeyInRange(*key, property_ranges)) return std::nullopt;
-          return key;
-        },
-        [order](BranchKey const &a, BranchKey const &b) { return order == storage::IndexOrder::ASC ? a < b : b < a; });
+        [&ctx, view, key_of, order] { return MaterializeFilteredScan(ctx, view, key_of, order); },
+        key_of,
+        epoch,
+        order);
   }
   if (std::ranges::any_of(property_ranges,
                           [](auto const &range) { return range.type_ == storage::PropertyRangeType::INVALID; })) {
-    return VerticesIterable(std::make_shared<Materialized>());
+    return VerticesIterable(std::make_shared<VertexScan>(Materialized{}));
   }
 
   // With a null-excluding range only the constrained positions can turn a vertex into a match; otherwise every key
   // position counts. Unenumerated trailing positions keep main's order on the fast path, which is safe because ORDER BY
   // elimination needs a range per sort column.
   bool const anchored = std::ranges::any_of(property_ranges, RangeExcludesNull);
-  auto const key_enumerated = [&](size_t i) { return !anchored || i < property_ranges.size(); };
+  auto const key_enumerated = [anchored, n = property_ranges.size()](size_t i) { return !anchored || i < n; };
 
-  auto const index_size = [&] { return accessor_->ApproximateVertexCount(label, properties); };
-  auto const diff_scan = [&] { return accessor_->Vertices(label, properties, property_ranges, view, order); };
-  auto const fork_scan = [&] {
-    return historical.Vertices(label, properties, property_ranges, storage::View::OLD, order);
+  auto const diff_scan = [this, label, properties, property_ranges, view, order] {
+    return accessor_->Vertices(label, properties, property_ranges, view, order);
+  };
+  auto const fork_scan = [&ctx, label, properties, property_ranges, order] {
+    return ctx.historical().Vertices(label, properties, property_ranges, storage::View::OLD, order);
   };
 
-  // The lock-free gates first (set before commit; clear means an empty snapshot). The label snapshot also holds the
-  // deleted gids, hence the delete check.
-  bool maybe_touched = core.MayHaveLabelTouched(label) || ctx.MayHaveAnyVertexDeleted();
-  for (size_t i = 0; !maybe_touched && i < properties.size(); ++i) {
-    if (key_enumerated(i)) maybe_touched = core.MayHavePropertyTouched(properties[i].front());
-  }
-  // A diff-index hit here is final: the snapshot path would hit too.
-  bool diff_has_hit = false;
-  if (!maybe_touched) {
-    if (auto lazy = LazyForkOnlyScan(*accessor_, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
-    diff_has_hit = true;
-  }
-
-  auto const label_touched = core.LabelTouchedSnapshot(label);
-  std::vector<std::shared_ptr<const TouchedGids>> property_touched;
-  property_touched.reserve(properties.size());
-  for (size_t i = 0; i < properties.size(); ++i) {
-    if (key_enumerated(i)) property_touched.push_back(core.PropertyTouchedSnapshot(properties[i].front()));
-  }
-  if (!diff_has_hit && label_touched->empty() &&
-      std::ranges::all_of(property_touched, [](auto const &gids) { return gids->empty(); })) {
-    if (auto lazy = LazyForkOnlyScan(*accessor_, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
+  // OLD only (a NEW scan must see the writes the same query makes while it iterates). The lock-free gates first (set
+  // before commit; clear means an empty snapshot). The label snapshot also holds the deleted gids, hence the delete
+  // check.
+  if (view == storage::View::OLD) {
+    auto const index_size = [&] { return accessor_->ApproximateVertexCount(label, properties); };
+    bool maybe_touched = core.MayHaveLabelTouched(label) || ctx.MayHaveAnyVertexDeleted();
+    for (size_t i = 0; !maybe_touched && i < properties.size(); ++i) {
+      if (key_enumerated(i)) maybe_touched = core.MayHavePropertyTouched(properties[i].front());
+    }
+    // A diff-index hit here is final: the snapshot path would hit too.
+    bool diff_has_hit = false;
+    if (!maybe_touched) {
+      if (auto lazy = LazyForkOnlyScan(*accessor_, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
+      diff_has_hit = true;
+    }
+    auto const untouched_by_branch = [&] {
+      if (!core.LabelTouchedSnapshot(label)->empty()) return false;
+      for (size_t i = 0; i < properties.size(); ++i) {
+        if (key_enumerated(i) && !core.PropertyTouchedSnapshot(properties[i].front())->empty()) return false;
+      }
+      return true;
+    };
+    if (!diff_has_hit && untouched_by_branch()) {
+      if (auto lazy = LazyForkOnlyScan(*accessor_, ctx, index_size, diff_scan, fork_scan)) return std::move(*lazy);
+    }
   }
 
   // Candidates main's index cannot hold: branch-native hits and fork vertices that gained the label or set a key.
-  TouchedSet touched{ctx};
-  for (auto raw : diff_scan()) touched.Add(raw);
-  touched.AddForkVertices(*label_touched);
-  for (auto const &gids : property_touched) touched.AddForkVertices(*gids);
-  auto const untouched = SplitForkStream(ctx, fork_scan(), touched, label_touched.get());
-  return MergeOverlay(ctx, untouched, touched, order, read_key, [&](VertexAccessor &v, BranchKey const &key) {
-    return VertexHasLabel(v, view, label) && BranchKeyInRange(key, property_ranges);
-  });
+  auto const build = [&ctx, view, label, properties, order, key_enumerated, diff_scan, fork_scan, key_of] {
+    auto &core = *ctx.core();
+    auto const label_touched = core.LabelTouchedSnapshot(label);
+    TouchedSet touched{ctx};
+    for (auto raw : diff_scan()) touched.Add(raw);
+    touched.AddForkVertices(*label_touched);
+    for (size_t i = 0; i < properties.size(); ++i) {
+      if (key_enumerated(i)) touched.AddForkVertices(*core.PropertyTouchedSnapshot(properties[i].front()));
+    }
+    auto const untouched = SplitForkStream(ctx, fork_scan(), touched, label_touched.get());
+    return MergeOverlay(
+        ctx, untouched, touched, order, [&](VertexAccessor &v) { return ReadBranchKey(v, view, properties); }, key_of);
+  };
+  return MakeVertexScan(ctx, view, build, key_of, epoch, order);
 }
 
 VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::PropertyId property) {
@@ -652,8 +738,8 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::Propert
       *branch_ctx_,
       view,
       property,
-      [&] { return branch_ctx_->historical().Vertices(property, storage::View::OLD); },
-      [&] { return accessor_->Vertices(property, view); },
+      [this, property] { return branch_ctx_->historical().Vertices(property, storage::View::OLD); },
+      [this, property, view] { return accessor_->Vertices(property, view); },
       [](storage::PropertyValue const &) { return true; });
 }
 
@@ -666,9 +752,11 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::Propert
       *branch_ctx_,
       view,
       property,
-      [&] { return branch_ctx_->historical().Vertices(property, lower, upper, storage::View::OLD); },
-      [&] { return accessor_->Vertices(property, lower, upper, view); },
-      [&](storage::PropertyValue const &value) { return range.IsValueInRange(value); });
+      [this, property, lower, upper] {
+        return branch_ctx_->historical().Vertices(property, lower, upper, storage::View::OLD);
+      },
+      [this, property, lower, upper, view] { return accessor_->Vertices(property, lower, upper, view); },
+      [range](storage::PropertyValue const &value) { return range.IsValueInRange(value); });
 }
 
 VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::PropertyId property,
@@ -678,141 +766,191 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::Propert
       *branch_ctx_,
       view,
       property,
-      [&] { return branch_ctx_->historical().Vertices(property, range, storage::View::OLD); },
-      [&] { return accessor_->Vertices(property, range, view); },
-      [&](storage::PropertyValue const &value) { return BranchValueInRange(range, value); });
+      [this, property, range] { return branch_ctx_->historical().Vertices(property, range, storage::View::OLD); },
+      [this, property, range, view] { return accessor_->Vertices(property, range, view); },
+      [range](storage::PropertyValue const &value) { return BranchValueInRange(range, value); });
 }
 
 namespace {
 using MaterializedEdges = std::vector<EdgeAccessor>;
-using KeyedEdge = std::pair<storage::PropertyValue, EdgeAccessor>;
+using EdgeScan = BranchScan<EdgeAccessor>;
+using KeyedEdge = std::pair<BranchScanPosition, EdgeAccessor>;
 
-// Ascending by value, ties by gid: the order the planner relies on when it drops ORDER BY for an edge-property index.
-void SortByValueThenGid(std::vector<KeyedEdge> &edges) {
-  std::ranges::sort(edges, [](KeyedEdge const &a, KeyedEdge const &b) {
-    if (a.first < b.first) return true;
-    if (b.first < a.first) return false;
-    return a.second.Gid() < b.second.Gid();
-  });
+// Edge indexes need properties on edges, so `edge_` is the Edge pointer: main's order after the key.
+BranchScanPosition EdgePosition(versioning::BranchContext &ctx, EdgeAccessor const &edge, BranchKey key) {
+  return {.key = std::move(key),
+          .native = !ctx.IsForkEdgeGid(edge.Gid()),
+          .address = reinterpret_cast<uintptr_t>(edge.impl_.edge_.ptr)};
 }
 
-EdgesIterable FromKeyed(std::vector<KeyedEdge> &&keyed) {
-  auto result = std::make_shared<MaterializedEdges>();
-  result->reserve(keyed.size());
-  for (auto &entry : keyed) result->push_back(std::move(entry.second));
-  return EdgesIterable(std::move(result));
+bool EdgeVisible(versioning::BranchContext &ctx, EdgeAccessor const &edge, storage::View view) {
+  return ctx.IsForkEdgeGid(edge.Gid()) ? !ctx.IsForkEdgeHidden(edge.impl_, view) : edge.IsVisible(view);
 }
 
-// Full-scan fallback for an edge-property index not visible at the fork, in index order. `keep` filters the edge,
-// `in_range` its non-null branch value.
-template <typename Keep, typename InRange>
-EdgesIterable MaterializeSortedEdgePropertyScan(versioning::BranchContext &ctx, storage::View view,
-                                                storage::PropertyId property, Keep &&keep, InRange &&in_range) {
+// As MakeVertexScan, for edges.
+template <typename Build, typename KeyOf, typename Epoch>
+EdgesIterable MakeEdgeScan(versioning::BranchContext &ctx, storage::View view, Build build, KeyOf key_of, Epoch epoch) {
+  if (view == storage::View::OLD) return EdgesIterable(std::make_shared<EdgeScan>(build()));
+  auto const gid_floor = ctx.core()->main().edge_id_.load(std::memory_order_acquire);
+  EdgeScan::Live live{.rescan =
+                          [build, gid_floor] {
+                            auto elements = build();
+                            std::erase_if(elements,
+                                          [&](EdgeAccessor const &e) { return e.Gid().AsUint() >= gid_floor; });
+                            return elements;
+                          },
+                      .locate = [&ctx, key_of](EdgeAccessor &e) -> std::optional<BranchScanPosition> {
+                        auto key = key_of(e);
+                        if (!key) return std::nullopt;
+                        return EdgePosition(ctx, e, std::move(*key));
+                      },
+                      .epoch = std::move(epoch),
+                      .descending = false};
+  return EdgesIterable(std::make_shared<EdgeScan>(build(), std::move(live)));
+}
+
+void SortByPosition(std::vector<KeyedEdge> &edges) {
+  std::ranges::sort(edges, [](KeyedEdge const &a, KeyedEdge const &b) { return BranchScanBefore(a.first, b.first); });
+}
+
+MaterializedEdges FromKeyed(std::vector<KeyedEdge> &&keyed) {
+  MaterializedEdges result;
+  result.reserve(keyed.size());
+  for (auto &entry : keyed) result.push_back(std::move(entry.second));
+  return result;
+}
+
+// Every branch edge `key_of` keeps, in index order; the fallback for an edge index not visible at the fork.
+template <typename KeyOf>
+MaterializedEdges MaterializeEdgeScan(versioning::BranchContext &ctx, storage::View view, KeyOf &&key_of) {
   std::vector<KeyedEdge> keyed;
   ForEachBranchEdge(ctx, view, [&](storage::EdgeAccessor &raw) {
     EdgeAccessor candidate(raw, &ctx);
-    if (!keep(candidate)) return false;
-    auto value = candidate.GetProperty(view, property);
-    if (value.has_value() && !value->IsNull() && in_range(*value)) keyed.emplace_back(std::move(*value), candidate);
+    if (auto key = key_of(candidate)) keyed.emplace_back(EdgePosition(ctx, candidate, std::move(*key)), candidate);
     return false;
   });
-  SortByValueThenGid(keyed);
+  SortByPosition(keyed);
   return FromKeyed(std::move(keyed));
 }
 
-// Merges, by value, the diff engine's index (branch-native edges), main@fork's index minus edges the branch hid or
-// whose property it wrote, and those written fork edges re-read on the branch. O(log E + fork matches + touched).
-template <typename InRange>
-EdgesIterable MergeEdgePropertyScan(versioning::BranchContext &ctx, storage::View view, storage::PropertyId property,
-                                    std::optional<storage::EdgeTypeId> edge_type, storage::EdgesIterable diff_stream,
-                                    storage::EdgesIterable fork_stream, InRange &&in_range) {
-  auto const by_value = [](KeyedEdge const &a, KeyedEdge const &b) { return a.first < b.first; };
+// The edge's branch value of `property` while the scan keeps it: visible, of `edge_type` if given, non-null, in range.
+auto EdgePropertyKeyOf(storage::View view, storage::PropertyId property, std::optional<storage::EdgeTypeId> edge_type,
+                       storage::PropertyValueRange range) {
+  return [view, property, edge_type, range](EdgeAccessor &e) -> std::optional<BranchKey> {
+    if (edge_type && e.EdgeType() != *edge_type) return std::nullopt;
+    auto value = e.GetProperty(view, property);
+    if (!value.has_value() || value->IsNull() || !BranchValueInRange(range, *value)) return std::nullopt;
+    return BranchKey{std::move(*value)};
+  };
+}
+
+// Merges, in index order, main@fork's index minus edges the branch hid or whose property it wrote, those written fork
+// edges re-read on the branch, and the diff engine's index (branch-native edges). O(log E + fork matches + touched).
+template <typename KeyOf>
+MaterializedEdges MergeEdgePropertyScan(versioning::BranchContext &ctx, storage::View view,
+                                        storage::PropertyId property, storage::EdgesIterable diff_stream,
+                                        storage::EdgesIterable fork_stream, KeyOf &&key_of) {
   // One snapshot up front: every transaction visible to this scan recorded its edges before this point.
   auto const touched = ctx.core()->EdgePropertyTouchedSnapshot(property);
 
-  std::vector<KeyedEdge> native;
-  for (auto raw : diff_stream) {
-    auto value = raw.GetProperty(property, view);
-    if (value.has_value()) native.emplace_back(std::move(*value), EdgeAccessor(raw, &ctx));
-  }
-
-  std::vector<KeyedEdge> untouched;
+  std::vector<KeyedEdge> fork_side;
   for (auto raw : fork_stream) {
     if (touched->contains(raw.Gid().AsUint()) || ctx.IsForkEdgeHidden(raw, view)) continue;
     auto value = raw.GetProperty(property, storage::View::OLD);
-    if (value.has_value()) untouched.emplace_back(std::move(*value), EdgeAccessor(raw, &ctx));
+    EdgeAccessor edge(raw, &ctx);
+    if (value.has_value()) fork_side.emplace_back(EdgePosition(ctx, edge, BranchKey{std::move(*value)}), edge);
   }
 
   std::vector<KeyedEdge> changed;
   for (auto const &[edge_gid, from_gid] : *touched) {
     auto fork = ctx.FindForkEdge(storage::Gid::FromUint(edge_gid), storage::Gid::FromUint(from_gid));
-    if (!fork || (edge_type && fork->EdgeType() != *edge_type) || ctx.IsForkEdgeHidden(*fork, view)) continue;
+    if (!fork) continue;
     EdgeAccessor candidate(*fork, &ctx);
-    auto value = candidate.GetProperty(view, property);
-    if (value.has_value() && !value->IsNull() && in_range(*value)) changed.emplace_back(std::move(*value), candidate);
+    if (auto key = key_of(candidate)) changed.emplace_back(EdgePosition(ctx, candidate, std::move(*key)), candidate);
   }
-  SortByValueThenGid(changed);
+  SortByPosition(changed);
+  auto const middle = static_cast<std::ptrdiff_t>(fork_side.size());
+  fork_side.insert(fork_side.end(), std::make_move_iterator(changed.begin()), std::make_move_iterator(changed.end()));
+  auto const before = [](KeyedEdge const &a, KeyedEdge const &b) { return BranchScanBefore(a.first, b.first); };
+  std::inplace_merge(fork_side.begin(), fork_side.begin() + middle, fork_side.end(), before);
 
-  std::vector<KeyedEdge> fork_side;
-  fork_side.reserve(untouched.size() + changed.size());
-  std::ranges::merge(untouched, changed, std::back_inserter(fork_side), by_value);
+  std::vector<KeyedEdge> native;
+  for (auto raw : diff_stream) {
+    auto value = raw.GetProperty(property, view);
+    EdgeAccessor edge(raw, &ctx);
+    if (value.has_value()) native.emplace_back(EdgePosition(ctx, edge, BranchKey{std::move(*value)}), edge);
+  }
   std::vector<KeyedEdge> merged;
   merged.reserve(native.size() + fork_side.size());
-  std::ranges::merge(native, fork_side, std::back_inserter(merged), by_value);
+  std::ranges::merge(fork_side, native, std::back_inserter(merged), before);
   return FromKeyed(std::move(merged));
 }
 }  // namespace
 
-// Unsorted: the diff engine's hits (branch-native edges) and main@fork's minus the edges the branch hid. A fork edge
-// never changes type.
+// Unsorted (index order is by address): main@fork's index minus the edges the branch hid, then the diff engine's hits
+// (branch-native edges). A fork edge never changes type and an edge created after the scan started is never yielded,
+// so nothing can join a scan in flight.
 EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::EdgeTypeId edge_type) {
   auto &ctx = *branch_ctx_;
-  auto result = std::make_shared<MaterializedEdges>();
+  auto const key_of = [&ctx, view, edge_type](EdgeAccessor &e) -> std::optional<BranchKey> {
+    if (e.EdgeType() != edge_type || !EdgeVisible(ctx, e, view)) return std::nullopt;
+    return BranchKey{};
+  };
+  auto const no_input = [] { return uint64_t{0}; };
   if (!ctx.historical().EdgeTypeIndexReady(edge_type)) {
-    ForEachBranchEdge(ctx, view, [&](storage::EdgeAccessor &raw) {
-      if (raw.EdgeType() == edge_type) result->emplace_back(raw, branch_ctx_);
-      return false;
-    });
-    return EdgesIterable(std::move(result));
+    return MakeEdgeScan(
+        ctx, view, [&ctx, view, key_of] { return MaterializeEdgeScan(ctx, view, key_of); }, key_of, no_input);
   }
-  for (auto raw : accessor_->Edges(edge_type, view)) result->emplace_back(raw, branch_ctx_);
-  for (auto raw : ctx.historical().Edges(edge_type, storage::View::OLD)) {
-    if (!ctx.IsForkEdgeHidden(raw, view)) result->emplace_back(raw, branch_ctx_);
-  }
-  return EdgesIterable(std::move(result));
+  auto const build = [this, view, edge_type] {
+    auto &ctx = *branch_ctx_;
+    MaterializedEdges result;
+    for (auto raw : ctx.historical().Edges(edge_type, storage::View::OLD)) {
+      if (!ctx.IsForkEdgeHidden(raw, view)) result.emplace_back(raw, branch_ctx_);
+    }
+    for (auto raw : accessor_->Edges(edge_type, view)) result.emplace_back(raw, branch_ctx_);
+    return result;
+  };
+  return MakeEdgeScan(ctx, view, build, key_of, no_input);
 }
 
 EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                                       storage::PropertyValueRange const &range) {
   auto &ctx = *branch_ctx_;
-  auto const in_range = [&](storage::PropertyValue const &value) { return BranchValueInRange(range, value); };
+  auto const key_of = EdgePropertyKeyOf(view, property, edge_type, range);
+  auto const epoch = [&ctx, property] { return ctx.ScanEpoch(ScanInput::kProperty, property.AsUint()); };
   if (!ctx.historical().EdgeTypePropertyIndexReady(edge_type, property)) {
-    return MaterializeSortedEdgePropertyScan(
-        ctx, view, property, [edge_type](EdgeAccessor &e) { return e.EdgeType() == edge_type; }, in_range);
+    return MakeEdgeScan(
+        ctx, view, [&ctx, view, key_of] { return MaterializeEdgeScan(ctx, view, key_of); }, key_of, epoch);
   }
-  return MergeEdgePropertyScan(ctx,
-                               view,
-                               property,
-                               edge_type,
-                               accessor_->Edges(edge_type, property, range, view),
-                               ctx.historical().Edges(edge_type, property, range, storage::View::OLD),
-                               in_range);
+  auto const build = [this, view, edge_type, property, range, key_of] {
+    return MergeEdgePropertyScan(*branch_ctx_,
+                                 view,
+                                 property,
+                                 accessor_->Edges(edge_type, property, range, view),
+                                 branch_ctx_->historical().Edges(edge_type, property, range, storage::View::OLD),
+                                 key_of);
+  };
+  return MakeEdgeScan(ctx, view, build, key_of, epoch);
 }
 
 EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::PropertyId property,
                                       storage::PropertyValueRange const &range) {
   auto &ctx = *branch_ctx_;
-  auto const in_range = [&](storage::PropertyValue const &value) { return BranchValueInRange(range, value); };
+  auto const key_of = EdgePropertyKeyOf(view, property, std::nullopt, range);
+  auto const epoch = [&ctx, property] { return ctx.ScanEpoch(ScanInput::kProperty, property.AsUint()); };
   if (!ctx.historical().EdgePropertyIndexReady(property)) {
-    return MaterializeSortedEdgePropertyScan(ctx, view, property, [](EdgeAccessor &) { return true; }, in_range);
+    return MakeEdgeScan(
+        ctx, view, [&ctx, view, key_of] { return MaterializeEdgeScan(ctx, view, key_of); }, key_of, epoch);
   }
-  return MergeEdgePropertyScan(ctx,
-                               view,
-                               property,
-                               std::nullopt,
-                               accessor_->Edges(property, range, view),
-                               ctx.historical().Edges(property, range, storage::View::OLD),
-                               in_range);
+  auto const build = [this, view, property, range, key_of] {
+    return MergeEdgePropertyScan(*branch_ctx_,
+                                 view,
+                                 property,
+                                 accessor_->Edges(property, range, view),
+                                 branch_ctx_->historical().Edges(property, range, storage::View::OLD),
+                                 key_of);
+  };
+  return MakeEdgeScan(ctx, view, build, key_of, epoch);
 }
 
 namespace {

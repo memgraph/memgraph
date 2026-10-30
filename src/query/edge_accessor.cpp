@@ -162,6 +162,7 @@ std::vector<storage::PropertyId> EdgeAccessor::BranchVectorIndexedProperties() c
 storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,
                                                                         const storage::PropertyValue &value) {
   auto &ctx = *branch_ctx_;
+  ctx.BumpScanEpoch(versioning::BranchContext::ScanInput::kProperty, key.AsUint());
   if (!PrepareBranchEdgeWrite(ctx, impl_)) return impl_.SetProperty(key, value);
   RecordForkEdgeWrite(ctx, impl_, key);
   return ctx.EdgeOverlaySetProperty(impl_, key, value);
@@ -177,6 +178,9 @@ storage::Result<bool> EdgeAccessor::BranchInitProperties(PropertyMap &properties
 storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
 EdgeAccessor::BranchUpdateProperties(PropertyMap &properties) const {
   auto &ctx = *branch_ctx_;
+  for (const auto &[pid, _] : properties) {
+    ctx.BumpScanEpoch(versioning::BranchContext::ScanInput::kProperty, pid.AsUint());
+  }
   if (!PrepareBranchEdgeWrite(ctx, impl_)) return impl_.UpdateProperties(properties);
   RecordForkEdgeWrites(ctx, impl_, properties);
   return ctx.EdgeOverlayUpdateProperties(impl_, properties);
