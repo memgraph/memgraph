@@ -1539,15 +1539,13 @@ TEST(PropertyStore, ArePropertiesEqual_APathIntoSomethingThatIsNotAMapLeavesLate
 
   // On its own, the path into the map is found.
   EXPECT_EQ(
-      EqualityMask(
-          store, std::array{PropertyPath{p2, p3}}, std::array{PropertyValue{"apple"}}, std::array<std::size_t, 1>{0}),
+      EqualityMask(store, OrderedPropertyPaths{std::vector{PropertyPath{p2, p3}}}, std::array{PropertyValue{"apple"}}),
       (std::vector{true}));
 
   // And it is still found when a path into the integer is asked about first.
   EXPECT_EQ(EqualityMask(store,
-                         std::array{PropertyPath{p1, p3}, PropertyPath{p2, p3}},
-                         std::array{PropertyValue{"apple"}},
-                         std::array<std::size_t, 2>{0, 0}),
+                         OrderedPropertyPaths{std::vector{PropertyPath{p1, p3}, PropertyPath{p2, p3}}},
+                         std::array{PropertyValue{"apple"}, PropertyValue{"apple"}}),
             (std::vector{false, true}));
 }
 
@@ -1560,11 +1558,8 @@ TEST(PropertyStore, AskingAboutNoPathsAtAllYieldsNoAnswers) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_TRUE(
-      EqualityMask(
-          store, std::span<PropertyPath const>{}, std::span<PropertyValue const>{}, std::span<std::size_t const>{})
-          .empty());
-  EXPECT_TRUE(store.ExtractPropertyValuesMissingAsNull(std::vector<PropertyPath>{}).empty());
+  EXPECT_TRUE(EqualityMask(store, OrderedPropertyPaths{}, std::span<PropertyValue const>{}).empty());
+  EXPECT_TRUE(store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{}).empty());
 }
 
 // Giving up on a path has to leave the reader after the value it gave up on, which is where a
@@ -1585,11 +1580,11 @@ TEST(PropertyStore, ArePropertiesEqual_GivingUpOnAPathLeavesTheReaderAfterTheVal
   store.InitProperties(data);
 
   EXPECT_EQ(EqualityMask(store,
-                         std::array{PropertyPath{p1, p3}, PropertyPath{p9}},
-                         std::array{PropertyValue{"outer"}},
-                         std::array<std::size_t, 2>{0, 0}),
+                         OrderedPropertyPaths{std::vector{PropertyPath{p1, p3}, PropertyPath{p9}}},
+                         std::array{PropertyValue{"outer"}, PropertyValue{"outer"}}),
             (std::vector{false, true}));
-  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p3}, PropertyPath{p9}}),
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
+                OrderedPropertyPaths{std::vector{PropertyPath{p1, p3}, PropertyPath{p9}}}),
             (std::vector{PropertyValue(), PropertyValue("outer")}));
 }
 
@@ -1612,12 +1607,10 @@ TEST(PropertyStore, ArePropertiesEqual_AKeyIsNotFoundOutsideTheValueThatHoldsIt)
   store.InitProperties(data);
 
   // The nested map holds no key 9, so the path names nothing.
-  EXPECT_EQ(EqualityMask(store,
-                         std::array{PropertyPath{p1, p2, p9}},
-                         std::array{PropertyValue{"outer"}},
-                         std::array<std::size_t, 1>{0}),
+  EXPECT_EQ(EqualityMask(
+                store, OrderedPropertyPaths{std::vector{PropertyPath{p1, p2, p9}}}, std::array{PropertyValue{"outer"}}),
             (std::vector{false}));
-  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p2, p9}}),
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{std::vector{PropertyPath{p1, p2, p9}}}),
             (std::vector{PropertyValue()}));
 }
 
@@ -1637,10 +1630,9 @@ TEST(PropertyStore, ArePropertiesEqual_AKeyIsNotFoundOutsideTheValueThatHoldsItA
   store.InitProperties(data);
 
   EXPECT_EQ(
-      EqualityMask(
-          store, std::array{PropertyPath{p1, p9}}, std::array{PropertyValue{"outer"}}, std::array<std::size_t, 1>{0}),
+      EqualityMask(store, OrderedPropertyPaths{std::vector{PropertyPath{p1, p9}}}, std::array{PropertyValue{"outer"}}),
       (std::vector{false}));
-  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p9}}),
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{std::vector{PropertyPath{p1, p9}}}),
             (std::vector{PropertyValue()}));
 }
 
@@ -1659,7 +1651,8 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_APathIntoSomethingThatIsN
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(std::vector{PropertyPath{p1, p3}, PropertyPath{p2, p3}}),
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
+                OrderedPropertyPaths{std::vector{PropertyPath{p1, p3}, PropertyPath{p2, p3}}}),
             (std::vector{PropertyValue(), PropertyValue("apple")}));
 }
 
