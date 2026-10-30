@@ -13,6 +13,7 @@
 
 #include <sys/socket.h>
 
+#include <atomic>
 #include <cerrno>
 #include <concepts>
 #include <cstddef>
@@ -45,6 +46,7 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
+#include <nlohmann/json.hpp>
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
@@ -55,6 +57,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/structured_logging.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include "flags/scheduler.hpp"
@@ -232,7 +235,46 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                    socket.lowest_layer().non_blocking(false);
                                  }},
                socket_);
-    spdlog::info("Accepted a connection from {}: {}", service_name_, remote_endpoint_);
+    LogConnectionEvent(spdlog::level::info,
+                       "connection.accepted",
+                       nullptr,
+                       "Accepted a connection from {}: {}",
+                       service_name_,
+                       remote_endpoint_);
+  }
+
+  template <typename... Args>
+  void LogConnectionEvent(spdlog::level::level_enum level, std::string_view name,
+                          const boost::system::error_code *error, fmt::format_string<Args...> format, Args &&...args) {
+    if (!spdlog::default_logger_raw()->should_log(level)) return;
+    const auto message = fmt::format(format, std::forward<Args>(args)...);
+    if (!logging::IsStructuredLoggingEnabled()) {
+      spdlog::log(level, spdlog::string_view_t{message.data(), message.size()});
+      return;
+    }
+    nlohmann::json attributes{{"network.protocol.name", service_name_}};
+    if constexpr (requires { session_.UUID(); }) attributes["session.id"] = session_.UUID();
+    if (remote_endpoint_) {
+      attributes["client.address"] = remote_endpoint_->address().to_string();
+      attributes["client.port"] = remote_endpoint_->port();
+    }
+    if (error) {
+      attributes["error.type"] = error->category().name();
+      attributes["error.code"] = error->value();
+      attributes["error.message"] = error->message();
+    } else if (name == "connection.error") {
+      attributes["error.type"] = "session_processing_error";
+    }
+    logging::LogEvent(level, name, message, attributes);
+  }
+
+  template <typename... Args>
+  void LogConnectionClosed(fmt::format_string<Args...> format, Args &&...args) {
+    if (close_event_logged_.exchange(true, std::memory_order_relaxed)) {
+      spdlog::info(format, std::forward<Args>(args)...);
+      return;
+    }
+    LogConnectionEvent(spdlog::level::info, "connection.closed", nullptr, format, std::forward<Args>(args)...);
   }
 
   // Start the asynchronous accept operation
@@ -396,12 +438,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     try {
       std::rethrow_exception(eptr);
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {} closed the connection.", service_name_, remote_endpoint_);
+      LogConnectionClosed("{} client {} closed the connection.", service_name_, remote_endpoint_);
       DoShutdown();
     } catch (const std::exception &e) {
-      spdlog::error("Exception was thrown while processing event in {} session associated with {}",
-                    service_name_,
-                    remote_endpoint_);
+      LogConnectionEvent(spdlog::level::err,
+                         "connection.error",
+                         nullptr,
+                         "Exception was thrown while processing event in {} session associated with {}",
+                         service_name_,
+                         remote_endpoint_);
       spdlog::debug("Exception message: {}", e.what());
       DoShutdown();
     }
@@ -520,13 +565,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
     // This indicates that the WebsocketSession was closed
     if (ec == boost::beast::websocket::error::closed) {
+      if (logging::IsStructuredLoggingEnabled()) LogConnectionClosed("Session closed by peer {}", remote_endpoint_);
       return;
     }
 
     if (ec == boost::asio::error::eof) {
-      spdlog::info("Session closed by peer {}", remote_endpoint_);
+      LogConnectionClosed("Session closed by peer {}", remote_endpoint_);
     } else {
-      spdlog::error("Session error: {}", ec.message());
+      LogConnectionEvent(spdlog::level::err, "connection.error", &ec, "Session error: {}", ec.message());
     }
 
     DoShutdown();
@@ -556,6 +602,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     execution_active_ = false;
+    if (!close_event_logged_.exchange(true, std::memory_order_relaxed) && logging::IsStructuredLoggingEnabled()) {
+      LogConnectionEvent(spdlog::level::info, "connection.closed", nullptr, "Session closed {}", remote_endpoint_);
+    }
 
     std::visit(utils::Overloaded{[this](WebSocket &ws) {
                                    ws.async_close(
@@ -662,6 +711,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+  std::atomic_bool close_event_logged_{false};
   // Set by any thread via RequestTermination; only ever set, never cleared. Re-checked under arm_lock_
   // at every read-arm (ArmLocked_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};

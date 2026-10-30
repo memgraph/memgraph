@@ -10642,7 +10642,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
-    MaybeEmitFailedQueryLog(query_string, e.what());
+    MaybeEmitFailedQueryLog(query_string, e, "parse");
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.
@@ -11327,7 +11327,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const std::string_view failed_query_text = (query_execution_ptr && *query_execution_ptr)
                                                    ? std::string_view{(*query_execution_ptr)->query_string}
                                                    : std::string_view{};
-    MaybeEmitFailedQueryLog(failed_query_text, e.what());
+    MaybeEmitFailedQueryLog(failed_query_text, e, "prepare");
     // Trigger first failed query
     metrics::FirstFailedQuery();
     // db_acc_ may be absent if the query fails before USE DATABASE; fall back to global counter.

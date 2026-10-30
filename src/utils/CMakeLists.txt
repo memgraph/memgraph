@@ -50,6 +50,7 @@ target_sources(mg-utils
     resource_monitoring.cpp
     safe_string.cpp
     session_context.cpp
+    structured_logging.cpp
     shared_quota.cpp
 
     PUBLIC
@@ -66,8 +67,10 @@ target_sources(mg-utils
     pointer_pack.hpp
     small_vector.hpp
     static_vector.hpp
+    json_log_formatter.hpp
     logging.hpp
     session_context.hpp
+    structured_logging.hpp
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
