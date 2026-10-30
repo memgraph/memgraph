@@ -90,6 +90,11 @@ class VertexAccessor final {
       return BranchGetPropertySize(key, view);
     return impl_.GetPropertySize(key, view);
   }
+
+  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
+  std::vector<storage::PropertyId> VectorIndexedProperties(std::span<storage::LabelId const> labels) const {
+    return impl_.VectorIndexedProperties(labels);
+  }
 #else
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);

@@ -48,6 +48,22 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker);
 
+#ifdef MG_ENTERPRISE
+/// Same as the storage overload; an accessor minted on a branch is encoded from its branch view.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker);
+
+/// Same as the storage overload; an accessor minted on a branch is encoded from its branch view.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker);
+
+#endif
 /// @param query::Path for converting to communication::bolt::Path.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.

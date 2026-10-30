@@ -53,6 +53,9 @@ using WithinBBoxCondition = memgraph::storage::WithinBBoxCondition;
 enum class text_search_mode;
 
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <memory>
+#endif
 #include <optional>
 #include <ranges>
 #include <span>
@@ -122,16 +125,62 @@ class SubgraphVertexAccessor final {
 namespace memgraph::query {
 
 class VerticesIterable final {
+#ifdef MG_ENTERPRISE
+  using VertexSet = std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                       utils::Allocator<VertexAccessor>>;
+  using UnionIterable = versioning::BranchContext::UnionVerticesIterable;
+
+  // The branch union scan and its iterator are several storage iterators wide; they are boxed so that main's scan
+  // iterable and iterator keep their size.
+  class BoxedUnionIterator {
+   public:
+    explicit BoxedUnionIterator(UnionIterable::Iterator it)
+        : it_(std::make_unique<UnionIterable::Iterator>(std::move(it))) {}
+
+    BoxedUnionIterator(const BoxedUnionIterator &other) : it_(std::make_unique<UnionIterable::Iterator>(*other.it_)) {}
+
+    BoxedUnionIterator &operator=(const BoxedUnionIterator &other) {
+      it_ = std::make_unique<UnionIterable::Iterator>(*other.it_);
+      return *this;
+    }
+
+    BoxedUnionIterator(BoxedUnionIterator &&) noexcept = default;
+    BoxedUnionIterator &operator=(BoxedUnionIterator &&) noexcept = default;
+    ~BoxedUnionIterator() = default;
+
+    storage::VertexAccessor operator*() const { return **it_; }
+
+    BoxedUnionIterator &operator++() {
+      ++*it_;
+      return *this;
+    }
+
+    bool operator==(const BoxedUnionIterator &other) const { return *it_ == *other.it_; }
+
+   private:
+    std::unique_ptr<UnionIterable::Iterator> it_;
+  };
+
+  std::variant<storage::VerticesIterable, VertexSet *, std::shared_ptr<UnionIterable>> iterable_;
+  // Stamped onto every vertex a storage or union scan yields; null on main.
+  versioning::BranchContext *branch_ctx_{nullptr};
+#else
   std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
                                                              std::equal_to<void>, utils::Allocator<VertexAccessor>> *>
       iterable_;
+#endif
 
  public:
   class Iterator final {
+#ifdef MG_ENTERPRISE
+    std::variant<storage::VerticesIterable::Iterator, VertexSet::iterator, BoxedUnionIterator> it_;
+    versioning::BranchContext *branch_ctx_{nullptr};
+#else
     std::variant<storage::VerticesIterable::Iterator,
                  std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                     utils::Allocator<VertexAccessor>>::iterator>
         it_;
+#endif
 
    public:
     explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
@@ -140,9 +189,20 @@ class VerticesIterable final {
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
+#ifdef MG_ENTERPRISE
+    template <typename It>
+    Iterator(It it, versioning::BranchContext *ctx) : it_(std::move(it)), branch_ctx_(ctx) {}
+
+    VertexAccessor operator*() const {
+      return std::visit(utils::Overloaded{[](VertexSet::iterator const &it) { return *it; },
+                                          [this](auto const &it) { return VertexAccessor(*it, branch_ctx_); }},
+                        it_);
+    }
+#else
     VertexAccessor operator*() const {
       return std::visit([](auto &it_) { return VertexAccessor(*it_); }, it_);
     }
+#endif
 
     Iterator &operator++() {
       std::visit([](auto &it_) { ++it_; }, it_);
@@ -160,6 +220,34 @@ class VerticesIterable final {
                                                utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
+#ifdef MG_ENTERPRISE
+  VerticesIterable(storage::VerticesIterable iterable, versioning::BranchContext *ctx)
+      : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
+
+  VerticesIterable(UnionIterable iterable, versioning::BranchContext *ctx)
+      : iterable_(std::make_shared<UnionIterable>(std::move(iterable))), branch_ctx_(ctx) {}
+
+  Iterator begin() {
+    return std::visit(utils::Overloaded{[](VertexSet *set) { return Iterator(set->begin()); },
+                                        [this](storage::VerticesIterable &iterable) {
+                                          return Iterator(iterable.begin(), branch_ctx_);
+                                        },
+                                        [this](std::shared_ptr<UnionIterable> &iterable) {
+                                          return Iterator(BoxedUnionIterator(iterable->begin()), branch_ctx_);
+                                        }},
+                      iterable_);
+  }
+
+  Iterator end() {
+    return std::visit(
+        utils::Overloaded{[](VertexSet *set) { return Iterator(set->end()); },
+                          [this](storage::VerticesIterable &iterable) { return Iterator(iterable.end(), branch_ctx_); },
+                          [this](std::shared_ptr<UnionIterable> &iterable) {
+                            return Iterator(BoxedUnionIterator(iterable->end()), branch_ctx_);
+                          }},
+        iterable_);
+  }
+#else
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{[](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
@@ -182,6 +270,7 @@ class VerticesIterable final {
                                   utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
         iterable_);
   }
+#endif
 };
 
 template <typename storage_iterator>
@@ -394,6 +483,14 @@ class DbAccessor final {
 #ifdef MG_ENTERPRISE
   // Non-null iff this belongs to a branch's transaction, where `accessor_` is the branch's diff-engine accessor.
   versioning::BranchContext *branch_ctx_{nullptr};
+
+  // Branch reads (db_accessor.cpp), reached only when branch_ctx_ != nullptr: they resolve against main@fork merged
+  // with the diff engine, never against `accessor_` alone.
+  std::optional<VertexAccessor> BranchFindVertex(storage::Gid gid, storage::View view);
+  // No edge index by gid on a branch: the diff engine first, then a walk of every vertex's OUT adjacency, O(V+E).
+  std::optional<EdgeAccessor> BranchFindEdge(storage::Gid gid, storage::View view);
+  std::optional<EdgeAccessor> BranchFindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
+  VerticesIterable BranchVertices(storage::View view);
 #endif
 
  public:
@@ -417,18 +514,30 @@ class DbAccessor final {
   auto type() const { return accessor_->type(); }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchFindVertex(gid, view);
+#endif
     auto maybe_vertex = accessor_->FindVertex(gid, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
   }
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchFindEdge(gid, view);
+#endif
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
   }
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchFindEdge(edge_gid, from_vertex_gid, view);
+#endif
     auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
@@ -450,7 +559,15 @@ class DbAccessor final {
 
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 
+#ifdef MG_ENTERPRISE
+  VerticesIterable Vertices(storage::View view) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view);
+    return VerticesIterable(accessor_->Vertices(view));
+  }
+#else
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
+#endif
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
     return VerticesIterable(accessor_->Vertices(label, view));

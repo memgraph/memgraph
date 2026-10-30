@@ -63,6 +63,9 @@ class EdgeAccessor final {
       return BranchGetPropertySize(key, view);
     return impl_.GetPropertySize(key, view);
   }
+
+  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
+  std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
 #else
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
