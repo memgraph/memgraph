@@ -1023,6 +1023,21 @@ add_unit_test(versioning_reserved_guard_mapper
     SOURCES versioning_reserved_guard_mapper.cpp
     LINK_TARGETS mg::versioning mg::storage
 )
+
+add_unit_test(versioning_edge_stub_index
+    SOURCES versioning_edge_stub_index.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_stub_index
+    SOURCES versioning_stub_index.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_branch_change_filter
+    SOURCES versioning_branch_change_filter.cpp
+    LINK_TARGETS mg::versioning
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
