@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <ctime>
@@ -1036,6 +1037,13 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
       return false;
     }
 
+    // Plain decimal only: rejects nan, inf and exponent notation accepted by from_chars.
+    const auto digits = number_substring.starts_with('-') ? number_substring.substr(1) : number_substring;
+    if (digits.empty() ||
+        !std::ranges::all_of(digits, [](const char c) { return (c >= '0' && c <= '9') || c == '.'; })) {
+      return false;
+    }
+
     const auto maybe_parsed_number = ParseNumber<double>(number_substring, number_substring.size());
     if (!maybe_parsed_number) {
       return false;
@@ -1133,22 +1141,38 @@ DurationParameters ParseDurationParameters(std::string_view string) {
 }
 
 namespace {
-template <Chrono From, Chrono To>
-constexpr To CastChronoDouble(const double value) {
-  return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
-};
+template <Chrono From>
+int64_t DurationComponentToMicroseconds(const double value) {
+  if (!std::isfinite(value)) {
+    throw temporal::InvalidArgumentException("Duration component must be a finite number.");
+  }
+  const auto us = value * (static_cast<double>(std::chrono::microseconds::period::den) *
+                           static_cast<double>(From::period::num) / static_cast<double>(From::period::den));
+  // 2^63 is exactly representable; every double below it (and >= -2^63) fits in int64.
+  constexpr double kLimit = 9223372036854775808.0;
+  if (!(us >= -kLimit && us < kLimit)) {
+    throw temporal::OverflowException("Duration value out of range.");
+  }
+  return static_cast<int64_t>(us);
+}
 }  // namespace
 
 Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
-  microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
-                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hour) +
-                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minute) +
-                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.second) +
-                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.millisecond) +
-                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microsecond))
-                     .count();
+  int64_t sum = 0;
+  const auto add = [&sum](const int64_t part) {
+    if (__builtin_add_overflow(sum, part, &sum)) {
+      throw temporal::OverflowException("Duration value out of range.");
+    }
+  };
+  add(DurationComponentToMicroseconds<std::chrono::days>(parameters.day));
+  add(DurationComponentToMicroseconds<std::chrono::hours>(parameters.hour));
+  add(DurationComponentToMicroseconds<std::chrono::minutes>(parameters.minute));
+  add(DurationComponentToMicroseconds<std::chrono::seconds>(parameters.second));
+  add(DurationComponentToMicroseconds<std::chrono::milliseconds>(parameters.millisecond));
+  add(DurationComponentToMicroseconds<std::chrono::microseconds>(parameters.microsecond));
+  microseconds = sum;
 }
 
 int64_t Duration::Days() const {
