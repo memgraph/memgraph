@@ -122,15 +122,27 @@ class EdgeAccessor final {
 #endif
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchSetProperty(key, value);
+#endif
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchInitProperties(properties);
+#endif
     return impl_.InitProperties(properties);
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchUpdateProperties(properties);
+#endif
     return impl_.UpdateProperties(properties);
   }
 
@@ -139,6 +151,10 @@ class EdgeAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchClearProperties();
+#endif
     return impl_.ClearProperties();
   }
 
@@ -178,6 +194,15 @@ class EdgeAccessor final {
   storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
   storage::Result<void> BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
                                                  std::span<storage::PropertyValue> out, storage::View view) const;
+
+  // Branch writes: forwarders to the BranchContext write resolver, which writes a fork edge's stub and a native edge
+  // directly. Fails with PROPERTIES_DISABLED if MAIN has no edge properties, DELETED_OBJECT if the branch deleted it.
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
 #endif
 };
 
