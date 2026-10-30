@@ -9,16 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sstream>
 #include <string>
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
 
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
 #include "query/exceptions.hpp"
+#include "utils/json_log_formatter.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/structured_logging.hpp"
 
 using memgraph::communication::bolt::ChunkedEncoderBuffer;
 using memgraph::communication::bolt::ClientError;
@@ -534,6 +539,31 @@ TEST(BoltSession, InitWrongSignature) {
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
+}
+
+TEST(BoltSession, AuthenticationRejectionsEmitSafeStructuredEvents) {
+  const auto previous = spdlog::default_logger();
+  for (const bool resource_limit : {false, true}) {
+    std::ostringstream stream;
+    const auto restore_logger = memgraph::utils::OnScopeExit{[&] { spdlog::set_default_logger(previous); }};
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(stream);
+    sink->set_formatter(std::make_unique<memgraph::logging::JsonLogFormatter>());
+    auto logger = std::make_shared<spdlog::logger>("auth_test", sink);
+    spdlog::set_default_logger(memgraph::logging::EnableStructuredEvents(logger));
+    INIT_VARS;
+    if (resource_limit) {
+      EXPECT_THROW(memgraph::communication::bolt::details::HandleResourceFailure(session),
+                   memgraph::communication::SessionClosedException);
+    } else {
+      EXPECT_THROW(memgraph::communication::bolt::details::HandleAuthFailure(session, "private client detail"),
+                   memgraph::communication::SessionClosedException);
+    }
+    const auto record = nlohmann::json::parse(stream.str());
+    EXPECT_EQ(record.at("event").at("name"), "authentication.failed");
+    EXPECT_EQ(record.at("attributes").at("session.id"), session.UUID());
+    EXPECT_EQ(record.at("attributes").at("reason"), resource_limit ? "session_limit" : "unauthenticated");
+    EXPECT_EQ(stream.str().find("private client detail"), std::string::npos);
+  }
 }
 
 TEST(BoltSession, InitWrongMarker) {

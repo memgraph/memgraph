@@ -26,6 +26,7 @@
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/structured_logging.hpp"
 
 namespace memgraph::communication::bolt {
 
@@ -33,6 +34,7 @@ namespace details {
 
 template <typename TSession>
 void HandleAuthFailure(TSession &session, std::string const &message = "Authentication failure") {
+  logging::EmitAuthenticationFailure(session.UUID(), "unauthenticated");
   // Deliver any responses deferred earlier in this burst (e.g. a HELLO ack before a failed LOGON)
   // before the FAILURE, uniformly with the other failure-close paths.
   static_cast<void>(session.encoder_buffer_.FlushFinalized());
@@ -47,6 +49,7 @@ void HandleAuthFailure(TSession &session, std::string const &message = "Authenti
 
 template <typename TSession>
 void HandleResourceFailure(TSession &session) {
+  logging::EmitAuthenticationFailure(session.UUID(), "session_limit");
   // Deliver any responses deferred earlier in this burst before the FAILURE, uniformly with the
   // other failure-close paths.
   static_cast<void>(session.encoder_buffer_.FlushFinalized());
@@ -110,6 +113,7 @@ template <typename TSession>
 std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   auto credentials = ExtractSSOCredentials(data);
   if (!credentials) {
+    logging::EmitAuthenticationFailure(session.UUID(), "missing_sso_credentials");
     return State::Close;
   }
   const auto &[scheme, identity_provider_response] = *credentials;
@@ -132,6 +136,7 @@ template <typename TSession>
 std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   auto credentials = ExtractSSOCredentials(data);
   if (!credentials) {
+    logging::EmitAuthenticationFailure(session.UUID(), "missing_sso_credentials");
     return State::Close;
   }
   const auto &[scheme, identity_provider_response] = *credentials;

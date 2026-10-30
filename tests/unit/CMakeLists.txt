@@ -1538,7 +1538,22 @@ add_unit_test(safe_hardware_concurrency
     SOURCES safe_hardware_concurrency.cpp
     LINK_TARGETS mg-utils)
 
-# Test log retention cleanup
+add_unit_test(json_log_formatter
+    SOURCES json_log_formatter.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(structured_logging
+    SOURCES structured_logging.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(connection_logging
+    SOURCES connection_logging.cpp
+    LINK_TARGETS mg-communication mg-metrics mg-flags
+)
+
+# Test log retention cleanup and output formats
 add_unit_test(logging
     SOURCES logging.cpp
     LINK_TARGETS gflags mg-flags

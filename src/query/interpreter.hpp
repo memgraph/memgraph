@@ -683,12 +683,17 @@ class Interpreter final {
   plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
  private:
-  void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
+  void MaybeEmitFailedQueryLog(std::string_view query, const utils::BasicException &error, std::string_view phase,
+                               std::optional<memgraph::logging::QueryLogContext> captured_context = {}) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
     if (!flags::run_time::GetEffectiveLogFailedQueries(session_log_ctx_)) return;
     const auto db_name = CurrentDbLogName();
-    memgraph::logging::EmitFailedQueryLog(session_log_ctx_.user(), db_name, query, error);
+    auto context = captured_context.value_or(session_log_ctx_.QueryContext());
+    const auto error_type = error.name();
+    context.phase = phase;
+    context.error_type = error_type;
+    memgraph::logging::EmitFailedQueryLog(session_log_ctx_.user(), db_name, query, error.what(), context);
   }
 
   // db= field for the slow-/failed-query log: the current DB name, or "<none>".
@@ -848,6 +853,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   auto &query_execution = query_executions_[qid_value];
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
+  const auto query_log_context =
+      session_log_ctx_.QueryContext(in_explicit_transaction_ ? std::optional{qid_value} : std::nullopt);
 
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
@@ -949,12 +956,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     }
   } catch (const ExplicitTransactionUsageException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
-    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
+    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e, "pull", query_log_context);
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
-    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
+    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e, "pull", query_log_context);
     metrics::FirstFailedQuery();
     if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
       mh->failed_query.Increment();
@@ -986,8 +993,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       std::optional<std::string_view> plan_view;
       if (captured_plan_text.has_value()) plan_view = *captured_plan_text;
       const auto db_name = CurrentDbLogName();
-      memgraph::logging::EmitSlowQueryLog(
-          session_log_ctx_.user(), db_name, captured_query_string, slow_query_duration_ms, plan_view);
+      memgraph::logging::EmitSlowQueryLog(session_log_ctx_.user(),
+                                          db_name,
+                                          captured_query_string,
+                                          slow_query_duration_ms,
+                                          plan_view,
+                                          query_log_context);
     }
 
     // return the execution summary
