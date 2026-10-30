@@ -22,6 +22,8 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
+#include "utils/on_scope_exit.hpp"
+
 namespace memgraph::logging {
 namespace {
 
@@ -30,20 +32,10 @@ struct EventContext {
   const nlohmann::json *event;
 };
 
-thread_local const EventContext *current_event = nullptr;
-
-class EventScope {
- public:
-  explicit EventScope(const EventContext &context) : previous_(std::exchange(current_event, &context)) {}
-
-  ~EventScope() { current_event = previous_; }
-
-  EventScope(const EventScope &) = delete;
-  EventScope &operator=(const EventScope &) = delete;
-
- private:
-  const EventContext *previous_;
-};
+EventContext &CurrentEvent() noexcept {
+  thread_local EventContext context{};
+  return context;
+}
 
 class EventSink final : public spdlog::sinks::base_sink<std::mutex> {
  public:
@@ -57,8 +49,8 @@ class EventSink final : public spdlog::sinks::base_sink<std::mutex> {
     auto original = message;
     original.logger_name = event.at("logger").get_ref<const std::string &>();
     original.payload = text;
-    const EventContext context{&original, &event};
-    const EventScope scope{context};
+    const auto previous = std::exchange(CurrentEvent(), EventContext{&original, &event});
+    const auto restore_context = utils::OnScopeExit{[previous]() noexcept { CurrentEvent() = previous; }};
     if (output_->should_log(original.level)) output_->log(original);
   }
 
@@ -142,9 +134,10 @@ void LogEvent(spdlog::level::level_enum level, std::string_view name, std::strin
 
 void AddStructuredEventFields(const spdlog::details::log_msg &message, nlohmann::json &record) {
   // Match the exact dispatched message so nested ordinary logging cannot inherit another event's attributes.
-  if (current_event == nullptr || current_event->message != &message) return;
-  record["event"] = {{"name", current_event->event->at("name")}};
-  record["attributes"] = current_event->event->at("attributes");
+  const auto &context = CurrentEvent();
+  if (context.message != &message) return;
+  record["event"] = {{"name", context.event->at("name")}};
+  record["attributes"] = context.event->at("attributes");
 }
 
 void EmitAuthenticationFailure(std::string_view session_id, std::string_view reason) {

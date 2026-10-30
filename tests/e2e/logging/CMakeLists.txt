@@ -4,5 +4,6 @@ endfunction()
 
 copy_logging_e2e_python_files(session_trace.py)
 copy_logging_e2e_python_files(slow_failed_query.py)
+copy_logging_e2e_python_files(structured_events.py)
 
 copy_e2e_files(logging workloads.yaml)
