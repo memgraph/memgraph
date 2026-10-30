@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstring>
 #include <exception>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <regex>
@@ -2926,6 +2927,38 @@ memgraph::storage::EdgeTypeId mgp_graph::KnownEdgeType(const char *name) {
 }
 
 namespace {
+/// The virtual edges among `edges` whose type is one of `types`.
+memgraph::utils::pmr::vector<const memgraph::query::VirtualEdge *> KeptVirtualEdges(
+    std::span<const memgraph::query::VirtualEdge *const> edges, std::span<const mgp_edge_type> types,
+    memgraph::utils::MemoryResource *memory) {
+  memgraph::utils::pmr::vector<const memgraph::query::VirtualEdge *> kept(memory);
+  std::ranges::copy_if(edges, std::back_inserter(kept), [types](const auto *edge) {
+    return std::ranges::any_of(types, [edge](const auto &type) { return edge->EdgeTypeName() == type.name; });
+  });
+  return kept;
+}
+
+/// The storage ids of `types`, through the names `graph` already looked up.
+std::vector<memgraph::storage::EdgeTypeId> EdgeTypeIds(mgp_graph *graph, std::span<const mgp_edge_type> types) {
+  std::vector<memgraph::storage::EdgeTypeId> ids;
+  ids.reserve(types.size());
+  std::ranges::transform(
+      types, std::back_inserter(ids), [graph](const auto &type) { return graph->KnownEdgeType(type.name); });
+  return ids;
+}
+
+/// The edges of real vertex `v`, only those of `type_ids` when it is set.
+template <bool ForIn>
+auto ReadEdges(mgp_vertex *v, const std::vector<memgraph::storage::EdgeTypeId> *type_ids) {
+  return v->VisitReal([v, type_ids](auto &impl) {
+    if constexpr (ForIn) {
+      return type_ids ? impl.InEdges(v->graph->view, *type_ids) : impl.InEdges(v->graph->view);
+    } else {
+      return type_ids ? impl.OutEdges(v->graph->view, *type_ids) : impl.OutEdges(v->graph->view);
+    }
+  });
+}
+
 /// `types` set: only edges of those types, checked by the storage. Never empty: the storage reads an empty type list
 /// as every type.
 template <bool ForIn>
@@ -2943,16 +2976,9 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory,
     }
     auto *vg = (*vg_acc)->getGraph();
     auto edges = ForIn ? vg->InEdges(v->GetVirtualNode().Gid()) : vg->OutEdges(v->GetVirtualNode().Gid());
-    auto &vc = [&]() -> mgp_edges_iterator::VirtualCursor & {
-      if (!types) return it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(edges);
-      memgraph::utils::pmr::vector<const memgraph::query::VirtualEdge *> kept(it->GetMemoryResource());
-      for (const auto *edge : edges) {
-        if (std::ranges::any_of(*types, [edge](const auto &type) { return edge->EdgeTypeName() == type.name; })) {
-          kept.push_back(edge);
-        }
-      }
-      return it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(std::move(kept));
-    }();
+    auto &vc = types ? it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(
+                           KeptVirtualEdges(edges, *types, it->GetMemoryResource()))
+                     : it->cursor.emplace<mgp_edges_iterator::VirtualCursor>(edges);
     if (vc.it != vc.edges.end()) {
       it->current_e.emplace(**vc.it, v->graph, it->GetMemoryResource());
     }
@@ -2960,20 +2986,8 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory,
   }
 
   DMG_ASSERT(!types || !types->empty(), "An empty type list would read every edge.");
-  std::vector<memgraph::storage::EdgeTypeId> type_ids;
-  if (types) {
-    type_ids.reserve(types->size());
-    for (const auto &type : *types) {
-      type_ids.push_back(v->graph->KnownEdgeType(type.name));
-    }
-  }
-  auto maybe_edges = v->VisitReal([v, &types, &type_ids](auto &impl) {
-    if constexpr (ForIn) {
-      return types ? impl.InEdges(v->graph->view, type_ids) : impl.InEdges(v->graph->view);
-    } else {
-      return types ? impl.OutEdges(v->graph->view, type_ids) : impl.OutEdges(v->graph->view);
-    }
-  });
+  const auto type_ids = types ? EdgeTypeIds(v->graph, *types) : std::vector<memgraph::storage::EdgeTypeId>{};
+  auto maybe_edges = ReadEdges<ForIn>(v, types ? &type_ids : nullptr);
   if (!maybe_edges) {
     ThrowOnReadError(
         maybe_edges.error(), ForIn ? "get the inbound edges of" : "get the outbound edges of", ObjectKind::Vertex);
