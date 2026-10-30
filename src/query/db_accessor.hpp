@@ -31,6 +31,9 @@
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/branch_engine.hpp"
+#endif
 
 namespace memgraph::storage {
 enum class PointDistanceCondition : uint8_t;
@@ -388,9 +391,20 @@ class VerticesChunkCollection final {
 
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
+#ifdef MG_ENTERPRISE
+  // Non-null iff this belongs to a branch's transaction, where `accessor_` is the branch's diff-engine accessor.
+  versioning::BranchContext *branch_ctx_{nullptr};
+#endif
 
  public:
+#ifdef MG_ENTERPRISE
+  explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
+      : accessor_(accessor), branch_ctx_(branch_ctx) {}
+
+  versioning::BranchContext *branch_context() const { return branch_ctx_; }
+#else
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
+#endif
 
   void EnableDeltaChainCache() { accessor_->GetTransaction()->EnableDeltaChainCache(); }
 
@@ -696,6 +710,9 @@ class DbAccessor final {
   }
 
   std::expected<void, storage::StorageManipulationError> PeriodicCommit(storage::CommitArgs commit_args) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) return branch_ctx_->PeriodicCommitTransaction(std::move(commit_args));
+#endif
     return accessor_->PeriodicCommit(std::move(commit_args));
   }
 

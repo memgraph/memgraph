@@ -76,6 +76,17 @@ class BranchCore {
       storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts,
       std::optional<uint64_t> branch_number = std::nullopt);
 
+  // Builds on `info`'s ledger gid floors if it holds them, else main's current counters, so main objects created since
+  // the fork are not taken for base objects.
+  static std::expected<std::shared_ptr<BranchCore>, BuildError> BuildForCheckout(storage::InMemoryStorage &main,
+                                                                                 const BranchInfo &info) {
+    std::optional<RecordedFloors> recorded;
+    if (info.vertex_gid_floor && info.edge_gid_floor) {
+      recorded = RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor};
+    }
+    return Build(main, info.fork_ts, info.id, recorded);
+  }
+
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
   BranchCore(BranchCore &&) = delete;
@@ -209,7 +220,9 @@ class BranchContext {
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
-  explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
+  // `name`: the branch this context was attached through (empty for test-built contexts); AttachBranchOf reuses it.
+  explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {})
+      : core_(std::move(core)), name_(std::move(name)) {}
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
@@ -221,6 +234,8 @@ class BranchContext {
   const std::shared_ptr<BranchCore> &core() const { return core_; }
 
   storage::InMemoryStorage &main() const { return core_->main(); }
+
+  const std::string &name() const { return name_; }
 
   storage::InMemoryStorage &diff_engine() const { return core_->diff_engine(); }
 
@@ -628,6 +643,7 @@ class BranchContext {
   OverlayAdjacency ReadOverlayAdjacency(storage::Vertex *overlay, storage::EdgeDirection direction, storage::View view);
 
   std::shared_ptr<BranchCore> core_;
+  std::string name_;
   std::optional<Txn> txn_;
 };
 
