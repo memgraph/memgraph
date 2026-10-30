@@ -174,6 +174,7 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
   };
 
   decoder->ResetCrcAcc();
+  bool txn_begin_notified{false};
   // A DDL delta below can occupy the handler for minutes on its own, so index population and constraint validation
   // report progress per vertex through this. Returning true also abandons that work once the main is gone, instead of
   // finishing a build whose result can no longer be delivered.
@@ -203,6 +204,11 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
     if (delta_timestamp <= current_durable_commit_timestamp) {
       ++skipped_deltas;
       continue;
+    }
+
+    if (options.on_txn_begin && !txn_begin_notified) {
+      txn_begin_notified = true;
+      options.on_txn_begin(delta_timestamp);
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)
