@@ -13,6 +13,7 @@
 
 #include <string_view>
 
+#include "query/exceptions.hpp"
 #include "query/plan_v2/egraph/op_ast_lists.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/typed_value.hpp"
@@ -46,8 +47,7 @@ auto ToConstant(TypedValue const &v) -> std::optional<ExternalPropertyValue> {
 // The binary/unary switch arms are generated from the operator registry's fold
 // column (op_ast_lists.hpp), so an operator's evaluation and its fold rule come
 // from the same row and cannot drift. The AST-node column is unused here.
-// Reusing runtime TypedValue operators matches interpreter semantics exactly -
-// including its signed-int64 overflow UB, now reachable at plan time.
+// Reusing runtime TypedValue operators matches interpreter semantics exactly.
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 auto EvalBinary(symbol op, TypedValue const &lhs, TypedValue const &rhs) -> std::optional<TypedValue> {
   switch (op) {
@@ -91,6 +91,8 @@ auto FoldConstant(symbol op, std::span<ExternalPropertyValue const *const> opera
     // Only the operators' own domain errors mean "decline to fold"; let anything
     // else (bad_alloc, internal bugs) propagate rather than silently mask it.
   } catch (TypedValueException const &) {
+    return std::nullopt;
+  } catch (ArithmeticException const &) {
     return std::nullopt;
   }
 }
