@@ -120,6 +120,11 @@ add_unit_test(query_plan_pruning_bfs
     LINK_TARGETS mg-query
 )
 
+add_unit_test(checked_arith
+    SOURCES checked_arith.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_cost_estimator
     SOURCES query_cost_estimator.cpp
     LINK_TARGETS mg-query
