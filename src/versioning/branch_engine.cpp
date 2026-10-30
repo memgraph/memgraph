@@ -350,6 +350,25 @@ std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edg
   return edge;
 }
 
+std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edge_gid, storage::View view) {
+  if (!IsBaseCandidateEdge(edge_gid)) return FindDiffEdge(edge_gid, view);
+  auto edge = historical().FindEdge(edge_gid, storage::View::OLD);
+  if (!edge || IsBaseEdgeHidden(*edge, view)) return std::nullopt;
+  return edge;
+}
+
+int64_t BranchContext::ApproximateVertexCount() {
+  auto const deleted = core_->BaseDeletes().vertices;
+  auto const total = historical().ApproximateVertexCount() + current_diff_txn()->ApproximateVertexCount();
+  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
+}
+
+int64_t BranchContext::ApproximateEdgeCount() {
+  auto const deleted = core_->BaseDeletes().edges;
+  auto const total = historical().ApproximateEdgeCount() + current_diff_txn()->ApproximateEdgeCount();
+  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
+}
+
 std::optional<storage::EdgeAccessor> BranchContext::FindEdgeInAnchors(storage::Gid edge_gid, storage::View view) {
   std::optional<storage::EdgeAccessor> found;
   overlays().ForEachOverlay([&](storage::Vertex *overlay) {
