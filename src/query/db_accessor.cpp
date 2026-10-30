@@ -205,6 +205,16 @@ storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::Vi
   return impl_.impl_.InEdges(view, {}).transform(KeptIn(graph_));
 }
 
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(
+    storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const {
+  return impl_.impl_.OutEdges(view, edge_types).transform(KeptIn(graph_));
+}
+
+storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(
+    storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const {
+  return impl_.impl_.InEdges(view, edge_types).transform(KeptIn(graph_));
+}
+
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
 std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::string &index_name,
