@@ -530,9 +530,9 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
 
 Result<void> EdgeAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                               std::span<PropertyValue> out, View view) const {
-  DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
-  DMG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
-             "Replaying a property delta over a set of paths handles only single-property paths");
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  MG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
+            "Replaying a property delta over a set of paths handles only single-property paths");
   auto const paths = ordered_properties.paths();
   // Asking for one property at a time answers Null here rather than refusing, so asking for a set
   // of them answers the same. A caller cannot tell the two apart, which is what lets a read move

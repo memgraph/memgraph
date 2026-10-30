@@ -840,9 +840,9 @@ std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelI
 
 Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                                 std::span<PropertyValue> out, View view) const {
-  DMG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
-  DMG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
-             "Replaying a property delta over a set of paths handles only single-property paths");
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  MG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
+            "Replaying a property delta over a set of paths handles only single-property paths");
   auto const paths = ordered_properties.paths();
   bool exists = true;
   bool deleted = false;
