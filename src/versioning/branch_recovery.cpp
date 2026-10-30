@@ -469,7 +469,7 @@ std::expected<NativeGidEnds, std::string> ReplayWithMainGids(std::shared_ptr<Bra
       }
       return NativeGidEnds{};
     }
-    BranchContext ctx{std::move(core)};
+    BranchContext ctx{std::move(core), {}, 0};
     return BranchWalReplayer{ctx, main_gids}.Run(files);
   } catch (const std::exception &e) {
     return std::unexpected(std::string{e.what()});
