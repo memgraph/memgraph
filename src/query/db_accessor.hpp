@@ -510,6 +510,11 @@ class DbAccessor final {
   // real).
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach);
+
+  // A branch-native edge between two vertices of the branch, fork or native; DELETED_OBJECT if the branch deleted
+  // either one.
+  storage::Result<EdgeAccessor> BranchInsertEdge(const VertexAccessor &from, const VertexAccessor &to,
+                                                 storage::EdgeTypeId edge_type);
 #endif
 
  public:
@@ -725,12 +730,24 @@ class DbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchInsertEdge(*from, *to, edge_type);
+#endif
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     return EdgeAccessor(*maybe_edge);
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      auto res = BranchDetachDelete({}, {*edge}, false);
+      if (!res) return std::unexpected{res.error()};
+      if (!*res || (*res)->second.empty()) return std::optional<EdgeAccessor>{};
+      return std::make_optional<EdgeAccessor>((*res)->second.front());
+    }
+#endif
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (!res) {
       return std::unexpected{res.error()};
