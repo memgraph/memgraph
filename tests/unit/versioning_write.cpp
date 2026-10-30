@@ -9,14 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Branch vertex writes and deletes through Cypher: isolation from main and siblings, read-your-writes, rollback and
-// conflicts between sessions on one branch.
+// Branch vertex and edge writes and deletes through Cypher: isolation from main and siblings, read-your-writes,
+// rollback and conflicts between sessions on one branch.
 
+#include <array>
+#include <barrier>
 #include <cstdint>
 #include <exception>
 #include <map>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <typeinfo>
 #include <vector>
 
@@ -38,6 +41,7 @@ using memgraph::tests::versioning_fixture::IntRows;
 using memgraph::tests::versioning_fixture::kNullInt;
 using memgraph::tests::versioning_fixture::Rows;
 using memgraph::tests::versioning_fixture::SortedNames;
+using memgraph::tests::versioning_fixture::ThrownMessage;
 
 namespace {
 
@@ -89,13 +93,15 @@ TEST_F(VersioningWriteTest, BranchChangeFilterKindIsolation) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:User) RETURN n.age ORDER BY n.age"), (Rows{{50}, {99}}));
 }
 
-// b2 reads the base value of a vertex changed on b1, and does not see main's post-fork write either.
+// b2 reads the base value of a vertex or edge changed on b1, and does not see main's post-fork write either.
 TEST_F(VersioningWriteTest, BranchCrossBranchIsolationReadsOwnFork) {
-  faker.Interpret("CREATE (:User {id: 1, age: 10}), (:User {id: 2, age: 20})");
+  faker.Interpret("CREATE (:User {id: 1, age: 10}), (:User {id: 2, age: 20}), (:S)-[:E {w: 1}]->(:A)");
 
   Fork("b1");
   faker.Interpret("MATCH (n {id: 1}) SET n.age = 111, n:Changed");
+  faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 999");
   EXPECT_EQ(IntRows(faker, "MATCH (n {id: 1}) RETURN n.age"), (Rows{{111}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E]->(:A) RETURN e.w"), (Rows{{999}}));
   UseMain();
 
   CreateBranch("b2");
@@ -106,6 +112,7 @@ TEST_F(VersioningWriteTest, BranchCrossBranchIsolationReadsOwnFork) {
   EXPECT_EQ(IntRows(faker, "MATCH (n {id: 1}) RETURN n.age, toInteger('Changed' IN labels(n))"), (Rows{{10, 0}}))
       << "b2 must not see b1's changes";
   EXPECT_EQ(IntRows(faker, "MATCH (n {id: 2}) RETURN n.age"), (Rows{{20}})) << "b2 must not see main's later write";
+  EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e:E]->(:A) RETURN e.w"), (Rows{{1}})) << "b2 must not see b1's edge write";
 }
 
 TEST_F(VersioningWriteTest, BranchDeleteAndLabelRemovalOnOneBranchDoNotAffectUntouchedSibling) {
@@ -309,6 +316,8 @@ struct DeletedReadCase {
   // Run after the failed statement to show the seed is intact; returns the single integer `probe_expected`.
   const char *probe;
   int64_t probe_expected;
+  // Committed on the branch before `query`.
+  const char *branch_write = "";
 };
 
 // The *Endpoint* cases read a base edge with a clear branched bit, hidden only by its endpoint's delete.
@@ -355,6 +364,14 @@ constexpr DeletedReadCase kDeletedReadCases[] = {
      "deleted object",
      "MATCH (:A)-[e:R]->(:B) RETURN e.p",
      1},
+    // The edge already has an overlay version: the failed DELETE leaves the branch's value.
+    {"EdgeModifiedThenDeleted",
+     "CREATE (:S)-[:E {w: 1}]->(:A)",
+     "MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w",
+     "deleted object",
+     "MATCH (:S)-[e:E]->(:A) RETURN e.w",
+     42,
+     "MATCH (:S)-[e:E]->(:A) SET e.w = 42"},
 };
 
 class VersioningDeletedReadTest : public VersioningWriteTest, public ::testing::WithParamInterface<DeletedReadCase> {};
@@ -365,6 +382,7 @@ TEST_P(VersioningDeletedReadTest, BranchReadOfEntityDeletedInSameQueryRaises) {
   const auto &c = GetParam();
   faker.Interpret(c.seed);
   Fork();
+  if (*c.branch_write != '\0') faker.Interpret(c.branch_write);
 
   try {
     faker.Interpret(c.query);
@@ -391,6 +409,42 @@ TEST_F(VersioningWriteTest, BranchDeleteThenWritePropertyIsNoOpNotError) {
 
     EXPECT_EQ(faker.Interpret(std::string{"MATCH (n:P) DETACH DELETE n "} + write).GetResults().size(), 0U);
     EXPECT_EQ(IntRows(faker, "MATCH (n:P) RETURN count(n)"), (Rows{{0}}));
+  }
+}
+
+// Writing an edge deleted earlier in the same query is main's silent no-op, so the edge stays deleted; a read of it
+// afterwards raises main's error and aborts the statement, so the edge stays.
+TEST_F(VersioningWriteTest, BranchWriteOfAnEdgeDeletedInTheSameQueryBehavesLikeMain) {
+  struct Case {
+    const char *write;
+    const char *outcome;
+    int64_t edges_left;
+  };
+
+  constexpr const char *kNoError = "<no exception>";
+  constexpr const char *kDeletedRead = "Trying to get a property from a deleted object.";
+  constexpr Case cases[] = {{"SET e.w = 2", kNoError, 0},
+                            {"REMOVE e.w", kNoError, 0},
+                            {"SET e = {w: 2}", kNoError, 0},
+                            {"SET e += {w: 2}", kNoError, 0},
+                            {"SET e.w = 2 RETURN e.w", kDeletedRead, 1}};
+
+  int index = 0;
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.write);
+    UseMain();
+    faker.Interpret("MATCH (n) DETACH DELETE n");
+    faker.Interpret("CREATE (:S)-[:E {w: 1}]->(:A)");
+    Fork("b" + std::to_string(index++));
+    auto const query = std::string{"MATCH (:S)-[e:E]->(:A) DELETE e "} + c.write;
+    constexpr auto kEdges = "MATCH ()-[e:E]->() RETURN count(e)";
+
+    EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), c.outcome);
+    EXPECT_EQ(IntRows(faker, kEdges), (Rows{{c.edges_left}}));
+    UseMain();
+    EXPECT_EQ(IntRows(faker, kEdges), (Rows{{1}})) << "main keeps its edge";
+    EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), c.outcome) << "main";
+    EXPECT_EQ(IntRows(faker, kEdges), (Rows{{c.edges_left}})) << "main";
   }
 }
 
@@ -672,18 +726,24 @@ TEST_F(VersioningMultiSessionTest, SecondSessionSeesFirstSessionsCommittedWrites
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{1, 10}, {2, 20}}));
 }
 
+// Overlapping writes on the same base vertex or edge, or on an edge and its endpoint, conflict as on main; the losing
+// transactions leave nothing behind. A base-edge delete writes only the edge, so it does not conflict with a write of
+// an endpoint, another edge at it, or an edge created there (branch_conflicts = false), as main would.
 TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
   faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
-  faker.Interpret("CREATE (:A {id:1})-[:R {w:1, x:2}]->(:B {id:2})");
+  faker.Interpret("CREATE (a:A {id:1})-[:R {w:1, x:2}]->(:B {id:2}), (a)-[:S]->(:C {id:3})");
   CreateBranch("b");
 
   struct Case {
     const char *name;
-    // Committed on the branch first, so the vertex's overlay already exists; empty: the race creates it.
+    // Committed on the branch first so the entity already has an overlay; empty: the race creates it.
     const char *overlay_write;
     const char *a_write;
     const char *b_write;
+    bool branch_conflicts = true;
   };
+
+  static constexpr const char *kCreateEdge = "MATCH (a:K {id:1}), (b:K {id:2}) CREATE (a)-[:N]->(b)";
 
   static constexpr Case cases[] = {
       {"VertexFirstTouch", "", "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) SET n.w = 61"},
@@ -692,8 +752,37 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
        "MATCH (n:K {id:1}) SET n.v = 11",
        "MATCH (n:K {id:1}) SET n.v = 12"},
       {"VertexSetThenDelete", "", "MATCH (n:K {id:2}) SET n.v = 21", "MATCH (n:K {id:2}) DELETE n"},
+      {"EdgeFirstTouch", "", "MATCH ()-[r:R]->() SET r.w = 10", "MATCH ()-[r:R]->() SET r.x = 20"},
+      {"EdgeOverlaid",
+       "MATCH ()-[r:R]->() SET r.y = 0",
+       "MATCH ()-[r:R]->() SET r.w = 10",
+       "MATCH ()-[r:R]->() SET r.x = 20"},
+      {"EdgeDeleteThenEdgeSet", "", "MATCH ()-[r:R]->() DELETE r", "MATCH ()-[r:R]->() SET r.x = 20"},
+      {"EdgeSetThenEdgeDelete", "", "MATCH ()-[r:R]->() SET r.w = 10", "MATCH ()-[r:R]->() DELETE r"},
       {"EdgeDeleteThenEdgeDelete", "", "MATCH ()-[r:R]->() DELETE r", "MATCH ()-[r:R]->() DELETE r"},
       {"EdgeDeleteThenEndpointDetachDelete", "", "MATCH ()-[r:R]->() DELETE r", "MATCH (n:A) DETACH DELETE n"},
+      {"EdgeDeleteThenEndpointWrite", "", "MATCH ()-[r:R]->() DELETE r", "MATCH (n:B) SET n.z = 1", false},
+      {"EndpointWriteThenEdgeDelete", "", "MATCH (n:B) SET n.z = 1", "MATCH ()-[r:R]->() DELETE r", false},
+      {"EdgeDeleteThenEdgeDeleteAtASharedEndpoint",
+       "",
+       "MATCH ()-[r:R]->() DELETE r",
+       "MATCH ()-[r:S]->() DELETE r",
+       false},
+      {"EdgeDeleteThenEdgeCreateAtAnEndpoint",
+       "",
+       "MATCH ()-[r:R]->() DELETE r",
+       "MATCH (a:A), (k:K {id:1}) CREATE (a)-[:N]->(k)",
+       false},
+      {"EdgeCreateAtAnEndpointThenEdgeDelete",
+       "",
+       "MATCH (a:A), (k:K {id:1}) CREATE (a)-[:N]->(k)",
+       "MATCH ()-[r:R]->() DELETE r",
+       false},
+      {"EdgeCreateThenEndpointDetachDelete", "", kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n"},
+      {"EndpointDetachDeleteThenEdgeCreate", "", "MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge},
+      {"EdgeCreateThenEndpointDelete", "", kCreateEdge, "MATCH (n:K {id:2}) DELETE n"},
+      {"EdgeCreateThenEndpointDetachDeleteAnchored", kCreateEdge, kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n"},
+      {"EndpointDetachDeleteThenEdgeCreateAnchored", kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge},
   };
 
   for (const auto &c : cases) {
@@ -708,16 +797,153 @@ TEST_F(VersioningMultiSessionTest, OverlappingWritesConflictLikeMain) {
     const auto main_outcome = OverlappingWriteOutcome(faker, faker2, c.a_write, c.b_write);
 
     EXPECT_THAT(main_outcome, ::testing::HasSubstr("TransactionSerializationException"));
-    EXPECT_EQ(branch_outcome, main_outcome);
+    EXPECT_EQ(branch_outcome, c.branch_conflicts ? main_outcome : std::string{});
   }
 
   Use(faker, "b");
   EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 10}, {2, 20}})) << "every transaction was rolled back";
   EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.w"), (Rows{{6}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:A)-[r:R]->(:B) RETURN r.w, r.x"), (Rows{{1, 2}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[n:N]->() RETURN count(n)"), (Rows{{2}}))
+      << "only the two anchors' committed edges";
   Use(faker2, "b");
   EXPECT_NO_THROW(faker2.Interpret("MATCH (n:K {id:2}) SET n.v = 22")) << "a retried write succeeds";
+  EXPECT_NO_THROW(faker2.Interpret("MATCH ()-[r:R]->() SET r.x = 21"));
   EXPECT_EQ(IntRows(faker, "MATCH (n:K {id:2}) RETURN n.v"), (Rows{{22}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w, r.x"), (Rows{{1, 21}}));
+}
+
+// The overlapping writes that do not conflict on a branch leave both effects when both commit, and only the other
+// transaction's effect when the base-edge deleter aborts.
+TEST_F(VersioningMultiSessionTest, NonConflictingOverlappingWritesCommitOrAbortIndependently) {
+  faker.Interpret("CREATE (:K {id:1, v:10, w:5}), (:K {id:2, v:20, w:6})");
+  faker.Interpret("CREATE (a:A {id:1})-[:R {w:1, x:2}]->(:B {id:2}), (a)-[:S]->(:C {id:3})");
+  const auto r_gid = IntRows(faker, "MATCH ()-[r:R]->() RETURN id(r)")[0][0];
+
+  struct Case {
+    const char *name;
+    const char *a_write;
+    const char *b_write;
+    bool a_deletes_r;  // the transaction that aborts in the abort run
+    int b_z;           // B.z left by the other transaction
+    int n_edges;       // :N edges A->K left by the other transaction
+    bool s_deleted;
+  };
+
+  static constexpr const char *kDeleteR = "MATCH ()-[r:R]->() DELETE r";
+  static constexpr const char *kCreateN = "MATCH (a:A), (k:K {id:1}) CREATE (a)-[:N]->(k)";
+  static constexpr Case cases[] = {
+      {"EdgeDeleteThenEndpointWrite", kDeleteR, "MATCH (n:B) SET n.z = 1", true, 1, 0, false},
+      {"EndpointWriteThenEdgeDelete", "MATCH (n:B) SET n.z = 1", kDeleteR, false, 1, 0, false},
+      {"EdgeDeleteThenEdgeDeleteAtASharedEndpoint", kDeleteR, "MATCH ()-[r:S]->() DELETE r", true, 0, 0, true},
+      {"EdgeDeleteThenEdgeCreateAtAnEndpoint", kDeleteR, kCreateN, true, 0, 1, false},
+      {"EdgeCreateAtAnEndpointThenEdgeDelete", kCreateN, kDeleteR, false, 0, 1, false},
+  };
+
+  const auto count = [&](const std::string &pattern) {
+    return IntRows(faker, "MATCH " + pattern + " RETURN count(r)");
+  };
+  int branch_index = 0;
+  for (const bool deleter_aborts : {false, true}) {
+    for (const auto &c : cases) {
+      SCOPED_TRACE(std::string(c.name) + (deleter_aborts ? " (deleter aborts)" : " (both commit)"));
+      const auto name = "nc" + std::to_string(branch_index++);
+      CreateBranch(name);
+      Use(faker, name);
+      Use(faker2, name);
+
+      faker.Interpret("BEGIN");
+      faker2.Interpret("BEGIN");
+      faker.Interpret(c.a_write);
+      EXPECT_NO_THROW(faker2.Interpret(c.b_write));
+      auto &deleter = c.a_deletes_r ? faker : faker2;
+      auto &other = c.a_deletes_r ? faker2 : faker;
+      other.Interpret("COMMIT");
+      deleter.Interpret(deleter_aborts ? "ROLLBACK" : "COMMIT");
+
+      const Rows r_visible{{deleter_aborts ? 1 : 0}};
+      EXPECT_EQ(count("(:A)-[r:R]->(:B)"), r_visible);
+      EXPECT_EQ(count("(:B)<-[r:R]-(:A)"), r_visible);
+      EXPECT_EQ(count("(:A)-[r:R]-()"), r_visible);
+      EXPECT_EQ(count("(:B)-[r:R]-()"), r_visible);
+      EXPECT_EQ(count("()-[r]->() WHERE id(r) = " + std::to_string(r_gid)), r_visible);
+      EXPECT_EQ(IntRows(faker, "MATCH (n:B) RETURN coalesce(n.z, 0)"), (Rows{{c.b_z}}));
+      EXPECT_EQ(count("(:A)-[r:N]->(:K)"), (Rows{{c.n_edges}}));
+      EXPECT_EQ(count("(:K)<-[r:N]-(:A)"), (Rows{{c.n_edges}}));
+      EXPECT_EQ(count("(:A)-[r:S]->(:C)"), (Rows{{c.s_deleted ? 0 : 1}}));
+      EXPECT_EQ(count("(:C)<-[r:S]-(:A)"), (Rows{{c.s_deleted ? 0 : 1}}));
+    }
+  }
+}
+
+// A transaction that began before another committed a DETACH DELETE of a base vertex, or an edge create on it,
+// conflicts with its own late edge create or delete there; the same late write on an unrelated vertex does not.
+TEST_F(VersioningMultiSessionTest, BaseVertexDeleteAndEdgeCreateConflictAcrossCommit) {
+  faker.Interpret("CREATE (:K {id:1}), (:K {id:2}), (:K {id:3})");
+
+  constexpr const char *kCreateEdge = "MATCH (a:K {id:1}), (b:K {id:2}) CREATE (a)-[:N]->(b)";
+
+  struct Case {
+    const char *committed;
+    const char *late;
+    bool conflicts;
+  };
+
+  static constexpr Case cases[] = {
+      {"MATCH (n:K {id:2}) DETACH DELETE n", kCreateEdge, true},
+      {kCreateEdge, "MATCH (n:K {id:2}) DETACH DELETE n", true},
+      {kCreateEdge, "MATCH (n:K {id:2}) DELETE n", true},
+      {"MATCH (n:K {id:3}) DETACH DELETE n", kCreateEdge, false},
+      {kCreateEdge, "MATCH (n:K {id:3}) DETACH DELETE n", false},
+  };
+
+  int index = 0;
+  for (const auto &c : cases) {
+    SCOPED_TRACE(index);
+    auto const name = "c" + std::to_string(index++);
+    CreateBranch(name);
+    Use(faker, name);
+    Use(faker2, name);
+
+    faker2.Interpret("BEGIN");
+    faker2.Interpret("MATCH (n:K) RETURN count(n)");  // B's snapshot predates A's commit
+    faker.Interpret(c.committed);
+    bool conflicted = false;
+    try {
+      faker2.Interpret(c.late);
+    } catch (const mq::TransactionSerializationException &) {
+      conflicted = true;
+    }
+    faker2.Interpret("ROLLBACK");
+    EXPECT_EQ(conflicted, c.conflicts);
+  }
+}
+
+// A base edge written after the DETACH DELETE of either endpoint committed, by a transaction that began before it, is
+// a serialization conflict; the retry runs on the post-delete state and succeeds.
+TEST_F(VersioningMultiSessionTest, BaseEdgeWriteAfterACommittedEndpointDetachDeleteConflicts) {
+  faker.Interpret("CREATE (:A)-[:R {w: 1}]->(:B)");
+
+  int index = 0;
+  for (const char *endpoint : {"A", "B"}) {
+    for (const char *late : {"SET r.w = 9", "DELETE r"}) {
+      SCOPED_TRACE(std::string{endpoint} + " / " + late);
+      auto const name = "c" + std::to_string(index++);
+      CreateBranch(name);
+      Use(faker, name);
+      Use(faker2, name);
+      auto const write = std::string{"MATCH ()-[r:R]->() "} + late;
+
+      faker2.Interpret("BEGIN");
+      EXPECT_EQ(IntRows(faker2, "MATCH ()-[r:R]->() RETURN r.w"), (Rows{{1}}));  // B's snapshot predates A's commit
+      faker.Interpret(std::string{"MATCH (n:"} + endpoint + ") DETACH DELETE n");
+      EXPECT_THROW(faker2.Interpret(write), mq::TransactionSerializationException);
+      faker2.Interpret("ROLLBACK");
+
+      EXPECT_NO_THROW(faker2.Interpret(write));
+      EXPECT_EQ(IntRows(faker2, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{0}}));
+    }
+  }
 }
 
 TEST_F(VersioningMultiSessionTest, DeleteIsInvisibleToOtherSessionsUntilCommit) {
@@ -736,13 +962,17 @@ TEST_F(VersioningMultiSessionTest, DeleteIsInvisibleToOtherSessionsUntilCommit) 
   EXPECT_EQ(IntRows(faker2, kReadAll), (Rows{{2, 20}}));
 }
 
-// Main's writes never conflict with the branch's; the branch reads the base value (w=5) of what it did not write.
+// Main's writes never conflict with the branch's, on a vertex or an edge; the branch reads the base value (w=5) of
+// what it did not write.
 TEST_F(VersioningMultiSessionTest, MainWritesNeverConflictWithBranchWrites) {
-  faker.Interpret("CREATE (:K {id:1, v:10, w:5})");
+  faker.Interpret("CREATE (:K {id:1, v:10, w:5})-[:R {w:1, x:2}]->(:T)");
   Fork();
 
   faker.Interpret("BEGIN");
   faker.Interpret("MATCH (n:K {id:1}) SET n.v = 11");
+  faker.Interpret("MATCH ()-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (n:K), (t:T) CREATE (n)-[:N]->(t)");
+  faker2.Interpret("MATCH ()-[r:R]->() SET r.w = 98, r.x = 99");
   faker2.Interpret("MATCH (n:K {id:1}) SET n.v = 99");
   faker2.Interpret("MATCH (n:K {id:1}) SET n.w = 55");
   faker2.Interpret("MATCH (n:K {id:1}) DETACH DELETE n");
@@ -750,6 +980,8 @@ TEST_F(VersioningMultiSessionTest, MainWritesNeverConflictWithBranchWrites) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v, n.w"), (Rows{{11, 5}}));
   faker.Interpret("COMMIT");
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v, n.w"), (Rows{{11, 5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:K)-[r]->(:T) RETURN r.w, r.x ORDER BY type(r)"),
+            (Rows{{kNullInt, kNullInt}, {3, 2}}));
   EXPECT_EQ(IntRows(faker2, "MATCH (n:K) RETURN count(n)"), (Rows{{0}})) << "main holds only its own writes";
 }
 
@@ -795,4 +1027,99 @@ TEST_F(VersioningMultiSessionTest, DisjointConcurrentWritersBothCommitAndAnOlder
   EXPECT_EQ(IntRows(reader, kReadAll), before);
   reader.Interpret("COMMIT");
   EXPECT_EQ(IntRows(reader, kReadAll), (Rows{{1, 11}, {2, 21}}));
+}
+
+// Edge writes keep both endpoints in step: inside the writing transaction, after a rollback, and after a commit; a
+// reader whose transaction began earlier keeps seeing the old edges from both ends.
+TEST_F(VersioningMultiSessionTest, EdgeWritesKeepBothEndpointsConsistentForWriterAndOlderReader) {
+  faker.Interpret("CREATE (:A {id:1})-[:R {w:1}]->(:B {id:2})");
+  Fork();
+  Attach(faker2, "b");
+
+  // Returns {count, sum of w} of the A->B edges, after checking both endpoints and the degrees agree.
+  auto const ends = [](InterpreterFaker &session) {
+    auto const out = IntRows(session, "MATCH (:A)-[r]->(:B) RETURN count(r), sum(coalesce(r.w, 0))");
+    auto const in = IntRows(session, "MATCH (:B)<-[r]-(:A) RETURN count(r), sum(coalesce(r.w, 0))");
+    EXPECT_EQ(out, in) << "both endpoints must agree";
+    EXPECT_EQ(IntRows(session, "MATCH (a:A) RETURN outDegree(a)"), (Rows{{out[0][0]}}));
+    EXPECT_EQ(IntRows(session, "MATCH (b:B) RETURN inDegree(b)"), (Rows{{in[0][0]}}));
+    return out;
+  };
+  auto const before = Rows{{1, 1}};
+
+  faker2.Interpret("BEGIN");
+  EXPECT_EQ(ends(faker2), before);
+
+  faker.Interpret("BEGIN");
+  EXPECT_EQ(ends(faker), before);
+  faker.Interpret("MATCH ()-[r:R]->() SET r.w = 2");
+  faker.Interpret("MATCH (a:A), (b:B) CREATE (a)-[:N {w: 5}]->(b)");
+  EXPECT_EQ(ends(faker), (Rows{{2, 7}}));
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(ends(faker), before) << "a rollback leaves nothing on either endpoint";
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH ()-[r:R]->() DELETE r");
+  faker.Interpret("MATCH (a:A), (b:B) CREATE (a)-[:N {w: 5}]->(b)");
+  EXPECT_EQ(ends(faker), (Rows{{1, 5}}));
+  faker.Interpret("COMMIT");
+  EXPECT_EQ(ends(faker), (Rows{{1, 5}}));
+
+  EXPECT_EQ(ends(faker2), before) << "the older reader's snapshot never moved";
+  faker2.Interpret("COMMIT");
+  EXPECT_EQ(ends(faker2), (Rows{{1, 5}}));
+  UseMain(faker2);
+  EXPECT_EQ(ends(faker2), before) << "main never saw any of it";
+}
+
+// Attaching a branch-created edge to a base vertex and a DETACH DELETE of that vertex, in overlapping transactions on
+// two sessions: exactly one of them commits, and what is left is the state of that one alone.
+TEST_F(VersioningMultiSessionTest, EdgeAttachAndDetachDeleteOfBaseEndpointExactlyOneCommits) {
+  constexpr int kRounds = 20;
+  for (int i = 0; i < kRounds; ++i)
+    faker.Interpret("CREATE (:P {i: " + std::to_string(i) + "}), (:Q {i: " + std::to_string(i) + "})");
+  Fork();
+  auto sessions = SessionsOnBranch(2);
+
+  for (int i = 0; i < kRounds; ++i) {
+    SCOPED_TRACE(i);
+    auto const n = std::to_string(i);
+    std::string const attach = "MATCH (p:P {i: " + n + "}), (q:Q {i: " + n + "}) CREATE (p)-[:N]->(q)";
+    std::string const detach = "MATCH (q:Q {i: " + n + "}) DETACH DELETE q";
+    std::array<std::string, 2> const writes{attach, detach};
+    std::array<bool, 2> committed{false, false};
+    std::barrier written{2};
+
+    {
+      std::vector<std::jthread> threads;
+      for (int w = 0; w < 2; ++w) {
+        threads.emplace_back([&, w] {
+          auto &session = *sessions[w];
+          session.Interpret("BEGIN");
+          bool ok = true;
+          try {
+            session.Interpret(writes[w]);
+          } catch (const mq::TransactionSerializationException &) {
+            ok = false;
+          }
+          written.arrive_and_wait();  // both writes are in flight before either commits
+          if (ok) {
+            session.Interpret("COMMIT");
+            committed[w] = true;
+          } else {
+            session.Interpret("ROLLBACK");
+          }
+        });
+      }
+    }
+
+    EXPECT_NE(committed[0], committed[1]) << "exactly one of the overlapping transactions commits";
+    if (committed[0]) {
+      EXPECT_EQ(IntRows(faker, "MATCH (:P {i: " + n + "})-[:N]->(q:Q) RETURN count(q)"), (Rows{{1}}));
+      EXPECT_EQ(IntRows(faker, "MATCH (q:Q {i: " + n + "}) RETURN inDegree(q)"), (Rows{{1}}));
+    } else {
+      EXPECT_EQ(IntRows(faker, "MATCH (q:Q {i: " + n + "}) RETURN count(q)"), (Rows{{0}}));
+      EXPECT_EQ(IntRows(faker, "MATCH (p:P {i: " + n + "}) RETURN outDegree(p)"), (Rows{{0}}));
+    }
+  }
 }
