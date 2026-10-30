@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@graphql-tools/utils': ^12.0.2
+
 importers:
 
   .:
@@ -12,8 +15,8 @@ importers:
         specifier: ^5.5.1
         version: 5.5.1(graphql@16.14.2)
       '@neo4j/graphql':
-        specifier: 7.6.5
-        version: 7.6.5(graphql@16.14.2)(neo4j-driver@5.28.3)
+        specifier: 7.2.0
+        version: 7.2.0(graphql@16.14.2)(neo4j-driver@5.28.3)
       graphql:
         specifier: ^16.12.0
         version: 16.14.2
@@ -144,16 +147,16 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
-  '@neo4j/cypher-builder@3.3.0':
-    resolution: {integrity: sha512-a0XKEAJao36hSPfVDEjfsQUv8+MW+b1uorUaemN2fqCJ+Gn7QScsBs9rgWjempp1yU1dTfGzX0ZsAfj0WoV+4Q==}
-    engines: {node: '>=20.0.0'}
+  '@neo4j/cypher-builder@2.12.0':
+    resolution: {integrity: sha512-rBpMSoSPNVq2S8ayfTZcd1TNBwE8GWdFYoy8Sbk4xtB4X6L6y2y9/CQ/L7dj5mtbNBK1FmUlrNWub/1FuakeTA==}
+    engines: {node: '>=16.0.0'}
 
-  '@neo4j/graphql@7.6.5':
-    resolution: {integrity: sha512-EcFBTRChaZC2cevwp/pqK5Z6N/3pDSTQa6npW5V1PSBUZXwPKKbUPvInI4hU4t55nWH5VKQSI0HBmf3ddD+4ng==}
+  '@neo4j/graphql@7.2.0':
+    resolution: {integrity: sha512-VLxis5RZGllJZvDWkKJDHHKyAxEaeFQ1W23bQfaN1RErIdahWfCqqwHJBz1ibSTGm5K8A3cHRgtAICR1yAsUcg==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       graphql: ^16.0.0
-      neo4j-driver: ^5.8.0 || ^6.0.0
+      neo4j-driver: ^5.8.0
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -339,11 +342,11 @@ packages:
     peerDependencies:
       graphql: ^15.0.0 || ^16.0.0
 
-  graphql-relay@0.11.0:
-    resolution: {integrity: sha512-IDwmMimLx7jITDkH6aL28lpVDiNiGV3QoYJtvkUipLtSuWr1LlyGZI5r40DOKIK6L3Ku9CpGZOMKIQ0UeecBEQ==}
+  graphql-relay@0.10.2:
+    resolution: {integrity: sha512-abybva1hmlNt7Y9pMpAzHuFnM2Mme/a2Usd8S4X27fNteLGRAECMYfhmsrpZFvGn3BhmBZugMXYW/Mesv3P1Kw==}
     engines: {node: ^12.20.0 || ^14.15.0 || >= 15.9.0}
     peerDependencies:
-      graphql: ^16.2.0 || ^17.0.0
+      graphql: ^16.2.0
 
   graphql-tag@2.12.7:
     resolution: {integrity: sha512-xnE/NFzy+0eIesvAsREJZ284zTl/wYuBAvpsFSDhRGRdRHdnE90M21Q3xAWyYInb0J756c6x0pIQ62+vtvOs1Q==}
@@ -746,16 +749,16 @@ snapshots:
     dependencies:
       graphql: 16.14.2
 
-  '@neo4j/cypher-builder@3.3.0': {}
+  '@neo4j/cypher-builder@2.12.0': {}
 
-  '@neo4j/graphql@7.6.5(graphql@16.14.2)(neo4j-driver@5.28.3)':
+  '@neo4j/graphql@7.2.0(graphql@16.14.2)(neo4j-driver@5.28.3)':
     dependencies:
       '@apollo/subgraph': 2.15.1(graphql@16.14.2)
       '@graphql-tools/merge': 9.2.8(graphql@16.14.2)
       '@graphql-tools/resolvers-composition': 7.0.41(graphql@16.14.2)
       '@graphql-tools/schema': 10.1.5(graphql@16.14.2)
       '@graphql-tools/utils': 12.1.0(graphql@16.14.2)
-      '@neo4j/cypher-builder': 3.3.0
+      '@neo4j/cypher-builder': 2.12.0
       camelcase: 6.3.0
       debug: 4.4.3
       dot-prop: 6.0.1
@@ -763,7 +766,7 @@ snapshots:
       graphql-compose: 9.3.0(graphql@16.14.2)
       graphql-parse-resolve-info: 4.14.1(graphql@16.14.2)
       graphql-query-complexity: 1.1.1(graphql@16.14.2)
-      graphql-relay: 0.11.0(graphql@16.14.2)
+      graphql-relay: 0.10.2(graphql@16.14.2)
       jose: 5.10.0
       neo4j-driver: 5.28.3
       pluralize: 8.0.0
@@ -962,7 +965,7 @@ snapshots:
       graphql: 16.14.2
       lodash.get: 4.4.2
 
-  graphql-relay@0.11.0(graphql@16.14.2):
+  graphql-relay@0.10.2(graphql@16.14.2):
     dependencies:
       graphql: 16.14.2
 
