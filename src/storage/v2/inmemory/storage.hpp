@@ -184,6 +184,13 @@ class InMemoryStorage final : public Storage {
     /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                               utils::ResourceLockGuard guard);
+#ifdef MG_ENTERPRISE
+    // Read-only via the `Transaction::is_historical_` write assert, not lock mode (plain SHARED guard).
+    // `build_transaction` runs from the base ctor, after storage_guard_ is already held.
+    explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+                              std::function<Transaction()> build_transaction,
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+#endif
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -427,7 +434,13 @@ class InMemoryStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_->IndexVisibleAt(label, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_->IndexReady(label);
+#else
       return transaction_.active_indices_->label_->IndexReady(label);
+#endif
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
@@ -435,15 +448,35 @@ class InMemoryStorage final : public Storage {
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_properties_->IndexVisibleAt(
+                       label, properties, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+#else
       return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+#endif
     }
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_->IndexVisibleAt(edge_type, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+#else
       return transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+#endif
     }
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_properties_->IndexVisibleAt(
+                       edge_type, property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+#else
       return transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+#endif
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {
@@ -451,7 +484,13 @@ class InMemoryStorage final : public Storage {
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_property_->IndexVisibleAt(property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_property_->IndexReady(property);
+#else
       return transaction_.active_indices_->edge_property_->IndexReady(property);
+#endif
     }
 
     bool VertexPropertyIndexExists(PropertyId property) const override {
@@ -459,7 +498,13 @@ class InMemoryStorage final : public Storage {
     }
 
     bool VertexPropertyIndexReady(PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_ ? transaction_.active_indices_->vertex_property_->IndexVisibleAt(
+                                               property, transaction_.start_timestamp)
+                                         : transaction_.active_indices_->vertex_property_->IndexReady(property);
+#else
       return transaction_.active_indices_->vertex_property_->IndexReady(property);
+#endif
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
@@ -857,12 +902,22 @@ class InMemoryStorage final : public Storage {
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
-  // Call exactly once per RegisterForkPin; an unregistered fork_ts MG_ASSERTs.
+  // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
   // Removes one instance of the multiset key, not all equal ones.
   void ReleaseForkPin(uint64_t fork_ts);
 
   // Oldest live fork pin, or nullopt if none; mirrors the GC horizon clamp in CollectGarbage.
   std::optional<uint64_t> OldestForkPin() const;
+
+  enum class HistoricalAccessError : uint8_t {
+    // `fork_ts` is not a live pin: never registered, or already released.
+    ForkTimestampNotPinned
+  };
+
+  // Opens a read-only accessor snapshotted at `fork_ts`, which must be a live pin (else ForkTimestampNotPinned);
+  // self-pins it until finalize. Always SNAPSHOT_ISOLATION and a plain SHARED lock (main stays writable); writes
+  // are refused by `Transaction::is_historical_`. Uses the CURRENT active indices, not fork-era ones.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
 #endif
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -904,6 +959,14 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+#ifdef MG_ENTERPRISE
+ private:
+  // Like CreateTransaction but with `start_timestamp = fork_ts`, `timestamp_` untouched, SNAPSHOT_ISOLATION and
+  // `is_historical_` set. Only called via `build_transaction`, i.e. after storage_guard_ is already held.
+  Transaction CreateHistoricalTransaction(uint64_t fork_ts);
+
+ public:
+#endif
   void SetStorageMode(StorageMode storage_mode);
 
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
@@ -1253,7 +1316,8 @@ class InMemoryStorage final : public Storage {
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
 
 #ifdef MG_ENTERPRISE
-  // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: several pins may share a fork_ts.
+  // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: branches and historical readers
+  // may share a fork_ts.
   // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
   utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
