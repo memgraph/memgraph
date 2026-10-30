@@ -18,7 +18,11 @@
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
 #include "query/exceptions.hpp"
+#include "rpc/exceptions.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::communication::bolt::ChunkedEncoderBuffer;
 using memgraph::communication::bolt::ClientError;
@@ -1441,6 +1445,90 @@ TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
   EXPECT_EQ(messages[1][1], 0x71);  // RECORD
   ASSERT_GE(messages[2].size(), 2u);
   EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+namespace {
+using memgraph::communication::bolt::ExceptionToErrorMessage;
+using memgraph::communication::bolt::VerboseError;
+
+constexpr std::string_view kClientErrorCode = "Memgraph.ClientError.MemgraphError.MemgraphError";
+constexpr std::string_view kTransientErrorCode = "Memgraph.TransientError.MemgraphError.MemgraphError";
+
+std::string Classification(const std::exception &e) { return ExceptionToErrorMessage(e, nullptr).first; }
+}  // namespace
+
+// ExceptionToErrorMessage is the single Bolt retryability classifier: only the declared-retryable
+// families may yield TransientError, every other BasicException is non-retryable.
+
+TEST(BoltSession, ExceptionToErrorMessageVerboseErrorKeepsItsOwnCode) {
+  // A VerboseError carries an explicit classification; the classifier must not override it.
+  VerboseError e(VerboseError::Classification::TRANSIENT_ERROR, "Category", "Title", "custom message");
+  EXPECT_EQ(Classification(e), "Memgraph.TransientError.Category.Title");
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "custom message");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageBoltClientErrorIsClientError) {
+  memgraph::communication::bolt::ClientError e("wrong query");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "wrong query");
+}
+
+TEST(BoltSession, ExceptionToErrorMessagePlainBasicExceptionIsClientError) {
+  // A BasicException that does not derive from the RetryableException marker must never be a TransientError.
+  memgraph::utils::BasicException e("plain failure");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "plain failure");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageTemporalInvalidArgumentIsClientError) {
+  // A permanent temporal parse failure is non-retryable.
+  memgraph::utils::temporal::InvalidArgumentException e("Invalid duration literal");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "Invalid duration literal");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageNotYetImplementedIsClientError) {
+  // A recognised-but-unimplemented parse path is non-retryable.
+  memgraph::query::NotYetImplemented e("Feature");
+  EXPECT_EQ(Classification(e), kClientErrorCode);
+  EXPECT_EQ(ExceptionToErrorMessage(e, nullptr).second, "Feature is not implemented yet.");
+}
+
+TEST(BoltSession, ExceptionToErrorMessageRetryBasicExceptionStaysTransientError) {
+  // A serialization conflict keeps TransientError.
+  memgraph::query::TransactionSerializationException e;
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageStorageAccessTimeoutStaysTransientError) {
+  // Storage access timeouts keep TransientError.
+  memgraph::storage::UniqueAccessTimeout e;
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageOutOfMemoryStaysTransientError) {
+  // OutOfMemoryException keeps TransientError.
+  memgraph::utils::OutOfMemoryException e("Memory limit exceeded");
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageRpcFailedStaysTransientError) {
+  // rpc::RpcFailedException keeps TransientError.
+  memgraph::rpc::RpcFailedException e("rpc connection lost");
+  EXPECT_EQ(Classification(e), kTransientErrorCode);
+}
+
+TEST(BoltSession, ExceptionToErrorMessageDirectlyCoversAccessTimeoutFamily) {
+  // Direct unit coverage of the pure classifier ExceptionToErrorMessage itself (both returned fields), rather
+  // than only through the Classification helper: the whole storage access-timeout family derives from the
+  // RetryableException marker, not just UniqueAccessTimeout.
+  memgraph::storage::SharedAccessTimeout shared;
+  const auto [shared_code, shared_message] = ExceptionToErrorMessage(shared, nullptr);
+  EXPECT_EQ(shared_code, kTransientErrorCode);
+  EXPECT_EQ(shared_message, shared.what());
+
+  memgraph::storage::ReadOnlyAccessTimeout read_only;
+  EXPECT_EQ(ExceptionToErrorMessage(read_only, nullptr).first, kTransientErrorCode);
 }
 
 TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {

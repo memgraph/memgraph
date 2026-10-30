@@ -64,15 +64,14 @@ TEST(DownloadFailureReporting, AFailureThatCannotSucceedIsReportedAsTheCallersFa
   EXPECT_THROW(ThrowDownloadFailed(false, "no such object"), QueryRuntimeException);
 }
 
-// A session reports QueryException to the client as a permanent error and every other
-// BasicException as one worth retrying, catching QueryException first. A retryable download that
-// inherited from QueryException would therefore reach the client as permanent, and the driver would
-// give up on a failure that another attempt could get past.
+// A session reports QueryException as a permanent error, and any other exception as permanent too
+// unless it derives from RetryableException. A retryable download must carry that marker, or the
+// driver would give up on a failure that another attempt could get past.
 TEST(DownloadFailureReporting, WhatIsWorthRetryingIsNotReportedAsPermanent) {
   static_assert(!std::is_base_of_v<QueryException, TransientDownloadException>,
                 "a retryable download must not be caught as a permanent query error");
-  static_assert(std::is_base_of_v<memgraph::utils::BasicException, TransientDownloadException>,
-                "a retryable download must still be reported to the client at all");
+  static_assert(std::is_base_of_v<memgraph::utils::RetryableException, TransientDownloadException>,
+                "a retryable download must derive from the retryable marker to be reported as transient");
 
   try {
     ThrowDownloadFailed(true, "server is having a moment");
