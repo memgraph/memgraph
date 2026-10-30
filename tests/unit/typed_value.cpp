@@ -23,6 +23,7 @@
 
 #include "disk_test_utils.hpp"
 #include "query/db_accessor.hpp"
+#include "query/exceptions.hpp"
 #include "query/graph.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
@@ -32,6 +33,7 @@
 #include "storage/v2/point.hpp"
 #include "tests/unit/typed_value_shapes.hpp"
 
+using memgraph::query::ArithmeticException;
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
 using memgraph::storage::Enum;
@@ -507,6 +509,30 @@ TEST(TypedValue, UnaryMinus) {
   EXPECT_THROW(-TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
+TEST(TypedValue, IntegerArithmeticIsExactOrThrows) {
+  constexpr auto kMax = std::numeric_limits<int64_t>::max();
+  constexpr auto kMin = std::numeric_limits<int64_t>::min();
+
+  EXPECT_THROW(TypedValue(kMax) + TypedValue(1), ArithmeticException);
+  EXPECT_THROW(TypedValue(kMin) - TypedValue(1), ArithmeticException);
+  EXPECT_THROW(TypedValue(kMax) * TypedValue(2), ArithmeticException);
+  EXPECT_THROW(TypedValue(kMin) * TypedValue(-1), ArithmeticException);
+  EXPECT_THROW(-TypedValue(kMin), ArithmeticException);
+  EXPECT_THROW(TypedValue(kMin) / TypedValue(-1), ArithmeticException);
+  EXPECT_THROW(TypedValue(1) / TypedValue(0), ArithmeticException);
+  EXPECT_THROW(TypedValue(1) % TypedValue(0), ArithmeticException);
+
+  EXPECT_EQ((TypedValue(kMin) % TypedValue(-1)).ValueInt(), 0);
+  EXPECT_EQ((TypedValue(kMin) / TypedValue(1)).ValueInt(), kMin);
+  EXPECT_EQ((TypedValue(kMin + 1) / TypedValue(-1)).ValueInt(), kMax);
+  EXPECT_EQ((TypedValue(kMax) + TypedValue(0)).ValueInt(), kMax);
+  EXPECT_EQ((TypedValue(kMin) * TypedValue(1)).ValueInt(), kMin);
+  EXPECT_EQ((-TypedValue(kMax)).ValueInt(), -kMax);
+
+  EXPECT_TRUE(std::isinf((TypedValue(1.0) / TypedValue(0.0)).ValueDouble()));
+  EXPECT_FALSE(std::isinf((TypedValue(static_cast<double>(kMax)) * TypedValue(2.0)).ValueDouble()));
+}
+
 TEST(TypedValue, UnaryPlus) {
   EXPECT_TRUE((+TypedValue()).type() == TypedValue::Type::Null);
 
@@ -714,7 +740,7 @@ TYPED_TEST(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(memgr
 
 TYPED_TEST(TypedValueArithmeticTest, Divison) {
   this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
-  EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
+  EXPECT_THROW(TypedValue(1) / TypedValue(0), ArithmeticException);
 
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(2), TypedValue(5));
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(4), TypedValue(2));
@@ -737,7 +763,7 @@ TYPED_TEST(TypedValueArithmeticTest, Multiplication) {
 
 TYPED_TEST(TypedValueArithmeticTest, Modulo) {
   this->ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
-  EXPECT_THROW(TypedValue(1) % TypedValue(0), TypedValueException);
+  EXPECT_THROW(TypedValue(1) % TypedValue(0), ArithmeticException);
 
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(2), TypedValue(0));
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(4), TypedValue(2));

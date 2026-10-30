@@ -688,6 +688,7 @@ class TypedValue {
    * The resulting value uses the same MemoryResource as the argument.
    *
    * @throw TypedValueException if the value is not numeric or Null.
+   * @throw ArithmeticException if negating INT64_MIN.
    */
   friend TypedValue operator-(const TypedValue &a);
 
@@ -709,6 +710,7 @@ class TypedValue {
    * value uses the same MemoryResource as the left hand side argument.
    *
    * @throw TypedValueException if values cannot be summed or concatenated.
+   * @throw ArithmeticException if the integer sum overflows.
    */
   friend TypedValue operator+(const TypedValue &a, const TypedValue &b);
 
@@ -720,6 +722,7 @@ class TypedValue {
    * argument.
    *
    * @throw TypedValueException if the values are not numeric or Null.
+   * @throw ArithmeticException if the integer difference overflows.
    */
   friend TypedValue operator-(const TypedValue &a, const TypedValue &b);
 
@@ -730,8 +733,9 @@ class TypedValue {
    * The resulting value uses the same MemoryResource as the left hand side
    * argument.
    *
-   * @throw TypedValueException if the values are not numeric or Null, or if
-   *        dividing two integer values by zero.
+   * @throw TypedValueException if the values are not numeric or Null.
+   * @throw ArithmeticException if dividing two integer values by zero, or on
+   *        INT64_MIN / -1.
    */
   friend TypedValue operator/(const TypedValue &a, const TypedValue &b);
 
@@ -743,6 +747,7 @@ class TypedValue {
    * argument.
    *
    * @throw TypedValueException if the values are not numeric or Null.
+   * @throw ArithmeticException if the integer product overflows.
    */
   friend TypedValue operator*(const TypedValue &a, const TypedValue &b);
 
@@ -754,6 +759,7 @@ class TypedValue {
    * argument.
    *
    * @throw TypedValueException if the values are not numeric or Null.
+   * @throw ArithmeticException if taking an integer modulo zero.
    */
   friend TypedValue operator%(const TypedValue &a, const TypedValue &b);
 
