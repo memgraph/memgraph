@@ -350,8 +350,8 @@ class ExpectCacheProperties : public OpChecker<CacheProperties> {
 
   void ExpectOp(CacheProperties &op, const SymbolTable &) override {
     ASSERT_EQ(op.groups_.size(), 1U) << "this expectation names one symbol";
-    EXPECT_EQ(op.groups_.front().input_symbol.name(), input_symbol_name_);
-    EXPECT_EQ(op.groups_.front().properties.size(), cached_count_);
+    EXPECT_EQ(op.groups_.front().input_symbol().name(), input_symbol_name_);
+    EXPECT_EQ(op.groups_.front().properties().size(), cached_count_);
   }
 
  private:

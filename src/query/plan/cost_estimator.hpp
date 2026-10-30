@@ -391,7 +391,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(CacheProperties &op) override {
     // One pass per group per row, and the work in each grows with the set it reads.
     auto properties = std::size_t{0};
-    for (auto const &group : op.groups_) properties += group.properties.size();
+    for (auto const &group : op.groups_) properties += group.properties().size();
     IncrementCost(CostParam::kCacheProperties * static_cast<double>(properties));
     return true;
   }

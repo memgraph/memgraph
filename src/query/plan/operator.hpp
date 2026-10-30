@@ -1315,27 +1315,31 @@ struct CachedProperty {
 /// share the pull that found them and the buffer read into.
 ///
 /// The read order is settled here rather than per cursor, so a plan reused many times settles it
-/// once, and it is derived from `properties`, so the two cannot describe different sets.
+/// once. It is derived from the properties and reachable only together with them, so the two
+/// cannot come to describe different sets.
 class CachedPropertyGroup {
  public:
   CachedPropertyGroup() = default;
 
   CachedPropertyGroup(Symbol input_symbol, std::vector<CachedProperty> properties)
-      : input_symbol{std::move(input_symbol)}, properties{std::move(properties)} {
+      : input_symbol_{std::move(input_symbol)}, properties_{std::move(properties)} {
     auto paths = std::vector<storage::PropertyPath>{};
-    paths.reserve(this->properties.size());
-    for (auto const &cached : this->properties) paths.emplace_back(cached.property_id);
+    paths.reserve(properties_.size());
+    for (auto const &cached : properties_) paths.emplace_back(cached.property_id);
     ordered_ = storage::OrderedPropertyPaths{std::move(paths)};
   }
 
-  /// `properties` in the order a record must be asked for them. Its permutation says which of
-  /// `properties` each read value belongs to.
+  auto input_symbol() const -> Symbol const & { return input_symbol_; }
+
+  auto properties() const -> std::vector<CachedProperty> const & { return properties_; }
+
+  /// The properties in the order a record must be asked for them. Its permutation says which of
+  /// them each read value belongs to.
   auto ordered() const -> storage::OrderedPropertyPaths const & { return ordered_; }
 
-  Symbol input_symbol;
-  std::vector<CachedProperty> properties;
-
  private:
+  Symbol input_symbol_;
+  std::vector<CachedProperty> properties_;
   storage::OrderedPropertyPaths ordered_;
 };
 
