@@ -307,6 +307,10 @@ target_link_libraries(mg-query
     simdjson::simdjson
 )
 
+if (MG_ENTERPRISE)
+    target_link_libraries(mg-query PUBLIC mg::versioning)
+endif()
+
 # Generate Antlr openCypher parser
 set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)
 set(opencypher_generated ${opencypher_frontend}/generated)

@@ -286,9 +286,12 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
     }
   }
 
-  // For VectorIndexId properties, fetch the actual vector from the index
-  for (auto &prop_value :
-       *maybe_props | std::views::values | std::views::filter([](const auto &pv) { return pv.IsVectorIndexId(); })) {
+  // Properties() already decodes VectorIndexId values through the owning storage's index (main's for a fork-resident
+  // vertex on a branch). Only a still-undecoded value is fetched here; on a branch the diff engine has no vector
+  // indexes, so asking its accessor would throw.
+  for (auto &prop_value : *maybe_props | std::views::values | std::views::filter([](const auto &pv) {
+         return pv.IsVectorIndexId() && pv.ValueVectorIndexList().empty();
+       })) {
     auto index_name = dba->GetStorageAccessor()->GetNameIdMapper()->IdToName(prop_value.ValueVectorIndexIds()[0]);
     auto vector = dba->GetStorageAccessor()->GetVectorFromVectorIndex(vertex.impl_.vertex_, index_name);
     prop_value.ValueVectorIndexList() = std::move(vector);
@@ -469,8 +472,10 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
+PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker,
+                           storage::Storage::Accessor *schema_acc)
     : dba_(dba),
+      schema_acc_(schema_acc != nullptr ? schema_acc : dba->GetStorageAccessor()),
       auth_checker_(auth_checker),
       db_acc_(std::move(db_acc)),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
@@ -599,7 +604,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &label = indices_info_->label;
 
@@ -626,7 +631,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &edge_type = indices_info_->edge_type;
 
@@ -653,7 +658,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypePropertyIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &edge_type_property = indices_info_->edge_type_property;
 
@@ -681,7 +686,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &edge_property = indices_info_->edge_property;
 
@@ -707,7 +712,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
 PullPlanDump::PullChunk PullPlanDump::CreateVertexPropertyIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &vertex_property = indices_info_->vertex_property;
 
@@ -734,7 +739,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
   // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
   return [this](AnyStream *stream, std::optional<int> /*n*/) mutable -> std::optional<size_t> {
 #ifdef MG_ENTERPRISE
-    auto const &ttl = dba_->GetTtlConfig();
+    auto const &ttl = schema_acc_->GetTtlConfig();
     if (!ttl) {
       return 0;
     }
@@ -762,7 +767,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &label_property = indices_info_->label_properties;
 
@@ -790,7 +795,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &text = indices_info_->text_indices;
 
@@ -817,7 +822,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextEdgeIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &text = indices_info_->text_edge_indices;
 
@@ -843,7 +848,7 @@ PullPlanDump::PullChunk PullPlanDump::CreatePointIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &point_label_properties = indices_info_->point_label_property;
 
@@ -870,7 +875,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVectorIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &vector = indices_info_->vector_indices_spec;
 
@@ -897,7 +902,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVectorEdgeIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
-      indices_info_.emplace(dba_->ListAllIndices());
+      indices_info_.emplace(schema_acc_->ListAllIndices());
     }
     const auto &vector_edge = indices_info_->vector_edge_indices_spec;
 
@@ -924,7 +929,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateExistenceConstraintsPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of constraint vectors
     if (!constraints_info_) {
-      constraints_info_.emplace(dba_->ListAllConstraints());
+      constraints_info_.emplace(schema_acc_->ListAllConstraints());
     }
 
     const auto &existence = constraints_info_->existence;
@@ -951,7 +956,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateUniqueConstraintsPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of constraint vectors
     if (!constraints_info_) {
-      constraints_info_.emplace(dba_->ListAllConstraints());
+      constraints_info_.emplace(schema_acc_->ListAllConstraints());
     }
 
     const auto &unique = constraints_info_->unique;
@@ -978,7 +983,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTypeConstraintsPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of constraint vectors
     if (!constraints_info_) {
-      constraints_info_.emplace(dba_->ListAllConstraints());
+      constraints_info_.emplace(schema_acc_->ListAllConstraints());
     }
 
     const auto &type = constraints_info_->type;
@@ -1144,7 +1149,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
-  auto entries = dba_->GetAllDescriptions();
+  auto entries = schema_acc_->GetAllDescriptions();
   auto db_name = db_acc_->name();
 
   std::vector<std::string> queries;

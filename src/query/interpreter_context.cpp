@@ -302,6 +302,37 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
   return result;
 }
 
+#ifdef MG_ENTERPRISE
+std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingBranch(
+    const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name, uint64_t branch_number) {
+  std::vector<uint64_t> results;
+  for (Interpreter *interpreter : interpreters) {
+    const auto verifier = interpreter->TryAcquireForVerification();
+    if (!verifier) {
+      continue;
+    }
+    if (interpreter->current_db_.foreign_branch_number() != branch_number ||
+        interpreter->current_db_.foreign_db_view().name != db_name) {
+      continue;
+    }
+    if (std::optional<uint64_t> transaction_id = interpreter->GetTransactionId()) {
+      results.push_back(*transaction_id);
+    }
+  }
+  return results;
+}
+
+std::map<uint64_t, size_t> InterpreterContext::CountSessionsPerBranch(
+    const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name) {
+  std::map<uint64_t, size_t> counts;
+  for (Interpreter *interpreter : interpreters) {
+    if (interpreter->current_db_.foreign_db_view().name != db_name) continue;
+    ++counts[interpreter->current_db_.foreign_branch_number()];
+  }
+  return counts;
+}
+#endif
+
 std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name) {
   std::vector<uint64_t> results;

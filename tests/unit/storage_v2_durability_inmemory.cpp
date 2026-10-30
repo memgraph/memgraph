@@ -21,18 +21,25 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include "dbms/database.hpp"
@@ -5831,3 +5838,272 @@ TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
   }
   db.storage()->FreeMemory();
 }
+
+namespace {
+
+struct RetentionWalMeta {
+  std::filesystem::path path;
+  uint64_t seq_num;
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+};
+
+inline auto ReadRetentionWalMetas(std::vector<std::filesystem::path> const &wals) -> std::vector<RetentionWalMeta> {
+  std::vector<RetentionWalMeta> metas;
+  for (auto const &path : wals) {
+    auto const info = memgraph::storage::durability::ReadWalInfo(path);
+    metas.push_back({path, info.seq_num, info.from_timestamp, info.to_timestamp});
+  }
+  std::ranges::sort(metas, [](auto const &a, auto const &b) {
+    return std::tie(a.seq_num, a.from_timestamp, a.to_timestamp, a.path) <
+           std::tie(b.seq_num, b.from_timestamp, b.to_timestamp, b.path);
+  });
+  return metas;
+}
+
+// origin/master's rule: with the WAL cleanup gate open, keep the last WAL that starts at or before the oldest
+// retained snapshot's durable timestamp, and every WAL after it.
+inline auto MasterExpectedWalNames(std::vector<RetentionWalMeta> const &sorted_wals, uint64_t const oldest_kept_ts,
+                                   bool const gate_open) -> std::set<std::string> {
+  std::set<std::string> names;
+  for (auto const &wal : sorted_wals) names.insert(wal.path.filename().string());
+  if (!gate_open) return names;
+  auto const it = std::ranges::find_if(
+      sorted_wals, [oldest_kept_ts](auto const &wal) { return wal.from_timestamp > oldest_kept_ts; });
+  if (it == sorted_wals.begin()) return names;
+  for (auto cur = sorted_wals.begin(); cur != std::prev(it); ++cur) names.erase(cur->path.filename().string());
+  return names;
+}
+
+inline auto FileNames(std::vector<std::filesystem::path> const &paths) -> std::set<std::string> {
+  std::set<std::string> names;
+  for (auto const &path : paths) names.insert(path.filename().string());
+  return names;
+}
+
+// Takes a snapshot of `db` and asserts the snapshot/WAL files left are exactly what origin/master's retention leaves
+// for the directory state found just before the call.
+inline void SnapshotAndCheckMasterRetention(memgraph::dbms::Database &db, uint64_t const retention_count,
+                                            std::function<std::vector<std::filesystem::path>()> const &list_snapshots,
+                                            std::function<std::vector<std::filesystem::path>()> const &list_wals) {
+  auto *const mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  auto const pre_snapshots = list_snapshots();
+  auto const pre_wals = ReadRetentionWalMetas(list_wals());
+
+  // Read before the snapshot: its retention pass deletes the oldest of these files.
+  std::vector<std::pair<uint64_t, std::string>> all_snapshots;  // (durable ts, file name)
+  for (auto const &path : pre_snapshots) {
+    all_snapshots.emplace_back(memgraph::storage::durability::ReadSnapshotInfo(path).durable_timestamp,
+                               path.filename().string());
+  }
+
+  auto const result = mem_storage->CreateSnapshot();
+  ASSERT_TRUE(result.has_value());
+
+  auto const new_ts = memgraph::storage::durability::ReadSnapshotInfo(*result).durable_timestamp;
+  auto const new_name = result->filename().string();
+  all_snapshots.emplace_back(new_ts, new_name);
+  std::ranges::sort(all_snapshots);
+
+  // Master keeps the newest `retention_count` snapshots, the one just written included.
+  auto const kept_from = all_snapshots.size() > retention_count ? all_snapshots.size() - retention_count : 0;
+  std::set<std::string> expected_snapshots;
+  std::optional<uint64_t> oldest_old_kept_ts;
+  for (size_t i = kept_from; i < all_snapshots.size(); ++i) {
+    expected_snapshots.insert(all_snapshots[i].second);
+    if (all_snapshots[i].second != new_name && !oldest_old_kept_ts) oldest_old_kept_ts = all_snapshots[i].first;
+  }
+  auto const old_kept = expected_snapshots.size() - 1;
+
+  EXPECT_EQ(FileNames(list_snapshots()), expected_snapshots);
+  EXPECT_EQ(list_snapshots().size(), std::min<size_t>(pre_snapshots.size() + 1, retention_count));
+
+  // Master: WAL cleanup runs only when exactly N-1 old snapshots remain; the oldest of them (or the new one when
+  // N == 1) bounds what the WALs must still cover.
+  auto const gate_open = old_kept == retention_count - 1;
+  auto const oldest_kept_ts = oldest_old_kept_ts.value_or(new_ts);
+  EXPECT_EQ(FileNames(list_wals()), MasterExpectedWalNames(pre_wals, oldest_kept_ts, gate_open));
+}
+
+struct RetentionLayout {
+  std::string_view name;
+  bool wal_enabled;
+  uint64_t wal_kibibytes;
+  uint64_t initial_commits;    // before the first snapshot
+  uint64_t commits_per_phase;  // before each further snapshot
+  uint64_t final_commits;      // before the snapshot under test
+};
+
+}  // namespace
+
+// With no retention floor, snapshot and WAL retention leaves exactly the files origin/master's rule leaves.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, RetentionNoFloorMatchesMasterTable) {
+  static constexpr uint64_t kDefaultWalKiB = 20 * 1024;
+  static constexpr std::array<RetentionLayout, 6> kLayouts{{
+      {"none", false, kDefaultWalKiB, 0, 1, 1},
+      {"all_wal_before_oldest_kept", true, 1, 40, 1, 1},
+      {"straddling", true, 1, 5, 15, 15},
+      {"one_wal", true, kDefaultWalKiB, 0, 3, 3},
+      {"many_wals", true, 1, 0, 20, 20},
+      {"only_open_wal", true, kDefaultWalKiB, 0, 1, 1},
+  }};
+
+  auto const list_snapshots = [this] { return GetSnapshotsList(); };
+  auto const list_wals = [this] { return GetWalsList(); };
+
+  auto const make_config = [&](RetentionLayout const &layout, bool recover, uint64_t retention_count) {
+    return memgraph::storage::Config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = recover,
+                       .snapshot_wal_mode =
+                           layout.wal_enabled
+                               ? memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
+                               : memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .snapshot_retention_count = retention_count,
+                       .wal_file_size_kibibytes = layout.wal_kibibytes,
+                       .wal_file_flush_every_n_tx = 1},
+        .salient = {.items = {.properties_on_edges = GetParam(), .storage_light_edge = GetParam().light_edge}},
+    };
+  };
+
+  auto const commit_vertices = [](memgraph::dbms::Database &db, uint64_t count) {
+    for (uint64_t i = 0; i < count; ++i) {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  };
+
+  for (uint64_t const n : {1U, 2U, 3U}) {
+    std::set<uint64_t> const existing_counts{0, 1, n - 1, n, n + 1, 5};
+    for (uint64_t const existing : existing_counts) {
+      for (auto const &layout : kLayouts) {
+        SCOPED_TRACE(fmt::format("N={} existing_snapshots={} layout={}", n, existing, layout.name));
+        std::filesystem::remove_all(storage_directory);
+
+        // History: `existing` snapshots under a retention count high enough to keep them all.
+        {
+          memgraph::dbms::Database db{make_config(layout, false, 100)};
+          const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+          auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+          commit_vertices(db, layout.initial_commits);
+          for (uint64_t i = 0; i < existing; ++i) {
+            commit_vertices(db, layout.commits_per_phase);
+            ASSERT_TRUE(mem_storage->CreateSnapshot().has_value());
+          }
+        }
+        ASSERT_EQ(GetSnapshotsList().size(), existing);
+
+        // The snapshot under test, with the retention count being exercised.
+        {
+          memgraph::dbms::Database db{make_config(layout, true, n)};
+          const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+          commit_vertices(db, layout.final_commits);
+          SnapshotAndCheckMasterRetention(db, n, list_snapshots, list_wals);
+        }
+
+        EXPECT_EQ(GetBackupSnapshotsList().size(), 0);
+        EXPECT_EQ(GetBackupWalsList().size(), 0);
+        EXPECT_EQ(GetArchivedSnapshotsList().size(), 0);
+        EXPECT_EQ(GetArchivedWalsList().size(), 0);
+        if (HasFatalFailure()) return;
+      }
+    }
+  }
+}
+
+// A WAL belonging to another database lineage is deleted by the retention pass whatever its timestamps.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, RetentionDeletesForeignUuidWal) {
+  auto const foreign_directory = storage_directory.parent_path() / "MG_test_unit_storage_v2_durability_foreign";
+  std::filesystem::remove_all(foreign_directory);
+  std::filesystem::remove_all(storage_directory);
+
+  CreateMultiWalChain(foreign_directory, GetParam(), 1);
+  auto const foreign_wal_dir = foreign_directory / memgraph::storage::durability::kWalDirectory;
+  std::vector<std::filesystem::path> foreign_wals;
+  for (auto const &entry : std::filesystem::directory_iterator(foreign_wal_dir)) {
+    if (entry.is_regular_file()) foreign_wals.push_back(entry.path());
+  }
+  ASSERT_FALSE(foreign_wals.empty());
+
+  CreateMultiWalChain(storage_directory, GetParam(), 30);
+
+  std::filesystem::path planted;
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .snapshot_retention_count = 1,
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = 1},
+        .salient = {.items = {.properties_on_edges = GetParam(), .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    planted = storage_directory / memgraph::storage::durability::kWalDirectory / foreign_wals.front().filename();
+    ASSERT_FALSE(std::filesystem::exists(planted));
+    std::filesystem::copy_file(foreign_wals.front(), planted);
+
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot().has_value());
+  }
+
+  EXPECT_FALSE(std::filesystem::exists(planted));
+  EXPECT_EQ(GetSnapshotsList().size(), 1);
+  EXPECT_GE(GetWalsList().size(), 1);
+  std::filesystem::remove_all(foreign_directory);
+}
+
+#ifdef MG_ENTERPRISE
+// A floor that was lowered and then cleared must leave nothing behind: the next snapshot prunes like master.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, RetentionFloorClearedBehavesLikeMaster) {
+  std::filesystem::remove_all(storage_directory);
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .snapshot_wal_mode =
+                         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                     .snapshot_retention_count = 2,
+                     .wal_file_size_kibibytes = 1,
+                     .wal_file_flush_every_n_tx = 1},
+      .salient = {.items = {.properties_on_edges = GetParam(), .storage_light_edge = GetParam().light_edge}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  auto const commit_vertices = [&](uint64_t count) {
+    for (uint64_t i = 0; i < count; ++i) {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  };
+  auto const list_snapshots = [this] { return GetSnapshotsList(); };
+  auto const list_wals = [this] { return GetWalsList(); };
+
+  db.storage()->SetRetentionFloor(5);
+  commit_vertices(30);
+  ASSERT_TRUE(mem_storage->CreateSnapshot().has_value());
+  commit_vertices(30);
+  ASSERT_TRUE(mem_storage->CreateSnapshot().has_value());
+  ASSERT_GE(GetWalsList().size(), 3);  // the floor kept the WALs that master would have dropped
+
+  db.storage()->SetRetentionFloor(std::nullopt);
+  commit_vertices(30);
+  SnapshotAndCheckMasterRetention(db, 2, list_snapshots, list_wals);
+
+  EXPECT_EQ(GetBackupSnapshotsList().size(), 0);
+  EXPECT_EQ(GetBackupWalsList().size(), 0);
+  EXPECT_EQ(GetArchivedSnapshotsList().size(), 0);
+  EXPECT_EQ(GetArchivedWalsList().size(), 0);
+}
+#endif

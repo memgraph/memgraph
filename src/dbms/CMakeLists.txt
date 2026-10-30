@@ -24,3 +24,8 @@ target_link_libraries(mg-dbms
     PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication mg-metrics
     PRIVATE mg-coordination mg-memory-utils
 )
+
+if (MG_ENTERPRISE)
+    target_sources(mg-dbms PRIVATE inmemory/history_replay.cpp)
+    target_link_libraries(mg-dbms PUBLIC mg::versioning)
+endif()

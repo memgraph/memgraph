@@ -48,6 +48,20 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker);
 
+/// Branch-aware overload: reads through the accessor's branch overlay when one is set.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker);
+
+/// Branch-aware overload: reads through the accessor's branch overlay when one is set.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker);
+
 /// @param query::Path for converting to communication::bolt::Path.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.

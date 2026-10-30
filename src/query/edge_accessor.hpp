@@ -11,7 +11,17 @@
 
 #pragma once
 
+#include <map>
+#include <tuple>
+#include <vector>
+
 #include "storage/v2/edge_accessor.hpp"
+
+#ifdef MG_ENTERPRISE
+namespace memgraph::versioning {
+class BranchContext;
+}  // namespace memgraph::versioning
+#endif
 
 namespace memgraph::query {
 
@@ -20,8 +30,17 @@ class VertexAccessor;
 class EdgeAccessor final {
  public:
   storage::EdgeAccessor impl_;
+#ifdef MG_ENTERPRISE
+  // Non-null iff minted on a branch; non-owning.
+  versioning::BranchContext *branch_ctx_{nullptr};
+#endif
 
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
+
+#ifdef MG_ENTERPRISE
+  EdgeAccessor(storage::EdgeAccessor impl, versioning::BranchContext *branch_ctx)
+      : impl_(std::move(impl)), branch_ctx_(branch_ctx) {}
+#endif
 
   bool IsDeleted() const { return impl_.IsDeleted(); }
 
@@ -29,6 +48,13 @@ class EdgeAccessor final {
 
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
+#ifdef MG_ENTERPRISE
+  auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
+
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
+#else
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
@@ -38,7 +64,22 @@ class EdgeAccessor final {
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
   }
+#endif
 
+  // Edge vector indexes live in main storage and are global, so no per-branch resolution is needed.
+  std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
+
+#ifdef MG_ENTERPRISE
+  // On a branch, a write to a fork edge is an overlay version keyed by its gid (BranchContext::EdgeOverlay*); reads
+  // merge it over the fork edge. `impl_` keeps pointing at the fork edge. Out-of-line (BranchContext incomplete).
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value);
+
+  storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+
+  // Non-const (unlike storage's UpdateProperties) to match VertexAccessor::UpdateProperties.
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+#else
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
@@ -51,14 +92,19 @@ class EdgeAccessor final {
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
     return impl_.UpdateProperties(properties);
   }
+#endif
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
   }
 
+#ifdef MG_ENTERPRISE
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties();
+#else
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
     return impl_.ClearProperties();
   }
+#endif
 
   VertexAccessor To() const;
 
@@ -78,9 +124,28 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
+  // On a branch, compare by gid like VertexAccessor (hash is gid-based too).
+  bool operator==(const EdgeAccessor &e) const noexcept {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr || e.branch_ctx_ != nullptr) {
+      return Gid() == e.Gid();
+    }
+#endif
+    return impl_ == e.impl_;
+  }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
+
+ private:
+#ifdef MG_ENTERPRISE
+  // Branch-mode mutators (edge_accessor.cpp); only reached when branch_ctx_ != nullptr.
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
+#endif
 };
 
 }  // namespace memgraph::query

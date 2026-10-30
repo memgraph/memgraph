@@ -32,6 +32,25 @@ in_memory_cluster_edge_props: &in_memory_cluster_edge_props
       setup_queries: []
       validation_queries: []
 
+# Versioning branches need an enterprise license and a snapshot interval that never fires during the test.
+args_versioning: &args_versioning
+  - "--bolt_port"
+  - *bolt_port
+  - "--log-level=TRACE"
+  - "--query-callable-mappings-path"
+  - "query_modules/callable_alias_mapping.json"
+  - "--experimental-enabled=versioning"
+  - "--storage-wal-enabled=true"
+  - "--storage-snapshot-interval-sec=86400"
+
+in_memory_cluster_versioning: &in_memory_cluster_versioning
+  cluster:
+    main:
+      args: *args_versioning
+      log_file: "query_modules-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Convert query module test"
     binary: "tests/e2e/pytest_runner.sh"
@@ -75,3 +94,15 @@ workloads:
     proc: "tests/e2e/query_modules/query_modules/"
     args: ["query_modules/vector_index_config_test.py"]
     <<: *in_memory_cluster
+
+  - name: "Versioning mgp_execute_query and schema.assert test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/,tests/e2e/query_modules/query_modules/"
+    args: ["query_modules/versioning_mgp_test.py"]
+    <<: *in_memory_cluster_versioning
+
+  - name: "Versioning Bolt db=database@branch test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/versioning_bolt_db_test.py"]
+    <<: *in_memory_cluster_versioning

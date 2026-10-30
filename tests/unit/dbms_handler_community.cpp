@@ -14,10 +14,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <string_view>
 #include <system_error>
 #include <tuple>
 
 #include "dbms/constants.hpp"
+#include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "glue/auth_checker.hpp"
@@ -25,6 +27,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/config.hpp"
+#include "utils/exceptions.hpp"
 
 // Global
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler_community"};
@@ -99,6 +102,29 @@ TEST(DBMS_Handler, Get) {
   auto conf = storage_conf;
   conf.salient.name = memgraph::dbms::kDefaultDB;
   ASSERT_EQ(default_db->storage()->config_, conf);
+}
+
+// Branch data written by an enterprise build is never ignored or deleted: the database refuses to start over it.
+TEST(DBMS_Handler, DatabaseWithBranchesDirectoryRefusesToStart) {
+  const auto directory = storage_directory / "with_branches";
+  std::filesystem::create_directories(directory / "branches" / "0");
+
+  memgraph::storage::Config config;
+  memgraph::storage::UpdatePaths(config, directory);
+  config.register_metrics = false;
+  config.salient.name = "with_branches";
+
+  try {
+    memgraph::dbms::Database db{std::move(config)};
+    ADD_FAILURE() << "startup must be refused";
+  } catch (const memgraph::utils::BasicException &e) {
+    const std::string_view what{e.what()};
+    EXPECT_NE(what.find("Database 'with_branches' contains Graph Versioning branches"), std::string_view::npos) << what;
+    EXPECT_NE(what.find((directory / "branches").string()), std::string_view::npos) << what;
+    EXPECT_NE(what.find("Memgraph Enterprise build"), std::string_view::npos) << what;
+  }
+  EXPECT_TRUE(std::filesystem::exists(directory / "branches" / "0")) << "the branch files must stay";
+  std::filesystem::remove_all(directory);
 }
 
 int main(int argc, char *argv[]) {

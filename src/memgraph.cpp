@@ -652,6 +652,9 @@ int main(int argc, char **argv) {
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .experimental_commit_lock_narrowing =
           memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING),
+#ifdef MG_ENTERPRISE
+      .experimental_versioning = memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VERSIONING),
+#endif
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
@@ -1183,11 +1186,15 @@ int main(int argc, char **argv) {
     dh->SetOnSuspend(
         [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
     dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
-    dh->SetOnResume([dh, ic](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnResume([dh, ic, &replication_handler](memgraph::dbms::DatabaseAccess db_acc) {
+      if (replication_handler && !replication_handler->DropBranchesIfReplica(db_acc)) {
+        throw std::runtime_error("Failed to drop the branches of the resumed database on REPLICA.");
+      }
       memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
     });
-    dh->SetOnPublished([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnPublished([&repl_state, &replication_handler](memgraph::dbms::DatabaseAccess db_acc) {
+      if (replication_handler) replication_handler->ReconcileBranchesAfterPublish(db_acc);
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();

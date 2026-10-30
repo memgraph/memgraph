@@ -596,6 +596,11 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         }
         pre_query_directives.num_threads_ = std::any_cast<Expression *>(num_threads->accept(this));
       }
+    } else if (auto *branch_directive = pre_query_directive->branchDirective()) {
+      if (pre_query_directives.branch_target_) {
+        throw SyntaxException("Branch can be set only once in the USING statement.");
+      }
+      pre_query_directives.branch_target_ = std::any_cast<Expression *>(branch_directive->branchName()->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
@@ -2861,6 +2866,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
+  if (ctx->BRANCH_USE()) return AuthQuery::Privilege::BRANCH_USE;
+  if (ctx->BRANCH_EDIT()) return AuthQuery::Privilege::BRANCH_EDIT;
   if (ctx->COORDINATOR_READ()) return AuthQuery::Privilege::COORDINATOR_READ;
   if (ctx->COORDINATOR_WRITE()) return AuthQuery::Privilege::COORDINATOR_WRITE;
   LOG_FATAL("Should not get here - unknown privilege!");
@@ -4884,6 +4891,70 @@ antlrcpp::Any CypherMainVisitor::visitResumeDatabase(MemgraphCypher::ResumeDatab
   mdb_query->action_ = MultiDatabaseQuery::Action::RESUME;
   query_ = mdb_query;
   return mdb_query;
+}
+
+Expression *CypherMainVisitor::MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal) {
+  const auto token_position = static_cast<int>(string_literal->getSymbol()->getTokenIndex());
+  if (context_.is_query_cached) {
+    return storage_->Create<ParameterLookup>(token_position);
+  }
+  return storage_->Create<PrimitiveLiteral>(std::any_cast<std::string>(visitStringLiteral(string_literal->getText())),
+                                            token_position);
+}
+
+antlrcpp::Any CypherMainVisitor::visitBranchName(MemgraphCypher::BranchNameContext *ctx) {
+  if (ctx->symbolicName()) {
+    // Bare identifiers are never stripped, so no ParameterLookup is needed.
+    auto name = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+    const auto token_position = static_cast<int>(ctx->symbolicName()->getStart()->getTokenIndex());
+    return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(std::move(name), token_position));
+  }
+  return static_cast<Expression *>(MakeStringLiteralExpression(ctx->StringLiteral()));
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateBranch(MemgraphCypher::CreateBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::CREATE_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  query_ = versioning_query;
+  return versioning_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropBranch(MemgraphCypher::DropBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::DROP_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  versioning_query->force_ = ctx->FORCE() != nullptr;
+  query_ = versioning_query;
+  return versioning_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUseBranch(MemgraphCypher::UseBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::USE_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  query_ = versioning_query;
+  return versioning_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::SHOW_BRANCH;
+  if (ctx->branchName()) {
+    versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  }
+  query_ = versioning_query;
+  return versioning_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowBranches(MemgraphCypher::ShowBranchesContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::SHOW_BRANCHES;
+  if (ctx->DATABASE()) {
+    versioning_query->for_database_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
+  }
+  query_ = versioning_query;
+  return versioning_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {

@@ -226,9 +226,9 @@ bool SingleQueryReachesGraph(SingleQuery *single_query) {
 // Every directive either steers a scan or needs a transaction to act on. Bound by structured binding so
 // that a directive added later breaks the build here rather than being silently admitted.
 bool HasPreQueryDirectives(const PreQueryDirectives &directives) {
-  auto const &[index_hints, hops_limit, commit_frequency, parallel_execution, num_threads] = directives;
+  auto const &[index_hints, hops_limit, commit_frequency, parallel_execution, num_threads, version_target] = directives;
   return !index_hints.empty() || hops_limit != nullptr || commit_frequency != nullptr || parallel_execution ||
-         num_threads != nullptr;
+         num_threads != nullptr || version_target != nullptr;
 }
 
 }  // namespace

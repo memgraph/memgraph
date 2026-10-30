@@ -10,10 +10,16 @@
 // licenses/APL.txt.
 
 #include "query/db_accessor.hpp"
+#include <algorithm>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include <vector>
 #include "query/graph.hpp"
 #include "query/virtual_graph.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
@@ -21,6 +27,10 @@
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction_constants.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/main_constraints.hpp"
+#endif
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
@@ -183,6 +193,17 @@ storage::Result<storage::PropertyValue> SubgraphVertexAccessor::GetProperty(stor
 }
 
 namespace {
+#ifdef MG_ENTERPRISE
+// Storage-level adjacency on a branch is one-sided and exposes raw stubs, so the branch-aware query-level
+// {In,Out}Edges is used and only membership is filtered; membership is by gid, so stamped edges match.
+storage::Result<ExpandedEdgesResult> FilterBranchEdgesBySubgraph(storage::Result<ExpandedEdgesResult> res,
+                                                                 const Graph &graph) {
+  if (!res) return res;
+  const auto &graph_edges = graph.edges();
+  res->edges = res->edges.Filtered([&](const EdgeAccessor &edge) { return graph_edges.contains(edge); });
+  return res;
+}
+#endif
 
 /// Narrows an expansion to the edges `graph` holds, keeping it a range that builds its accessors
 /// when they are looked at.
@@ -198,10 +219,20 @@ auto KeptIn(Graph const *graph) {
 }  // namespace
 
 storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
+#ifdef MG_ENTERPRISE
+  if (impl_.branch_ctx_ != nullptr) {
+    return FilterBranchEdgesBySubgraph(impl_.OutEdges(view), *graph_);
+  }
+#endif
   return impl_.impl_.OutEdges(view, {}).transform(KeptIn(graph_));
 }
 
 storage::Result<ExpandedEdgesResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
+#ifdef MG_ENTERPRISE
+  if (impl_.branch_ctx_ != nullptr) {
+    return FilterBranchEdgesBySubgraph(impl_.InEdges(view), *graph_);
+  }
+#endif
   return impl_.impl_.InEdges(view, {}).transform(KeptIn(graph_));
 }
 
@@ -211,22 +242,26 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
                                                                    const storage::TextSearchConfig &config) const {
+  RejectBranchTextSearch();
   return accessor_->TextIndexSearch(index_name, search_query, search_mode, config);
 }
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                            const std::string &aggregation_query) const {
+  RejectBranchTextSearch();
   return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                                const std::string &aggregation_query) {
+  RejectBranchTextSearch();
   return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
     const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
     const storage::TextSearchConfig &config) const {
+  RejectBranchTextSearch();
   return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
 }
 
@@ -236,11 +271,13 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  RejectBranchVectorSearch();
   return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
 }
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  RejectBranchVectorSearch();
   return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
 }
 
@@ -256,6 +293,7 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
+  RejectBranchPointScan();
   return PointIterable(accessor_->PointVertices(label,
                                                 property,
                                                 crs,
@@ -267,6 +305,7 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
+  RejectBranchPointScan();
   return PointIterable(accessor_->PointVertices(label,
                                                 property,
                                                 crs,
@@ -274,4 +313,73 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                                 top_right.ToPropertyValue(accessor_->GetNameIdMapper()),
                                                 condition));
 }
+
+#ifdef MG_ENTERPRISE
+std::expected<void, storage::ConstraintViolation> DbAccessor::ValidateBranchConstraints() {
+  if (branch_ctx_ == nullptr) return {};
+  auto &ctx = *branch_ctx_;
+
+  // The diff engine mirrors no constraints: main's current set is checked against each touched vertex's reconstructed
+  // view. Unique constraints are not enforced on a branch.
+  versioning::MainConstraints const main_constraints{ctx};
+  auto const existence = main_constraints.Existence();
+  auto const types = main_constraints.Types();
+  if (existence.empty() && types.empty()) return {};
+
+  // Native vertices come from head deltas (as in main's commit); fork vertices from the overlay write set, since
+  // anchor deltas also name fork gids and are filtered out below.
+  std::vector<uint64_t> touched = ctx.OverlayWrittenGids();
+  for (auto const &delta : accessor_->GetTransaction()->deltas) {
+    auto const prev = delta.prev.Get();
+    if (prev.type == storage::PreviousPtr::Type::VERTEX && !ctx.IsForkVertexGid(prev.vertex->gid)) {
+      touched.push_back(prev.vertex->gid.AsUint());
+    }
+  }
+  std::ranges::sort(touched);
+  touched.erase(std::ranges::unique(touched).begin(), touched.end());
+
+  for (auto const raw_gid : touched) {
+    auto const gid = storage::Gid::FromUint(raw_gid);
+    auto resolved = ctx.ResolveVertex(gid, storage::View::NEW);
+    if (!resolved) continue;
+    VertexAccessor const vertex{*resolved, &ctx};
+
+    auto labels = vertex.Labels(storage::View::NEW);
+    if (!labels) {
+      if (labels.error() == storage::Error::DELETED_OBJECT) continue;
+      throw QueryRuntimeException("Unable to validate constraints on a branch: failed to read vertex labels.");
+    }
+    auto const constrained = [&](storage::LabelId label) { return std::ranges::contains(*labels, label); };
+    bool const relevant = std::ranges::any_of(existence, [&](auto const &c) { return constrained(c.first); }) ||
+                          std::ranges::any_of(types, [&](auto const &c) { return constrained(std::get<0>(c)); });
+    if (!relevant) continue;
+
+    auto props = vertex.Properties(storage::View::NEW);
+    if (!props) {
+      if (props.error() == storage::Error::DELETED_OBJECT) continue;
+      throw QueryRuntimeException("Unable to validate constraints on a branch: failed to read vertex properties.");
+    }
+
+    for (auto const &[label, property] : existence) {
+      if (!constrained(label)) continue;
+      auto const it = props->find(property);
+      if (it == props->end() || it->second.IsNull()) {
+        return std::unexpected{
+            storage::ConstraintViolation{storage::ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
+      }
+    }
+    for (auto const &[label, property, kind] : types) {
+      if (!constrained(label)) continue;
+      auto const it = props->find(property);
+      // Type constraints don't enforce existence.
+      if (it == props->end() || it->second.IsNull()) continue;
+      if (!storage::PropertyValueMatchesTypeConstraint(it->second, kind)) {
+        return std::unexpected{storage::ConstraintViolation{
+            storage::ConstraintViolation::Type::TYPE, label, kind, std::set<storage::PropertyId>{property}}};
+      }
+    }
+  }
+  return {};
+}
+#endif
 }  // namespace memgraph::query

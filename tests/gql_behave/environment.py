@@ -16,6 +16,7 @@ import logging
 import sys
 
 from neo4j import GraphDatabase, basic_auth
+from steps import database
 from steps.test_parameters import TestParameters
 
 # Helper class and functions
@@ -54,10 +55,20 @@ def before_all(context):
     # test results
     context.test_results = TestResults()
 
+    if getattr(context.config, "versioned_branch", False):
+        context.vbranch_counter = 0
+
 
 def before_scenario(context, scenario):
     context.test_parameters = TestParameters()
     context.exception = None
+
+    if getattr(context.config, "versioned_branch", False):
+        context.vbranch_session = None
+        context.vbranch_forked = False
+        context.vbranch_counter += 1
+        # Unique per scenario: a failed best-effort DROP BRANCH must not collide with the next CREATE BRANCH.
+        context.vbranch_name = f"_gqlb_{context.vbranch_counter}"
 
 
 def after_step(context, step):
@@ -78,6 +89,10 @@ def after_step(context, step):
 
 def after_scenario(context, scenario):
     context.test_results.add_test(scenario.status)
+
+    if getattr(context.config, "versioned_branch", False):
+        database.close_vbranch_session(context)
+
     if context.config.single_scenario or (context.config.single_fail and scenario.status == "failed"):
         print("Press enter to continue")
         sys.stdin.readline()

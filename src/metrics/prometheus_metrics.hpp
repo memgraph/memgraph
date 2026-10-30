@@ -106,6 +106,12 @@ struct GlobalMetricHandles {
   prometheus::Histogram *database_suspend_latency_seconds;
   prometheus::Histogram *database_resume_latency_seconds;
 
+  // Graph versioning (global)
+  prometheus::Counter *versioning_branches_created;
+  prometheus::Counter *versioning_branches_dropped;
+  prometheus::Gauge *versioning_active_branches;
+  prometheus::Gauge *versioning_active_sessions;
+
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
   prometheus::Counter *failed_query;
@@ -453,6 +459,12 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
+
+  // Global metric families — graph versioning
+  prometheus::Family<prometheus::Counter> &versioning_branches_created_family_;
+  prometheus::Family<prometheus::Counter> &versioning_branches_dropped_family_;
+  prometheus::Family<prometheus::Gauge> &versioning_active_branches_family_;
+  prometheus::Family<prometheus::Gauge> &versioning_active_sessions_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 

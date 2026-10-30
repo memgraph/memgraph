@@ -316,10 +316,23 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
-                                 utils::MemoryTracker *db_embedding_memory_tracker)
+                                 utils::MemoryTracker *db_embedding_memory_tracker
+#ifdef MG_ENTERPRISE
+                                 ,
+                                 std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper
+#endif
+                                 )
     : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
-              db_embedding_memory_tracker, std::move(database_protector_factory)),
+              db_embedding_memory_tracker, std::move(database_protector_factory)
+#ifdef MG_ENTERPRISE
+                                               ,
+              std::move(shared_name_id_mapper)
+#endif
+                  ),
       db_arena_(db_arena),
+#ifdef MG_ENTERPRISE
+      db_embedding_memory_tracker_(db_embedding_memory_tracker),
+#endif
       vertices_{},
       edges_{},
       edges_metadata_index_{(config.salient.items.properties_on_edges && config.salient.items.enable_edges_metadata)
@@ -385,6 +398,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
+#ifdef MG_ENTERPRISE
+    durability::RecoveryTail recovery_tail;
+#endif
     auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
@@ -405,7 +421,13 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             [this](Gid edge_gid) { return FindEdge(edge_gid); },
             name(),
             &ttl_,
+#ifdef MG_ENTERPRISE
+            &description_store_,
+            config_.durability.recovery_history_bound,
+            config_.durability.recovery_history_bound ? &recovery_tail : nullptr);
+#else
             &description_store_);
+#endif
       } catch (...) {
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and broken. RecoverData only reads durability files, so the
@@ -437,6 +459,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
+#ifdef MG_ENTERPRISE
+      if (config_.durability.recovery_history_bound) recovery_tail_ = std::move(recovery_tail);
+#endif
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       SetTimestampQuiescent(std::max(timestamp_, info->next_timestamp));
@@ -460,8 +485,14 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       }
     }
 
+#ifdef MG_ENTERPRISE
+  } else if (!config_.durability.keep_existing_files &&
+             (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+              config_.durability.snapshot_on_exit)) {
+#else
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
+#endif
     bool files_moved = false;
     auto backup_root = config_.durability.storage_directory / durability::kBackupDirectory;
     for (const auto &[path, dirname, what] :
@@ -612,6 +643,13 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
                                                     utils::ResourceLockGuard guard)
     : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
+#ifdef MG_ENTERPRISE
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+                                                    std::function<Transaction()> build_transaction,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
+#endif
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -657,12 +695,17 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
+#ifdef MG_ENTERPRISE
+  // The counter bump is an atomic fetch_max, so concurrent callers with distinct gids are safe: the replication
+  // delta applier (single-threaded on a replica) and branch-native creates (gid allocated from main's counter).
+#else
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
   // because this function is only called from the replication delta applier
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
+#endif
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   atomic_fetch_max_explicit(&mem_storage->vertex_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
   auto acc = mem_storage->vertices_.access();
@@ -959,12 +1002,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+#ifdef MG_ENTERPRISE
+  // The counter bump is an atomic fetch_max, so concurrent callers with distinct gids are safe: the replication
+  // delta applier (single-threaded on a replica) and branch-native creates (gid allocated from main's counter).
+#else
   // NOTE: When we update the next `edge_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
   // because this function is only called from the replication delta applier
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
+#endif
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
   auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
@@ -1026,7 +1074,17 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // is what excludes a reader that began in this commit's mint-to-publish window.
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
+#ifdef MG_ENTERPRISE
+  // A reader at fork pin P undoes deltas with commit_ts >= P, so the oldest pin must be strictly > commit_ts;
+  // P == C is reachable because RegisterForkPin does not increment timestamp_.
+  bool const no_fork_pin_needs_these_deltas = [&] {
+    auto guard = std::lock_guard{mem_storage->version_fork_pin_lock_};
+    return mem_storage->version_fork_pins_.empty() || *mem_storage->version_fork_pins_.begin() > *commit_timestamp_;
+  }();
+  if (no_older_transactions && no_newer_transactions && no_fork_pin_needs_these_deltas) [[unlikely]] {
+#else
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+#endif
     // STEP 0) Can only do fast discard if GC is not running
     //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
     //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
@@ -1071,7 +1129,17 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
+#ifdef MG_ENTERPRISE
+    if (!transaction_.is_historical_) {
+      mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    } else {
+      mem_storage->ReleaseForkPin(transaction_.start_timestamp);
+      // Terminal here: ReleaseForkPin is not idempotent and the destructor would otherwise Abort() and release again.
+      is_transaction_active_ = false;
+    }
+#else
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
     return {};
   }
 
@@ -1389,7 +1457,13 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
   // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
   // requires that nothing at or above that boundary is unlinked while it waits.
+#ifdef MG_ENTERPRISE
+  if (!transaction_.is_historical_) {
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  }
+#else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
 
   if (config_.enable_schema_info) {
     mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
@@ -1887,7 +1961,16 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
 
   transaction_.abort_callbacks_.RunAll();
 
+#ifdef MG_ENTERPRISE
+  if (!transaction_.is_historical_) {
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  } else {
+    // Releases the self-pin; the empty-delta commit path clears is_transaction_active_, so this runs once.
+    mem_storage->ReleaseForkPin(transaction_.start_timestamp);
+  }
+#else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
   is_transaction_active_ = false;
 }
 
@@ -3054,7 +3137,107 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   return transaction;
 }
 
+#ifdef MG_ENTERPRISE
+uint64_t InMemoryStorage::RegisterForkPin() {
+  // Capture and pin under engine_lock_: GC reads OldestActive() without it and must not pass fork_ts in between.
+  auto engine_guard = std::lock_guard{engine_lock_};
+  const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
+  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  version_fork_pins_.insert(fork_ts);
+  return fork_ts;
+}
+
+uint64_t InMemoryStorage::RegisterBranchForkPin() {
+  auto const floor_guard = std::lock_guard{retention_floor_mutex_};
+  auto const fork_ts = RegisterForkPin();
+  LowerRetentionFloorLocked(fork_ts == 0 ? 0 : fork_ts - 1);
+  return fork_ts;
+}
+
+void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
+  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  auto it = version_fork_pins_.find(fork_ts);
+  MG_ASSERT(it != version_fork_pins_.end(), "ReleaseForkPin called for an unregistered fork_ts");
+  version_fork_pins_.erase(it);
+}
+
+std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
+  auto guard = std::lock_guard{version_fork_pin_lock_};
+  if (version_fork_pins_.empty()) return std::nullopt;
+  return *version_fork_pins_.begin();
+}
+
+Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
+  // start_timestamp is the supplied past fork_ts; timestamp_ is never advanced.
+  uint64_t transaction_id = 0;
+  uint64_t last_durable_ts = 0;
+  uint64_t last_durable_num_committed_txns = 0;
+  std::optional<PointIndexContext> point_index_context;
+  ActiveIndicesPtr active_indices;
+  ActiveConstraintsPtr active_constraints;
+  {
+    auto guard = std::lock_guard{engine_lock_};
+    transaction_id = transaction_id_++;
+    // Current (not fork-era) index snapshot: scans re-check MVCC visibility at fork_ts, so results stay correct.
+    point_index_context = indices_.point_index_.CreatePointIndexContext();
+    auto commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+    last_durable_ts = commit_ts_info.ldt_;
+    last_durable_num_committed_txns = commit_ts_info.num_committed_txns_;
+    active_indices = GetActiveIndices();
+    active_constraints = GetActiveConstraints();
+  }
+
+  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, fork_ts};
+
+  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
+  // Always SNAPSHOT_ISOLATION, ignoring the configured level, so the read sees exactly the fork_ts snapshot.
+  Transaction transaction{transaction_id,
+                          fork_ts,
+                          IsolationLevel::SNAPSHOT_ISOLATION,
+                          storage_mode_,
+                          false,
+                          *std::move(point_index_context),
+                          std::move(active_indices),
+                          std::move(active_constraints),
+                          std::move(async_index_helper),
+                          last_durable_ts,
+                          last_durable_num_committed_txns,
+                          metric_handles_.unreleased_delta_objects};
+  transaction.is_historical_ = true;
+  return transaction;
+}
+
+std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
+InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
+  {
+    // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
+    auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+    if (!version_fork_pins_.contains(fork_ts)) {
+      return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
+    }
+    // Self-pin lives as long as this accessor; released in Abort / the empty-delta commit path.
+    version_fork_pins_.insert(fork_ts);
+  }
+  // Undo the self-pin if no accessor is returned: no Abort() will run to release it.
+  bool self_pin_transferred = false;
+  utils::OnScopeExit release_self_pin_on_failure{[&] {
+    if (!self_pin_transferred) ReleaseForkPin(fork_ts);
+  }};
+  auto accessor = std::unique_ptr<Storage::Accessor>(
+      new InMemoryAccessor{Storage::Accessor::historical_access,
+                           this,
+                           [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
+                           std::nullopt});
+  self_pin_transferred = true;
+  return accessor;
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode, const std::function<void()> &under_unique_access) {
+#else
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+#endif
   // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
   // main_lock_, so draining under UNIQUE would deadlock.
   if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL && storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -3064,6 +3247,9 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   }
 
   auto unique_accessor = UniqueAccess();
+#ifdef MG_ENTERPRISE
+  if (under_unique_access) under_unique_access();
+#endif
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
@@ -3292,6 +3478,16 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
       oldest_active_start_timestamp = std::min(min_queued_bound, oldest_active_start_timestamp);
     }
   }
+
+#ifdef MG_ENTERPRISE
+  // Clamp the GC horizon (and so visibility_horizon below) to the oldest live fork pin.
+  {
+    auto guard = std::lock_guard{version_fork_pin_lock_};
+    if (!version_fork_pins_.empty()) {
+      oldest_active_start_timestamp = std::min(oldest_active_start_timestamp, *version_fork_pins_.begin());
+    }
+  }
+#endif
 
   // Horizon for the unlink gate, chain trim and index/constraint sweeps. A txn that began inside the front
   // commit window reads at that commit's ts, so the horizon must not pass it. OFF: identical to master.
@@ -3906,6 +4102,11 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
+#ifdef MG_ENTERPRISE
+  // The transaction being committed is already in an existing WAL file; the caller then only finalizes the commit.
+  if (suppress_wal_.load(std::memory_order_acquire)) return false;
+#endif
+
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
       storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;
@@ -3923,6 +4124,21 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
 
   return true;
 }
+
+#ifdef MG_ENTERPRISE
+void InMemoryStorage::AppendWalOnlyTransaction(uint64_t commit_ts,
+                                               std::function<void(durability::WalFile &, uint64_t)> const &writer) {
+  if (InitializeWalFile(repl_storage_state_.epoch_.id())) {
+    wal_file_->AppendTransactionStart(commit_ts, true, StorageAccessType::WRITE);
+    writer(*wal_file_, commit_ts);
+    wal_file_->AppendTransactionEnd(commit_ts);
+    FinalizeWalFile();
+  }
+  atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, [commit_ts](CommitTsInfo const &old_info) {
+    return CommitTsInfo{.ldt_ = commit_ts, .num_committed_txns_ = old_info.num_committed_txns_ + 1};
+  });
+}
+#endif
 
 void InMemoryStorage::FinalizeWalFile() {
   ++wal_unsynced_transactions_;
@@ -4588,6 +4804,11 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       commit_args.apply_cb_if_replica_write();
     }
+#ifdef MG_ENTERPRISE
+    if (transaction_.extra_wal_writer_) {
+      transaction_.extra_wal_writer_(*mem_storage->wal_file_, durability_commit_timestamp);
+    }
+#endif
     // Add a delta that indicates that the transaction is fully written to the WAL
     auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
     positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
@@ -5043,6 +5264,27 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
+#ifdef MG_ENTERPRISE
+void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
+  auto guard = std::lock_guard{engine_lock_};
+  auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  auto const target = std::max(ldt + 1, min_next);
+  if (timestamp_ >= target) return;
+  // Ids in [timestamp_, target) were never handed out, so no transaction can hold them: mark them finished or the
+  // oldest-active id would stall at the gap and block GC.
+  auto const first_skipped = timestamp_;
+  timestamp_ = target;
+  commit_log_->MarkFinishedInRange(first_skipped, target - 1);
+}
+
+void InMemoryStorage::SetNextWalSeqNum(uint64_t seq_num) {
+  auto guard = std::lock_guard{engine_lock_};
+  wal_seq_num_ = seq_num;
+}
+
+uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }
+#endif
+
 void InMemoryStorage::PrepareForNewEpoch() {
   // Committer lock order: keeps this WAL reset from racing a committer's WAL append.
   auto commit_serializer = LockCommitMutexIfNarrowing();
@@ -5302,6 +5544,17 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   }
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
+
+#ifdef MG_ENTERPRISE
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdgeFrom(Gid edge_gid, Vertex *from_vertex,
+                                                                            View view) {
+  if (!config_.properties_on_edges) return std::nullopt;
+  const auto maybe_edge_info = ScanOutEdgesForGid(from_vertex, edge_gid);
+  if (!maybe_edge_info) return std::nullopt;
+  const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
+  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+}
+#endif
 
 Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {
   if (edges.empty()) return size_t{0};

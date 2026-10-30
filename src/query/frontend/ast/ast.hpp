@@ -2132,6 +2132,8 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
+  /// USING BRANCH target; an Expression (like hops_limit_) because the AST is cached across executions.
+  memgraph::query::Expression *branch_target_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2143,6 +2145,7 @@ struct PreQueryDirectives {
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
     object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
+    object.branch_target_ = branch_target_ ? branch_target_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -4283,6 +4286,36 @@ class MultiDatabaseQuery : public memgraph::query::Query {
     object->db_name_ = db_name_;
     object->force_ = force_;
     object->new_db_name_ = new_db_name_;
+    return object;
+  }
+};
+
+class VersioningQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
+  enum class Action : uint8_t { CREATE_BRANCH, DROP_BRANCH, USE_BRANCH, SHOW_BRANCH, SHOW_BRANCHES };
+
+  // name_ stays an Expression* (PrimitiveLiteral or ParameterLookup): the AST is cached across executions with
+  // different stripped-literal values, so never resolve it to std::string. Null for SHOW BRANCH(ES) without a name.
+  memgraph::query::Expression *name_{nullptr};
+  /// A plain identifier, never stripped into a parameter, so safe to resolve eagerly.
+  std::optional<std::string> for_database_;
+  memgraph::query::VersioningQuery::Action action_;
+  bool force_{false};
+
+  VersioningQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<VersioningQuery>();
+    object->action_ = action_;
+    object->name_ = name_ ? name_->Clone(storage) : nullptr;
+    object->for_database_ = for_database_;
+    object->force_ = force_;
     return object;
   }
 };

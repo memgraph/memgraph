@@ -392,7 +392,7 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [commit-lock-narrowing, planner-v2]",
+        "Experimental features to be used, comma-separated. Options [commit-lock-narrowing, planner-v2, versioning]",
     ),
     "experimental_config": (
         "",

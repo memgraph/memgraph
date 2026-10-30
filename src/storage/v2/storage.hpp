@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -272,10 +275,18 @@ class Storage {
   friend class VectorIndex;
 
  public:
+#ifdef MG_ENTERPRISE
+  // `shared_name_id_mapper`: non-null makes this Storage share that mapper instead of constructing its own.
+#endif
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
           metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
-          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
+          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr
+#ifdef MG_ENTERPRISE
+          ,
+          std::shared_ptr<NameIdMapper> shared_name_id_mapper = nullptr
+#endif
+  );
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -284,9 +295,20 @@ class Storage {
 
   virtual ~Storage() = default;
 
+#ifdef MG_ENTERPRISE
+  std::string name() const { return name_source_ ? name_source_->name() : config_.salient.name.str(); }
+
+  utils::SafeString::ConstSafeWrapper name_view() const {
+    return name_source_ ? name_source_->name_view() : config_.salient.name.str_view();
+  }
+
+  // Reports `parent`'s name, so a later rename of `parent` is visible here. `parent` must outlive this storage.
+  void ReportNameOf(const Storage &parent) noexcept { name_source_ = &parent; }
+#else
   std::string name() const { return config_.salient.name.str(); }
 
   auto name_view() const { return config_.salient.name.str_view(); }
+#endif
 
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
@@ -298,6 +320,30 @@ class Storage {
   bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
+
+#ifdef MG_ENTERPRISE
+  // The durable timestamp that must stay recoverable: snapshot/WAL retention keeps the newest snapshot at or below it
+  // and the WAL files that replay from there. Branches set it to the oldest fork point minus one.
+  // The retention pass holds `retention_floor_mutex_` while it reads the floor and deletes files, so a floor that is
+  // lowered under the same mutex cannot lose its base to a pass that read the old value.
+  [[nodiscard]] std::optional<uint64_t> RetentionFloor() const {
+    auto const guard = std::lock_guard{retention_floor_mutex_};
+    return retention_floor_;
+  }
+
+  void SetRetentionFloor(std::optional<uint64_t> floor) {
+    auto const guard = std::lock_guard{retention_floor_mutex_};
+    retention_floor_ = floor;
+  }
+
+  /// Lowers the floor to `floor` if it is not lower already. Caller must hold `retention_floor_mutex_`.
+  void LowerRetentionFloorLocked(uint64_t floor) {
+    retention_floor_ = retention_floor_ ? std::min(*retention_floor_, floor) : floor;
+  }
+
+  mutable std::mutex retention_floor_mutex_;
+  std::optional<uint64_t> retention_floor_;  // guarded by retention_floor_mutex_
+#endif
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
@@ -329,6 +375,13 @@ class Storage {
   EdgeTypeId NameToEdgeType(const std::string_view name) const {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
+
+#ifdef MG_ENTERPRISE
+  // Lets the branch diff engine (BranchCore::Build) share main's mapper, so label/property ids of historical
+  // vertices decode through one id space with no by-name translation at copy-on-write time.
+  // Concurrent NameToId/IdToName from main and the diff engine is already supported (SkipList + atomic counter_).
+  std::shared_ptr<NameIdMapper> GetSharedNameIdMapper() const { return name_id_mapper_; }
+#endif
 
   StorageMode GetStorageMode() const noexcept;
 
@@ -437,8 +490,16 @@ class Storage {
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> broken_{false};
 
+#ifdef MG_ENTERPRISE
+  // shared_ptr so a branch diff engine can share this instance; see GetSharedNameIdMapper().
+  std::shared_ptr<NameIdMapper> name_id_mapper_;
+#else
   std::unique_ptr<NameIdMapper> name_id_mapper_;
+#endif
   Config config_;
+#ifdef MG_ENTERPRISE
+  const Storage *name_source_{nullptr};
+#endif
 
   // Transaction engine
   mutable utils::SpinLock engine_lock_;
@@ -555,6 +616,17 @@ class Accessor {
   /// them before acquiring could build a transaction against a mode that has since changed.
   Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
 
+#ifdef MG_ENTERPRISE
+  // Tag for opening a read-only accessor on an explicit historical Transaction (see InMemoryStorage::HistoricalAccess).
+  static constexpr struct HistoricalAccess {
+  } historical_access;
+
+  // Takes a SHARED (READ-type) guard, not READ_ONLY, so branch/historical reads coexist with main writers and GC
+  // while still excluding UNIQUE ops (DDL, Clear, RecoverSnapshot, SetStorageMode).
+  // `build_transaction` runs after `guard_` is held (member order), so its snapshot cannot race those UNIQUE ops.
+  Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
+           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+#endif
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;

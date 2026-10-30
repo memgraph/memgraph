@@ -109,15 +109,92 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
   }
 }
 
+namespace {
+template <typename VertexT>
+storage::Result<communication::bolt::Vertex> ToBoltVertexImpl(const VertexT &vertex, const storage::Storage &db,
+                                                              storage::View view,
+                                                              query::FineGrainedAuthChecker const *auth_checker) {
+  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
+  auto maybe_labels = vertex.Labels(view);
+  if (!maybe_labels) return std::unexpected{maybe_labels.error()};
+  std::vector<std::string> labels;
+  labels.reserve(maybe_labels->size());
+  for (const auto &label : *maybe_labels) {
+    labels.push_back(db.LabelToName(label));
+  }
+  auto maybe_properties = vertex.Properties(view);
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
+                                     ? vertex.VectorIndexedProperties(*maybe_labels)
+                                     : std::vector<storage::PropertyId>{};
+  bolt_map_t properties;
+  for (const auto &prop : *maybe_properties) {
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            *maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    if (std::ranges::contains(hidden_properties, prop.first)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+  }
+  // Introduced in Bolt v5 (for now just send the ID)
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
+}
+
+template <typename EdgeT>
+storage::Result<communication::bolt::Edge> ToBoltEdgeImpl(const EdgeT &edge, storage::Gid from_gid, storage::Gid to_gid,
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker) {
+  auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(from_gid.AsUint());
+  auto to = communication::bolt::Id::FromUint(to_gid.AsUint());
+  auto type = db.EdgeTypeToName(edge.EdgeType());
+  auto maybe_properties = edge.Properties(view);
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
+                                     ? edge.VectorIndexedProperties()
+                                     : std::vector<storage::PropertyId>{};
+  bolt_map_t properties;
+  for (const auto &prop : *maybe_properties) {
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    if (std::ranges::contains(hidden_properties, prop.first)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+  }
+  const auto element_id = std::to_string(id.AsInt());
+  const auto from_element_id = std::to_string(from.AsInt());
+  const auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{
+      id, from, to, std::move(type), std::move(properties), element_id, from_element_id, to_element_id};
+}
+}  // namespace
+
+// On a branch, `impl_` may still point at MAIN storage; delegating would drop the branch overlay,
+// so rebuild through the branch-aware Labels()/Properties().
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker) {
+#ifdef MG_ENTERPRISE
+  if (vertex.branch_ctx_ != nullptr) return ToBoltVertexImpl(vertex, db, view, auth_checker);
+#endif
   return ToBoltVertex(vertex.impl_, db, view, auth_checker);
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker) {
+#ifdef MG_ENTERPRISE
+  if (edge.branch_ctx_ != nullptr) {
+    return ToBoltEdgeImpl(edge, edge.From().Gid(), edge.To().Gid(), db, view, auth_checker);
+  }
+#endif
   return ToBoltEdge(edge.impl_, db, view, auth_checker);
 }
 
@@ -277,65 +354,13 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker) {
-  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
-  auto maybe_labels = vertex.Labels(view);
-  if (!maybe_labels) return std::unexpected{maybe_labels.error()};
-  std::vector<std::string> labels;
-  labels.reserve(maybe_labels->size());
-  for (const auto &label : *maybe_labels) {
-    labels.push_back(db.LabelToName(label));
-  }
-  auto maybe_properties = vertex.Properties(view);
-  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
-  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
-                                     ? vertex.VectorIndexedProperties(*maybe_labels)
-                                     : std::vector<storage::PropertyId>{};
-  bolt_map_t properties;
-  for (const auto &prop : *maybe_properties) {
-    if (auth_checker && !auth_checker->HasPropertyPermission(
-                            *maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
-      continue;
-    }
-    if (std::ranges::contains(hidden_properties, prop.first)) {
-      continue;
-    }
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
-  }
-  // Introduced in Bolt v5 (for now just send the ID)
-  auto element_id = std::to_string(id.AsInt());
-  return communication::bolt::Vertex{
-      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
+  return ToBoltVertexImpl(vertex, db, view, auth_checker);
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker) {
-  auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
-  auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
-  auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
-  auto type = db.EdgeTypeToName(edge.EdgeType());
-  auto maybe_properties = edge.Properties(view);
-  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
-  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
-                                     ? edge.VectorIndexedProperties()
-                                     : std::vector<storage::PropertyId>{};
-  bolt_map_t properties;
-  for (const auto &prop : *maybe_properties) {
-    if (auth_checker && !auth_checker->HasPropertyPermission(
-                            edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
-      continue;
-    }
-    if (std::ranges::contains(hidden_properties, prop.first)) {
-      continue;
-    }
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
-  }
-  // Introduced in Bolt v5 (for now just send the ID)
-  const auto element_id = std::to_string(id.AsInt());
-  const auto from_element_id = std::to_string(from.AsInt());
-  const auto to_element_id = std::to_string(to.AsInt());
-  return communication::bolt::Edge{
-      id, from, to, std::move(type), std::move(properties), element_id, from_element_id, to_element_id};
+  return ToBoltEdgeImpl(edge, edge.FromVertex().Gid(), edge.ToVertex().Gid(), db, view, auth_checker);
 }
 
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,

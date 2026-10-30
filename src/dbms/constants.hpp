@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,22 @@
 
 #pragma once
 
+#include <string>
+#include <string_view>
+
+#include <fmt/format.h>
+
 namespace memgraph::dbms {
 
 constexpr std::string_view kDefaultDB = "memgraph";        //!< Name of the default database
 constexpr std::string_view kSystemDB = kDefaultDB;         //!< Name of the system database (same as default)
 constexpr std::string_view kMultiTenantDir = "databases";  //!< Name of the multi-tenant directory
+
+// '@' is reserved for branch addressing (database@branch).
+inline bool IsReservedDatabaseName(std::string_view name) { return name.contains('@'); }
+
+inline std::string ReservedDatabaseNameError(std::string_view name) {
+  return fmt::format("Database name '{}' is invalid: '@' is reserved for branch addressing (database@branch).", name);
+}
 
 }  // namespace memgraph::dbms

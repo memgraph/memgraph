@@ -50,13 +50,15 @@ constexpr uint64_t kCrcProtection{36};
 // transaction summary the WAL header gained, back-patched when the file is finalized.
 constexpr uint64_t kVertexPropertyIndex{37};
 constexpr uint64_t kWalHeader{37};
+// Branch overlay records (DELTA_OVERLAY_PUT) appear only in a versioning branch's diff-engine WAL, never in main's.
+constexpr uint64_t kBranchOverlay{38};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
 // #### CURRENT VERSION vvv
-constexpr uint64_t kVersion{kWalHeader};
+constexpr uint64_t kVersion{kBranchOverlay};
 // #### CURRENT VERSION ^^^
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
