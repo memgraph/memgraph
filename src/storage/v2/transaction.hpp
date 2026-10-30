@@ -27,6 +27,9 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
+#ifdef MG_ENTERPRISE
+#include "utils/logging.hpp"
+#endif
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
@@ -194,6 +197,10 @@ struct Transaction {
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
+#ifdef MG_ENTERPRISE
+    // Chokepoint for every MVCC delta creation (mvcc.hpp); metadata deltas (md_deltas) bypass it.
+    DMG_ASSERT(!is_historical_, "Attempted a write through a historical (read-only) accessor");
+#endif
     if (commit_info != nullptr) return;
     commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
@@ -282,6 +289,12 @@ struct Transaction {
   bool commit_lock_narrowing{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
+#ifdef MG_ENTERPRISE
+  // Read-only accessor at a past, pinned fork_ts (InMemoryStorage::HistoricalAccess). That tick is later
+  // dispensed to a real transaction, so finalization must not MarkFinished it; the accessor's self-pin
+  // is released instead (ReleaseForkPin, once, in Abort or the empty-delta commit path).
+  bool is_historical_{false};
+#endif
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
