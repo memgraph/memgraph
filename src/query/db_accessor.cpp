@@ -16,6 +16,8 @@
 #include <iterator>
 #include <span>
 #include <unordered_set>
+
+#include "storage/v2/exceptions.hpp"
 #endif
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -205,6 +207,12 @@ auto KeptInBranch(Graph const *graph) {
                                .expanded_count = result.expanded_count};
   };
 }
+
+// Text and vector indexes are not branch-aware (not in v1), so a search on a branch errors instead of answering without
+// the fork's state and the branch's changes.
+constexpr auto kTextSearchOnBranch = "Text search is not supported on a branch in v1. Run it on main: USE BRANCH main.";
+constexpr auto kVectorSearchOnBranch =
+    "Vector search is not supported on a branch in v1. Run it on main: USE BRANCH main.";
 #endif
 
 }  // namespace
@@ -1185,22 +1193,34 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
                                                                    const storage::TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->TextIndexSearch(index_name, search_query, search_mode, config);
 }
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                            const std::string &aggregation_query) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                                const std::string &aggregation_query) {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
     const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
     const storage::TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
 }
 
@@ -1210,11 +1230,17 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::VectorSearchException(kVectorSearchOnBranch);
+#endif
   return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
 }
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::VectorSearchException(kVectorSearchOnBranch);
+#endif
   return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
 }
 
