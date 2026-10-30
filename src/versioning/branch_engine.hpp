@@ -285,7 +285,9 @@ class BranchContext {
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
-  explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
+  // `name` is the branch this context was attached through (empty for test-built contexts); nested sessions use it.
+  explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {})
+      : core_(std::move(core)), name_(std::move(name)) {}
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
@@ -295,6 +297,8 @@ class BranchContext {
   ~BranchContext() { EndTransaction(); }
 
   const std::shared_ptr<BranchCore> &core() const { return core_; }
+
+  const std::string &name() const { return name_; }
 
   storage::InMemoryStorage &diff_engine() { return core_->diff_engine(); }
 
@@ -587,6 +591,7 @@ class BranchContext {
   void MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge);
 
   std::shared_ptr<BranchCore> core_;
+  std::string name_;
   // current_diff_txn_ is not owned: it points at the session's diff-engine accessor for one transaction.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
   std::unique_ptr<storage::Storage::Accessor> historical_;
