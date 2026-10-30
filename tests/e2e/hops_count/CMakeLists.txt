@@ -3,5 +3,6 @@ function(copy_hops_count_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_hops_count_e2e_python_files(hops_count.py)
+copy_hops_count_e2e_python_files(hops_limit_concurrent.py)
 
 copy_e2e_files(hops_count workloads.yaml)
