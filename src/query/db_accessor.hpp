@@ -484,6 +484,11 @@ class DbAccessor final {
     }
     return static_cast<int64_t>(count(historical)) + static_cast<int64_t>(count(*accessor_));
   }
+
+  // Native objects are deleted by the diff engine, fork ones by BranchContext delete markers; a deleted fork vertex's
+  // native edges are deleted for real.
+  storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
+      std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach);
 #endif
 
  public:
@@ -686,7 +691,14 @@ class DbAccessor final {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, range, view, num_chunks)};
   }
 
-  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+  VertexAccessor InsertVertex() {
+#ifdef MG_ENTERPRISE
+    // On a branch the gid comes from main's counter, so it never collides with a fork or later main gid.
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return VertexAccessor(branch_ctx_->CreateNativeVertex(), branch_ctx_);
+#endif
+    return VertexAccessor(accessor_->CreateVertex());
+  }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
@@ -713,6 +725,14 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      auto res = BranchDetachDelete({*vertex_accessor}, {}, true);
+      if (!res) return std::unexpected{res.error()};
+      if (!*res || (*res)->first.empty()) return std::optional<ReturnType>{};
+      return std::make_optional<ReturnType>((*res)->first.front(), std::move((*res)->second));
+    }
+#endif
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -734,6 +754,14 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      auto res = BranchDetachDelete({*vertex_accessor}, {}, false);
+      if (!res) return std::unexpected{res.error()};
+      if (!*res || (*res)->first.empty()) return std::optional<VertexAccessor>{};
+      return std::make_optional<VertexAccessor>((*res)->first.front());
+    }
+#endif
     auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -751,6 +779,10 @@ class DbAccessor final {
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchDetachDelete(std::move(nodes), std::move(edges), detach);
+#endif
     std::vector<storage::VertexAccessor *> nodes_impl;
     std::vector<storage::EdgeAccessor *> edges_impl;
 
