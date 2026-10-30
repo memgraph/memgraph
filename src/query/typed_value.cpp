@@ -1629,7 +1629,7 @@ TypedValue operator+(const TypedValue &a) {
  *  @param op_name Name of the operation, used only for exception description,
  *  if raised.
  */
-inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, bool string_ok, const char *op_name) {
+static void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, bool string_ok, const char *op_name) {
   auto is_legal = [string_ok](const TypedValue &value) {
     return value.IsNumeric() || (string_ok && value.type() == TypedValue::Type::String);
   };
