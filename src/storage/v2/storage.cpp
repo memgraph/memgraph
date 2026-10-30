@@ -141,6 +141,17 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
              "an accessor's guard must be a held guard on its own storage's main_lock_");
 }
 
+#ifdef MG_ENTERPRISE
+Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
+                            std::function<Transaction()> build_transaction,
+                            const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      guard_(AcquireGuardOrThrow(storage, StorageAccessType::READ, timeout)),
+      transaction_(build_transaction()),
+      is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ) {}
+#endif
+
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       guard_(std::move(other.guard_)),
