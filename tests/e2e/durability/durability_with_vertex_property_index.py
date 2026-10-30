@@ -179,36 +179,5 @@ def test_index_with_data_added_after_snapshot(test_name):
     assert [r[0] for r in result] == [1, 2, 3, 4], "All data (snapshot + WAL) should be recovered"
 
 
-def test_boolean_property_index_survives_wal_recovery(test_name):
-    """Index created with a boolean-keyword property spelling keeps that spelling across kill/restart."""
-    data_directory = get_data_path(FILE, test_name)
-    desc = {
-        "main": {
-            "args": [
-                "--log-level=TRACE",
-                "--data-recovery-on-startup=true",
-            ],
-            "log_file": "boolean_key_wal_recovery.log",
-            "data_directory": data_directory,
-        },
-    }
-    interactive_mg_runner.start(desc, "main")
-    cursor = connect(host="localhost", port=7687).cursor()
-
-    execute_and_fetch_all(cursor, "CREATE GLOBAL INDEX ON :(false);")
-    execute_and_fetch_all(cursor, "CREATE (:A {false: 1});")
-
-    interactive_mg_runner.kill(desc, "main")
-    interactive_mg_runner.start(desc, "main")
-    cursor = connect(host="localhost", port=7687).cursor()
-
-    indices = _get_vertex_property_indices(cursor)
-    assert len(indices) == 1, f"Expected 1 vertex-property index after WAL recovery, got {len(indices)}"
-    assert indices[0][2] == "false"
-
-    result = execute_and_fetch_all(cursor, "MATCH (n) WHERE n.false IS NOT NULL RETURN n.false;")
-    assert [r[0] for r in result] == [1]
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

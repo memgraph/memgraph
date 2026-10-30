@@ -307,6 +307,12 @@ TEST(QueryStripper, FalseLiteral) {
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN fAlse");
 }
 
+TEST(QueryStripper, BooleanKeywordAsMapKey) {
+  StrippedQuery stripped("RETURN {fAlse: 1}");
+  EXPECT_EQ(stripped.literals().size(), 2);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN { fAlse : " + kStrippedIntToken + " }");
+}
+
 TEST(QueryStripper, NullLiteral) {
   StrippedQuery stripped("RETURN NuLl");
   EXPECT_EQ(stripped.literals().size(), 0);
