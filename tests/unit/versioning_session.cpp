@@ -281,6 +281,12 @@ TEST_F(VersioningGatedTest, BranchQueryPlanCacheServesCorrectResultsAcrossRepeat
   }
   EXPECT_EQ(current_db.branch_plan_cache()->ReadLock()->size(), 1U) << "the branch plan is cached per checkout";
   EXPECT_EQ(db->plan_cache()->ReadLock()->size(), main_cached) << "branch plans must not land in main's cache";
+
+  for (auto const id : {1, 1, 2}) {
+    auto stream = faker.Interpret("MATCH (n:User {id: " + std::to_string(id) + "}) RETURN n.tag");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "fork-state row " << id << " must be visible on the branch";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
+  }
 }
 
 // Branches work when main narrows the commit lock: the branch's private diff engine never does, and a branch

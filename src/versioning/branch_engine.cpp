@@ -385,6 +385,25 @@ std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edg
   return edge;
 }
 
+std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edge_gid, storage::View view) {
+  if (!IsForkCandidateEdge(edge_gid)) return FindDiffEdge(edge_gid, view);
+  auto edge = historical().FindEdge(edge_gid, storage::View::OLD);
+  if (!edge || IsForkEdgeHidden(*edge, view)) return std::nullopt;
+  return edge;
+}
+
+int64_t BranchContext::ApproximateVertexCount() {
+  auto const deleted = core_->ForkDeletes().vertices;
+  auto const total = historical().ApproximateVertexCount() + current_diff_txn()->ApproximateVertexCount();
+  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
+}
+
+int64_t BranchContext::ApproximateEdgeCount() {
+  auto const deleted = core_->ForkDeletes().edges;
+  auto const total = historical().ApproximateEdgeCount() + current_diff_txn()->ApproximateEdgeCount();
+  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
+}
+
 std::optional<storage::EdgeAccessor> BranchContext::FindEdgeInAnchors(storage::Gid edge_gid, storage::View view) {
   // The engine's scan covers vertices_ only; an edge whose FROM vertex is a stub is found through the stubs.
   std::optional<storage::EdgeAccessor> found;
