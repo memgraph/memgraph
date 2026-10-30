@@ -575,6 +575,63 @@ Feature: Functions
             | a         | b         | c  | d   |
             | [1, 2, 3] | [1, 3, 5] | [] | [1] |
 
+    Scenario Outline: Range stays correct at the int64 boundaries:
+        When executing query:
+            """
+            RETURN range(<args>) AS r
+            """
+        Then the result should be:
+            | r        |
+            | <result> |
+
+        Examples:
+            | args                                                       | result                                                           |
+            | 9223372036854775806, 9223372036854775807                   | [9223372036854775806, 9223372036854775807]                       |
+            | 9223372036854775805, 9223372036854775807                   | [9223372036854775805, 9223372036854775806, 9223372036854775807]  |
+            | -9223372036854775806, (-9223372036854775807 - 1), -1             | [-9223372036854775806, -9223372036854775807, -9223372036854775808] |
+            | (-9223372036854775807 - 1), 9223372036854775807, 9223372036854775807 | [-9223372036854775808, -1, 9223372036854775806]              |
+            | 9223372036854775807, (-9223372036854775807 - 1), (-9223372036854775807 - 1) | [9223372036854775807, -1]                                   |
+            | -1, 9223372036854775807, 9223372036854775807               | [-1, 9223372036854775806]                                        |
+            | 0, -1, (-9223372036854775807 - 1)                                | [0]                                                              |
+            | 0, 10, 9223372036854775807                                 | [0]                                                              |
+            | 0, 0, (-9223372036854775807 - 1)                                 | [0]                                                              |
+            | 0, 10, (-9223372036854775807 - 1)                                | []                                                               |
+
+    Scenario Outline: Range refuses a list it cannot hold:
+        When executing query:
+            """
+            RETURN range(<args>) AS r
+            """
+        Then an error should be raised
+
+        Examples:
+            | args                                     |
+            | 0, 9223372036854775807                   |
+            | (-9223372036854775807 - 1), 9223372036854775807 |
+
+    Scenario: Abs of the most negative integer overflows:
+        When executing query:
+            """
+            RETURN abs(-9223372036854775807 - 1) AS a
+            """
+        Then an error should be raised
+
+    Scenario: Abs of the integer next to the most negative one fits:
+        When executing query:
+            """
+            RETURN abs(-9223372036854775807) AS a
+            """
+        Then the result should be:
+            | a                   |
+            | 9223372036854775807 |
+
+    Scenario: Counter raises instead of wrapping past the largest integer:
+        When executing query:
+            """
+            UNWIND [1, 2] AS i RETURN counter('c', 9223372036854775807, 1) AS c
+            """
+        Then an error should be raised
+
     Scenario: Size test:
         When executing query:
             """

@@ -30,6 +30,7 @@
 #include <variant>
 
 #include "query/auth_checker.hpp"
+#include "query/checked_arith.hpp"
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -1127,20 +1128,29 @@ TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &c
   auto rbound = args[1].ValueInt();
   int64_t step = nargs == 3 ? args[2].ValueInt() : 1;
   TypedValue::TVector list(ctx.memory);
+  // Distance and |step| are computed as unsigned so neither the span nor -INT64_MIN can overflow.
+  uint64_t distance = 0;
+  uint64_t abs_step = 0;
   if (lbound <= rbound && step > 0) {
-    int64_t n = ((rbound - lbound + 1) + (step - 1)) / step;
-    list.reserve(n);
-    for (auto i = lbound; i <= rbound; i += step) {
-      list.emplace_back(i);
-    }
-    MG_ASSERT(list.size() == n);
+    distance = static_cast<uint64_t>(rbound) - static_cast<uint64_t>(lbound);
+    abs_step = static_cast<uint64_t>(step);
   } else if (lbound >= rbound && step < 0) {
-    int64_t n = ((lbound - rbound + 1) + (-step - 1)) / -step;
-    list.reserve(n);
-    for (auto i = lbound; i >= rbound; i += step) {
-      list.emplace_back(i);
-    }
-    MG_ASSERT(list.size() == n);
+    distance = static_cast<uint64_t>(lbound) - static_cast<uint64_t>(rbound);
+    abs_step = uint64_t{0} - static_cast<uint64_t>(step);
+  } else {
+    return TypedValue(std::move(list));
+  }
+  const uint64_t steps = distance / abs_step;
+  if (steps >= list.max_size()) {
+    throw QueryRuntimeException("range() would produce too many elements.");
+  }
+  const uint64_t n = steps + 1;
+  list.reserve(n);
+  // Step only while another element follows, so the last addition never passes the bound.
+  int64_t current = lbound;
+  for (uint64_t k = 0; k < n; ++k) {
+    list.emplace_back(current);
+    if (k + 1 < n) current += step;
   }
   return TypedValue(std::move(list));
 }
@@ -1191,7 +1201,7 @@ TypedValue Abs(const TypedValue *args, int64_t nargs, const FunctionContext &ctx
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsInt()) {
-    return TypedValue(std::abs(value.ValueInt()), ctx.memory);
+    return TypedValue(CheckedAbs(value.ValueInt()), ctx.memory);
   } else {
     return TypedValue(std::abs(value.ValueDouble()), ctx.memory);
   }
@@ -1348,7 +1358,9 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
 
   auto [it, inserted] = context.counters->emplace(args[0].ValueString(), args[1].ValueInt());
   auto value = it->second;
-  it->second += step;
+  if (!TryAdd(value, step, it->second)) [[unlikely]] {
+    ThrowIntegerOverflow(ArithOp::Add);
+  }
 
   return TypedValue(value, context.memory);
 }
