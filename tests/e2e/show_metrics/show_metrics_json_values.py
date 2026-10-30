@@ -277,6 +277,12 @@ EXPECTED_JSON_METRICS = {
         "DatabaseResumeLatency_us_90p",
         "DatabaseResumeLatency_us_99p",
     },
+    "Versioning": {
+        "VersioningBranchesCreated",
+        "VersioningBranchesDropped",
+        "VersioningActiveBranches",
+        "VersioningActiveSessions",
+    },
 }
 
 
