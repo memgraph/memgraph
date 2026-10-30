@@ -258,67 +258,73 @@ def type_any():
 
 class Proc:
     def add_arg(self, name: str, cypher_type: Any):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def add_opt_arg(self, name: str, cypher_type: Any, default: Any):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def add_result(self, name: str, cypher_type: Any):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def add_deprecated_result(self, name: str, cypher_type: Any):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
 
 class Func:
     def add_arg(self, name: str, cypher_type: Any):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def add_opt_arg(self, name: str, cypher_type: Any, default: Any):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
 
 class Module:
     def add_read_procedure(self, wrapper) -> Proc:  # type: ignore
+        """Stub; Memgraph provides the real implementation at runtime."""
         return Proc()
 
     def add_write_procedure(self, wrapper) -> Proc:  # type: ignore
+        """Stub; Memgraph provides the real implementation at runtime."""
         return Proc()
 
     def add_batch_read_procedure(self, wrapper, initializer, cleanup) -> Proc:  # type: ignore
+        """Stub; Memgraph provides the real implementation at runtime."""
         return Proc()
 
     def add_batch_write_procedure(self, wrapper, initializer, cleanup) -> Proc:  # type: ignore
+        """Stub; Memgraph provides the real implementation at runtime."""
         return Proc()
 
     def add_function(self, wrapper) -> Func:  # type: ignore
+        """Stub; Memgraph provides the real implementation at runtime."""
         return Func()
 
 
 class Utils:
     @staticmethod
-    def is_enterprise_valid() -> bool:  # type: ignore
-        pass
+    def is_enterprise_valid() -> bool:
+        """Stub; Memgraph provides the real implementation at runtime."""
+        return False
 
 
 class Logger:
     def info(self, out: str):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def warning(self, out: str):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def critical(self, out: str):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def error(self, out: str):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def trace(self, out: str):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
     def debug(self, out: str):
-        pass
+        """No-op stub; Memgraph provides the real implementation at runtime."""
 
 
 _LOGGER = Logger()
