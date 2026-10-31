@@ -174,6 +174,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
+  void Visit(VersioningQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::BRANCH_USE); }
+
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
   void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }

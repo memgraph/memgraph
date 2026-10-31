@@ -72,6 +72,9 @@ class Branch {
   // Returns the core, building it on first use. Concurrent first callers share one build; a failed build is not cached.
   CoreResult GetOrBuildCore(const CoreBuilder &build);
 
+  // The built core's unreleased deltas; 0 while no core is built or one is being built.
+  uint64_t UnreleasedDeltas() const;
+
   // Startup only, before the branch is shared.
   void SetUnavailable(std::string reason) { unavailable_reason_ = std::move(reason); }
 
@@ -87,7 +90,7 @@ class Branch {
   std::atomic<bool> dropped_{false};
   // Checkouts held. Changed under VersionStore::mutex_ (shared); compared against zero under it exclusively.
   std::atomic<size_t> sessions_{0};
-  std::mutex build_mutex_;
+  mutable std::mutex build_mutex_;
   std::shared_ptr<BranchCore> core_;
 };
 
@@ -148,6 +151,8 @@ class VersionStore {
     std::optional<std::string> unavailable_reason;
     // Checkouts currently held.
     size_t sessions;
+    // The branch's own unreleased deltas, apart from main's; see Branch::UnreleasedDeltas.
+    uint64_t unreleased_deltas;
   };
 
   // A branch loaded from the ledger with the runtime pin the caller registered for it on the rebuilt history.

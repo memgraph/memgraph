@@ -25,6 +25,7 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/durability/retention_floor.hpp"
 #include "utils/logging.hpp"
+#include "versioning/branch_engine.hpp"
 
 namespace memgraph::versioning {
 
@@ -86,6 +87,11 @@ CoreResult Branch::GetOrBuildCore(const CoreBuilder &build) {
     core_ = std::move(*built);
   }
   return core_;
+}
+
+uint64_t Branch::UnreleasedDeltas() const {
+  const std::unique_lock guard{build_mutex_, std::try_to_lock};
+  return guard.owns_lock() && core_ ? core_->UnreleasedDeltas() : 0;
 }
 
 VersionStore::VersionStore(std::function<ForkPoint()> acquire_pin, std::function<void(uint64_t)> release_pin,
@@ -235,7 +241,8 @@ VersionStore::Listing VersionStore::DescribeLocked(const std::string &name, cons
           .info = branch.info(),
           .fork_ts = branch.fork_ts(),
           .unavailable_reason = branch.unavailable_reason(),
-          .sessions = branch.sessions_.load(std::memory_order_relaxed)};
+          .sessions = branch.sessions_.load(std::memory_order_relaxed),
+          .unreleased_deltas = branch.UnreleasedDeltas()};
 }
 
 std::optional<VersionStore::Listing> VersionStore::Get(std::string_view name) const {

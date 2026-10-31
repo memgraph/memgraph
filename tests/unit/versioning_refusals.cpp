@@ -28,6 +28,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/uuid.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/gate.hpp"
 #include "versioning_fixture.hpp"
 
 using memgraph::tests::versioning_fixture::ExplainText;
@@ -310,6 +311,9 @@ TEST_F(VersioningRefusalsTest, VersioningOffLeavesDatabaseGlobalOperationsUnrefu
   ASSERT_EQ((*acc)->version_store(), nullptr);
   InterpreterFaker off{&interpreter_context, *acc};
   EXPECT_NO_THROW(off.Interpret("CREATE ENUM Mood VALUES { Happy, Sad }"));
+  EXPECT_EQ(ThrownMessage([&] { off.Interpret("SHOW BRANCHES"); }),
+            memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
+      << "branches are not listed with versioning off";
 }
 
 // STORAGE MODE checks at Prepare and again under the switch's exclusive hold, so a branch created between refuses it.
