@@ -1294,6 +1294,21 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 nullptr),
                memgraph::utils::BasicException);
 
+  // A trigger runs on the branch it fires on; a USING BRANCH directive would be silently ignored.
+  ASSERT_THROW(store.AddTrigger("trigger",
+                                "USING BRANCH b CREATE (:X)",
+                                {},
+                                memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                &this->ast_cache,
+                                &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                memgraph::dbms::kDefaultDB,
+                                memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                nullptr),
+               memgraph::utils::BasicException);
+
   ASSERT_NO_THROW(store.AddTrigger(
       "trigger",
       "RETURN $parameter",
