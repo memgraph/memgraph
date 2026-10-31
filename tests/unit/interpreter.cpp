@@ -958,7 +958,9 @@ TYPED_TEST(InterpreterTest, BranchQueriesAreEnterpriseOnly) {
                             "SHOW BRANCH",
                             "SHOW BRANCH 'feature'",
                             "SHOW BRANCHES",
-                            "SHOW BRANCHES FOR DATABASE x"}) {
+                            "SHOW BRANCHES FOR DATABASE x",
+                            "USE BRANCH feature",
+                            "USE BRANCH main"}) {
     SCOPED_TRACE(query);
     EXPECT_THROW(this->Interpret(query), memgraph::query::EnterpriseOnlyException);
   }
