@@ -1,0 +1,15 @@
+# Branches need the versioning flag and a durable database (WAL; recovery on startup is the default).
+versioning_cluster: &versioning_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=versioning", "--storage-wal-enabled=true"]
+      log_file: "versioning-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Versioning Bolt db=database@branch test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["versioning/versioning_bolt_db_test.py"]
+    <<: *versioning_cluster

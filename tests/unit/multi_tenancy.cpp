@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/resource.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -19,6 +20,8 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/replication_handlers.hpp"
+#include "dbms/rpc.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
@@ -36,6 +39,7 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "replication/state.hpp"
+#include "slk_common.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
@@ -814,6 +818,64 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
   UseDatabase(interpreter2, "rename_error_db2", "Using rename_error_db2");
   ASSERT_NO_THROW(RenameDatabase(
       interpreter1, "rename_error_db2", "new_name2", "Successfully renamed database rename_error_db2 to new_name2"));
+}
+
+// '@' is reserved for Bolt's db="<database>@<branch>", whatever the versioning flag.
+TEST_F(MultiTenantTest, DatabaseNameWithAtIsReserved) {
+  auto interpreter = this->NewInterpreter();
+  const auto refused = [](const std::string &name) {
+    return ::testing::ThrowsMessage<memgraph::query::QueryException>(
+        "Database name '" + name + "' is invalid: '@' is reserved for <database>@<branch> addressing.");
+  };
+  EXPECT_THAT([&] { RunMtQuery(interpreter, "CREATE DATABASE `a@b`"); }, refused("a@b"));
+  RunMtQuery(interpreter, "CREATE DATABASE at_db", "Successfully created database at_db");
+  EXPECT_THAT([&] { RenameDatabase(interpreter, "at_db", "`x@y`"); }, refused("x@y"));
+  EXPECT_THROW(DBMS().Get("a@b"), memgraph::dbms::UnknownDatabaseException);
+  EXPECT_NO_THROW(DBMS().Get("at_db"));
+}
+
+// An older MAIN may still replicate an '@' name: the REPLICA refuses it instead of holding an unaddressable database.
+TEST_F(MultiTenantTest, ReplicaRefusesADatabaseNameWithAtFromMain) {
+  using memgraph::storage::replication::RenameDatabaseReq;
+  auto &dbms = DBMS();
+  EXPECT_FALSE(dbms.Update({.name = "a@b", .uuid = memgraph::utils::UUID{}}).has_value());
+  EXPECT_THROW(dbms.Get("a@b"), memgraph::dbms::UnknownDatabaseException);
+
+  ASSERT_TRUE(dbms.New("old").has_value());
+  const memgraph::utils::UUID main_uuid;
+  auto state = min_mg->system.CreateSystemStateAccess();
+  const auto rename = [&](const std::string &from, const std::string &to) {
+    const auto ts = state.LastCommitedTS();
+    memgraph::slk::Loopback request;
+    memgraph::slk::Save(RenameDatabaseReq{main_uuid, ts, ts + 1, dbms.Get(from)->uuid(), from, to},
+                        request.GetBuilder());
+    memgraph::slk::Builder response{[](const uint8_t *, size_t, bool) {}};
+    memgraph::dbms::RenameDatabaseHandler(
+        state, main_uuid, dbms, RenameDatabaseReq::kVersion, request.GetReader(), &response);
+  };
+  rename("old", "x@y");
+  EXPECT_NO_THROW(dbms.Get("old"));
+  EXPECT_THROW(dbms.Get("x@y"), memgraph::dbms::UnknownDatabaseException);
+  rename("old", "new");
+  EXPECT_NO_THROW(dbms.Get("new")) << "the same request without '@' is applied";
+}
+
+// Databases named before '@' was reserved stop the upgrade: startup names every one of them and builds no storage.
+TEST_F(MultiTenantTest, StartupFailsOnDatabaseNameWithAt) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_TRUE(DBMS().New("old_a").has_value());
+  ASSERT_TRUE(DBMS().New("old_x").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_a", "a@b").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_x", "x@y").has_value());
+  min_mg.reset();
+
+  ASSERT_DEATH(
+      {
+        rlimit no_core{};
+        setrlimit(RLIMIT_CORE, &no_core);
+        memgraph::dbms::DbmsHandler handler{config};
+      },
+      "Database name\\(s\\) 'a@b', 'x@y' contain '@'");
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {

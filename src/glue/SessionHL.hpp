@@ -51,6 +51,8 @@ class RuntimeConfig {
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
   bool db_selected_by_use_{false};
+  // Branch part of the last "db": "<database>@<branch>"; nullopt for a plain database name.
+  std::optional<std::string> pinned_branch_;
 };
 #endif
 

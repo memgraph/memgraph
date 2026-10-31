@@ -191,6 +191,16 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
+  // An older MAIN can still rename to an '@' name; such a tenant could never be addressed here.
+  if (IsReservedDatabaseName(req.new_name)) {
+    spdlog::error(
+        "Refusing to rename database '{}' to '{}' from MAIN: '@' is reserved for <database>@<branch> addressing.",
+        req.old_name,
+        req.new_name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be renamed/created/deleted at the
     // moment.

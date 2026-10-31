@@ -185,6 +185,11 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT Update(const storage::SalientConfig &config) {
+    // An older MAIN can still replicate an '@' name; such a tenant could never be addressed here.
+    if (const auto name = config.name.str(); IsReservedDatabaseName(name)) {
+      spdlog::error("Refusing database '{}' from MAIN: '@' is reserved for <database>@<branch> addressing.", name);
+      return std::unexpected{NewError::GENERIC};
+    }
     auto wr = std::lock_guard{lock_};
     auto new_db = New_(config);
     if (new_db || new_db.error() != NewError::EXISTS) {
