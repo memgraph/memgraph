@@ -88,7 +88,8 @@ enum class Permission : uint64_t {
   COORDINATOR_READ       = 1ULL << 32ULL,
   COORDINATOR_WRITE      = 1ULL << 33ULL,
   // Graph Versioning, independent of the multi-database privileges.
-  BRANCH_USE             = 1ULL << 34ULL
+  BRANCH_USE             = 1ULL << 34ULL,
+  BRANCH_EDIT            = 1ULL << 35ULL
 };
 // clang-format on
 
@@ -125,7 +126,8 @@ inline constexpr std::array kPermissionsAll = {
     Permission::SERVER_SIDE_PARAMETERS,
     Permission::SERVER_SIDE_DESCRIPTIONS,
     Permission::RELOAD_TLS,
-    Permission::BRANCH_USE
+    Permission::BRANCH_USE,
+    Permission::BRANCH_EDIT
 };
 // clang-format on
 
