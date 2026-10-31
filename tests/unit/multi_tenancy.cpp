@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/resource.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -852,6 +853,66 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
   UseDatabase(interpreter2, "rename_error_db2", "Using rename_error_db2");
   ASSERT_NO_THROW(RenameDatabase(
       interpreter1, "rename_error_db2", "new_name2", "Successfully renamed database rename_error_db2 to new_name2"));
+}
+
+// '@' is reserved for Bolt's db="<database>@<branch>" only while versioning is on.
+class MultiTenantAtNameTest : public MultiTenantTest {
+ protected:
+  void RestartWithVersioning(bool versioning) {
+    min_mg.reset();
+    config.experimental_versioning = versioning;
+    min_mg.emplace(config);
+  }
+};
+
+TEST_F(MultiTenantAtNameTest, DatabaseNameWithAtIsReservedWhenVersioningIsOn) {
+  RestartWithVersioning(true);
+  auto interpreter = this->NewInterpreter();
+  const auto refused = [](const std::string &name) {
+    return ::testing::ThrowsMessage<memgraph::query::QueryException>(
+        "Database name '" + name + "' is invalid: '@' is reserved for <database>@<branch> addressing.");
+  };
+  EXPECT_THAT([&] { RunMtQuery(interpreter, "CREATE DATABASE `a@b`"); }, refused("a@b"));
+  RunMtQuery(interpreter, "CREATE DATABASE at_db", "Successfully created database at_db");
+  EXPECT_THAT([&] { RenameDatabase(interpreter, "at_db", "`x@y`"); }, refused("x@y"));
+  EXPECT_THROW(DBMS().Get("a@b"), memgraph::dbms::UnknownDatabaseException);
+  EXPECT_NO_THROW(DBMS().Get("at_db"));
+}
+
+TEST_F(MultiTenantAtNameTest, DatabaseNameWithAtIsOrdinaryWhenVersioningIsOff) {
+  auto interpreter = this->NewInterpreter();
+  RunMtQuery(interpreter, "CREATE DATABASE `a@b`", "Successfully created database a@b");
+  EXPECT_NO_THROW(DBMS().Get("a@b"));
+  RunMtQuery(interpreter, "CREATE DATABASE at_db", "Successfully created database at_db");
+  RenameDatabase(interpreter, "at_db", "`x@y`", "Successfully renamed database at_db to x@y");
+  EXPECT_NO_THROW(DBMS().Get("x@y"));
+  EXPECT_THROW(DBMS().Get("at_db"), memgraph::dbms::UnknownDatabaseException);
+}
+
+// '@' names created with versioning off abort a start with it on, all of them named.
+TEST_F(MultiTenantAtNameTest, StartupFailsOnDatabaseNameWithAtWhenVersioningIsOn) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_TRUE(DBMS().New("old_a").has_value());
+  ASSERT_TRUE(DBMS().New("old_x").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_a", "a@b").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_x", "x@y").has_value());
+  min_mg.reset();
+  config.experimental_versioning = true;
+
+  ASSERT_DEATH(
+      {
+        rlimit no_core{};
+        setrlimit(RLIMIT_CORE, &no_core);
+        memgraph::dbms::DbmsHandler handler{config};
+      },
+      "Database name\\(s\\) 'a@b', 'x@y' contain '@'");
+}
+
+TEST_F(MultiTenantAtNameTest, StartupKeepsDatabaseNamesWithAtWhenVersioningIsOff) {
+  ASSERT_TRUE(DBMS().New("old_a").has_value());
+  ASSERT_TRUE(DBMS().Rename("old_a", "a@b").has_value());
+  RestartWithVersioning(false);
+  EXPECT_NO_THROW(DBMS().Get("a@b"));
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {

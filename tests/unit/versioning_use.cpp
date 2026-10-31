@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Graph Versioning: USE BRANCH and what a session does on a branch that is dropped under it.
+// Graph Versioning: USE BRANCH, the Bolt db="<database>@<branch>" pin, and what a session does on a branch that is
+// dropped under it.
 
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -572,4 +574,149 @@ TEST_F(VersioningGatedTest, SessionCommitsOnABranchCountForkDeletes) {
   faker.Interpret("USING PERIODIC COMMIT 1 MATCH (n:V) DETACH DELETE n");
   EXPECT_EQ(faker.interpreter.current_db_.branch_context()->core()->ForkDeletes(),
             (memgraph::versioning::ObjectCounts{3, 0}));
+}
+
+// Bolt db="<database>@<branch>": RuntimeConfig::Configure pins the session to the database (in_explicit_db) and calls
+// SelectPinnedBranch with the branch part; these drive that pair without a Bolt session.
+TEST_F(VersioningGatedTest, PinnedBranchRunsOnTheBranchAndAPlainPinIsMain) {
+  faker.Interpret("CREATE BRANCH b");
+  InterpreterFaker other{&interpreter_context, db};
+  auto &current_db = faker.interpreter.current_db_;
+  faker.interpreter.SetCurrentDB(*db_gk.access(), /*in_explicit_db=*/true);
+
+  faker.interpreter.SelectPinnedBranch("b");
+  EXPECT_EQ(current_db.CurrentVersion(), "b");
+  faker.Interpret("CREATE (:OnB)");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(other, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}})) << "the write is the branch's";
+
+  faker.interpreter.SelectPinnedBranch(std::nullopt);
+  EXPECT_FALSE(current_db.CurrentVersion().has_value());
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+
+  faker.interpreter.SelectPinnedBranch("b");
+  faker.interpreter.SelectPinnedBranch("main");
+  EXPECT_FALSE(current_db.CurrentVersion().has_value()) << "'x@main' is main";
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+}
+
+TEST_F(VersioningGatedTest, PinnedUnknownBranchFailsAndLeavesTheSessionWhereItWas) {
+  faker.Interpret("CREATE BRANCH b");
+  faker.interpreter.SetCurrentDB(*db_gk.access(), true);
+  EXPECT_EQ(ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("nope"); }), "Branch 'nope' does not exist.");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  faker.interpreter.SelectPinnedBranch("b");
+  EXPECT_EQ(ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("nope"); }), "Branch 'nope' does not exist.");
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+}
+
+TEST_F(VersioningGatedTest, PinnedUnavailableBranchFailsWithTheReasonAndLeavesTheSessionWhereItWas) {
+  faker.Interpret("CREATE BRANCH bad");
+  auto *store = db->version_store();
+  store->MarkUnavailable(store->Get("bad")->number, "the branch directory is not a directory");
+  faker.interpreter.SetCurrentDB(*db_gk.access(), true);
+
+  const auto message = ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("bad"); });
+  EXPECT_THAT(message, ::testing::HasSubstr("Branch 'bad' is unavailable: the branch directory is not a directory."));
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(store->CheckoutCount("bad"), 0U);
+}
+
+TEST_F(VersioningGatedTest, PinnedBranchPassesTheGateOfUseBranch) {
+  faker.Interpret("CREATE (:V)");
+  faker.Interpret("CREATE BRANCH b");
+  faker.interpreter.SetCurrentDB(*db_gk.access(), true);
+
+  SetVersioningFlag(false);
+  EXPECT_EQ(ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("b"); }), GateMessage(GateError::kDisabled));
+  EXPECT_NO_THROW(faker.interpreter.SelectPinnedBranch(std::nullopt)) << "no '@' part, no gate";
+  SetVersioningFlag(true);
+
+  memgraph::license::global_license_checker.DisableTesting();
+  faker.interpreter.SelectPinnedBranch("b");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{1}}));
+  EXPECT_EQ(ThrownMessage([&] { faker.Interpret("CREATE (:V)"); }), GateMessage(GateError::kNoLicense));
+  faker.interpreter.SelectPinnedBranch(std::nullopt);
+
+  ASSERT_TRUE(repl_state.Lock()->SetReplicationRoleReplica(
+      memgraph::replication::ReplicationServerConfig{.repl_server =
+                                                         memgraph::io::network::Endpoint("127.0.0.1", 30246)},
+      /*maybe_main_uuid=*/std::nullopt));
+  EXPECT_EQ(ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("b"); }),
+            "Graph Versioning branches are not supported with replication in v1: branch operations are refused on a "
+            "REPLICA. Run them on the MAIN instance.");
+}
+
+TEST_F(VersioningGatedTest, PinnedSessionRefusesUseBranchAndUseDatabaseButAllowsUsingBranch) {
+  faker.Interpret("CREATE BRANCH b");
+  faker.Interpret("USING BRANCH b CREATE (:OnB)");
+  faker.interpreter.SetCurrentDB(*db_gk.access(), true);
+  faker.interpreter.SelectPinnedBranch("b");
+
+  EXPECT_EQ(ThrownMessage([&] { faker.Interpret("USE BRANCH main"); }),
+            "Branch switching is prohibited if the session explicitly defines the database.");
+  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USE DATABASE memgraph"); }),
+              ::testing::HasSubstr("Database switching is prohibited"));
+  EXPECT_EQ(IntRows(faker, "USING BRANCH main MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b") << "USING BRANCH changes no session state";
+  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{1}}));
+}
+
+TEST_F(VersioningGatedTest, PinnedBranchDroppedFailsEveryTransactionUntilTheDbChanges) {
+  auto &sessions = *memgraph::metrics::Metrics().global.versioning_active_sessions;
+  faker.Interpret("CREATE (:K {v: 10})");
+  faker.Interpret("CREATE BRANCH b");
+  faker.interpreter.SetCurrentDB(*db_gk.access(), true);
+  const auto sessions0 = sessions.Value();
+  faker.interpreter.SelectPinnedBranch("b");
+  faker.Interpret("CREATE (:K {v: 20})");
+  ASSERT_DOUBLE_EQ(sessions.Value(), sessions0 + 1);
+  ASSERT_EQ(db->version_store()->ForceDropBranch("b"), memgraph::versioning::DropResult::kDropped);
+
+  for (const auto *query : {"MATCH (n:K) RETURN n.v", "CREATE (:K {v: 30})", "BEGIN"}) {
+    EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), "Branch 'b' no longer exists.") << query;
+  }
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker.interpreter.SelectPinnedBranch(std::nullopt);
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v"), (Rows{{10}}));
+  EXPECT_DOUBLE_EQ(sessions.Value(), sessions0) << "the dead checkout was released exactly once";
+}
+
+TEST_F(VersioningGatedTest, PinnedBranchTransactionsReadASnapshotThenWriteAndRollBack) {
+  faker.Interpret("CREATE (:K {id: 1, v: 10}), (:K {id: 2, v: 20})");
+  faker.Interpret("CREATE BRANCH b");
+  InterpreterFaker main_session{&interpreter_context, db};
+  auto sessions = SessionsOnBranch(1, "b");
+  auto &writer = *sessions[0];
+  faker.interpreter.SetCurrentDB(*db_gk.access(), /*in_explicit_db=*/true);
+  faker.interpreter.SelectPinnedBranch("b");
+  constexpr auto kRead = "MATCH (n:K) RETURN n.v ORDER BY n.id";
+  const auto before = Rows{{10}, {20}};
+
+  faker.Interpret("BEGIN");
+  EXPECT_EQ(IntRows(faker, kRead), before);
+  writer.Interpret("MATCH (n:K {id: 1}) SET n.v = 11");
+  writer.Interpret("CREATE (:K {id: 3, v: 30})");
+  main_session.Interpret("MATCH (n:K {id: 2}) SET n.v = 99");
+  EXPECT_EQ(IntRows(faker, kRead), before) << "neither the branch's nor main's later commits enter the snapshot";
+  EXPECT_EQ(IntRows(faker, kRead), before);
+  faker.Interpret("MATCH (n:K {id: 2}) SET n.v = 21");
+  EXPECT_EQ(IntRows(faker, kRead), (Rows{{10}, {21}})) << "own write over the snapshot";
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(IntRows(faker, kRead), (Rows{{11}, {20}, {30}})) << "the rolled-back write left no trace";
+
+  faker.Interpret("BEGIN");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id: 1}) RETURN n.v"), (Rows{{11}}));
+  writer.Interpret("MATCH (n:K {id: 1}) SET n.v = 12");
+  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id: 1}) RETURN n.v"), (Rows{{11}}));
+  EXPECT_NE(ThrownMessage([&] { faker.Interpret("MATCH (n:K {id: 1}) SET n.v = 13"); }), "<no exception>")
+      << "a write over a commit that landed after the snapshot must conflict";
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(IntRows(faker, kRead), (Rows{{12}, {20}, {30}}));
+  EXPECT_EQ(IntRows(main_session, kRead), (Rows{{10}, {99}})) << "main never saw the branch's writes";
 }
