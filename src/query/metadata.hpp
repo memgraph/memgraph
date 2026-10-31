@@ -68,6 +68,9 @@ enum class NotificationCode : uint8_t {
   CREATE_USER,
   CREATE_ROLE,
   DEPRECATED_QUERY,
+#ifdef MG_ENTERPRISE
+  RAN_ON_MAIN_FROM_BRANCH,
+#endif
 };
 
 struct Notification {

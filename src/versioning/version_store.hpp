@@ -135,6 +135,12 @@ class BranchCheckout {
   Branch *branch_{nullptr};
 };
 
+// GetOrBuildCore's error for a branch dropped before or while its core was built.
+inline constexpr std::string_view kBranchDroppedMessage = "Branch was dropped.";
+
+// User-facing text for a GetOrBuildCore `error`: the dropped error names `branch`, others pass through.
+std::string DescribeCoreFailure(std::string_view branch, const std::string &error);
+
 // Per-Database registry of branches, persisted to a BranchLedger. Each branch's GC fork pin and the retention floor are
 // injected as callbacks (Database binds InMemoryStorage::RegisterBranchForkPin/ReleaseForkPin/SetRetentionFloor) so
 // tests need no storage engine.

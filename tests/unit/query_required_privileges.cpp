@@ -318,8 +318,10 @@ TEST_F(TestPrivilegeExtractor, ShowQueryCallableMappingsQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
 }
 
-TEST_F(TestPrivilegeExtractor, ShowBranchQueriesNeedBranchUse) {
-  for (auto const action : {VersioningQuery::Action::SHOW_BRANCH, VersioningQuery::Action::SHOW_BRANCHES}) {
+TEST_F(TestPrivilegeExtractor, ShowAndUseBranchNeedBranchUse) {
+  for (auto const action : {VersioningQuery::Action::SHOW_BRANCH,
+                            VersioningQuery::Action::SHOW_BRANCHES,
+                            VersioningQuery::Action::USE_BRANCH}) {
     auto *query = storage.Create<VersioningQuery>();
     query->action_ = action;
     EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));

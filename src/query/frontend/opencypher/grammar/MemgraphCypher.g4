@@ -857,6 +857,7 @@ resumeDatabase : RESUME DATABASE databaseName ;
 
 versioningQuery : createBranch
                 | dropBranch
+                | useBranch
                 | showBranch
                 | showBranches
                 ;
@@ -868,6 +869,8 @@ branchName : symbolicName
 createBranch : CREATE BRANCH branchName ;
 
 dropBranch : DROP BRANCH branchName ( FORCE )? ;
+
+useBranch : USE BRANCH branchName ;
 
 showBranch : SHOW BRANCH ( branchName )? ;
 
