@@ -154,6 +154,7 @@
 #include "utils/variant_helpers.hpp"
 #ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
+#include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
 
@@ -1720,9 +1721,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               "please add Memgraph Enterprise License and restart Memgraph for the configuration to apply.",
               username);
           auth->GrantPrivilege(username,
-                               kPrivilegesAll
+                               PrivilegesAll()
 #ifdef MG_ENTERPRISE
-                               ,
+                                   ,
                                {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
                                  {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
                                {AuthQuery::LabelMatchingMode::ANY},  // matching mode for label privileges
@@ -9421,6 +9422,230 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+versioning::VersionStore *CheckBranchPrerequisites(InterpreterContext *interpreter_context,
+                                                   memgraph::dbms::DatabaseAccess &db_acc) {
+  const auto &config = db_acc->config();
+  if (const auto gate_err =
+          versioning::CheckVersioningGate(versioning::GateOperation::kObserve,
+                                          {.flag_enabled = config.experimental_versioning,
+                                           .enterprise_valid = license::global_license_checker.IsEnterpriseValidFast(),
+                                           .is_in_memory_transactional = db_acc->storage()->GetStorageMode() ==
+                                                                         storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                           .durable = versioning::BranchesDurable(config)})) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
+  }
+  // Graph Versioning branches are not supported with replication in v1 (the registry is unreplicated).
+  if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
+    throw QueryRuntimeException(
+        "Graph Versioning branches are not supported with replication in v1: branch operations are refused on a "
+        "REPLICA. Run them on the MAIN instance.");
+  }
+  // No registry unless the database started in IN_MEMORY_TRANSACTIONAL.
+  auto *version_store = db_acc->version_store();
+  if (version_store == nullptr) {
+    throw QueryRuntimeException(
+        "Graph versioning is not available for this database: it did not start in IN_MEMORY_TRANSACTIONAL storage "
+        "mode.");
+  }
+  return version_store;
+}
+
+TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
+  if (!info.created_at_us) return {};
+  return TypedValue(utils::LocalDateTime(static_cast<int64_t>(*info.created_at_us)).ToStringWTZ());
+}
+
+size_t SessionsOnBranch(const std::map<uint64_t, size_t> &counts, uint64_t number) {
+  const auto it = counts.find(number);
+  return it == counts.end() ? 0 : it->second;
+}
+
+// The last four columns tell an operator what a forgotten branch costs: every branch's fork pin holds main's GC horizon
+// at the fork like a long-open transaction, so main's unreleased delta objects grow while the oldest branch lives.
+std::vector<std::string> BranchColumns() {
+  return {"name",
+          "created_at",
+          "sessions",
+          "current",
+          "fork_timestamp",
+          "age_seconds",
+          "holds_back_main_gc",
+          "main_unreleased_deltas"};
+}
+
+// oldest_fork_ts is the pin holding main's GC horizon back.
+struct MainGcView {
+  std::optional<uint64_t> oldest_fork_ts;
+  int64_t unreleased_deltas;
+};
+
+MainGcView ReadMainGc(const versioning::VersionStore &version_store, const storage::Storage &main) {
+  MainGcView view{.oldest_fork_ts = std::nullopt,
+                  .unreleased_deltas = static_cast<int64_t>(main.metric_handles_.unreleased_delta_objects.Value())};
+  for (const auto &[name, info] : version_store.List()) {
+    view.oldest_fork_ts = view.oldest_fork_ts ? std::min(*view.oldest_fork_ts, info.fork_ts) : info.fork_ts;
+  }
+  return view;
+}
+
+TypedValue AgeSecondsValue(const versioning::BranchInfo &info) {
+  if (!info.created_at_us) return {};
+  const auto now_us =
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  return TypedValue(std::max<int64_t>(0, (now_us - static_cast<int64_t>(*info.created_at_us)) / 1'000'000));
+}
+
+// `info` is null for main, which has no fork.
+std::vector<TypedValue> BranchRow(const std::string &name, const versioning::BranchInfo *info, size_t sessions,
+                                  bool current, const MainGcView &gc) {
+  return {TypedValue(name),
+          info ? CreatedAtValue(*info) : TypedValue(),
+          TypedValue(static_cast<int64_t>(sessions)),
+          TypedValue(current),
+          info ? TypedValue(static_cast<int64_t>(info->fork_ts)) : TypedValue(),
+          info ? AgeSecondsValue(*info) : TypedValue(),
+          info ? TypedValue(gc.oldest_fork_ts == info->fork_ts) : TypedValue(),
+          TypedValue(gc.unreleased_deltas)};
+}
+
+// Keyed by branch number; 0 is main.
+std::map<uint64_t, size_t> CountSessionsPerBranch(InterpreterContext *interpreter_context, std::string_view db_name) {
+  return interpreter_context->interpreters.WithLock([&](const auto &interpreters) {
+    std::map<uint64_t, size_t> counts;
+    for (const Interpreter *interpreter : interpreters) {
+      if (interpreter->current_db_.foreign_db_view().name != db_name) continue;
+      ++counts[interpreter->current_db_.foreign_branch_number()];
+    }
+    return counts;
+  });
+}
+
+PreparedQuery PrepareShowBranchQuery(ParsedQuery parsed_query, std::optional<std::string> requested,
+                                     InterpreterContext *interpreter_context, CurrentDB &current_db,
+                                     versioning::VersionStore *version_store) {
+  return PreparedQuery{
+      .header = BranchColumns(),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [version_store,
+                        &current_db,
+                        interpreter_context,
+                        requested = std::move(requested),
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          const auto current = current_db.CurrentVersion().value_or("main");
+          const auto &branch = requested ? *requested : current;
+          std::optional<versioning::BranchInfo> info;
+          if (branch != "main") {
+            info = version_store->Get(branch);
+            if (!info) throw QueryRuntimeException("Branch '{}' does not exist.", branch);
+          }
+          const auto counts = CountSessionsPerBranch(interpreter_context, (*current_db.db_acc_)->name());
+          std::vector<std::vector<TypedValue>> rows;
+          rows.push_back(BranchRow(branch,
+                                   info ? &*info : nullptr,
+                                   SessionsOnBranch(counts, info ? info->number : 0),
+                                   branch == current,
+                                   ReadMainGc(*version_store, *(*current_db.db_acc_)->storage())));
+          pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+        }
+        if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
+PreparedQuery PrepareShowBranchesQuery(ParsedQuery parsed_query, memgraph::dbms::DatabaseAccess target_db_acc,
+                                       versioning::VersionStore *version_store, InterpreterContext *interpreter_context,
+                                       CurrentDB &current_db) {
+  return PreparedQuery{
+      .header = BranchColumns(),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [target_db_acc = std::move(target_db_acc),
+                        version_store,
+                        &current_db,
+                        interpreter_context,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          const auto counts = CountSessionsPerBranch(interpreter_context, target_db_acc->name());
+          // `current` marks the caller's own branch, which is in the caller's database only.
+          const bool same_database = current_db.db_acc_ && *current_db.db_acc_ == target_db_acc;
+          const auto &session_branch = current_db.CurrentVersion();
+          std::vector<std::vector<TypedValue>> rows;
+          const auto gc = ReadMainGc(*version_store, *target_db_acc->storage());
+          rows.push_back(BranchRow("main", nullptr, SessionsOnBranch(counts, 0), same_database && !session_branch, gc));
+          for (const auto &[name, info] : version_store->List()) {
+            rows.push_back(BranchRow(
+                name, &info, SessionsOnBranch(counts, info.number), same_database && session_branch == name, gc));
+          }
+          pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+        }
+        if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+}  // namespace
+
+// Branch queries open no storage accessor: the VersionStore has its own locking.
+PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                     CurrentDB &current_db, Interpreter &interpreter) {
+  auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
+  DMG_ASSERT(query);
+  // No transaction opens here, which is where a session whose database was dropped from under it is noticed.
+  if (!current_db.db_acc_) throw DatabaseContextRequiredException("Database required for query execution.");
+
+  if (query->action_ == VersioningQuery::Action::SHOW_BRANCHES && query->for_database_) {
+    // The Bolt-level check covered the session's database only. Authorised before the lookup, so a refusal does not
+    // reveal whether the database exists.
+    if (auto *user_or_role = interpreter.user_or_role_.get();
+        user_or_role != nullptr &&
+        !user_or_role->IsAuthorized(
+            {AuthQuery::Privilege::BRANCH_USE}, *query->for_database_, &query::session_long_policy)) {
+      throw QueryRuntimeException(
+          "You are not authorized to show branches of the database \"{}\"! Please contact your database "
+          "administrator.",
+          *query->for_database_);
+    }
+    auto target_db_acc = [&] {
+      try {
+        return interpreter_context->dbms_handler->Get(*query->for_database_);
+      } catch (const utils::BasicException &e) {
+        throw QueryRuntimeException(e.what());
+      }
+    }();
+    auto *version_store = CheckBranchPrerequisites(interpreter_context, target_db_acc);
+    return PrepareShowBranchesQuery(
+        std::move(parsed_query), std::move(target_db_acc), version_store, interpreter_context, current_db);
+  }
+
+  auto db_acc = *current_db.db_acc_;
+  auto *version_store = CheckBranchPrerequisites(interpreter_context, db_acc);
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  auto name = GetOptionalStringValue(query->name_, evaluator);
+  switch (query->action_) {
+    case VersioningQuery::Action::SHOW_BRANCH:
+      return PrepareShowBranchQuery(
+          std::move(parsed_query), std::move(name), interpreter_context, current_db, version_store);
+    case VersioningQuery::Action::SHOW_BRANCHES:
+      return PrepareShowBranchesQuery(std::move(parsed_query), db_acc, version_store, interpreter_context, current_db);
+  }
+  LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
+}
+#else
+PreparedQuery PrepareVersioningQuery(ParsedQuery /*parsed_query*/, InterpreterContext * /*interpreter_context*/,
+                                     CurrentDB & /*current_db*/, Interpreter & /*interpreter*/) {
+  throw EnterpriseOnlyException();
+}
+#endif
+
 PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                       InterpreterContext *interpreter_context,
                                       std::optional<std::function<void(std::string_view)>> on_change_cb) {
@@ -11498,6 +11723,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+    } else if (utils::Downcast<VersioningQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw VersioningQueryInMulticommandTxException();
+      }
+      prepared_query = PrepareVersioningQuery(std::move(parsed_query), interpreter_context_, current_db_, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();
