@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <ctime>
@@ -625,8 +626,8 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
 }
 
 Timezone::Timezone(const std::chrono::minutes offset) {
-  if (std::abs(offset.count()) > MAX_OFFSET_MINUTES) {
-    throw utils::BasicException("Zone offset not in valid range: -18:00 to +18:00");
+  if (offset.count() > MAX_OFFSET_MINUTES || offset.count() < -MAX_OFFSET_MINUTES) {
+    throw temporal::InvalidArgumentException("Zone offset not in valid range: -18:00 to +18:00");
   }
   offset_ = offset;
 }
@@ -1036,6 +1037,13 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
       return false;
     }
 
+    // Plain decimal only: rejects nan, inf and exponent notation accepted by from_chars.
+    const auto digits = number_substring.starts_with('-') ? number_substring.substr(1) : number_substring;
+    if (digits.empty() ||
+        !std::ranges::all_of(digits, [](const char c) { return (c >= '0' && c <= '9') || c == '.'; })) {
+      return false;
+    }
+
     const auto maybe_parsed_number = ParseNumber<double>(number_substring, number_substring.size());
     if (!maybe_parsed_number) {
       return false;
@@ -1129,26 +1137,42 @@ DurationParameters ParseDurationParameters(std::string_view string) {
     return *maybe_duration_parameters;
   }
 
-  throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
+  throw temporal::InvalidArgumentException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
 }
 
 namespace {
-template <Chrono From, Chrono To>
-constexpr To CastChronoDouble(const double value) {
-  return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
-};
+template <Chrono From>
+int64_t DurationComponentToMicroseconds(const double value) {
+  if (!std::isfinite(value)) {
+    throw temporal::InvalidArgumentException("Duration component must be a finite number.");
+  }
+  const auto us = value * (static_cast<double>(std::chrono::microseconds::period::den) *
+                           static_cast<double>(From::period::num) / static_cast<double>(From::period::den));
+  // 2^63 is exactly representable; every double below it (and >= -2^63) fits in int64.
+  constexpr double kLimit = 9223372036854775808.0;
+  if (!(us >= -kLimit && us < kLimit)) {
+    throw temporal::OverflowException("Duration value out of range.");
+  }
+  return static_cast<int64_t>(us);
+}
 }  // namespace
 
 Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
-  microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
-                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hour) +
-                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minute) +
-                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.second) +
-                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.millisecond) +
-                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microsecond))
-                     .count();
+  int64_t sum = 0;
+  const auto add = [&sum](const int64_t part) {
+    if (__builtin_add_overflow(sum, part, &sum)) {
+      throw temporal::OverflowException("Duration value out of range.");
+    }
+  };
+  add(DurationComponentToMicroseconds<std::chrono::days>(parameters.day));
+  add(DurationComponentToMicroseconds<std::chrono::hours>(parameters.hour));
+  add(DurationComponentToMicroseconds<std::chrono::minutes>(parameters.minute));
+  add(DurationComponentToMicroseconds<std::chrono::seconds>(parameters.second));
+  add(DurationComponentToMicroseconds<std::chrono::milliseconds>(parameters.millisecond));
+  add(DurationComponentToMicroseconds<std::chrono::microseconds>(parameters.microsecond));
+  microseconds = sum;
 }
 
 int64_t Duration::Days() const {
@@ -1214,7 +1238,7 @@ std::string Duration::ToString() const {
 
 Duration Duration::operator-() const {
   if (microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
-    throw temporal::InvalidArgumentException("Duration arithmetic overflows");
+    throw temporal::OverflowException("Duration arithmetic overflows");
   }
   Duration result{-microseconds};
   return result;

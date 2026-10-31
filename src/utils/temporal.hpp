@@ -59,6 +59,12 @@ struct InvalidArgumentException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(InvalidArgumentException)
 };
+
+/// A result that is not representable in the temporal type.
+struct OverflowException : public InvalidArgumentException {
+  using InvalidArgumentException::InvalidArgumentException;
+  SPECIALIZE_GET_EXCEPTION_NAME(OverflowException)
+};
 }  // namespace temporal
 
 struct DurationParameters {
@@ -99,11 +105,11 @@ struct Duration {
 
   friend Duration operator+(const Duration &lhs, const Duration rhs) {
     if (Overflows(lhs.microseconds, rhs.microseconds)) {
-      throw utils::BasicException("Duration arithmetic overflows");
+      throw temporal::OverflowException("Duration arithmetic overflows");
     }
 
     if (Underflows(lhs.microseconds, rhs.microseconds)) {
-      throw utils::BasicException("Duration arithmetic underflows");
+      throw temporal::OverflowException("Duration arithmetic underflows");
     }
 
     return Duration(lhs.microseconds + rhs.microseconds);
@@ -142,6 +148,17 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t year, uint8_t month, uint8_t
   return ToChronoSysDaysYMD(year, month, day).time_since_epoch();
 }
 
+/// Throws unless `days_since_epoch` falls within years 0..9999. Must run before the day count is narrowed into
+/// std::chrono::year (a short), which silently wraps for far-out values.
+inline void CheckDaysInDateRange(const int64_t days_since_epoch) {
+  static constexpr int64_t kMinDays = DaysSinceEpoch(0, 1, 1).count();
+  static constexpr int64_t kMaxDays = DaysSinceEpoch(9999, 12, 31).count();
+  if (days_since_epoch < kMinDays || days_since_epoch > kMaxDays) [[unlikely]] {
+    throw temporal::InvalidArgumentException(
+        "Creating a Date with invalid year parameter. The value should be an integer between 0 and 9999.");
+  }
+}
+
 // No timezone conversion supported
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
@@ -161,6 +178,7 @@ struct Date {
     namespace chrono = std::chrono;
     const auto date_as_duration = Duration(date.MicrosecondsSinceEpoch());
     const auto result = date_as_duration + dur;
+    CheckDaysInDateRange(result.Days());
     const auto ymd = chrono::year_month_day(chrono::sys_days(chrono::days(result.Days())));
     return Date({static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day())});
   }
@@ -365,6 +383,7 @@ struct LocalDateTime {
     const auto local_date_time_as_duration = Duration(dt.MicrosecondsSinceEpoch());
     const auto result = local_date_time_as_duration + dur;
     namespace chrono = std::chrono;
+    CheckDaysInDateRange(result.Days());
     const auto ymd = chrono::year_month_day(chrono::sys_days(chrono::days(result.Days())));
     const auto date_part =
         Date({static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day())});
@@ -568,10 +587,16 @@ struct ZonedDateTime {
   friend std::ostream &operator<<(std::ostream &os, const ZonedDateTime &zdt) { return os << zdt.ToString(); }
 
   friend ZonedDateTime operator+(const ZonedDateTime &zdt, const Duration &dur) {
+    int64_t local_us = 0;
+    if (__builtin_add_overflow(zdt.zoned_time.get_local_time().time_since_epoch().count(), dur.microseconds, &local_us))
+        [[unlikely]] {
+      throw temporal::OverflowException(dur.microseconds > 0 ? "Duration arithmetic overflows"
+                                                             : "Duration arithmetic underflows");
+    }
+    const std::chrono::local_time<std::chrono::microseconds> local_result{std::chrono::microseconds(local_us)};
+    CheckDaysInDateRange(floor<std::chrono::days>(local_result).time_since_epoch().count());
     return ZonedDateTime(
-        std::chrono::zoned_time(zdt.zoned_time.get_time_zone(),
-                                zdt.zoned_time.get_local_time() + std::chrono::microseconds(dur.microseconds),
-                                std::chrono::choose::earliest));
+        std::chrono::zoned_time(zdt.zoned_time.get_time_zone(), local_result, std::chrono::choose::earliest));
   }
 
   friend ZonedDateTime operator+(const Duration &dur, const ZonedDateTime &zdt) { return zdt + dur; }
