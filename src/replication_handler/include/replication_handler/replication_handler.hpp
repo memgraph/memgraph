@@ -11,6 +11,10 @@
 #pragma once
 
 #include <utility>
+#ifdef MG_ENTERPRISE
+#include <atomic>
+#include <mutex>
+#endif
 
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
@@ -184,6 +188,15 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   // as REPLICA, become MAIN
   bool SetReplicationRoleMain() override;
+#ifdef MG_ENTERPRISE
+
+  // A REPLICA has no branches. ForEach skips COLD tenants, so a tenant resumed on a REPLICA drops its restored
+  // branches here (pre-publish). No-op on MAIN; false (logged) when the drop failed.
+  bool DropBranchesIfReplica(dbms::DatabaseAccess db_acc);
+
+  // Post-publish: re-applies the current role to a just-published tenant (a role change may have skipped it).
+  void ReconcileBranchesAfterPublish(dbms::DatabaseAccess db_acc);
+#endif
 
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
@@ -482,6 +495,18 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auth::SynchedAuth &auth_;
 #endif
   parameters::Parameters &parameters_;
+#ifdef MG_ENTERPRISE
+  // Branch drop of a demotion; holds branch_role_mutex_ across the role flip.
+  class BranchDemotion;
+  bool DropBranchesForDemotion();
+  void UnfreezeBranches();
+
+  // Lock order: promotion blocks on this while holding repl_state; demotion holds it and only TryLocks repl_state,
+  // which keeps the two deadlock-free. Never block on repl_state while holding it.
+  std::mutex branch_role_mutex_;
+  // True iff MAIN; written under branch_role_mutex_ at every role flip (constructor aside), read lock-free.
+  std::atomic<bool> branches_allowed_{false};
+#endif
 };
 
 }  // namespace memgraph::replication

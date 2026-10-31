@@ -1176,21 +1176,26 @@ int main(int argc, char **argv) {
   //  - on_suspend_: before the freeze, stop the per-db stream consumers (each pins the tenant HOT via a
   //    captured DatabaseAccess), preserving their durable metadata so resume rebuilds them;
   //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
-  //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
-  //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
-  //  - on_published_: once the resumed tenant is published, let TTL run (it commits, so it must not run
-  //    on an unpublished tenant).
+  //  - on_resume_: after a COLD tenant's storage is rebuilt, drop its branches on a REPLICA, then re-arm its
+  //    triggers AND streams from durable metadata (BuildDetached does not auto-arm either). Triggers must come
+  //    first (streams use modules).
+  //  - on_published_: once the resumed tenant is published, re-apply the current role to its branches and let
+  //    TTL run (it commits, so it must not run on an unpublished tenant).
   if (dbms_handler.has_value()) {
     auto *dh = &*dbms_handler;
     auto *ic = &interpreter_context_;
     dh->SetOnSuspend(
         [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
     dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
-    dh->SetOnResume([dh, ic](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnResume([dh, ic, &replication_handler](memgraph::dbms::DatabaseAccess db_acc) {
+      if (replication_handler && !replication_handler->DropBranchesIfReplica(db_acc)) {
+        throw std::runtime_error("Failed to drop the branches of the resumed database on REPLICA.");
+      }
       memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
     });
-    dh->SetOnPublished([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    dh->SetOnPublished([&repl_state, &replication_handler](memgraph::dbms::DatabaseAccess db_acc) {
+      if (replication_handler) replication_handler->ReconcileBranchesAfterPublish(db_acc);
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();

@@ -68,4 +68,8 @@ struct BranchRecoveryFailure {
 // WAL contributes what was read before the damage. Never throws.
 void KeepMainClearOfHiddenBranches(const LedgerContents &ledger, storage::InMemoryStorage &main);
 
+// KeepMainClearOfHiddenBranches' counter raise for the branches `store` holds, for an instance that becomes MAIN: a
+// snapshot or WAL loaded while it was a REPLICA may have set the counters below a branch's floor. Never throws.
+void RaiseGidCountersForBranches(const VersionStore &store, storage::InMemoryStorage &main);
+
 }  // namespace memgraph::versioning

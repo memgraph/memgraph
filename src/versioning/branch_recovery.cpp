@@ -535,4 +535,8 @@ void KeepMainClearOfHiddenBranches(const LedgerContents &ledger, storage::InMemo
   main.BumpClockPastDurable(newest_fork);
 }
 
+void RaiseGidCountersForBranches(const VersionStore &store, storage::InMemoryStorage &main) {
+  for (const auto &[name, info] : store.List()) RaiseMainCountersFromBranchFiles(main, name, info);
+}
+
 }  // namespace memgraph::versioning
