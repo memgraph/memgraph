@@ -289,6 +289,10 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   // For VectorIndexId properties, fetch the actual vector from the index
   for (auto &prop_value :
        *maybe_props | std::views::values | std::views::filter([](const auto &pv) { return pv.IsVectorIndexId(); })) {
+#ifdef MG_ENTERPRISE
+    // On a branch Properties() already resolved it through main's index; the diff engine has none to ask.
+    if (!prop_value.ValueVectorIndexList().empty()) continue;
+#endif
     auto index_name = dba->GetStorageAccessor()->GetNameIdMapper()->IdToName(prop_value.ValueVectorIndexIds()[0]);
     auto vector = dba->GetStorageAccessor()->GetVectorFromVectorIndex(vertex.impl_.vertex_, index_name);
     prop_value.ValueVectorIndexList() = std::move(vector);
