@@ -118,6 +118,10 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "CreateRole"sv;
     case NotificationCode::DEPRECATED_QUERY:
       return "DeprecatedQuery"sv;
+#ifdef MG_ENTERPRISE
+    case NotificationCode::RAN_ON_MAIN_FROM_BRANCH:
+      return "RanOnMainFromBranch"sv;
+#endif
   }
 }
 }  // namespace
