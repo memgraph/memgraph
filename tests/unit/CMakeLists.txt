@@ -1098,6 +1098,11 @@ add_unit_test(versioning_refusals
     SOURCES versioning_refusals.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
 )
+
+add_unit_test(versioning_cold_replica_resume
+    SOURCES versioning_cold_replica_resume.cpp
+    LINK_TARGETS mg::versioning mg-query mg-auth mg-glue mg-dbms mg-replication_handler
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
