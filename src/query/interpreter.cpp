@@ -356,9 +356,13 @@ void memgraph::query::CurrentDB::ClearBranchContext() {
   branch_context_number_ = 0;
 }
 
+bool memgraph::query::CurrentDB::BranchGone() const {
+  return current_version_ &&
+         !(branch_context_ && branch_context_version_store_->IsLive(branch_context_name_, branch_context_number_));
+}
+
 void memgraph::query::CurrentDB::ThrowIfBranchGone() {
-  if (!current_version_) return;
-  if (branch_context_ && branch_context_version_store_->IsLive(branch_context_name_, branch_context_number_)) return;
+  if (!BranchGone()) return;
   // Open transaction: it still reads through the context, which is released once the transaction ends.
   if (branch_context_ && !db_transactional_accessor_) {
     ClearBranchContext();
@@ -484,6 +488,11 @@ bool IsSchemaOrStorageGlobalQuery(Query *q) {
          utils::Downcast<StorageModeQuery>(q) != nullptr || utils::Downcast<RecoverSnapshotQuery>(q) != nullptr ||
          utils::Downcast<EdgeImportModeQuery>(q) != nullptr || utils::Downcast<TriggerQuery>(q) != nullptr ||
          utils::Downcast<StreamQuery>(q) != nullptr || utils::Downcast<DescriptionQuery>(q) != nullptr;
+}
+
+bool IsUseBranchQuery(Query *q) {
+  const auto *versioning_query = utils::Downcast<VersioningQuery>(q);
+  return versioning_query != nullptr && versioning_query->action_ == VersioningQuery::Action::USE_BRANCH;
 }
 
 constexpr std::string_view kReplacesBranchData = "it would replace the data every branch reads";
@@ -9620,6 +9629,94 @@ PreparedQuery PrepareDropBranchQuery(ParsedQuery parsed_query, std::string name,
       },
       .rw_type = RWType::W};
 }
+
+// Attaches the session to branch `name` with a counted checkout, building the branch's core on its first use. A failure
+// leaves the session without a branch and the checkout released.
+void AttachBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store, storage::Storage *main,
+                        const std::string &name) {
+  auto info = version_store->TryAcquireCheckout(name);
+  if (!info) throw QueryRuntimeException(info.error());
+  try {
+    auto core = version_store->GetOrBuildCore(
+        info->number, [&]() -> std::expected<std::shared_ptr<versioning::BranchCore>, std::string> {
+          auto built = versioning::BranchCore::BuildForCheckout(*static_cast<storage::InMemoryStorage *>(main), *info);
+          if (!built) return std::unexpected(std::move(built.error().message));
+          return std::move(*built);
+        });
+    if (!core) throw QueryRuntimeException(core.error());
+    if (auto recorded =
+            version_store->RecordGidFloors(info->number, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
+        !recorded) {
+      throw QueryRuntimeException(recorded.error());
+    }
+    current_db.SetBranchContext(
+        std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, name, info->number);
+  } catch (...) {
+    // Once SetBranchContext installed the checkout, leaving the branch is what releases it.
+    if (current_db.branch_context() != nullptr) {
+      current_db.LeaveBranch();
+    } else {
+      version_store->ReleaseCheckout(info->number);
+    }
+    throw;
+  }
+}
+
+// Parks the session's branch and attaches `target` ("main" attaches nothing). A failure restores the parked branch.
+void ParkAndAttach(CurrentDB &current_db, versioning::VersionStore *version_store, storage::Storage *main,
+                   const std::string &target) {
+  current_db.ParkSessionBranch();
+  try {
+    if (target != "main") AttachBranchEngine(current_db, version_store, main, target);
+  } catch (...) {
+    current_db.RestoreSessionBranch();
+    throw;
+  }
+}
+
+// Moves the session to `target` ("main" or a branch); a failure leaves it where it was. False when it already was
+// there. A session whose branch was dropped is never on it, even when the name was reused.
+bool EnterSessionBranch(CurrentDB &current_db, versioning::VersionStore *version_store, storage::Storage *main,
+                        const std::string &target) {
+  if (target == "main") {
+    if (!current_db.CurrentVersion()) return false;
+  } else {
+    const auto info = version_store->Get(target);
+    if (!info) throw QueryRuntimeException("Branch '{}' does not exist.", target);
+    if (current_db.OnBranch(info->number)) return false;
+  }
+  ParkAndAttach(current_db, version_store, main, target);
+  current_db.DiscardParkedBranch();
+  return true;
+}
+
+PreparedQuery PrepareUseBranchQuery(ParsedQuery parsed_query, std::string target, CurrentDB &current_db,
+                                    versioning::VersionStore *version_store) {
+  if (current_db.in_explicit_db_) {
+    throw QueryException("Branch switching is prohibited if the session explicitly defines the database.");
+  }
+  if (target != "main" && !version_store->Exists(target)) {
+    throw QueryRuntimeException("Branch '{}' does not exist.", target);
+  }
+  return PreparedQuery{
+      .header = {"STATUS"},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [version_store,
+                        &current_db,
+                        target = std::move(target),
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          const bool moved = EnterSessionBranch(current_db, version_store, (*current_db.db_acc_)->storage(), target);
+          std::vector<std::vector<TypedValue>> rows;
+          rows.push_back({TypedValue(fmt::format("{} branch {}", moved ? "Using" : "Already using", target))});
+          pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+        }
+        if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
 }  // namespace
 
 // Branch queries open no storage accessor: the VersionStore has its own locking.
@@ -9684,6 +9781,9 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                                     current_db,
                                     interpreter,
                                     version_store);
+    case VersioningQuery::Action::USE_BRANCH:
+      DMG_ASSERT(name, "The grammar requires a branch name");
+      return PrepareUseBranchQuery(std::move(parsed_query), std::move(*name), current_db, version_store);
   }
   LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
 }
@@ -9721,7 +9821,13 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         try {
           if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
             if (on_change) (*on_change)(db_name);  // Still an explicit choice of database
-            res = "Already using " + db_name;
+            // The dead-branch error names USE DATABASE as a way out, and on a REPLICA USE BRANCH is refused.
+            if (current_db.BranchGone()) {
+              current_db.LeaveBranch();
+              res = "Using " + db_name;
+            } else {
+              res = "Already using " + db_name;
+            }
           } else {
             auto tmp = db_handler->Get(db_name);
             if (on_change) (*on_change)(db_name);  // Will trow if cb fails
@@ -11360,8 +11466,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
     query_execution->query_string = parse_info.parsed_query.query_string;
 #ifdef MG_ENTERPRISE
-    // USE DATABASE is how a session leaves a branch that is gone.
-    if (current_db_.CurrentVersion() && !utils::Downcast<UseDatabaseQuery>(parsed_query.query)) [[unlikely]] {
+    // USE DATABASE and USE BRANCH are how a session leaves a branch that is gone.
+    if (current_db_.CurrentVersion() && !utils::Downcast<UseDatabaseQuery>(parsed_query.query) &&
+        !IsUseBranchQuery(parsed_query.query)) [[unlikely]] {
       current_db_.ThrowIfBranchGone();
       if (parsed_query.using_schema_assert || IsSchemaOrStorageGlobalQuery(parsed_query.query)) {
         throw QueryRuntimeException(std::string{kSchemaOnBranchError});
