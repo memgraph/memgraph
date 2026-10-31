@@ -360,7 +360,8 @@ TEST_F(VersioningGatedTest, BranchStatementsWithoutACurrentDatabaseAreRefused) {
                             "SHOW BRANCHES FOR DATABASE memgraph",
                             "CREATE BRANCH x",
                             "DROP BRANCH x",
-                            "DROP BRANCH x FORCE"}) {
+                            "DROP BRANCH x FORCE",
+                            "USE BRANCH x"}) {
     EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), "Database required for query execution.") << query;
   }
 }

@@ -4297,7 +4297,7 @@ class VersioningQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
-  enum class Action : uint8_t { SHOW_BRANCH, SHOW_BRANCHES, CREATE_BRANCH, DROP_BRANCH };
+  enum class Action : uint8_t { SHOW_BRANCH, SHOW_BRANCHES, CREATE_BRANCH, DROP_BRANCH, USE_BRANCH };
 
   memgraph::query::VersioningQuery::Action action_;
   // An Expression (PrimitiveLiteral or ParameterLookup), never a resolved string: the AST is cached across executions

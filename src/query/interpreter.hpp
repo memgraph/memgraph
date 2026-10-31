@@ -414,6 +414,9 @@ struct CurrentDB {
   // `on_replica` swaps the USE BRANCH hint, refused on a REPLICA, for USE DATABASE alone.
   void ThrowIfBranchGone(bool on_replica = false);
 
+  // The session is on a branch that no longer exists (or that was dropped and re-created under the same name).
+  bool BranchGone() const;
+
   // Parks the session's branch so another can be attached; Restore puts it back (releasing what was attached
   // meanwhile), Discard drops it. USE BRANCH keeps the old branch on failure; USING BRANCH is per-transaction.
   void ParkSessionBranch();

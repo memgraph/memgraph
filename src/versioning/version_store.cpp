@@ -27,7 +27,6 @@ namespace memgraph::versioning {
 
 namespace {
 constexpr std::string_view kFrozenMessage = "Graph Versioning branches are not available on a REPLICA.";
-constexpr std::string_view kBranchDroppedMessage = "Branch was dropped.";
 
 std::string DescribeUnavailableBranch(std::string_view name, std::string_view reason,
                                       const std::filesystem::path &directory) {
@@ -40,6 +39,11 @@ std::string DescribeUnavailableBranch(std::string_view name, std::string_view re
       directory.string());
 }
 }  // namespace
+
+std::string DescribeCoreFailure(std::string_view branch, const std::string &error) {
+  if (error == kBranchDroppedMessage) return fmt::format("Branch '{}' was dropped.", branch);
+  return error;
+}
 
 VersionStore::VersionStore(std::function<ForkPoint()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}

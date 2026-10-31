@@ -9999,8 +9999,30 @@ TEST_P(CypherMainVisitorTest, DropBranch) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, UseBranch) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("USE BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::USE_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(QuotedBranchName(ast_generator, query->name_), "feature");
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("USE BRANCH main"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::USE_BRANCH);
+    EXPECT_EQ(BareBranchName(ast_generator, query->name_), "main");
+  }
+}
+
 TEST_P(CypherMainVisitorTest, BranchStatementsDoNotShadowOtherStatements) {
   auto &ast_generator = *GetParam();
+
+  auto *use_db = dynamic_cast<UseDatabaseQuery *>(ast_generator.ParseQuery("USE DATABASE branch"));
+  ASSERT_NE(use_db, nullptr);
+  EXPECT_EQ(use_db->db_name_, "branch");
 
   EXPECT_NE(dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CREATE (branch:BRANCH {branch: 1})")), nullptr);
   auto *drop_db = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE branch FORCE"));
@@ -10055,6 +10077,8 @@ TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
   TestInvalidQuery("CREATE BRANCH", ast_generator);
   TestInvalidQuery("CREATE BRANCH 'feature' FROM 'main'", ast_generator);
   TestInvalidQuery("DROP BRANCH", ast_generator);
+  TestInvalidQuery("USE BRANCH", ast_generator);
+  TestInvalidQuery("USE BRANCH 'a' 'b'", ast_generator);
   TestInvalidQuery("MERGE BRANCH 'feature'", ast_generator);
   TestInvalidQuery("SHOW BRANCHES 'feature'", ast_generator);
   TestInvalidQuery("SHOW BRANCHES FOR 'testdb'", ast_generator);

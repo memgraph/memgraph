@@ -40,6 +40,12 @@ inline constexpr uint64_t kGidReserveChunk = 1U << 20;
 
 enum class DropResult : uint8_t { kDropped, kNotFound, kInUse };
 
+// GetOrBuildCore's error for a branch dropped before or while its core was built.
+inline constexpr std::string_view kBranchDroppedMessage = "Branch was dropped.";
+
+// User-facing text for a GetOrBuildCore `error`: the dropped error names `branch`, others pass through.
+std::string DescribeCoreFailure(std::string_view branch, const std::string &error);
+
 // Per-Database registry of branches, persisted to an attached BranchLedger. Each branch's GC fork pin is injected as
 // callbacks (Database binds InMemoryStorage::RegisterBranchForkPin/ReleaseForkPin) so tests need no storage engine.
 // Structural validation only (duplicate name): callers MUST run ValidateBranchName and gate/privilege checks first.

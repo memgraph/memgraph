@@ -312,6 +312,30 @@ TEST_F(VersionStoreTest, CoreIsBuiltOncePerBranch) {
   EXPECT_EQ(builds, 1);
 }
 
+// A checkout that races a force-drop of its branch gets a core error the caller can word with the branch's name.
+TEST_F(VersionStoreTest, CoreOfABranchDroppedAfterTheCheckoutFailsWithTheDroppedError) {
+  auto store = MakeStore();
+  auto created = store->CreateBranch("feature");
+  ASSERT_TRUE(created.has_value());
+  const auto attached = store->TryAcquireCheckout("feature");
+  ASSERT_TRUE(attached.has_value());
+  ASSERT_EQ(store->ForceDropBranch("feature"), DropResult::kDropped);
+
+  int builds = 0;
+  std::weak_ptr<int> observer;
+  auto build = [&]() -> CoreResult {
+    ++builds;
+    return MakeSentinelCore(observer);
+  };
+  const auto core = store->GetOrBuildCore(attached->number, build);
+  ASSERT_FALSE(core.has_value());
+  EXPECT_EQ(builds, 0);
+  EXPECT_EQ(core.error(), memgraph::versioning::kBranchDroppedMessage);
+  EXPECT_EQ(memgraph::versioning::DescribeCoreFailure("feature", core.error()), "Branch 'feature' was dropped.");
+  EXPECT_EQ(memgraph::versioning::DescribeCoreFailure("feature", "boom"), "boom") << "other failures are left alone";
+  store->ReleaseCheckout(attached->number);
+}
+
 TEST_F(VersionStoreTest, FailedOrThrowingCoreBuildIsNotCached) {
   auto store = MakeStore();
   auto failing = store->CreateBranch("failing");
