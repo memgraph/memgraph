@@ -65,13 +65,19 @@ TEST(CheckedArith, DivModMatchReference) {
   }
 }
 
-TEST(CheckedArith, NegMatchesReference) {
+TEST(CheckedArith, NegAbsMatchReference) {
   for (auto a : kValues) {
     __int128 const n = -static_cast<__int128>(a);
     if (Fits(n)) {
       EXPECT_EQ(CheckedNeg(a), static_cast<int64_t>(n)) << a;
     } else {
       EXPECT_THROW(CheckedNeg(a), ArithmeticException) << a;
+    }
+    __int128 const ab = a < 0 ? n : a;
+    if (Fits(ab)) {
+      EXPECT_EQ(CheckedAbs(a), static_cast<int64_t>(ab)) << a;
+    } else {
+      EXPECT_THROW(CheckedAbs(a), ArithmeticException) << a;
     }
   }
 }
@@ -97,6 +103,7 @@ std::string WhatOf(F f) {
 TEST(CheckedArith, Messages) {
   EXPECT_EQ(WhatOf([] { CheckedDiv(1, 0); }), "Division by zero in '/'.");
   EXPECT_EQ(WhatOf([] { CheckedMod(1, 0); }), "Division by zero in '%'.");
+  EXPECT_EQ(WhatOf([] { CheckedAbs(kMin); }), "Integer overflow in 'abs'.");
   EXPECT_EQ(WhatOf([] { CheckedNeg(kMin); }), "Integer overflow in '-'.");
   EXPECT_EQ(WhatOf([] { CheckedAdd(kMax, 1); }), "Integer overflow in '+'.");
   EXPECT_EQ(WhatOf([] { CheckedSub(kMin, 1); }), "Integer overflow in '-'.");

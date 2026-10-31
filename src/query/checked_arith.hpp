@@ -15,7 +15,7 @@
 
 namespace memgraph::query {
 
-enum class ArithOp : uint8_t { Add, Sub, Mul, Div, Mod, Neg };
+enum class ArithOp : uint8_t { Add, Sub, Mul, Div, Mod, Neg, Abs };
 
 /// Throw ArithmeticException. Out of line so the checked fast paths stay small.
 [[noreturn, gnu::cold, gnu::noinline]] void ThrowIntegerOverflow(ArithOp op);
@@ -53,6 +53,15 @@ enum class ArithOp : uint8_t { Add, Sub, Mul, Div, Mod, Neg };
   int64_t r;
   if (__builtin_sub_overflow(int64_t{0}, a, &r)) [[unlikely]] {
     ThrowIntegerOverflow(ArithOp::Neg);
+  }
+  return r;
+}
+
+[[gnu::always_inline]] inline int64_t CheckedAbs(int64_t a) {
+  if (a >= 0) return a;
+  int64_t r;
+  if (__builtin_sub_overflow(int64_t{0}, a, &r)) [[unlikely]] {
+    ThrowIntegerOverflow(ArithOp::Abs);
   }
   return r;
 }
