@@ -364,6 +364,12 @@ class DbmsHandler {
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
 
   /**
+   * @brief Set the post-publish resume arm (runs on the DatabaseAccess AFTER the tenant is published
+   *        HOT). Used for work that may commit. Best-effort: a throw only logs.
+   */
+  void SetOnPublished(std::function<void(DatabaseAccess)> cb) { on_published_ = std::move(cb); }
+
+  /**
    * @brief Reconfigure Resume_'s retry/timeout knobs (see ResumeRetryPolicy) on a live handler. The
    *        constructor also accepts a ResumeRetryPolicy for construction-time injection; this setter
    *        exists for callers that need to mutate the policy mid-flight (e.g. a test that shrinks the
@@ -1182,6 +1188,7 @@ class DbmsHandler {
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
   std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams); empty default
+  std::function<void(DatabaseAccess)> on_published_;  //!< post-publish resume arm; empty default
   std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
   std::function<void(DatabaseAccess)>
       restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
