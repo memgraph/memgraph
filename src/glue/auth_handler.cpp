@@ -107,7 +107,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
 #endif
   const auto &roles_permissions = user->roles().GetPermissions(db_name);
 
-  for (const auto &privilege : memgraph::query::kPrivilegesAll) {
+  for (const auto &privilege : memgraph::query::PrivilegesAll()) {
     auto user_permission_result = GetPermissionForPrivilegeForUserOrRole(permissions, privilege, "USER");
     auto user_only_permissions_result =
         GetPermissionForPrivilegeForUserOrRole(user_level_permissions, privilege, "USER");
@@ -138,7 +138,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 #else
   const auto &permissions = role->permissions();
 #endif
-  for (const auto &privilege : memgraph::query::kPrivilegesAll) {
+  for (const auto &privilege : memgraph::query::PrivilegesAll()) {
     auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(permissions, privilege, "ROLE");
     if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
       privilege_results.push_back(role_permission_result);

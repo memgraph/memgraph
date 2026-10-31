@@ -36,6 +36,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "flags/experimental.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
@@ -3421,6 +3422,17 @@ TEST_P(CypherMainVisitorTest, UnionAll) {
   CheckRWType(query, kRead);
 }
 
+// What REVOKE ALL PRIVILEGES lists: the branch privileges too, whether or not versioning is enabled.
+const std::vector<AuthQuery::Privilege> kPrivilegesRevokedByAll = [] {
+  auto all = kPrivilegesAll;
+#ifdef MG_ENTERPRISE
+  if (std::ranges::find(all, AuthQuery::Privilege::BRANCH_USE) == all.end()) {
+    all.push_back(AuthQuery::Privilege::BRANCH_USE);
+  }
+#endif
+  return all;
+}();
+
 void check_auth_query(
     Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::vector<std::string> roles,
     std::string user_or_role, std::optional<TypedValue> password, std::vector<AuthQuery::Privilege> privileges,
@@ -4716,7 +4728,7 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    {},
                    "user",
                    {},
-                   kPrivilegesAll,
+                   kPrivilegesRevokedByAll,
                    {},
                    {});
   // Verify that all privileges are correctly visited.
@@ -5152,6 +5164,59 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE *, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
                SemanticException);
+}
+
+#ifdef MG_ENTERPRISE
+// ALL PRIVILEGES covers graph versioning's BRANCH_USE only while versioning is enabled, so that with it off nothing is
+// granted or denied that the server does not show. REVOKE ALL clears it either way: a privilege kept out of sight is
+// still a privilege.
+TEST_P(CypherMainVisitorTest, AllPrivilegesCoverBranchPrivilegesOnlyWhileVersioningIsEnabled) {
+  auto &ast_generator = *GetParam();
+  const auto covers_branches = [&](const std::string &query) {
+    auto *auth_query = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_NE(auth_query, nullptr) << query;
+    if (auth_query == nullptr) return false;
+    return std::ranges::find(auth_query->privileges_, AuthQuery::Privilege::BRANCH_USE) !=
+           auth_query->privileges_.end();
+  };
+
+  using memgraph::flags::Experiments;
+  for (const bool versioning : {false, true}) {
+    memgraph::flags::SetExperimental(versioning ? Experiments::VERSIONING : Experiments::NONE);
+    EXPECT_EQ(covers_branches("GRANT ALL PRIVILEGES TO user"), versioning) << versioning;
+    EXPECT_EQ(covers_branches("DENY ALL PRIVILEGES TO user"), versioning) << versioning;
+    EXPECT_TRUE(covers_branches("REVOKE ALL PRIVILEGES FROM user")) << versioning;
+    // Named explicitly, it is always accepted.
+    EXPECT_TRUE(covers_branches("GRANT BRANCH_USE TO user")) << versioning;
+  }
+  memgraph::flags::SetExperimental(Experiments::NONE);
+}
+#endif
+
+// BRANCH, BRANCHES and BRANCH_USE are keywords of the branch statements and privileges, yet stay usable as names of
+// variables, labels, properties and aliases, whether or not versioning is enabled.
+TEST_P(CypherMainVisitorTest, BranchWordsStayUsableAsIdentifiers) {
+  auto &ast_generator = *GetParam();
+  using memgraph::flags::Experiments;
+  for (const bool versioning : {false, true}) {
+#ifdef MG_ENTERPRISE
+    memgraph::flags::SetExperimental(versioning ? Experiments::VERSIONING : Experiments::NONE);
+#endif
+    for (const auto *word : {"branch", "BRANCH", "branches", "BRANCHES", "branch_use", "BRANCH_USE"}) {
+      const auto query = fmt::format(
+          "MATCH ({0}:{0})-[:{0}]->(m {{{0}: 1}}) WITH {0}, m.{0} AS {0}_alias UNWIND [1] AS x RETURN {0}.{0} AS {0}",
+          word);
+      auto *parsed = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+      ASSERT_NE(parsed, nullptr) << query;
+      const auto *ret = dynamic_cast<Return *>(parsed->single_query_->clauses_.back());
+      ASSERT_NE(ret, nullptr) << query;
+      ASSERT_EQ(ret->body_.named_expressions.size(), 1U) << query;
+      EXPECT_EQ(ret->body_.named_expressions[0]->name_, word) << versioning;
+    }
+  }
+#ifdef MG_ENTERPRISE
+  memgraph::flags::SetExperimental(Experiments::NONE);
+#endif
 }
 
 TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
@@ -9851,6 +9916,89 @@ TEST_P(CypherMainVisitorTest, SuspendResumeDatabaseInvalidSyntax) {
   // Missing database name
   TestInvalidQuery("SUSPEND DATABASE", ast_generator);
   TestInvalidQuery("RESUME DATABASE", ast_generator);
+}
+
+namespace {
+// A quoted name is a StringLiteral: a ParameterLookup under a cached AST, else a PrimitiveLiteral.
+std::string QuotedBranchName(Base &ast_generator, Expression *expr) {
+  return std::string{ast_generator.GetLiteral(expr, ast_generator.context_.is_query_cached).ValueString()};
+}
+
+// A bare name is a symbolicName: always a PrimitiveLiteral.
+std::string BareBranchName(Base &ast_generator, Expression *expr) {
+  return std::string{ast_generator.GetLiteral(expr, /*use_parameter_lookup=*/false).ValueString()};
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, ShowBranch) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+    EXPECT_EQ(query->name_, nullptr);
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(QuotedBranchName(ast_generator, query->name_), "feature");
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH feature"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(BareBranchName(ast_generator, query->name_), "feature");
+  }
+  {
+    // A keyword is a valid bare branch name.
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH branches"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(BareBranchName(ast_generator, query->name_), "branches");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ShowBranches) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCHES"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
+    EXPECT_FALSE(query->for_database_.has_value());
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCHES FOR DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
+    EXPECT_EQ(query->for_database_, "testdb");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, GrantBranchPrivileges) {
+  auto &ast_generator = *GetParam();
+  check_auth_query(&ast_generator,
+                   "GRANT BRANCH_USE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::BRANCH_USE},
+                   {},
+                   {});
+}
+
+TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW BRANCHES 'feature'", ast_generator);
+  TestInvalidQuery("SHOW BRANCHES FOR 'testdb'", ast_generator);
+  TestInvalidQuery("SHOW BRANCH 1", ast_generator);
+  TestInvalidQuery("SHOW BRANCH 'a' 'b'", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {

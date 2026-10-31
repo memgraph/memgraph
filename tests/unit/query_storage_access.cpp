@@ -372,6 +372,12 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   DeclaresWithAction<DescriptionQuery>(DescriptionQuery::Action::SHOW_ALL, FixedAccess{.access = kRead}, true);
   Declares<ReloadSSLQuery>(NoAccess{}, false);
   Declares<ShowMemoryInfoQuery>(NoAccess{}, false);
+  // Branch statements take no storage accessor: they work on the version registry, and the ones that
+  // need main's lock take it themselves. None reads graph data, so a broken database still lists and
+  // drops its branches.
+  for (auto const action : {VersioningQuery::Action::SHOW_BRANCH, VersioningQuery::Action::SHOW_BRANCHES}) {
+    DeclaresWithAction<VersioningQuery>(action, NoAccess{}, false);
+  }
 
   // The count comes from the visitor's own list of query types rather than from a literal, so a new
   // type of query reaches this test as a missing row instead of passing unnoticed.

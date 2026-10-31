@@ -19,6 +19,9 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -71,9 +74,37 @@ class Parser {
     parser_.addErrorListener(&error_listener_);
     auto *tree = parser_.cypher();
     if (parser_.getNumberOfSyntaxErrors()) {
-      throw query::SyntaxException(error_listener_.error_);
+      throw query::SyntaxException(error_listener_.error_ + BranchNameHint(query_, error_listener_.error_index_));
     }
     return tree;
+  }
+
+  /// A branch name that is not a plain identifier (a-b, a.b, 007) fails as a grammar error. When the error is inside
+  /// the name of a branch statement the message gains the fix: quote the name.
+  static std::string BranchNameHint(std::string_view const full_query, size_t const error_index) {
+    auto query = full_query;
+    auto const next_word = [&query] {
+      auto const is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+      while (!query.empty() && is_space(query.front())) query.remove_prefix(1);
+      auto const word = query.substr(0, std::ranges::find_if(query, is_space) - query.begin());
+      query.remove_prefix(word.size());
+      return word;
+    };
+    auto const equals_ignoring_case = [](std::string_view word, std::string_view expected) {
+      return std::ranges::equal(
+          word, expected, [](unsigned char a, unsigned char b) { return std::toupper(a) == std::toupper(b); });
+    };
+    auto const verb = next_word();
+    if (!std::ranges::any_of(std::array<std::string_view, 5>{"CREATE", "DROP", "USE", "SHOW", "USING"},
+                             [&](std::string_view v) { return equals_ignoring_case(verb, v); })) {
+      return {};
+    }
+    if (!equals_ignoring_case(next_word(), "BRANCH")) return {};
+    auto const name = next_word();
+    auto const name_begin = static_cast<size_t>(name.data() - full_query.data());
+    if (name.empty() || error_index < name_begin || error_index >= name_begin + name.size()) return {};
+    return " If the branch name has characters other than letters, digits and underscores, or starts with a digit, "
+           "quote it, for example 'my-branch' or `my-branch`.";
   }
 
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
@@ -83,6 +114,7 @@ class Parser {
     void syntaxError(antlr4::Recognizer * /* unused */, antlr4::Token *token, size_t line, size_t position,
                      const std::string &message, std::exception_ptr exception) override {
       if (error_.empty()) {
+        error_index_ = token->getStartIndex();
         try {
           if (exception) std::rethrow_exception(exception);
         } catch (const antlr4::NoViableAltException &ex) {
@@ -103,6 +135,7 @@ class Parser {
     friend class Parser;
 
     std::string error_{};
+    size_t error_index_{0};
     std::string_view query_;
   };
 
