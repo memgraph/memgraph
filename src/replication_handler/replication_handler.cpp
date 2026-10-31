@@ -20,6 +20,15 @@
 #include "replication_query_handler.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/synchronized.hpp"
+#ifdef MG_ENTERPRISE
+#include "query/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "versioning/branch_recovery.hpp"
+#include "versioning/version_store.hpp"
+
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+#endif
 
 #include <spdlog/spdlog.h>
 
@@ -31,6 +40,25 @@ using namespace std::chrono_literals;
 
 namespace {
 #ifdef MG_ENTERPRISE
+// Databases are recovered before the role is known, so a REPLICA restart has rebuilt its branches. A failed drop is
+// logged, not fatal; that store keeps its branches, unfrozen.
+void DropBranchesOnReplicaStartup(dbms::DbmsHandler &dbms_handler) {
+  dbms_handler.ForEach([](dbms::DatabaseAccess db_acc) {
+    if (auto *const store = db_acc->version_store()) {
+      versioning::DropBranchesOnReplica(*store, db_acc->name(), "on REPLICA startup");
+    }
+  });
+}
+
+// Only a branch that survived a failed drop reaches this; its gids must stay reserved once this MAIN creates objects.
+void RaiseGidCountersForBranchesOnPromotion(dbms::DbmsHandler &dbms_handler) {
+  dbms_handler.ForEach([](dbms::DatabaseAccess db_acc) {
+    if (auto *const store = db_acc->version_store()) {
+      versioning::RaiseGidCountersForBranches(*store, *static_cast<storage::InMemoryStorage *>(db_acc->storage()));
+    }
+  });
+}
+
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
                         dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth, parameters::Parameters &parameters) {
   /*
@@ -39,6 +67,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 
   // Startup replication state (if recovered at startup)
   auto replica = [&dbms_handler, &repl_state, &auth, &system, &parameters](RoleReplicaData &data) {
+    DropBranchesOnReplicaStartup(dbms_handler);
     return StartRpcServer(dbms_handler, repl_state, data, auth, system, parameters);
   };
 
@@ -213,9 +242,97 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 #else
   RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
 #endif
+#ifdef MG_ENTERPRISE
+  branches_allowed_.store(repl_state_.ReadLock()->IsMain(), std::memory_order_release);
+#endif
 }
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
+#ifdef MG_ENTERPRISE
+
+// Holds branch_role_mutex_ across a demotion's branch drop and role flip; the destructor unfreezes the stores if the
+// instance is still MAIN at the end (drop, TryLock or flip failed).
+class ReplicationHandler::BranchDemotion {
+ public:
+  explicit BranchDemotion(ReplicationHandler &handler)
+      : handler_{handler},
+        role_lock_{handler.branch_role_mutex_},
+        was_main_{handler.branches_allowed_.load(std::memory_order_acquire)} {}
+
+  BranchDemotion(BranchDemotion const &) = delete;
+  BranchDemotion &operator=(BranchDemotion const &) = delete;
+  BranchDemotion(BranchDemotion &&) = delete;
+  BranchDemotion &operator=(BranchDemotion &&) = delete;
+
+  ~BranchDemotion() {
+    if (was_main_ && handler_.branches_allowed_.load(std::memory_order_acquire)) handler_.UnfreezeBranches();
+  }
+
+  bool DropBranches() const { return !was_main_ || handler_.DropBranchesForDemotion(); }
+
+  void RefuseIfBranches() const {
+    if (was_main_) handler_.RefuseDemotionWithBranches();
+  }
+
+  void RecordRole(bool const is_main) const { handler_.branches_allowed_.store(is_main, std::memory_order_release); }
+
+ private:
+  ReplicationHandler &handler_;
+  std::lock_guard<std::mutex> role_lock_;
+  bool was_main_;
+};
+
+bool ReplicationHandler::DropBranchesForDemotion() {
+  bool ok = true;
+  dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
+    if (!ok) return;
+    if (auto *const store = db_acc->version_store()) {
+      ok = versioning::DropBranchesOnReplica(*store, db_acc->name(), "on demotion to REPLICA");
+    }
+  });
+  return ok;
+}
+
+void ReplicationHandler::RefuseDemotionWithBranches() {
+  std::vector<std::string> holders;
+  dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
+    auto *const store = db_acc->version_store();
+    if (!store || store->FreezeIfEmpty()) return;
+    std::vector<std::string> names;
+    for (auto const &[name, info] : store->List()) names.push_back(name);
+    holders.push_back(names.empty() ? fmt::format("'{}'", db_acc->name())
+                                    : fmt::format("'{}' (branches: {})", db_acc->name(), fmt::join(names, ", ")));
+  });
+  if (holders.empty()) return;
+  throw query::QueryRuntimeException(
+      "Cannot set the replication role to REPLICA while branches exist: Graph Versioning branches are not supported "
+      "with replication in v1. Drop the branches first with DROP BRANCH, then retry. Databases with branches: {}.",
+      fmt::join(holders, "; "));
+}
+
+bool ReplicationHandler::DropBranchesIfReplica(dbms::DatabaseAccess db_acc) {
+  if (branches_allowed_.load(std::memory_order_acquire)) return true;
+  auto *const store = db_acc->version_store();
+  return !store || versioning::DropBranchesOnReplica(*store, db_acc->name(), "resumed on a REPLICA");
+}
+
+void ReplicationHandler::ReconcileBranchesAfterPublish(dbms::DatabaseAccess db_acc) {
+  auto *const store = db_acc->version_store();
+  if (!store) return;
+  std::scoped_lock const lock{branch_role_mutex_};
+  if (branches_allowed_.load(std::memory_order_acquire)) {
+    store->Unfreeze();
+  } else {
+    versioning::DropBranchesOnReplica(*store, db_acc->name(), "published on a REPLICA");
+  }
+}
+
+void ReplicationHandler::UnfreezeBranches() {
+  dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    if (auto *const store = db_acc->version_store()) store->Unfreeze();
+  });
+}
+#endif
 
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
@@ -240,6 +357,12 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
     }
 
     auto locked_repl_state = repl_state_.TryLock();
+#ifdef MG_ENTERPRISE
+    // After the TryLock, which may still refuse the demotion; the same order as the promotion's.
+    BranchDemotion const branch_demotion{*this};
+    if (!branch_demotion.DropBranches()) return false;
+    utils::OnScopeExit const record_role{[&] { branch_demotion.RecordRole(locked_repl_state->IsMain()); }};
+#endif
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       // Pause TTL
@@ -254,7 +377,15 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
+#ifdef MG_ENTERPRISE
+    // The user's demotion never destroys branches (the coordinator's, SetReplicationRoleReplica, still does).
+    BranchDemotion const branch_demotion{*this};
+    branch_demotion.RefuseIfBranches();
+#endif
     auto locked_repl_state = repl_state_.TryLock();
+#ifdef MG_ENTERPRISE
+    utils::OnScopeExit const record_role{[&] { branch_demotion.RecordRole(locked_repl_state->IsMain()); }};
+#endif
     return SetReplicationRoleReplica_<false>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
@@ -287,6 +418,11 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
     });
+#ifdef MG_ENTERPRISE
+
+    // Held across the flip and UnfreezeBranches so a concurrent post-publish reconcile sees one consistent role.
+    std::unique_lock role_lock{branch_role_mutex_};
+#endif
 
     // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
@@ -326,6 +462,13 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       }
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
+#ifdef MG_ENTERPRISE
+
+    branches_allowed_.store(true, std::memory_order_release);
+    UnfreezeBranches();
+    RaiseGidCountersForBranchesOnPromotion(dbms_handler_);
+    role_lock.unlock();
+#endif
 
     // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
