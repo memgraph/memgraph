@@ -242,6 +242,25 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
         return entry;
       };
 
+  // '@' is reserved for <database>@<branch>, so a database named with it could not be addressed. Refuse to start before
+  // any storage is built, naming every such database (HOT and COLD alike) and leaving its data untouched.
+  {
+    std::string reserved;
+    for (auto it = durability_->begin(std::string(kDBPrefix)), end = durability_->end(std::string(kDBPrefix));
+         it != end;
+         ++it) {
+      if (const auto name = std::string_view{it->first}.substr(kDBPrefix.size()); IsReservedDatabaseName(name)) {
+        reserved += fmt::format("{}'{}'", reserved.empty() ? "" : ", ", name);
+      }
+    }
+    if (!reserved.empty()) {
+      LOG_FATAL(
+          "Database name(s) {} contain '@', which is reserved for <database>@<branch> addressing since this version. "
+          "Start the previous Memgraph version, RENAME DATABASE each of them to a name without '@', then upgrade.",
+          reserved);
+    }
+  }
+
   // Restore databases. A tenant is restored HOT (storage built + recovered) unless its durable entry
   // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored
   // (no storage build). A HOT recovery that fails ABORTS the process (fail loud, like master) — a HOT

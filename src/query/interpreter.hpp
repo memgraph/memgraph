@@ -569,6 +569,10 @@ class Interpreter final {
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_explicit_db);
 
+  // Bolt db="<database>@<branch>": moves the session to `branch` of its current database; nullopt (or "main") means
+  // main. Throws QueryRuntimeException, leaving the session where it was, if the branch cannot be entered.
+  void SelectPinnedBranch(std::optional<std::string> const &branch);
+
   void ResetDB() { current_db_.ResetDB(); }
 
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
