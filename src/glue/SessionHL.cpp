@@ -836,7 +836,12 @@ bool RuntimeConfig::BoundDbMatches(const bolt_map_t &run_time_info) const {
   if (!db_acc || db_acc->is_marked_for_deletion()) return false;
   if (it == run_time_info.end()) return true;
   if (!it->second.IsString()) return false;
-  return *db_acc->get()->name_view() == it->second.ValueString();
+  const auto name_view = db_acc->get()->name_view();
+  const auto &name = *name_view;
+  const auto &value = it->second.ValueString();
+  if (!pinned_branch_) return name == value;
+  return value.size() == name.size() + 1 + pinned_branch_->size() && value.starts_with(name) &&
+         value[name.size()] == '@' && value.ends_with(*pinned_branch_);
 }
 
 void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
@@ -861,6 +866,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Step 2: Handle database configuration with consideration for user impersonation
   bool db_explicit = false;
   std::optional<std::string> defined_db;
+  std::optional<std::string> branch;
   if (run_time_info.contains("db")) {
     db_explicit = true;
     const auto &info = run_time_info.at("db");
@@ -868,6 +874,15 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
     }
     defined_db = info.ValueString();
+    // "<database>@<branch>": database names cannot contain '@', so it always addresses a branch.
+    if (const auto at = defined_db->rfind('@'); at != std::string::npos) {
+      if (memgraph::dbms::IsReservedDatabaseName(std::string_view{*defined_db}.substr(0, at))) {
+        throw memgraph::communication::bolt::ClientError(
+            "Invalid database name '{}': '@' may appear only once, as in <database>@<branch>.", *defined_db);
+      }
+      branch = defined_db->substr(at + 1);
+      defined_db->resize(at);
+    }
   }
 
   // Step 3: Determine final target database
@@ -889,6 +904,13 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   }
   const auto &target = user ? user : session_->session_user_or_role_;
   MultiDatabaseAuth(target.get(), *defined_db);
+  if (branch && target &&
+      !target->IsAuthorized(
+          {memgraph::query::AuthQuery::Privilege::BRANCH_USE}, *defined_db, &memgraph::query::session_long_policy)) {
+    throw memgraph::communication::bolt::ClientError(
+        "You are not authorized to use branches on the database \"{}\"! Please contact your database administrator.",
+        *defined_db);
+  }
 
   auto db_acc = [&]() -> std::optional<memgraph::dbms::DatabaseAccess> {
     try {
@@ -910,6 +932,15 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // The session changes from here on; a failure below must not leave the old entry cached.
   previous_run_time_info_.reset();
   session_->interpreter_.SetCurrentDB(std::move(*db_acc), db_explicit);
+  // db="x" means main; a request without "db" also leaves a branch an earlier "x@b" pinned.
+  if (db_explicit || pinned_branch_) {
+    pinned_branch_ = std::move(branch);
+    try {
+      session_->interpreter_.SelectPinnedBranch(pinned_branch_);
+    } catch (const memgraph::query::QueryException &e) {
+      throw memgraph::communication::bolt::ClientError(e.what());
+    }
+  }
 
   previous_run_time_info_ = run_time_info;
   db_selected_by_use_ = false;

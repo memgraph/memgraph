@@ -1,0 +1,30 @@
+# Branches need the versioning flag and a durable database (WAL; recovery on startup is the default).
+versioning_cluster: &versioning_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=versioning", "--storage-wal-enabled=true"]
+      log_file: "versioning-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+# The same cluster with commit-lock narrowing on for main: branches must not depend on the commit-lock mode.
+versioning_narrowing_cluster: &versioning_narrowing_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=versioning,commit-lock-narrowing", "--storage-wal-enabled=true"]
+      log_file: "versioning-narrowing-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Versioning Bolt db=database@branch test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["versioning/versioning_bolt_db_test.py"]
+    <<: *versioning_cluster
+
+  - name: "Versioning Bolt db=database@branch test with commit-lock narrowing"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["versioning/versioning_bolt_db_test.py"]
+    <<: *versioning_narrowing_cluster
