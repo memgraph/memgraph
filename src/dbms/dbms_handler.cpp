@@ -1639,6 +1639,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       best_effort("applying the TTL user check", [&] {
         if (ttl_user_check_) acc->storage()->ttl_.SetUserCheck(ttl_user_check_);
       });
+      best_effort("post-publish resume arm", [&] {
+        if (on_published_) on_published_(acc);
+      });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
       if (already_hot) *already_hot = false;
       return acc;
