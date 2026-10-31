@@ -28,6 +28,9 @@
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/version_store.hpp"
+#endif
 
 #include <spdlog/spdlog.h>
 #include <optional>
@@ -194,6 +197,16 @@ void DrainAndRejectPrepareCommit(storage::replication::Decoder &decoder, uint64_
   const storage::replication::PrepareCommitRes res{false};
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", db_name));
 }
+#ifdef MG_ENTERPRISE
+
+// A resync wipes the tenant, so branches forked from the discarded state go too. Runs before main_lock_ is taken
+// (blocking file I/O); a failure (logged) does not block the resync.
+void DropBranchesBeforeClear(dbms::Database &db) {
+  if (auto *const store = db.version_store()) {
+    versioning::DropBranchesOnReplica(*store, db.name(), "before a replica resync");
+  }
+}
+#endif
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
@@ -724,6 +737,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
   {
+#ifdef MG_ENTERPRISE
+    DropBranchesBeforeClear(*db_acc->get());
+#endif
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -947,6 +963,9 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     // advancing when we are not.
     record_progress();
     {
+#ifdef MG_ENTERPRISE
+      DropBranchesBeforeClear(*db_acc->get());
+#endif
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -1115,6 +1134,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     // advancing when we are not.
     record_progress();
     {
+#ifdef MG_ENTERPRISE
+      DropBranchesBeforeClear(*db_acc->get());
+#endif
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
