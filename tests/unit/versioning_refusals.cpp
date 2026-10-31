@@ -242,9 +242,11 @@ TEST_F(VersioningRefusalsTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused
   InterpreterFaker hidden{&interpreter_context, *acc};
 
   for (const auto &[query, message] : kRefusedWhileBranchesExist) ExpectRefusedWith(hidden, query, message);
-  EXPECT_EQ(ThrownMessage([&] { hidden.Interpret("SHOW BRANCHES"); }),
-            memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
-      << "hidden branches are not listed";
+  for (const auto *query : {"SHOW BRANCHES", "CREATE BRANCH 'c'", "DROP BRANCH 'b'"}) {
+    EXPECT_EQ(ThrownMessage([&] { hidden.Interpret(query); }),
+              memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
+        << query;
+  }
 }
 
 // The early check of STORAGE MODE runs at Prepare; the switch checks again under its exclusive hold, so a branch

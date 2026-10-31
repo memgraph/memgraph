@@ -2862,6 +2862,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
   if (ctx->BRANCH_USE()) return AuthQuery::Privilege::BRANCH_USE;
+  if (ctx->BRANCH_EDIT()) return AuthQuery::Privilege::BRANCH_EDIT;
   if (ctx->COORDINATOR_READ()) return AuthQuery::Privilege::COORDINATOR_READ;
   if (ctx->COORDINATOR_WRITE()) return AuthQuery::Privilege::COORDINATOR_WRITE;
   if (ctx->COORDINATOR()) {
@@ -4906,6 +4907,23 @@ antlrcpp::Any CypherMainVisitor::visitBranchName(MemgraphCypher::BranchNameConte
   }
   return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
       std::any_cast<std::string>(visitStringLiteral(ctx->StringLiteral()->getText())), token_position));
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateBranch(MemgraphCypher::CreateBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::CREATE_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  query_ = versioning_query;
+  return versioning_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropBranch(MemgraphCypher::DropBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::DROP_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  versioning_query->force_ = ctx->FORCE() != nullptr;
+  query_ = versioning_query;
+  return versioning_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) {

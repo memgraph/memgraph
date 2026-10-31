@@ -4297,7 +4297,7 @@ class VersioningQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
-  enum class Action : uint8_t { SHOW_BRANCH, SHOW_BRANCHES };
+  enum class Action : uint8_t { SHOW_BRANCH, SHOW_BRANCHES, CREATE_BRANCH, DROP_BRANCH };
 
   memgraph::query::VersioningQuery::Action action_;
   // An Expression (PrimitiveLiteral or ParameterLookup), never a resolved string: the AST is cached across executions
@@ -4305,12 +4305,14 @@ class VersioningQuery : public memgraph::query::Query {
   memgraph::query::Expression *name_{nullptr};
   /// A plain identifier, never stripped into a parameter, so it is resolved at parse time.
   std::optional<std::string> for_database_;
+  bool force_{false};
 
   VersioningQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<VersioningQuery>();
     object->action_ = action_;
     object->name_ = name_ ? name_->Clone(storage) : nullptr;
     object->for_database_ = for_database_;
+    object->force_ = force_;
     return object;
   }
 };
