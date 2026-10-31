@@ -2132,6 +2132,8 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
+  /// USING BRANCH: an Expression, like the branch name of the branch statements, because the AST is cached.
+  memgraph::query::Expression *branch_target_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2143,6 +2145,7 @@ struct PreQueryDirectives {
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
     object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
+    object.branch_target_ = branch_target_ ? branch_target_->Clone(storage) : nullptr;
     return object;
   }
 };

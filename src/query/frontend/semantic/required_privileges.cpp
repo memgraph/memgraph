@@ -99,6 +99,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     if (query.pre_query_directives_.parallel_execution_) {
       AddPrivilege(AuthQuery::Privilege::PARALLEL_EXECUTION);
     }
+    if (query.pre_query_directives_.branch_target_ != nullptr) {
+      AddPrivilege(AuthQuery::Privilege::BRANCH_USE);
+    }
     query.single_query_->Accept(*this);
     for (auto *cypher_union : query.cypher_unions_) {
       cypher_union->Accept(*this);
