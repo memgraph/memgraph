@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,5 +16,13 @@ namespace memgraph::dbms {
 constexpr std::string_view kDefaultDB = "memgraph";        //!< Name of the default database
 constexpr std::string_view kSystemDB = kDefaultDB;         //!< Name of the system database (same as default)
 constexpr std::string_view kMultiTenantDir = "databases";  //!< Name of the multi-tenant directory
+#ifdef MG_ENTERPRISE
+
+// With versioning on, '@' is reserved: a Bolt "db" value "<database>@<branch>" addresses a branch. With it off, a name
+// is any name, as before the feature existed.
+inline bool IsReservedDatabaseName(std::string_view name, bool versioning_enabled) {
+  return versioning_enabled && name.contains('@');
+}
+#endif
 
 }  // namespace memgraph::dbms

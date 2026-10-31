@@ -125,6 +125,10 @@ add_subdirectory(user_profiles)
 add_subdirectory(load_remote_snapshot)
 add_subdirectory(reset_session_isolation)
 
+if (MG_ENTERPRISE)
+add_subdirectory(versioning)
+endif()
+
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
