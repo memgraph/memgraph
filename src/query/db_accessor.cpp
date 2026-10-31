@@ -1069,11 +1069,19 @@ std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::Vecto
 }
 
 std::vector<storage::VectorIndexInfo> DbAccessor::ListAllVectorIndices() const {
+#ifdef MG_ENTERPRISE
+  return SchemaAccessor().ListAllVectorIndices();
+#else
   return accessor_->ListAllVectorIndices();
+#endif
 }
 
 std::vector<storage::VectorEdgeIndexInfo> DbAccessor::ListAllVectorEdgeIndices() const {
+#ifdef MG_ENTERPRISE
+  return SchemaAccessor().ListAllVectorEdgeIndices();
+#else
   return accessor_->ListAllVectorEdgeIndices();
+#endif
 }
 
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
