@@ -242,6 +242,27 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
         return entry;
       };
 
+  // With versioning on, '@' is reserved for <database>@<branch>: refuse to start before any storage is built, naming
+  // every such database (HOT and COLD); their data is untouched.
+  if (default_config_.experimental_versioning) {
+    std::string reserved;
+    for (auto it = durability_->begin(std::string(kDBPrefix)), end = durability_->end(std::string(kDBPrefix));
+         it != end;
+         ++it) {
+      if (const auto name = std::string_view{it->first}.substr(kDBPrefix.size());
+          IsReservedDatabaseName(name, default_config_.experimental_versioning)) {
+        reserved += fmt::format("{}'{}'", reserved.empty() ? "" : ", ", name);
+      }
+    }
+    if (!reserved.empty()) {
+      LOG_FATAL(
+          "Database name(s) {} contain '@', which is reserved for <database>@<branch> addressing while versioning is "
+          "enabled. Start without --experimental-enabled=versioning, RENAME DATABASE each of them to a name without "
+          "'@', then enable versioning again.",
+          reserved);
+    }
+  }
+
   // Restore databases. A tenant is restored HOT (storage built + recovered) unless its durable entry
   // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored
   // (no storage build). A HOT recovery that fails ABORTS the process (fail loud, like master) — a HOT
