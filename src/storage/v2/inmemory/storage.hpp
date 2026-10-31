@@ -943,9 +943,11 @@ class InMemoryStorage final : public Storage {
   // self-pins it until finalize. Always SNAPSHOT_ISOLATION and a plain SHARED lock (main stays writable); writes
   // throw WriteInHistoricalAccessorException. Label/edge/property indexes are used only if committed by fork_ts;
   // point/text/vector indexes are not used.
-  // Blocks on main_lock_ without a timeout: the calling thread must not already hold an accessor on this storage,
-  // or it deadlocks behind a pending UNIQUE (main_lock_ is writer-preferring).
-  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
+  // Blocks on main_lock_ for at most `timeout` (indefinitely without one; the timeout throws): a thread that already
+  // holds an accessor on this storage deadlocks behind a pending UNIQUE (main_lock_ is writer-preferring), so it
+  // must pass one.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(
+      uint64_t fork_ts, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();

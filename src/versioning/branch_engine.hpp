@@ -13,6 +13,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -303,7 +304,9 @@ class BranchContext {
 
   // Opens a historical accessor on main at fork_ts (holding main's READ guard). Fails, leaving nothing open, if
   // fork_ts is no longer pinned. Call BEFORE opening the diff-engine accessor: lock order is main READ -> diff engine.
-  std::expected<void, BuildError> OpenHistorical();
+  // `timeout` bounds the wait for the guard (throwing the storage access timeout): a queued UNIQUE request blocks new
+  // shared holders, so a session opening a second branch transaction under an open one must not wait forever.
+  std::expected<void, BuildError> OpenHistorical(std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
   // Completes the transaction OpenHistorical started: `diff_txn` is the session's diff-engine accessor, not owned.
   void SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn);
