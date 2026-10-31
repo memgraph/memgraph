@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Interpreter-level fixture for Graph Versioning: an in-process Database driven through Interpreter::Prepare/Pull, with
-// sessions attached to branches through the C++ API (the branch statements are not in the grammar yet).
+// Interpreter-level fixture for Graph Versioning: an in-process Database driven through Interpreter::Prepare/Pull.
+// Attach/Fork put a session on a branch through the C++ API, bypassing the gate that USE BRANCH checks.
 #pragma once
 
 #include <algorithm>
