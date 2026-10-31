@@ -328,6 +328,13 @@ TEST_F(TestPrivilegeExtractor, ShowAndUseBranchNeedBranchUse) {
   }
 }
 
+TEST_F(TestPrivilegeExtractor, UsingBranchNeedsBranchUse) {
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")))));
+  query->pre_query_directives_.branch_target_ = LITERAL("feature");
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::CREATE, AuthQuery::Privilege::BRANCH_USE));
+}
+
 TEST_F(TestPrivilegeExtractor, BranchManagementNeedsBranchEdit) {
   for (auto const force : {false, true}) {
     for (auto const action : {VersioningQuery::Action::CREATE_BRANCH, VersioningQuery::Action::DROP_BRANCH}) {
