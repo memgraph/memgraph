@@ -16,6 +16,7 @@
 #include <optional>
 #include <ratio>
 #include <sstream>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 
@@ -559,11 +560,7 @@ TEST(TemporalTest, DurationArithmeticOverflowIsTypedInvalidArgument) {
   EXPECT_THROW((void)(Duration(0) - Duration(kMin)), temporal::OverflowException);
   EXPECT_THROW((void)(-Duration(kMin)), temporal::OverflowException);
 
-  try {
-    (void)(Duration(kMax) + Duration(1));
-    FAIL() << "expected an exception";
-  } catch (const temporal::InvalidArgumentException &) {
-  }
+  static_assert(std::is_base_of_v<temporal::InvalidArgumentException, temporal::OverflowException>);
 }
 
 TEST(TemporalTest, TimezoneOffsetOutOfRangeIsInvalidArgument) {
