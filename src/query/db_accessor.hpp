@@ -686,6 +686,15 @@ class DbAccessor final {
   // either one.
   storage::Result<EdgeAccessor> BranchInsertEdge(const VertexAccessor &from, const VertexAccessor &to,
                                                  storage::EdgeTypeId edge_type);
+
+  // Schema listings on a branch are main's: the diff engine holds only the indexes it keeps for its own scans and no
+  // constraints, TTL or descriptions.
+  storage::Storage::Accessor &SchemaAccessor() const {
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      return branch_ctx_->historical();
+    }
+    return *accessor_;
+  }
 #endif
 
  public:
@@ -1414,9 +1423,15 @@ class DbAccessor final {
     return accessor_->ApproximateEdgeCount(property, lower, upper);
   }
 
+#ifdef MG_ENTERPRISE
+  storage::IndicesInfo ListAllIndices() const { return SchemaAccessor().ListAllIndices(); }
+
+  storage::ConstraintsInfo ListAllConstraints() const { return SchemaAccessor().ListAllConstraints(); }
+#else
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+#endif
 
   void DropAllIndexes() { accessor_->DropAllIndexes(); }
 
@@ -1702,7 +1717,11 @@ class DbAccessor final {
 
   std::optional<std::string> GetDatabaseDescription() const { return accessor_->GetDatabaseDescription(); }
 
+#ifdef MG_ENTERPRISE
+  std::vector<storage::DescriptionEntry> GetAllDescriptions() const { return SchemaAccessor().GetAllDescriptions(); }
+#else
   std::vector<storage::DescriptionEntry> GetAllDescriptions() const { return accessor_->GetAllDescriptions(); }
+#endif
 
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 
@@ -1716,7 +1735,7 @@ class DbAccessor final {
 
   void StopTtl() { accessor_->StopTtl(); }
 
-  storage::ttl::TtlInfo GetTtlConfig() const { return accessor_->GetTtlConfig(); }
+  storage::ttl::TtlInfo GetTtlConfig() const { return SchemaAccessor().GetTtlConfig(); }
 #endif
 };
 
