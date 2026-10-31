@@ -433,16 +433,18 @@ TEST_F(VersioningGatedTest, AuthorizationRefusalNamesTheMissingBranchPrivilege) 
 
 // A name that is not a plain identifier fails as a grammar error; for branch statements the message says to quote it.
 TEST_F(VersioningGatedTest, BranchNameThatIsNotAnIdentifierGetsAQuotingHint) {
-  for (const auto *query : {"SHOW BRANCH a-b", "show branch a.b", "SHOW BRANCH 007"}) {
+  for (const auto *query :
+       {"SHOW BRANCH a-b", "show branch a.b", "SHOW BRANCH 007", "USING BRANCH a-b MATCH (n) RETURN n"}) {
     EXPECT_THAT(ThrownMessage([&] { faker.Interpret(query); }),
                 ::testing::HasSubstr("quote it, for example 'my-branch' or `my-branch`."))
         << query;
   }
-  for (const auto *query : {"MATCH (n RETURN n", "SHOW BRANCH x garbage", "SHOW DATABASE a-b"}) {
+  for (const auto *query :
+       {"MATCH (n RETURN n", "SHOW BRANCH x garbage", "SHOW DATABASE a-b", "USING BRANCH x MATCH (n RETURN n"}) {
     EXPECT_THAT(ThrownMessage([&] { faker.Interpret(query); }), ::testing::Not(::testing::HasSubstr("quote it")))
         << query;
   }
-  for (const auto *query : {"SHOW BRANCH 'a-b'", "SHOW BRANCH `007`"}) {
+  for (const auto *query : {"SHOW BRANCH 'a-b'", "SHOW BRANCH `007`", "USING BRANCH `a-b` MATCH (n) RETURN n"}) {
     EXPECT_NO_THROW(memgraph::query::frontend::opencypher::Parser{query}) << query;
   }
 }

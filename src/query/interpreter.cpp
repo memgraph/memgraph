@@ -9833,6 +9833,23 @@ PreparedQuery PrepareUseBranchQuery(ParsedQuery parsed_query, std::string target
       },
       .rw_type = RWType::NONE};
 }
+
+// A transaction binds one storage engine when it begins, so USING BRANCH runs only as an autocommit query.
+versioning::VersionStore *CheckUsingBranch(InterpreterContext *interpreter_context, CurrentDB &current_db,
+                                           bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw QueryRuntimeException("USING BRANCH is not allowed inside an explicit transaction.");
+  }
+  if (!current_db.db_acc_) throw DatabaseContextRequiredException("Database required for query execution.");
+  return CheckBranchPrerequisites(interpreter_context, *current_db.db_acc_, versioning::GateOperation::kObserve);
+}
+
+// Runs the next transaction on `target` while the session keeps its branch: CurrentDB::CleanupDBTransaction restores
+// the parked one when the transaction ends.
+void EnterUsingBranch(CurrentDB &current_db, versioning::VersionStore *version_store, const std::string &target) {
+  if (target == "main" ? !current_db.CurrentVersion() : current_db.CurrentVersion() == target) return;
+  ParkAndAttach(current_db, version_store, (*current_db.db_acc_)->storage(), target);
+}
 }  // namespace
 
 // Branch queries open no storage accessor: the VersionStore has its own locking.
@@ -11543,14 +11560,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   // Load parquet uses thread safe allocator that's why it is being checked here
   bool has_load_parquet{false};
   bool parallel_execution{false};
+  Expression *branch_target{nullptr};  // NOLINT(misc-const-correctness): only the MG_ENTERPRISE build evaluates it
 
   if (cypher_query) {
     auto clauses = cypher_query->single_query_->clauses_;
     has_load_parquet =
         std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
     parallel_execution = cypher_query->pre_query_directives_.parallel_execution_;
+    branch_target = cypher_query->pre_query_directives_.branch_target_;
   } else if (const auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) {
     parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
+    branch_target = profile->cypher_query_->pre_query_directives_.branch_target_;
+  } else if (const auto *explain = utils::Downcast<ExplainQuery>(parsed_query.query)) {
+    branch_target = explain->cypher_query_->pre_query_directives_.branch_target_;
   }
 
   if (parallel_execution) {
@@ -11597,7 +11619,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (current_db_.BranchGone()) {
         current_db_.ThrowIfBranchGone(interpreter_context_->repl_state->ReadLock()->IsReplica());
       }
-      if (parsed_query.using_schema_assert || IsSchemaOrStorageGlobalQuery(parsed_query.query)) {
+      // Under USING BRANCH the query's target decides (below).
+      if ((parsed_query.using_schema_assert && branch_target == nullptr) ||
+          IsSchemaOrStorageGlobalQuery(parsed_query.query)) {
         throw QueryRuntimeException(std::string{kSchemaOnBranchError});
       }
       if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query) != nullptr) {
@@ -11607,6 +11631,25 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         query_execution->notifications.push_back(std::move(*notice));
       }
     }
+    // Resolved before parsed_query is moved into a Prepare*Query helper, which may free the AST.
+    std::optional<std::string> using_branch;
+    versioning::VersionStore *using_branch_store{nullptr};
+    if (branch_target != nullptr) [[unlikely]] {
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parsed_query.parameters;
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      using_branch = GetOptionalStringValue(branch_target, evaluator);
+      DMG_ASSERT(using_branch, "The grammar requires a branch name");
+      using_branch_store = CheckUsingBranch(interpreter_context_, current_db_, in_explicit_transaction_);
+      if (parsed_query.using_schema_assert && *using_branch != "main") {
+        throw QueryRuntimeException(
+            "Schema and storage-global operations are not allowed on a branch. Run the query on main: USING BRANCH "
+            "main.");
+      }
+    }
+#else
+    if (branch_target != nullptr) throw EnterpriseOnlyException();
 #endif
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
@@ -11743,6 +11786,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         if (transaction_requirements.isolation_override) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
+#ifdef MG_ENTERPRISE
+        if (using_branch_store != nullptr) [[unlikely]] {
+          EnterUsingBranch(current_db_, using_branch_store, *using_branch);
+        }
+#endif
         SetupDatabaseTransaction(transaction_requirements.could_commit,
                                  ToStorageAccessType(*transaction_requirements.access));
 
