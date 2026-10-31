@@ -1365,6 +1365,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
 
   /**
+   * @return Expression* -- PrimitiveLiteral, or ParameterLookup for a StringLiteral on a cached AST
+   */
+  antlrcpp::Any visitBranchName(MemgraphCypher::BranchNameContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCH)
+   */
+  antlrcpp::Any visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCHES)
+   */
+  antlrcpp::Any visitShowBranches(MemgraphCypher::ShowBranchesContext *ctx) override;
+
+  /**
    * @return UseDatabaseQuery*
    */
   antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;

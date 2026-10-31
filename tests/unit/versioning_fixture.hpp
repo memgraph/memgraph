@@ -42,6 +42,7 @@
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 
 namespace memgraph::tests::versioning_fixture {
@@ -54,6 +55,10 @@ using Rows = std::vector<std::vector<int64_t>>;
 inline size_t CheckoutCount(const memgraph::versioning::VersionStore *store, std::string_view name) {
   const auto listing = store->Get(name);
   return listing ? listing->sessions : 0;
+}
+
+inline std::string GateMessage(memgraph::versioning::GateError err) {
+  return std::string{memgraph::versioning::GateErrorMessage(err)};
 }
 
 inline Rows IntRows(InterpreterFaker &session, const std::string &query) {
