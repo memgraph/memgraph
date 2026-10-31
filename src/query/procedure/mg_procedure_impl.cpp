@@ -404,7 +404,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 
 bool IsDeleted(const mgp_vertex *vertex) {
   if (vertex->IsVirtual()) return false;
-  return vertex->getImpl().impl_.vertex_->deleted();
+  return vertex->getImpl().IsDeleted();
 }
 
 bool IsDeleted(const mgp_edge *edge) {
@@ -5980,6 +5980,14 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type allo
                                                                           graph->getImpl()->DatabaseName()
 #endif
                                                                               ));
+#ifdef MG_ENTERPRISE
+  // The caller's accessor has a branch only when its query runs on one, so under USING BRANCH main the nested query
+  // runs on main.
+  if (auto const *branch = graph->getImpl()->branch_context(); branch != nullptr) [[unlikely]] {
+    auto &current_db = pImpl->interpreter->current_db_;
+    current_db.AttachBranchOf(current_db.db_acc_->get()->version_store(), *branch);
+  }
+#endif
 }
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }
