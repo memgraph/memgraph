@@ -937,8 +937,10 @@ class InMemoryStorage final : public Storage {
   // Read-only accessor at `fork_ts` (must be a live pin, else ForkTimestampNotPinned); self-pins it until finalize.
   // SNAPSHOT_ISOLATION only; writes throw WriteInHistoricalAccessorException. Label/edge/property indexes are used only
   // if committed by fork_ts; point/text/vector indexes are not used.
-  // Blocks on main_lock_ without timeout: a caller already holding an accessor here deadlocks behind a pending UNIQUE.
-  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
+  // Blocks on main_lock_ up to `timeout`, throwing SharedAccessTimeout on expiry; no timeout blocks indefinitely, which
+  // deadlocks a caller already holding an accessor behind a pending UNIQUE.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(
+      uint64_t fork_ts, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();

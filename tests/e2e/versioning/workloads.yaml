@@ -38,6 +38,18 @@ workloads:
     args: ["versioning/versioning_bolt_db_test.py"]
     <<: *versioning_narrowing_cluster
 
+  - name: "Versioning query modules on a branch"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/versioning/query_modules/"
+    args: ["versioning/versioning_mgp_test.py"]
+    <<: *versioning_cluster
+
+  - name: "Versioning query modules on a branch with commit-lock narrowing"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/versioning/query_modules/"
+    args: ["versioning/versioning_mgp_test.py"]
+    <<: *versioning_narrowing_cluster
+
   - name: "Versioning off behaves as before"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"

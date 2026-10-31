@@ -259,10 +259,11 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   });
 }
 
-std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical() {
+std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical(
+    std::optional<std::chrono::milliseconds> timeout) {
   EndTransaction();
   return main()
-      .HistoricalAccess(fork_ts())
+      .HistoricalAccess(fork_ts(), timeout)
       .transform([this](std::unique_ptr<storage::Storage::Accessor> historical) {
         historical->GetTransaction()->branch_ctx = this;
         txn_.emplace(Txn{.historical = std::move(historical)});
