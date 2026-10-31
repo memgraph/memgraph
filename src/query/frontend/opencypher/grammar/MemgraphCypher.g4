@@ -40,6 +40,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
+                      | CACHE
                       | CALL
                       | CALLABLE
                       | CHECK
@@ -159,6 +160,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PASSWORD
                       | PERIODIC
                       | PERMISSIONS
+                      | PLAN
                       | POINT
                       | PORT
                       | PRIVILEGES
@@ -276,6 +278,7 @@ query : cypherQuery
       | replicationInfoQuery
       | lockPathQuery
       | freeMemoryQuery
+      | resetQueryPlanCacheQuery
       | triggerQuery
       | isolationLevelQuery
       | storageModeQuery
@@ -711,6 +714,8 @@ showReplicas : SHOW REPLICAS ;
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
 freeMemoryQuery : FREE MEMORY ;
+
+resetQueryPlanCacheQuery : RESET QUERY PLAN CACHE ;
 
 triggerName : symbolicName ;
 

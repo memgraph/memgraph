@@ -3665,6 +3665,22 @@ class FreeMemoryQuery : public memgraph::query::Query {
   }
 };
 
+class ResetQueryPlanCacheQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
+  ResetQueryPlanCacheQuery *Clone(AstStorage *storage) const override {
+    ResetQueryPlanCacheQuery *object = storage->Create<ResetQueryPlanCacheQuery>();
+    return object;
+  }
+};
+
 class TriggerQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

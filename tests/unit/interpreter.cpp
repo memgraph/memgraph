@@ -2454,6 +2454,25 @@ std::string CreateRow(const std::vector<std::string> &columns, const std::string
 }
 }  // namespace
 
+TYPED_TEST(InterpreterTest, ResetQueryPlanCache) {
+  this->Interpret("MATCH (n) RETURN n");
+  auto *plan_cache = this->db->plan_cache();
+  EXPECT_GT(plan_cache->WithLock([](auto &cache) { return cache.size(); }), 0U);
+  this->Interpret("RESET QUERY PLAN CACHE");
+  EXPECT_EQ(plan_cache->WithLock([](auto &cache) { return cache.size(); }), 0U);
+}
+
+TYPED_TEST(InterpreterTest, ResetQueryPlanCacheRejectedInExplicitTransaction) {
+  this->Interpret("BEGIN");
+  EXPECT_THROW(this->Interpret("RESET QUERY PLAN CACHE"), memgraph::query::QueryException);
+  this->default_interpreter.Abort();
+}
+
+TYPED_TEST(InterpreterTest, ResetQueryPlanCacheWithoutCurrentDatabaseThrows) {
+  this->default_interpreter.interpreter.current_db_.ResetDB();
+  EXPECT_THROW(this->Interpret("RESET QUERY PLAN CACHE"), memgraph::query::DatabaseContextRequiredException);
+}
+
 TYPED_TEST(InterpreterTest, LoadCsvClause) {
   auto dir_manager = TmpDirManager("csv_directory");
   const auto csv_path = dir_manager.Path() / "file.csv";
