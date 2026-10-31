@@ -600,6 +600,13 @@ class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
 };
 
+// Branch management queries are autocommit-only, like multi-database queries.
+class VersioningQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  VersioningQueryInMulticommandTxException() : MulticommandTxException("Managing graph versioning branches") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(VersioningQueryInMulticommandTxException)
+};
+
 class DropGraphInMulticommandTxException : public MulticommandTxException {
  public:
   DropGraphInMulticommandTxException() : MulticommandTxException("Dropping the graph") {}

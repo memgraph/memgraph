@@ -153,6 +153,7 @@
 #include "utils/variant_helpers.hpp"
 #ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
+#include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
 
@@ -9393,6 +9394,190 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+// Spec order: flag, license, storage mode, durability (CheckVersioningGate), then MAIN.
+versioning::VersionStore *CheckBranchPrerequisites(InterpreterContext *interpreter_context,
+                                                   memgraph::dbms::DatabaseAccess &db_acc) {
+  const auto &config = db_acc->config();
+  if (const auto gate_err =
+          versioning::CheckVersioningGate(versioning::GateOperation::kObserve,
+                                          {.flag_enabled = config.experimental_versioning,
+                                           .enterprise_valid = license::global_license_checker.IsEnterpriseValidFast(),
+                                           .is_in_memory_transactional = db_acc->storage()->GetStorageMode() ==
+                                                                         storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                           .durable = versioning::BranchesDurable(config)})) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
+  }
+  // The registry is local and unreplicated, so a REPLICA has no branches (they are dropped when it becomes one).
+  if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
+    throw QueryRuntimeException("Branch operations are forbidden on a REPLICA. Run them on the MAIN instance.");
+  }
+  // A database gets its registry only when it starts in IN_MEMORY_TRANSACTIONAL.
+  auto *version_store = db_acc->version_store();
+  if (version_store == nullptr) {
+    throw QueryRuntimeException(
+        "Graph versioning is not available for this database: it did not start in IN_MEMORY_TRANSACTIONAL storage "
+        "mode.");
+  }
+  return version_store;
+}
+
+// Rendered like SHOW SNAPSHOTS' creation_time.
+TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
+  if (!info.created_at_us) return TypedValue();
+  return TypedValue(utils::LocalDateTime(static_cast<int64_t>(*info.created_at_us)).ToStringWTZ());
+}
+
+size_t SessionsOnBranch(const std::map<uint64_t, size_t> &counts, uint64_t number) {
+  const auto it = counts.find(number);
+  return it == counts.end() ? 0 : it->second;
+}
+
+std::vector<std::string> BranchColumns() { return {"name", "created_at", "sessions", "current"}; }
+
+std::vector<TypedValue> BranchRow(std::string name, TypedValue created_at, size_t sessions, bool current) {
+  return {TypedValue(std::move(name)),
+          std::move(created_at),
+          TypedValue(static_cast<int64_t>(sessions)),
+          TypedValue(current)};
+}
+
+// Sessions per branch number (0 is main) of database `db_name`.
+std::map<uint64_t, size_t> CountSessionsPerBranch(InterpreterContext *interpreter_context, std::string_view db_name) {
+  return interpreter_context->interpreters.WithLock([&](const auto &interpreters) {
+    std::map<uint64_t, size_t> counts;
+    for (Interpreter *interpreter : interpreters) {
+      if (interpreter->current_db_.foreign_db_view().name != db_name) continue;
+      ++counts[interpreter->current_db_.foreign_branch_number()];
+    }
+    return counts;
+  });
+}
+
+PreparedQuery PrepareShowBranchQuery(ParsedQuery parsed_query, std::optional<std::string> requested,
+                                     InterpreterContext *interpreter_context, CurrentDB &current_db,
+                                     versioning::VersionStore *version_store) {
+  return PreparedQuery{
+      .header = BranchColumns(),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [version_store,
+                        &current_db,
+                        interpreter_context,
+                        requested = std::move(requested),
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          const auto current = current_db.CurrentVersion().value_or("main");
+          const auto &branch = requested ? *requested : current;
+          std::optional<versioning::BranchInfo> info;
+          if (branch != "main") {
+            info = version_store->Get(branch);
+            if (!info) throw QueryRuntimeException("Branch '{}' does not exist.", branch);
+          }
+          const auto counts = CountSessionsPerBranch(interpreter_context, (*current_db.db_acc_)->name());
+          std::vector<std::vector<TypedValue>> rows;
+          rows.push_back(BranchRow(branch,
+                                   info ? CreatedAtValue(*info) : TypedValue(),
+                                   SessionsOnBranch(counts, info ? info->number : 0),
+                                   branch == current));
+          pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+        }
+        if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+
+PreparedQuery PrepareShowBranchesQuery(ParsedQuery parsed_query, memgraph::dbms::DatabaseAccess target_db_acc,
+                                       versioning::VersionStore *version_store, InterpreterContext *interpreter_context,
+                                       CurrentDB &current_db) {
+  return PreparedQuery{
+      .header = BranchColumns(),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [target_db_acc = std::move(target_db_acc),
+                        version_store,
+                        &current_db,
+                        interpreter_context,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          const auto counts = CountSessionsPerBranch(interpreter_context, target_db_acc->name());
+          // `current` marks the caller's own branch, which is in the caller's database only.
+          const bool same_database = current_db.db_acc_ && *current_db.db_acc_ == target_db_acc;
+          const auto &session_branch = current_db.CurrentVersion();
+          std::vector<std::vector<TypedValue>> rows;
+          rows.push_back(
+              BranchRow("main", TypedValue(), SessionsOnBranch(counts, 0), same_database && !session_branch));
+          for (const auto &[name, info] : version_store->List()) {
+            rows.push_back(BranchRow(name,
+                                     CreatedAtValue(info),
+                                     SessionsOnBranch(counts, info.number),
+                                     same_database && session_branch == name));
+          }
+          pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+        }
+        if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
+}
+}  // namespace
+
+// Branch queries open no storage accessor: the VersionStore has its own locking.
+PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                     CurrentDB &current_db, Interpreter &interpreter) {
+  auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
+  DMG_ASSERT(query);
+  MG_ASSERT(current_db.db_acc_, "Branch queries expect a current database");
+
+  if (query->action_ == VersioningQuery::Action::SHOW_BRANCHES && query->for_database_) {
+    // The Bolt-level check covered the session's database only. Authorised before the lookup, so a refusal does not
+    // reveal whether the database exists.
+    if (auto *user_or_role = interpreter.user_or_role_.get();
+        user_or_role != nullptr &&
+        !user_or_role->IsAuthorized(
+            {AuthQuery::Privilege::BRANCH_USE}, *query->for_database_, &query::session_long_policy)) {
+      throw QueryRuntimeException(
+          "You are not authorized to show branches of the database \"{}\"! Please contact your database "
+          "administrator.",
+          *query->for_database_);
+    }
+    auto target_db_acc = [&] {
+      try {
+        return interpreter_context->dbms_handler->Get(*query->for_database_);
+      } catch (const utils::BasicException &e) {
+        throw QueryRuntimeException(e.what());
+      }
+    }();
+    auto *version_store = CheckBranchPrerequisites(interpreter_context, target_db_acc);
+    return PrepareShowBranchesQuery(
+        std::move(parsed_query), std::move(target_db_acc), version_store, interpreter_context, current_db);
+  }
+
+  auto db_acc = *current_db.db_acc_;
+  auto *version_store = CheckBranchPrerequisites(interpreter_context, db_acc);
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  auto name = GetOptionalStringValue(query->name_, evaluator);
+  switch (query->action_) {
+    case VersioningQuery::Action::SHOW_BRANCH:
+      return PrepareShowBranchQuery(
+          std::move(parsed_query), std::move(name), interpreter_context, current_db, version_store);
+    case VersioningQuery::Action::SHOW_BRANCHES:
+      return PrepareShowBranchesQuery(std::move(parsed_query), db_acc, version_store, interpreter_context, current_db);
+  }
+  LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
+}
+#else
+PreparedQuery PrepareVersioningQuery(ParsedQuery /*parsed_query*/, InterpreterContext * /*interpreter_context*/,
+                                     CurrentDB & /*current_db*/, Interpreter & /*interpreter*/) {
+  throw EnterpriseOnlyException();
+}
+#endif
+
 PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                       InterpreterContext *interpreter_context,
                                       std::optional<std::function<void(std::string_view)>> on_change_cb) {
@@ -11470,6 +11655,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+    } else if (utils::Downcast<VersioningQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw VersioningQueryInMulticommandTxException();
+      }
+      prepared_query = PrepareVersioningQuery(std::move(parsed_query), interpreter_context_, current_db_, *this);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();

@@ -104,6 +104,7 @@ class AuthQuery : public memgraph::query::Query {
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
     RELOAD_TLS,
+    BRANCH_USE,
     // Coordinator-only privileges (READ / WRITE in the grammar). Not part of kPrivilegesAll, so GRANT ALL PRIVILEGES on
     // a data instance does not grant them; they gate queries only on coordinators.
     COORDINATOR_READ,
@@ -323,6 +324,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::SERVER_SIDE_PARAMETERS,
     AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS,
     AuthQuery::Privilege::RELOAD_TLS,
+    AuthQuery::Privilege::BRANCH_USE,
 };
 
 }  // namespace memgraph::query
