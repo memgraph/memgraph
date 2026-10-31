@@ -1380,6 +1380,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropBranch(MemgraphCypher::DropBranchContext *ctx) override;
 
   /**
+   * @return VersioningQuery* (action=USE_BRANCH)
+   */
+  antlrcpp::Any visitUseBranch(MemgraphCypher::UseBranchContext *ctx) override;
+
+  /**
    * @return VersioningQuery* (action=SHOW_BRANCH)
    */
   antlrcpp::Any visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) override;

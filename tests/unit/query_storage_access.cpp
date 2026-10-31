@@ -378,7 +378,8 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   for (auto const action : {VersioningQuery::Action::SHOW_BRANCH,
                             VersioningQuery::Action::SHOW_BRANCHES,
                             VersioningQuery::Action::CREATE_BRANCH,
-                            VersioningQuery::Action::DROP_BRANCH}) {
+                            VersioningQuery::Action::DROP_BRANCH,
+                            VersioningQuery::Action::USE_BRANCH}) {
     DeclaresWithAction<VersioningQuery>(action, NoAccess{}, false);
   }
 
