@@ -254,6 +254,14 @@ bool BranchContext::LabelMayHaveChanged(storage::LabelId label, storage::Gid gid
   return entry.gids.contains(gid.AsUint());
 }
 
+std::vector<storage::LabelId> BranchCore::TouchedLabels() {
+  std::lock_guard lock(touched_mutex_);
+  std::vector<storage::LabelId> labels;
+  labels.reserve(label_touched_.size());
+  for (auto const &entry : label_touched_) labels.push_back(entry.first);
+  return labels;
+}
+
 std::shared_ptr<const BranchCore::LabelTouchedSet> BranchCore::LabelTouchedSnapshot(storage::LabelId label) {
   std::lock_guard lock(touched_mutex_);
   auto &cached = label_snapshots_[label];

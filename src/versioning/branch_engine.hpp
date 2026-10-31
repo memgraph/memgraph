@@ -152,6 +152,10 @@ class BranchCore {
   // returns the LabelTouchedVersion read under the same lock as the copy. O(new entries).
   uint64_t LabelTouchedTail(storage::LabelId label, size_t from, std::vector<uint64_t> &out);
 
+  // Labels the branch added to or removed from a fork vertex (a rolled-back write leaves its label listed): the label
+  // listing needs them because those writes never reach the diff engine.
+  std::vector<storage::LabelId> TouchedLabels();
+
   // Immutable set of fork gids that a scan of `label` must resolve: the label's touched gids plus every deleted gid.
   // Cached per label until the next insert, so repeated scans share one copy.
   using LabelTouchedSet = absl::flat_hash_set<uint64_t>;
