@@ -9874,6 +9874,53 @@ TEST_P(CypherMainVisitorTest, ShowBranch) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, CreateBranch) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(QuotedBranchName(ast_generator, query->name_), "feature");
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH feature"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
+    EXPECT_EQ(BareBranchName(ast_generator, query->name_), "feature");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, DropBranch) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::DROP_BRANCH);
+    EXPECT_EQ(QuotedBranchName(ast_generator, query->name_), "feature");
+    EXPECT_FALSE(query->force_);
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH feature FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::DROP_BRANCH);
+    EXPECT_EQ(BareBranchName(ast_generator, query->name_), "feature");
+    EXPECT_TRUE(query->force_);
+  }
+}
+
+// CREATE and DROP keep their other meanings.
+TEST_P(CypherMainVisitorTest, BranchStatementsDoNotShadowOtherStatements) {
+  auto &ast_generator = *GetParam();
+
+  EXPECT_NE(dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CREATE (branch:BRANCH {branch: 1})")), nullptr);
+  auto *drop_db = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE branch FORCE"));
+  ASSERT_NE(drop_db, nullptr);
+  EXPECT_EQ(drop_db->db_name_, "branch");
+}
+
 TEST_P(CypherMainVisitorTest, ShowBranches) {
   auto &ast_generator = *GetParam();
 
@@ -9914,11 +9961,25 @@ TEST_P(CypherMainVisitorTest, GrantBranchPrivileges) {
                    {AuthQuery::Privilege::BRANCH_USE},
                    {},
                    {});
+  check_auth_query(&ast_generator,
+                   "GRANT BRANCH_EDIT, BRANCH_USE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::BRANCH_EDIT, AuthQuery::Privilege::BRANCH_USE},
+                   {},
+                   {});
 }
 
 TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
   auto &ast_generator = *GetParam();
 
+  TestInvalidQuery("CREATE BRANCH", ast_generator);
+  TestInvalidQuery("CREATE BRANCH 'feature' FROM 'main'", ast_generator);
+  TestInvalidQuery("DROP BRANCH", ast_generator);
+  TestInvalidQuery("MERGE BRANCH 'feature'", ast_generator);
   TestInvalidQuery("SHOW BRANCHES 'feature'", ast_generator);
   TestInvalidQuery("SHOW BRANCHES FOR 'testdb'", ast_generator);
   TestInvalidQuery("SHOW BRANCH 1", ast_generator);

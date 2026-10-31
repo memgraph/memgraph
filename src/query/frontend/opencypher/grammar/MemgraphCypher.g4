@@ -40,6 +40,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BRANCH
+                      | BRANCH_EDIT
                       | BRANCH_USE
                       | BRANCHES
                       | BUILD
@@ -619,6 +620,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
           | BRANCH_USE
+          | BRANCH_EDIT
           | COORDINATOR_READ
           | COORDINATOR_WRITE
           ;
@@ -853,7 +855,9 @@ suspendDatabase : SUSPEND DATABASE databaseName ;
 resumeDatabase : RESUME DATABASE databaseName ;
 
 /* Graph Versioning (branches). */
-versioningQuery : showBranch
+versioningQuery : createBranch
+                | dropBranch
+                | showBranch
                 | showBranches
                 ;
 
@@ -861,6 +865,10 @@ versioningQuery : showBranch
 branchName : symbolicName
            | StringLiteral
            ;
+
+createBranch : CREATE BRANCH branchName ;
+
+dropBranch : DROP BRANCH branchName ( FORCE )? ;
 
 showBranch : SHOW BRANCH ( branchName )? ;
 

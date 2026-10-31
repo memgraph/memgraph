@@ -154,6 +154,7 @@
 #ifdef MG_ENTERPRISE
 #include "versioning/branch_engine.hpp"
 #include "versioning/gate.hpp"
+#include "versioning/name.hpp"
 #include "versioning/version_store.hpp"
 #endif
 
@@ -4085,6 +4086,12 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
     if (dba.type() != storage::StorageAccessType::WRITE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
+#ifdef MG_ENTERPRISE
+    // Without a valid license branches are read-only; reads and leaving the branch keep working.
+    if (dba.branch_context() != nullptr && !license::global_license_checker.IsEnterpriseValidFast()) [[unlikely]] {
+      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
+    }
+#endif
   }
 }
 
@@ -9371,10 +9378,11 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 namespace {
 // Spec order: flag, license, storage mode, durability, commit-lock narrowing (CheckVersioningGate), then MAIN.
 versioning::VersionStore *CheckBranchPrerequisites(InterpreterContext *interpreter_context,
-                                                   memgraph::dbms::DatabaseAccess &db_acc) {
+                                                   memgraph::dbms::DatabaseAccess &db_acc,
+                                                   versioning::GateOperation op) {
   const auto &config = db_acc->config();
   if (const auto gate_err =
-          versioning::CheckVersioningGate(versioning::GateOperation::kObserve,
+          versioning::CheckVersioningGate(op,
                                           {.flag_enabled = config.experimental_versioning,
                                            .enterprise_valid = license::global_license_checker.IsEnterpriseValidFast(),
                                            .is_in_memory_transactional = db_acc->storage()->GetStorageMode() ==
@@ -9496,6 +9504,89 @@ PreparedQuery PrepareShowBranchesQuery(ParsedQuery parsed_query, memgraph::dbms:
       },
       .rw_type = RWType::NONE};
 }
+
+PreparedQuery PrepareCreateBranchQuery(ParsedQuery parsed_query, std::string name, storage::Storage *main,
+                                       versioning::VersionStore *version_store) {
+  if (auto err = versioning::ValidateBranchName(name)) throw QueryRuntimeException(*err);
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [version_store, main, name = std::move(name)](
+                           AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+        // Shared access to main until the branch is registered: the operations refused while branches exist check
+        // under exclusive access, so they cannot run in between. Taken on main, never on the session's branch.
+        const utils::SharedResourceLockGuard main_access{main->main_lock_, utils::SharedResourceLockGuard::READ};
+        if (auto created = version_store->CreateBranch(name, "main"); !created) {
+          throw QueryRuntimeException(created.error());
+        }
+        return QueryHandlerResult::COMMIT;
+      },
+      .rw_type = RWType::W};
+}
+
+// Ids of the open transactions of the sessions on branch `number` of database `db_name`.
+std::vector<uint64_t> TransactionsOnBranch(const std::unordered_set<Interpreter *> &interpreters,
+                                           std::string_view db_name, uint64_t number) {
+  std::vector<uint64_t> ids;
+  for (Interpreter *interpreter : interpreters) {
+    const auto verifier = interpreter->TryAcquireForVerification();
+    if (!verifier) continue;
+    if (interpreter->current_db_.foreign_branch_number() != number ||
+        interpreter->current_db_.foreign_db_view().name != db_name) {
+      continue;
+    }
+    if (auto id = interpreter->GetTransactionId()) ids.push_back(*id);
+  }
+  return ids;
+}
+
+PreparedQuery PrepareDropBranchQuery(ParsedQuery parsed_query, std::string name, bool force,
+                                     InterpreterContext *interpreter_context, CurrentDB &current_db,
+                                     Interpreter &interpreter, versioning::VersionStore *version_store) {
+  if (!version_store->Exists(name)) throw QueryRuntimeException("Branch '{}' does not exist.", name);
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [version_store, &current_db, interpreter_context, &interpreter, name = std::move(name), force](
+                           AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+        const auto info = version_store->Get(name);
+        if (!info) throw QueryRuntimeException("Branch '{}' does not exist.", name);
+        const auto in_use = [&] {
+          return QueryRuntimeException(
+              "Cannot drop branch '{}': it is in use by another session. Use DROP BRANCH {} FORCE.", name, name);
+        };
+        // This session moves to main first, but only once no other session is attached, so a refused DROP leaves it
+        // where it was.
+        const bool on_it = current_db.OnBranch(info->number);
+        if (!force && version_store->CheckoutCount(name) > (on_it ? 1U : 0U)) throw in_use();
+        if (on_it) current_db.LeaveBranch();
+        auto dropped = force ? version_store->ForceDropBranch(name) : version_store->DropBranch(name);
+        if (!dropped) throw QueryRuntimeException(dropped.error());
+        if (!*dropped) {
+          // Raced with another DROP, or (without FORCE) with an attach after the check above.
+          if (!version_store->Exists(name)) throw QueryRuntimeException("Branch '{}' does not exist.", name);
+          throw in_use();
+        }
+        if (force) {
+          // Best effort, like DROP DATABASE ... FORCE: a transaction that is not terminated here keeps running, and
+          // every later query of its session fails with the dead-branch error.
+          const auto db_name = (*current_db.db_acc_)->name();
+          interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+            auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &target_db) {
+              return user_or_role &&
+                     user_or_role->IsAuthorized(
+                         {AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, target_db, &query::up_to_date_policy);
+            };
+            interpreter_context->TerminateTransactions(interpreters,
+                                                       TransactionsOnBranch(interpreters, db_name, info->number),
+                                                       interpreter.user_or_role_.get(),
+                                                       privilege_checker);
+          });
+        }
+        return QueryHandlerResult::COMMIT;
+      },
+      .rw_type = RWType::W};
+}
 }  // namespace
 
 // Branch queries open no storage accessor: the VersionStore has its own locking.
@@ -9524,13 +9615,19 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
         throw QueryRuntimeException(e.what());
       }
     }();
-    auto *version_store = CheckBranchPrerequisites(interpreter_context, target_db_acc);
+    auto *version_store =
+        CheckBranchPrerequisites(interpreter_context, target_db_acc, versioning::GateOperation::kObserve);
     return PrepareShowBranchesQuery(
         std::move(parsed_query), std::move(target_db_acc), version_store, interpreter_context, current_db);
   }
 
   auto db_acc = *current_db.db_acc_;
-  auto *version_store = CheckBranchPrerequisites(interpreter_context, db_acc);
+  // Without a valid license branches are read-only and droppable, so only creating one needs it.
+  auto *version_store = CheckBranchPrerequisites(interpreter_context,
+                                                 db_acc,
+                                                 query->action_ == VersioningQuery::Action::CREATE_BRANCH
+                                                     ? versioning::GateOperation::kCreate
+                                                     : versioning::GateOperation::kObserve);
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
@@ -9542,6 +9639,18 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           std::move(parsed_query), std::move(name), interpreter_context, current_db, version_store);
     case VersioningQuery::Action::SHOW_BRANCHES:
       return PrepareShowBranchesQuery(std::move(parsed_query), db_acc, version_store, interpreter_context, current_db);
+    case VersioningQuery::Action::CREATE_BRANCH:
+      DMG_ASSERT(name, "The grammar requires a branch name");
+      return PrepareCreateBranchQuery(std::move(parsed_query), std::move(*name), db_acc->storage(), version_store);
+    case VersioningQuery::Action::DROP_BRANCH:
+      DMG_ASSERT(name, "The grammar requires a branch name");
+      return PrepareDropBranchQuery(std::move(parsed_query),
+                                    std::move(*name),
+                                    query->force_,
+                                    interpreter_context,
+                                    current_db,
+                                    interpreter,
+                                    version_store);
   }
   LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
 }
