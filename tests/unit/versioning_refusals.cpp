@@ -25,12 +25,14 @@
 #include "query/db_accessor.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/gate.hpp"
 #include "versioning_fixture.hpp"
 
 using memgraph::tests::versioning_fixture::ExplainText;
 using memgraph::tests::versioning_fixture::IntRows;
 using memgraph::tests::versioning_fixture::PlanHasOperator;
 using memgraph::tests::versioning_fixture::Rows;
+using memgraph::tests::versioning_fixture::ThrownMessage;
 
 namespace {
 
@@ -232,6 +234,9 @@ TEST_F(VersioningRefusalsTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused
   InterpreterFaker hidden{&interpreter_context, *acc};
 
   for (const auto &[query, message] : kRefusedWhileBranchesExist) ExpectRefusedWith(hidden, query, message);
+  EXPECT_EQ(ThrownMessage([&] { hidden.Interpret("SHOW BRANCHES"); }),
+            memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
+      << "hidden branches are not listed";
 }
 
 // The early check of STORAGE MODE runs at Prepare; the switch checks again under its exclusive hold, so a branch

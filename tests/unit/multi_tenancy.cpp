@@ -43,6 +43,7 @@
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
+#include "versioning/version_store.hpp"
 
 import memgraph.csv.parsing;
 
@@ -214,6 +215,29 @@ class MultiTenantTest : public ::testing::Test {
 
   std::optional<MinMemgraph> min_mg;
 };
+
+// SHOW BRANCHES FOR DATABASE lists the named database's branches and sessions; the caller's branch is not in it.
+TEST_F(MultiTenantTest, ShowBranchesForDatabaseListsTheNamedDatabase) {
+  min_mg.reset();
+  config.experimental_versioning = true;
+  min_mg.emplace(config);
+  auto caller = this->NewInterpreter();
+  RunMtQuery(caller, "CREATE DATABASE db1", "Successfully created database db1");
+  ASSERT_TRUE(DBMS().Get("db1")->version_store()->CreateBranch("feature", "main"));
+  auto on_db1 = this->NewInterpreter();
+  UseDatabase(on_db1, "db1", "Using db1");
+
+  const auto rows = RunQuery(caller, "SHOW BRANCHES FOR DATABASE db1");
+  ASSERT_EQ(rows.size(), 2U);
+  EXPECT_EQ(rows[0][0].ValueString(), "main");
+  EXPECT_EQ(rows[0][2].ValueInt(), 1);
+  EXPECT_FALSE(rows[0][3].ValueBool());
+  EXPECT_EQ(rows[1][0].ValueString(), "feature");
+  EXPECT_EQ(rows[1][2].ValueInt(), 0);
+  EXPECT_FALSE(rows[1][3].ValueBool());
+  EXPECT_EQ(RunQuery(caller, "SHOW BRANCHES").size(), 1U);
+  EXPECT_THROW(RunQuery(caller, "SHOW BRANCHES FOR DATABASE nope"), memgraph::query::QueryRuntimeException);
+}
 
 TEST_F(MultiTenantTest, RenameNonExistingDB) {
   auto interpreter1 = this->NewInterpreter();

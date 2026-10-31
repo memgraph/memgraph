@@ -90,6 +90,7 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
   EXPECT_EQ(current_db.foreign_branch_number(), number);
   EXPECT_TRUE(current_db.OnBranch(number));
   EXPECT_FALSE(current_db.OnBranch(number + 1));
+  EXPECT_EQ(faker.Interpret("SHOW BRANCH").GetResults().at(0)[0].ValueString(), "feature");
 }
 
 // Branch writes live in the branch's shared core, so they survive the session detaching and attaching again, and
