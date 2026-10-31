@@ -696,6 +696,15 @@ class DbAccessor final {
   // DELETED_OBJECT if either endpoint is deleted on the branch or absent from it.
   storage::Result<EdgeAccessor> BranchInsertEdge(const VertexAccessor &from, const VertexAccessor &to,
                                                  storage::EdgeTypeId edge_type);
+
+  // On a branch, schema listings are main's (the diff engine has no TTL or descriptions): MVCC index kinds as of the
+  // fork; text, point and vector indexes, TTL and descriptions as main has them now. A branch has no constraints.
+  storage::Storage::Accessor &SchemaAccessor() const {
+    if (branch_ctx_ != nullptr) [[unlikely]] {
+      return branch_ctx_->historical();
+    }
+    return *accessor_;
+  }
 #endif
 
  public:
@@ -1413,7 +1422,11 @@ class DbAccessor final {
     return accessor_->ApproximateEdgeCount(property, lower, upper);
   }
 
+#ifdef MG_ENTERPRISE
+  storage::IndicesInfo ListAllIndices() const { return SchemaAccessor().ListAllIndices(); }
+#else
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
+#endif
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
@@ -1701,7 +1714,11 @@ class DbAccessor final {
 
   std::optional<std::string> GetDatabaseDescription() const { return accessor_->GetDatabaseDescription(); }
 
+#ifdef MG_ENTERPRISE
+  std::vector<storage::DescriptionEntry> GetAllDescriptions() const { return SchemaAccessor().GetAllDescriptions(); }
+#else
   std::vector<storage::DescriptionEntry> GetAllDescriptions() const { return accessor_->GetAllDescriptions(); }
+#endif
 
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 
@@ -1715,7 +1732,7 @@ class DbAccessor final {
 
   void StopTtl() { accessor_->StopTtl(); }
 
-  storage::ttl::TtlInfo GetTtlConfig() const { return accessor_->GetTtlConfig(); }
+  storage::ttl::TtlInfo GetTtlConfig() const { return SchemaAccessor().GetTtlConfig(); }
 #endif
 };
 
