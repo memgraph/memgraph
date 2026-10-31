@@ -39,6 +39,9 @@ memgraphCypherKeyword : cypherKeyword
                       | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
+                      | BRANCH
+                      | BRANCH_USE
+                      | BRANCHES
                       | BUILD
                       | CALL
                       | CALLABLE
@@ -315,6 +318,7 @@ query : cypherQuery
       | descriptionQuery
       | reloadSSLQuery
       | showMemoryInfo
+      | versioningQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -614,6 +618,7 @@ privilege : CREATE
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | BRANCH_USE
           | COORDINATOR_READ
           | COORDINATOR_WRITE
           | COORDINATOR
@@ -847,6 +852,20 @@ renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 suspendDatabase : SUSPEND DATABASE databaseName ;
 
 resumeDatabase : RESUME DATABASE databaseName ;
+
+/* Graph Versioning (branches). */
+versioningQuery : showBranch
+                | showBranches
+                ;
+
+/* A bare identifier or a quoted string; other literals make no sense as branch names. */
+branchName : symbolicName
+           | StringLiteral
+           ;
+
+showBranch : SHOW BRANCH ( branchName )? ;
+
+showBranches : SHOW BRANCHES ( FOR DATABASE databaseName )? ;
 
 useDatabase : USE DATABASE databaseName ;
 
