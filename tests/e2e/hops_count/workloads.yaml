@@ -6,8 +6,57 @@ hops_count_cluster: &hops_count_cluster
       setup_queries: []
       validation_queries: []
 
+# Same instance, but a two-delta chain is enough to make OutEdges/InEdges cache its result.
+hops_count_delta_cache_cluster: &hops_count_delta_cache_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges", "--query-plan-cache-max-size=0", "--delta-chain-cache-threshold=2"]
+      log_file: "hops_count_delta_cache.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Count number of hops"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["hops_count/hops_count.py"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit concurrent commit out"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_survives_concurrent_commit_out"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit concurrent commit typed"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_survives_concurrent_commit_typed"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit concurrent commit in"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_survives_concurrent_commit_in"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit own command delta"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_own_command_delta"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit no cache store"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_no_cache_store"]
+    <<: *hops_count_delta_cache_cluster
+
+  - name: "Hops limit no cache hit bypass"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_no_cache_hit_bypass"]
+    <<: *hops_count_delta_cache_cluster
+
+  - name: "Hops limit budget exhausted remove"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_budget_exhausted_remove"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit disk reads survive"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_disk_reads_survive"]
     <<: *hops_count_cluster
