@@ -180,19 +180,21 @@ class DbmsHandler {
   /**
    * @brief Create new if name/uuid do not match any database. Drop and recreate if database already present.
    * @note Default database is not dropped, only its UUID is updated and only if the database is clean.
+   * @note Only the name and uuid are taken from @p config; the rest of the database's config comes from this
+   * instance's flags, as it does for every other database on this instance and after a restart.
    *
-   * @param config desired salient config
+   * @param config salient config received from MAIN
    * @return NewResultT context on success, error on failure
    */
   NewResultT Update(const storage::SalientConfig &config) {
     auto wr = std::lock_guard{lock_};
-    auto new_db = New_(config);
+    const auto name_view = config.name.str_view();
+    auto new_db = New_(*name_view, config.uuid);
     if (new_db || new_db.error() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
       return new_db;
     }
 
-    const auto name_view = config.name.str_view();
     spdlog::debug("Trying to create db '{}' on replica which already exists.", *name_view);
 
     auto db = Get_(*name_view);
@@ -248,7 +250,7 @@ class DbmsHandler {
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt
-    return New_(config);
+    return New_(*name_view, config.uuid);
   }
 
   void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {});
@@ -964,19 +966,6 @@ class DbmsHandler {
       storage::UpdatePaths(config_copy,
                            default_config_.durability.storage_directory / kMultiTenantDir / std::string{uuid});
     }
-    return New_(std::move(config_copy), txn);
-  }
-
-  /**
-   * @brief Create a new Database using the passed configuration
-   *
-   * @param config configuration to be used
-   * @return NewResultT context on success, error on failure
-   */
-  NewResultT New_(const storage::SalientConfig &config, system::Transaction *txn = nullptr) {
-    auto config_copy = default_config_;
-    config_copy.salient = config;  // name, uuid, mode, etc
-    UpdatePaths(config_copy, config_copy.durability.storage_directory / kMultiTenantDir / std::string{config.uuid});
     return New_(std::move(config_copy), txn);
   }
 
