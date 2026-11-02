@@ -121,7 +121,7 @@ def _ensure_admin():
     try:
         conn = _user_connect()  # no users yet
     except Exception:
-        conn = _user_connect("admin", "admin-pw")  # the other test in this file created one
+        conn = _user_connect("admin", "admin-pw")  # this test created it above
     cursor = conn.cursor()
     try:
         _user_execute(cursor, "GRANT ALL PRIVILEGES TO admin")

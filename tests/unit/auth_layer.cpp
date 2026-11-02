@@ -525,8 +525,6 @@ TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {
   EXPECT_FALSE(layer_->Lock()->HasUser("carol"));
 }
 
-// A profile assigned through a spelling that only becomes canonical after folding must install its limits on the
-// entry the login of that user reads, and revoking through another spelling must reset the same entry.
 TEST_F(AuthLayerTest, SetProfileInstallsLimitsOnTheCanonicalEntry) {
   {
     ASSERT_TRUE(AddUser(*layer_->Lock(), "mixed").has_value());
@@ -576,8 +574,6 @@ class LegacyRawProfileAuthLayerTest : public ::testing::Test {
   std::optional<AuthLayer> layer_;
 };
 
-// Durable state from before the fold must load resolvable through the canonical spelling, keep its limit installed
-// on the canonical resource entry, and still be written back in the unchanged profile JSON shape.
 TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestoresLimits) {
   EXPECT_EQ(layer_->Lock()->GetProfileForUsername("testuser"), "limited");
   EXPECT_EQ(layer_->Lock()->GetProfileForUsername("TestUser"), "limited");
@@ -585,7 +581,6 @@ TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestores
   auto const canonical = resources_.GetUser("testuser");
   EXPECT_EQ(canonical->GetSessions().second, 1U) << "startup fan-out did not install the limit on the canonical entry";
 
-  // A later assignment through yet another spelling moves the one canonical member, without duplication.
   ASSERT_TRUE(layer_->Lock()->SetProfile("limited", "TESTUSER").has_value());
   {
     const auto members = layer_->Lock()->GetUsernamesForProfile("limited");
@@ -593,7 +588,6 @@ TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestores
     EXPECT_TRUE(members.contains("testuser"));
   }
 
-  // The durable JSON shape is unchanged: one member, the same limits object.
   layer_.reset();
   auth_.reset();
   memgraph::kvstore::KVStore store{auth_folder_};

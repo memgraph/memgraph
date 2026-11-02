@@ -860,7 +860,6 @@ def test_mixed_case_user_limits_are_enforced():
 
     session = _open_session("TestUser", "pw")
     try:
-        # The live session is accounted for on the canonical entry and both spellings see the same limits.
         for spelling in ("TestUser", "testuser"):
             usage = _resource_usage(admin_cursor, spelling)
             assert usage["sessions"] == [1, 1], f"{spelling} sees {usage['sessions']}"
@@ -869,7 +868,6 @@ def test_mixed_case_user_limits_are_enforced():
         # A second concurrent login is refused by the sessions limit.
         assert _second_session_error("TestUser", "pw") is not None, "second TestUser session was allowed"
 
-        # A transaction above the profile's memory limit is refused on the live session.
         memory_refused = False
         try:
             cursor = session.cursor()
@@ -883,7 +881,7 @@ def test_mixed_case_user_limits_are_enforced():
 
 
 def test_mixed_case_clear_and_revoke_profile():
-    """CLEAR and REVOKE through a lowercase spelling act on the membership created with a mixed-case one."""
+    """CLEAR and re-SET through lowercase spellings act on the membership created with a mixed-case one."""
     _ensure_admin()
     admin = _connect("admin", "admin-pw")
     admin_cursor = admin.cursor()
@@ -899,7 +897,7 @@ def test_mixed_case_clear_and_revoke_profile():
         assert _resource_usage(admin_cursor, "clearuser")["sessions"] == [1, 1]
         assert _second_session_error("clearuser", "pw") is not None
 
-        # CLEAR through the other spelling drops the membership and resets the live entry ...
+        # CLEAR through the other spelling resets the live entry's limits ...
         _execute(admin_cursor, "CLEAR PROFILE FOR clearuser")
         usage = _resource_usage(admin_cursor, "clearuser")
         assert usage["sessions"][1] == "UNLIMITED", f"limits not reset: {usage}"
