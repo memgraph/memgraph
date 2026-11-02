@@ -13,6 +13,54 @@
 
 import re
 
+# USE BRANCH is per-Bolt-connection state, but the default path opens a fresh session per
+# query, so under --versioned-branch one session is held open for the whole scenario instead.
+
+
+def get_vbranch_session(context):
+    """Persistent per-scenario session for --versioned-branch, opened lazily on first use."""
+    if getattr(context, "vbranch_session", None) is None:
+        context.vbranch_session = context.driver.session()
+    return context.vbranch_session
+
+
+def close_vbranch_session(context):
+    """Best-effort cleanup: switch to main, drop the branch, close the session. Safe if never opened."""
+    session = getattr(context, "vbranch_session", None)
+    if session is None:
+        return
+
+    if getattr(context, "vbranch_forked", False):
+        try:
+            list(session.run("USE BRANCH main"))
+        except Exception:
+            pass
+        try:
+            list(session.run(f"DROP BRANCH {context.vbranch_name}"))
+        except Exception:
+            pass
+
+    session.close()
+    context.vbranch_session = None
+    context.vbranch_forked = False
+
+
+def maybe_fork_to_branch(context):
+    """
+    Runs once per scenario before the test query: setup already committed to `main` becomes the
+    branch's inherited state, and the test query's writes land in the branch overlay only.
+    """
+    if not getattr(context.config, "versioned_branch", False):
+        return
+    if getattr(context, "vbranch_forked", False):
+        return
+
+    session = get_vbranch_session(context)
+    branch_name = context.vbranch_name
+    list(session.run(f"CREATE BRANCH {branch_name}"))
+    list(session.run(f"USE BRANCH {branch_name}"))
+    context.vbranch_forked = True
+
 
 def query(q, context, params={}):
     """
@@ -30,6 +78,7 @@ def query(q, context, params={}):
     results_list = []
 
     parallel_execution = getattr(context.config, "parallel_execution", False)
+    versioned_branch = getattr(context.config, "versioned_branch", False)
     storage_mode = getattr(context.config, "storage_mode", None)
 
     is_on_disk = storage_mode == "ON_DISK_TRANSACTIONAL"
@@ -52,6 +101,17 @@ def query(q, context, params={}):
 
     # Store the actual query being executed (for logging and validation purposes)
     context.last_executed_query = q
+
+    if versioned_branch:
+        # USE BRANCH state lives on the connection; closed once in after_scenario, not per query.
+        session = get_vbranch_session(context)
+        try:
+            results = session.run(q, params)
+            results_list = list(results)
+        except Exception as e:
+            context.exception = e
+            context.log.info("%s", str(e))
+        return results_list
 
     session = context.driver.session()
     try:
