@@ -2025,5 +2025,67 @@ def test_internal_system_user_hash_file_must_load(tmp_path, contents):
         assert contents.splitlines()[0] not in result.stdout + result.stderr
 
 
+def test_profile_mixed_case_survives_failover(test_name):
+    """A profile assigned with a mixed-case spelling survives the promotion of the replica: the promoted main
+    resolves the membership through both spellings."""
+    instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(instances_description, keep_directories=False)
+
+    # The first user created on the main becomes the administrator.
+    bootstrap_cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(bootstrap_cursor, "CREATE USER admin IDENTIFIED BY 'admin123'")
+    execute_and_fetch_all(bootstrap_cursor, "GRANT ALL PRIVILEGES TO USER admin")
+    bootstrap_cursor.close()
+
+    admin_cursor = connect(host="localhost", port=7687, username="admin", password="admin123").cursor()
+    execute_and_fetch_all(admin_cursor, "CREATE PROFILE mixed_one LIMIT sessions 1")
+    execute_and_fetch_all(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
+    execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO USER TestUser")
+    execute_and_fetch_all(admin_cursor, "SET PROFILE FOR TestUser TO mixed_one")
+    # A spelling that matches the stored raw name resolves on any tree; the folded lookup is asserted after promotion.
+    assert execute_and_fetch_all(admin_cursor, "SHOW PROFILE FOR TestUser") == [("mixed_one",)]
+
+    # Wait until the replica has applied the membership. The raw spelling resolves there on any tree, so this is a
+    # catch-up wait, not the regression assertion.
+    def replica_profile():
+        try:
+            cursor = connect(host="localhost", port=7688, username="admin", password="admin123").cursor()
+            return execute_and_fetch_all(cursor, "SHOW PROFILE FOR TestUser")
+        except Exception:
+            return None
+
+    mg_sleep_and_assert([("mixed_one",)], replica_profile)
+
+    # Kill the main; the surviving replica is promoted, replaying the membership it applied.
+    instances_description["instance_1"]["setup_queries"] = []
+    interactive_mg_runner.kill(instances_description, "instance_1")
+
+    def promoted_instance_role():
+        try:
+            rows = show_instances(connect(host="localhost", port=7692).cursor())
+        except Exception:
+            return None
+        for row in rows:
+            if row[0] == "instance_2":
+                return row[-1]
+        return None
+
+    mg_sleep_and_assert("main", promoted_instance_role)
+
+    def promoted_profile(spelling):
+        def query():
+            try:
+                cursor = connect(host="localhost", port=7688, username="admin", password="admin123").cursor()
+                return execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {spelling}")
+            except Exception:
+                return None
+
+        return query
+
+    # The promoted main still holds the membership and folds it on read: both spellings resolve.
+    mg_sleep_and_assert([("mixed_one",)], promoted_profile("TestUser"))
+    assert promoted_profile("testuser")() == [("mixed_one",)], "the promoted main did not fold the replayed membership"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
