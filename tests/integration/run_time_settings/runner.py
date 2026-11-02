@@ -214,6 +214,16 @@ def run_check_config(tester_binary: str, memgraph_args: List[str], executor_bina
 def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
     atexit.register(cleanup, memgraph)
+    # query.timeout accepts any non-negative number
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '0'"])
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '1.5'"])
+    for bad in ("abc", "-1", "1s", "inf"):
+        execute_tester(
+            tester_binary,
+            [f"SET DATABASE SETTING 'query.timeout' TO '{bad}'"],
+            should_fail=True,
+            failure_message="Cannot update setting 'query.timeout': Value must be a non-negative number.",
+        )
     # Valid boundary values
     execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1'"])
     execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1000000'"])
@@ -288,6 +298,16 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "server.name", default_server_name)
     check_flag(flag_tester_binary, "query.timeout", "600")
     stop(memgraph)
+
+    # A leftover that fails validation is skipped in favor of the flag value, and deleted
+    store_put(store_binary, data_directory, "query.timeout", "abc")
+    store_put(store_binary, data_directory, "timezone", "Not/AZone")
+    memgraph = start()
+    check_flag(flag_tester_binary, "query.timeout", "600")
+    check_flag(flag_tester_binary, "timezone", "UTC")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "query.timeout") is None, "Invalid leftover of query.timeout kept"
+    assert store_get(store_binary, data_directory, "timezone") is None, "Invalid leftover of timezone kept"
 
     # A flag given on the command line wins over the leftover, which is deleted
     store_put(store_binary, data_directory, "server.name", "Old Name")

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <expected>
 #include <functional>
@@ -221,6 +222,21 @@ memgraph::utils::Settings::ValidatorResult ValidInt64Str(std::string_view in) {
   return {};
 }
 
+memgraph::utils::Settings::ValidatorResult ValidNonNegativeDoubleStr(std::string_view in) {
+  constexpr std::string_view kError = "Value must be a non-negative number.";
+  const std::string str{in};
+  try {
+    size_t n_processed = 0;
+    const auto value = std::stod(str, &n_processed);
+    if (n_processed != str.size() || !std::isfinite(value) || value < 0) {
+      return std::unexpected{std::string{kError}};
+    }
+  } catch (const std::logic_error & /* invalid_argument or out_of_range */) {
+    return std::unexpected{std::string{kError}};
+  }
+  return {};
+}
+
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
   void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> observer) override {
@@ -389,9 +405,13 @@ void Initialize(utils::Settings &settings) {
   /*
    * Register query timeout
    */
-  register_flag(kQueryTxGFlagsKey, kQueryTxSettingKey, [&](const std::string &val) {
-    execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
-  });
+  register_flag(
+      kQueryTxGFlagsKey,
+      kQueryTxSettingKey,
+      [&](const std::string &val) {
+        execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
+      },
+      ValidNonNegativeDoubleStr);
 
   /*
    * Register hops limit partial results
