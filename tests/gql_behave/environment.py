@@ -13,9 +13,11 @@
 
 import json
 import logging
+import os
 import sys
 
 from neo4j import GraphDatabase, basic_auth
+from steps import database
 from steps.test_parameters import TestParameters
 
 # Helper class and functions
@@ -54,10 +56,26 @@ def before_all(context):
     # test results
     context.test_results = TestResults()
 
+    if getattr(context.config, "versioned_branch", False):
+        context.vbranch_counter = 0
+        if context.config.expected_failures:
+            with open(context.config.expected_failures) as f:
+                context.expected_failures = json.load(f)
+        else:
+            context.expected_failures = {}
+
 
 def before_scenario(context, scenario):
     context.test_parameters = TestParameters()
     context.exception = None
+
+    if getattr(context.config, "versioned_branch", False):
+        # Closes a session reopened by the previous scenario's cleanups (runs after after_scenario).
+        database.close_vbranch_session(context)
+        context.vbranch_refused = False
+        context.vbranch_counter += 1
+        # Unique per scenario: a failed best-effort DROP BRANCH must not collide with the next CREATE BRANCH.
+        context.vbranch_name = f"gqlb_{context.vbranch_counter}"
 
 
 def after_step(context, step):
@@ -77,7 +95,25 @@ def after_step(context, step):
 
 
 def after_scenario(context, scenario):
-    context.test_results.add_test(scenario.status)
+    status = scenario.status
+    versioned = getattr(context.config, "versioned_branch", False)
+    if versioned:
+        reason = context.expected_failures.get(os.path.basename(scenario.filename), {}).get(scenario.name)
+        failed_on_branch = scenario.status == "failed" or context.vbranch_refused
+        if reason is not None:
+            status = "passed" if failed_on_branch else "failed"
+            if failed_on_branch:
+                print(f"\nExpected failure on a branch ({reason}): {scenario.name}")
+            else:
+                print(f"\nListed in expected_failures but passed on a branch: {scenario.name}")
+        elif context.vbranch_refused:
+            status = "failed"
+            print(f"\nRefused on a branch but not listed in expected_failures: {scenario.name}")
+    context.test_results.add_test(status)
+
+    if versioned:
+        database.close_vbranch_session(context)
+
     if context.config.single_scenario or (context.config.single_fail and scenario.status == "failed"):
         print("Press enter to continue")
         sys.stdin.readline()
