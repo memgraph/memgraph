@@ -126,8 +126,9 @@ with driver.session(database="shop") as s:                 # main
     ...
 ```
 
-- The branch is resolved at BEGIN (explicit tx) or RUN (autocommit). Routing (`ROUTE`) uses the
-  database part.
+- The branch is resolved at BEGIN (explicit tx) or RUN (autocommit).
+- Routing: in v1 every request whose `db` names a branch is routed to MAIN, reads included,
+  because replicas hold no branches (§9). Read scale-out of branch reads is not in v1.
 - As with a `db` pin, `USE DATABASE` and `USE BRANCH` are refused on such a session;
   `USING BRANCH` is allowed (it changes no session state).
 - `USE BRANCH` (session state) is for interactive clients (mgconsole, Lab). Applications with
@@ -182,7 +183,7 @@ yet (§12 says what each needs). Only triggers, TTL and streams are main-only by
 | Existence and type constraints | Enforced at branch commit, against main's **current** constraints |
 | Unique constraints | Not in v1 (**not enforced**); required long-term. `SHOW CONSTRAINT INFO` marks them `unique (not enforced on branch)`. |
 | Enums | Main's enums can be used in values |
-| Query modules / procedures | Yes; nested queries stay on the caller's branch. Approximate counts reflect main at the fork. |
+| Query modules / procedures | Yes; nested queries stay on the caller's branch. Approximate counts reflect the branch: main at the fork plus the branch's changes. |
 | Triggers, TTL, streams | Not planned for branches: they act on `main` only; branch writes fire no triggers |
 | `DUMP DATABASE` | The branch's data with main's schema |
 | `CREATE SNAPSHOT` | Snapshots `main` |
@@ -190,7 +191,7 @@ yet (§12 says what each needs). Only triggers, TTL and streams are main-only by
 | `SHOW INDEX INFO` / `SHOW CONSTRAINT INFO` | Main's |
 | `SHOW SCHEMA INFO` | Not in v1: schema info is tracked per storage engine, so main's does not include the branch's changes |
 | Label / edge-type listings | Main's ∪ the branch's |
-| `SHOW STORAGE INFO` | Vertex/edge counts and average degree are `NULL` (exact counts need a full scan); a `branch` row names the branch |
+| `SHOW STORAGE INFO` | Vertex/edge counts reflect the branch (main at the fork plus the branch's changes), approximate like main's; average degree is derived from them as on main; a `branch` row names the branch |
 
 Vertex and edge ids (`id(n)`) of branch-created objects come from main's counters, so ids are
 unique across `main` and all branches of the database.
@@ -293,6 +294,7 @@ Branches are single-instance in v1. Main's writes replicate as usual; branch wri
 the replication stream.
 
 - Every branch query fails on a REPLICA. A promoted replica starts with no branches.
+- Routing sends every branch request (`db="<database>@<branch>"`) to MAIN, reads included (§4.3).
 - Branches are dropped durably, including those sessions are on (§5.3), when the instance is
   demoted to REPLICA (before the role changes; if the drop fails, the demotion fails), when a
   replica resyncs a database, when an instance restarts as REPLICA, and when a COLD database is
@@ -303,7 +305,8 @@ Replication is deferred for scheduling, not architecture: commit timestamps are 
 and replicas, so a fork point means the same on both. It needs branch create/drop as system
 transactions (like `CREATE DATABASE`), a fork pin and retention floor on replicas, branch WAL
 streaming, and resync that ships branch files **plus main's WAL files back to the oldest fork
-point**. Replicas would then serve `SHOW BRANCHES`, `USE BRANCH` and `USING BRANCH` for reads.
+point**. Replicas would then serve `SHOW BRANCHES`, `USE BRANCH` and `USING BRANCH` for reads,
+and routing could send branch reads to them.
 
 ## 10. Licensing and flag
 
@@ -348,7 +351,7 @@ they stay main-only (§6).
 | Diff / log / revert of a branch | Not in v1 | Implementation only |
 | Nested branches (fork a branch) | Not in v1 | A third visibility layer: a child's base is parent-engine@ts ⊕ parent-overlay@ts ⊕ main@fork, so it needs historical reads on the branch engine and overlay, GC and WAL pins on the parent, ordered recovery and 3-layer scans |
 | Fork at a past point in time | Not in v1 | A retention window on `main`: today main keeps no history older than the oldest open transaction or fork pin |
-| Replication / HA | Not in v1 | §9 |
+| Replication / HA, incl. branch reads routed to replicas | Not in v1 | §9 |
 | Analytical or on-disk storage | Not in v1 | A fork-point read source: analytical mode writes no undo history, and on-disk has no in-memory MVCC history |
 | Index or constraint created on a branch | Not in v1 | A branch-side index type: fork data lives in main's storage and indexes, and a branch-private index there would be maintained by main's write path and seen by main's planner. Workaround: create the index on `main` (allowed) |
 | `ANALYZE GRAPH` on a branch | Not in v1 | Verifying the branch planner's use of stats stored in the branch engine |
