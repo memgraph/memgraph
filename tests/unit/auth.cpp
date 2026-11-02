@@ -4056,6 +4056,54 @@ TEST_F(AuthWithStorage, SetProfile) {
   ASSERT_NO_THROW(auth->SetProfile("profile", "non_user"));
 }
 
+TEST_F(AuthWithStorage, SetProfileFoldsUsernameAcrossProfileOps) {
+  ASSERT_TRUE(auth->CreateProfile(
+      "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{2UL}}}));
+  ASSERT_TRUE(AddUser(*auth, "alice"));
+
+  ASSERT_TRUE(auth->SetProfile("profile", "Alice").has_value());
+  // A profile assigned with any spelling is found again with every spelling.
+  EXPECT_EQ(auth->GetProfileForUsername("alice"), "profile");
+  EXPECT_EQ(auth->GetProfileForUsername("ALICE"), "profile");
+  EXPECT_EQ(auth->GetProfileForUsername("Alice"), "profile");
+
+  // Reassigning across profiles moves the one membership, it does not duplicate it.
+  ASSERT_TRUE(auth->SetProfile("other_profile", "ALICE").has_value());
+  EXPECT_TRUE(auth->GetUsernamesForProfile("profile").empty());
+  {
+    const auto members = auth->GetUsernamesForProfile("other_profile");
+    EXPECT_EQ(members.size(), 1U);
+    EXPECT_TRUE(members.contains("alice"));
+  }
+
+  auth->RevokeProfile("AliCe");
+  EXPECT_FALSE(auth->GetProfileForUsername("alice"));
+}
+
+TEST_F(AuthWithStorage, CreateOrUpdateProfileFoldsReplicaPayload) {
+  // A replica applies memberships exactly as the main published them; folding happens on apply.
+  ASSERT_TRUE(auth->CreateOrUpdateProfile(
+      "limited",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}},
+      {"TestUser"}));
+  EXPECT_EQ(auth->GetProfileForUsername("testuser"), "limited");
+  EXPECT_EQ(auth->GetProfileForUsername("TestUser"), "limited");
+
+  // The main re-sends the same membership with another spelling: one canonical member, no duplicate.
+  ASSERT_TRUE(auth->CreateOrUpdateProfile(
+      "limited",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}},
+      {"TESTUSER"}));
+  {
+    const auto members = auth->GetUsernamesForProfile("limited");
+    EXPECT_EQ(members.size(), 1U);
+    EXPECT_TRUE(members.contains("testuser"));
+  }
+}
+
 // Role-based profile management is no longer supported in the new architecture
 
 TEST_F(AuthWithStorage, SetProfileUserWRole) {

@@ -15,10 +15,13 @@
 #include <optional>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 #include "auth/auth.hpp"
 #include "auth/auth_layer.hpp"
 #include "auth/rpc.hpp"
 #include "auth_test_utils.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "system/system.hpp"
 #include "system/transaction.hpp"
@@ -520,4 +523,83 @@ TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {
 
   EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that changed under it";
   EXPECT_FALSE(layer_->Lock()->HasUser("carol"));
+}
+
+// A profile assigned through a spelling that only becomes canonical after folding must install its limits on the
+// entry the login of that user reads, and revoking through another spelling must reset the same entry.
+TEST_F(AuthLayerTest, SetProfileInstallsLimitsOnTheCanonicalEntry) {
+  {
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "mixed").has_value());
+  }
+  ASSERT_TRUE(layer_->Lock()->CreateProfile(
+      "limited", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+
+  {
+    auto locked = layer_->Lock();
+    ASSERT_TRUE(locked->SetProfile("limited", "MiXeD").has_value());
+  }
+
+  auto const canonical = resources_.GetUser("mixed");
+  auto const raw_spelling = resources_.GetUser("MiXeD");
+  EXPECT_EQ(canonical->GetSessions().second, 1U) << "limit not installed on the canonical registry entry";
+  EXPECT_EQ(raw_spelling.get(), canonical.get()) << "a raw spelling resolved to a different registry entry";
+
+  layer_->Lock()->RevokeProfile("MIXED");
+  EXPECT_EQ(canonical->GetSessions().second, memgraph::utils::SessionsResource::kUnlimited)
+      << "revoking through another spelling did not reset the canonical entry";
+}
+
+class LegacyRawProfileAuthLayerTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::license::global_license_checker.EnableTesting();
+    {
+      // Written by a pre-fix binary: the durable membership keeps the raw spelling.
+      memgraph::kvstore::KVStore store{auth_folder_};
+      ASSERT_TRUE(store.Put("user_profile:limited", R"({"limits":{"sessions":1},"usernames":["TestUser"]})"));
+    }
+    auth_.emplace(auth_folder_, Auth::Config{}, &resources_);
+    layer_.emplace(*auth_);
+  }
+
+  void TearDown() override {
+    layer_.reset();
+    auth_.reset();
+    fs::remove_all(test_folder_);
+  }
+
+  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_layer_legacy"};
+  fs::path auth_folder_{test_folder_ / "auth"};
+  memgraph::utils::ResourceMonitoring resources_;
+  std::optional<SynchedAuth> auth_;
+  std::optional<AuthLayer> layer_;
+};
+
+// Durable state from before the fold must load resolvable through the canonical spelling, keep its limit installed
+// on the canonical resource entry, and still be written back in the unchanged profile JSON shape.
+TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestoresLimits) {
+  EXPECT_EQ(layer_->Lock()->GetProfileForUsername("testuser"), "limited");
+  EXPECT_EQ(layer_->Lock()->GetProfileForUsername("TestUser"), "limited");
+
+  auto const canonical = resources_.GetUser("testuser");
+  EXPECT_EQ(canonical->GetSessions().second, 1U) << "startup fan-out did not install the limit on the canonical entry";
+
+  // A later assignment through yet another spelling moves the one canonical member, without duplication.
+  ASSERT_TRUE(layer_->Lock()->SetProfile("limited", "TESTUSER").has_value());
+  {
+    const auto members = layer_->Lock()->GetUsernamesForProfile("limited");
+    EXPECT_EQ(members.size(), 1U);
+    EXPECT_TRUE(members.contains("testuser"));
+  }
+
+  // The durable JSON shape is unchanged: one member, the same limits object.
+  layer_.reset();
+  auth_.reset();
+  memgraph::kvstore::KVStore store{auth_folder_};
+  const auto value = store.Get("user_profile:limited");
+  ASSERT_TRUE(value.has_value());
+  const auto json = nlohmann::json::parse(*value);
+  EXPECT_EQ(json.at("usernames").size(), 1U);
+  EXPECT_EQ(json.at("limits").at("sessions"), 1);
 }
