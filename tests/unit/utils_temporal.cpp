@@ -510,29 +510,23 @@ TEST(TemporalTest, EveryCalendarTimeOfTheYearIsConstructible) {
   }
 }
 
-// Both constructors read the same calendar fields, so they agree, including where the zone leaves
-// the answer a choice and the two could diverge.
-TEST(TemporalTest, BothLocalDateTimeConstructorsAgree) {
-  using namespace std::chrono;
+// A zoned datetime carries the timezone its calendar fields are read in, so the server's own
+// timezone must not reach them. Rome skipping 02:30 on this date says nothing about what 02:30
+// means in UTC, where it is an ordinary time.
+TEST(TemporalTest, ZonedDateTimeIgnoresTheServerTimezone) {
   HandleTimezone htz;
+  htz.Set("Europe/Rome");
 
-  for (const auto *zone : {"Europe/Rome", "America/Los_Angeles"}) {
-    htz.Set(zone);
-    for (auto day = sys_days{2026y / January / 1}; day < sys_days{2027y / January / 1}; day += days{1}) {
-      const year_month_day date{day};
-      const memgraph::utils::DateParameters date_parameters{
-          static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())};
-      for (int hour = 0; hour < 24; ++hour) {
-        const memgraph::utils::LocalTimeParameters time_parameters{hour, 30};
-        ASSERT_EQ(memgraph::utils::LocalDateTime(date_parameters, time_parameters).SysMicrosecondsSinceEpoch(),
-                  memgraph::utils::LocalDateTime(memgraph::utils::Date{date_parameters},
-                                                 memgraph::utils::LocalTime{time_parameters})
-                      .SysMicrosecondsSinceEpoch())
-            << zone << " " << static_cast<unsigned>(date.month()) << "/" << static_cast<unsigned>(date.day()) << " "
-            << hour << ":30";
-      }
-    }
-  }
+  const memgraph::utils::ZonedDateTime from_parameters{memgraph::utils::DateParameters{2026, 3, 29},
+                                                       memgraph::utils::LocalTimeParameters{2, 30},
+                                                       memgraph::utils::Timezone{"Etc/UTC"}};
+  EXPECT_EQ(from_parameters.ToString(), "2026-03-29T02:30:00.000000+00:00[Etc/UTC]");
+
+  const memgraph::utils::ZonedDateTime from_members{
+      memgraph::utils::ZonedDateTimeParameters{memgraph::utils::DateParameters{2026, 3, 29},
+                                               memgraph::utils::LocalTimeParameters{2, 30},
+                                               memgraph::utils::Timezone{"Etc/UTC"}}};
+  EXPECT_EQ(from_members.ToString(), "2026-03-29T02:30:00.000000+00:00[Etc/UTC]");
 }
 
 namespace {

@@ -873,18 +873,25 @@ std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseco
   return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
 }
 
+// The calendar fields belong to the timezone given alongside them, so they are read as a local time
+// and left for that timezone to place. Reading them through the configured timezone would let the
+// server's own shifts move a value that names a different one.
+auto ParamsToLocalTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
+  return AsLocalTime(Date{date_parameters}.MicrosecondsSinceEpoch() +
+                     LocalTime{local_time_parameters}.MicrosecondsSinceEpoch());
+}
+
 ZonedDateTime::ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
                              Timezone timezone) {
-  const std::chrono::local_time<std::chrono::microseconds> duration{
-      std::chrono::microseconds(LocalDateTime(date_parameters, local_time_parameters).MicrosecondsSinceEpoch())};
-  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+  zoned_time = std::chrono::zoned_time(
+      timezone, ParamsToLocalTime(date_parameters, local_time_parameters), std::chrono::choose::earliest);
 }
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
-  auto timezone = zoned_date_time_parameters.timezone;
-  const std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
-      LocalDateTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time).MicrosecondsSinceEpoch())};
-  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+  zoned_time =
+      std::chrono::zoned_time(zoned_date_time_parameters.timezone,
+                              ParamsToLocalTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time),
+                              std::chrono::choose::earliest);
 }
 
 ZonedDateTime::ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone) {
