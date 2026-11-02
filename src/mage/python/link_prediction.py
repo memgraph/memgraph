@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from heapq import heappop, heappush
@@ -262,27 +263,33 @@ def train(
     # Extract number of layers
     num_layers = len(link_prediction_parameters.hidden_features_size)
 
+    # Architecture of the model and predictor, saved so load_model can rebuild them
+    model_config = {
+        "model": {
+            "layer_type": link_prediction_parameters.layer_type,
+            "in_feats": link_prediction_parameters.in_feats,
+            "hidden_features_size": link_prediction_parameters.hidden_features_size,
+            "aggregator": link_prediction_parameters.aggregator,
+            "attn_num_heads": link_prediction_parameters.attn_num_heads,
+            "feat_drops": [feat_drop_rate for _ in range(num_layers)],
+            "attn_drops": [attn_drop_rate for _ in range(num_layers)],
+            "alphas": [alpha_rate for _ in range(num_layers)],
+            "residuals": [res_def for _ in range(num_layers)],
+            "edge_types": graph.etypes,
+        },
+        "predictor": {
+            "predictor_type": link_prediction_parameters.predictor_type,
+            "predictor_hidden_size": link_prediction_parameters.hidden_features_size[-1],
+        },
+    }
+    with open(link_prediction_parameters.context_save_dir + Context.CONFIG_NAME, "w") as f:
+        json.dump(model_config, f)
+
     # Create a model
-    model = create_model(
-        layer_type=link_prediction_parameters.layer_type,
-        in_feats=link_prediction_parameters.in_feats,
-        hidden_features_size=link_prediction_parameters.hidden_features_size,
-        aggregator=link_prediction_parameters.aggregator,
-        attn_num_heads=link_prediction_parameters.attn_num_heads,
-        feat_drops=[feat_drop_rate for _ in range(num_layers)],
-        attn_drops=[attn_drop_rate for _ in range(num_layers)],
-        alphas=[alpha_rate for _ in range(num_layers)],
-        residuals=[res_def for _ in range(num_layers)],
-        edge_types=graph.etypes,
-        device=device,
-    )
+    model = create_model(**model_config["model"], device=device)
 
     # Create a predictor
-    predictor = create_predictor(
-        predictor_type=link_prediction_parameters.predictor_type,
-        predictor_hidden_size=link_prediction_parameters.hidden_features_size[-1],
-        device=device,
-    )
+    predictor = create_predictor(**model_config["predictor"], device=device)
 
     # Create an optimizer
     optimizer = create_optimizer(
@@ -604,8 +611,13 @@ def load_model(ctx: mgp.ProcCtx, path: str = link_prediction_parameters.context_
     """
 
     global model, predictor
-    model = torch.load(path + Context.MODEL_NAME)
-    predictor = torch.load(path + Context.PREDICTOR_NAME)
+    with open(path + Context.CONFIG_NAME) as f:
+        model_config = json.load(f)
+    model = create_model(**model_config["model"], device=device)
+    predictor = create_predictor(**model_config["predictor"], device=device)
+    # Only weights are loaded, so loading a file can't run code. load_state_dict copies them to the model's device.
+    model.load_state_dict(torch.load(path + Context.MODEL_NAME, map_location="cpu", weights_only=True))
+    predictor.load_state_dict(torch.load(path + Context.PREDICTOR_NAME, map_location="cpu", weights_only=True))
     return mgp.Record(status=True)
 
 

@@ -485,15 +485,16 @@ def inner_train(
 
 
 def _save_context(model: torch.nn.Module, predictor: torch.nn.Module, context_save_dir: str):
-    """Saves model and predictor to path.
+    """Saves model and predictor weights to path. Only state dicts are saved so they can be loaded with
+    torch.load(weights_only=True); the architecture is saved separately as JSON by the train procedure.
 
     Args:
         context_save_dir: str -> Path where the model and predictor will be saved every checkpoint_freq epochs.
         model (torch.nn.Module): A reference to the model.
         predictor (torch.nn.Module): A reference to the predictor.
     """
-    torch.save(model, context_save_dir + Context.MODEL_NAME)
-    torch.save(predictor, context_save_dir + Context.PREDICTOR_NAME)
+    torch.save(model.state_dict(), context_save_dir + Context.MODEL_NAME)
+    torch.save(predictor.state_dict(), context_save_dir + Context.PREDICTOR_NAME)
 
 
 def inner_predict(

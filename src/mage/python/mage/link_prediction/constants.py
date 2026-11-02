@@ -47,6 +47,7 @@ class Reindex(BaseEnum):
 class Context(BaseEnum):
     MODEL_NAME = "model.pt"
     PREDICTOR_NAME = "predictor.pt"
+    CONFIG_NAME = "model_config.json"
 
 
 class Models(BaseEnum):
