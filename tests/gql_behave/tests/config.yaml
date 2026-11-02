@@ -37,3 +37,51 @@
   test_suite: unstable
   storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: false
+
+# Run only by `continuous_integration --versioned-branch` (a suite with a feature_allowlist is skipped by the other
+# arms): memgraph_V1 feature files whose test queries are allowed on a branch (no schema DDL, DESCRIPTION or parallel
+# execution). Setup queries run on main before the fork. Grow the list as more files are verified branch-safe.
+- name: memgraph_V1_versioned
+  test_suite: memgraph_V1
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  must_pass: true
+  feature_allowlist: &versioned_feature_files
+    - match.feature
+    - create.feature
+    - expressions.feature
+    - functions.feature
+    - aggregations.feature
+    - list_operations.feature
+    - cartesian.feature
+    - case.feature
+    - foreach.feature
+    - list_comprehension.feature
+    - map.feature
+    - map_operations.feature
+    - merge.feature
+    - pattern_comprehensions.feature
+    - patterns.feature
+    - string_operators.feature
+    - subqueries.feature
+    - union.feature
+    - with.feature
+    - memgraph_wshortest.feature
+    - memgraph_allshortest.feature
+    - memgraph_bfs.feature
+    - update_clauses.feature
+    - nested_property_update.feature
+    - caching.feature
+    - delete.feature
+    - edge_indices_usage.feature
+    - map_projection.feature
+    - periodic_commit.feature
+    - procedure_call.feature
+    - server_side_parameters.feature
+
+# The same branch-safe subset with commit-lock narrowing on for main: branches must not depend on the commit-lock mode.
+- name: memgraph_V1_versioned_narrowing
+  test_suite: memgraph_V1
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  commit_lock_narrowing: true
+  must_pass: true
+  feature_allowlist: *versioned_feature_files

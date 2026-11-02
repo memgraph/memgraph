@@ -121,6 +121,8 @@ def print_actual_query(context):
 
 @when("executing query")
 def executing_query_step(context):
+    # --versioned-branch: setup ran on main; the test query runs on a branch forked here.
+    database.maybe_fork_to_branch(context)
     context.results = database.query(context.text, context, context.test_parameters.get_parameters())
     print_actual_query(context)
 
