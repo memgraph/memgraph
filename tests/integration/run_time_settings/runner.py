@@ -251,6 +251,20 @@ def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[s
     atexit.unregister(cleanup)
 
 
+def run_invalid_flag_test(memgraph_args: List[str]) -> None:
+    # A negative or non-finite query timeout is rejected while the flags are parsed, before the server starts.
+    for value in ["-1", "nan", "inf"]:
+        result = subprocess.run(
+            list(map(str, memgraph_args + ["--query-execution-timeout-sec", value])),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode != 0, f"Memgraph started with --query-execution-timeout-sec={value}"
+        assert "query_execution_timeout_sec" in result.stderr, f"Rejection does not name the flag: {result.stderr}"
+
+
 def run_persistence_test(
     flag_tester_binary: str,
     config_checker_binary: str,
@@ -384,6 +398,9 @@ def execute_test(
 
     print("\033[1;34m~~ storage.access_timeout_sec validation ~~\033[0m")
     run_storage_access_validation_test(tester_binary, memgraph_args)
+
+    print("\033[1;34m~~ query_execution_timeout_sec flag validation ~~\033[0m")
+    run_invalid_flag_test(memgraph_args)
 
     print("\033[1;34m~~ persistence across restarts ~~\033[0m")
     run_persistence_test(

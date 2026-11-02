@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <expected>
 #include <functional>
+#include <iostream>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -71,9 +72,14 @@ DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::GetLogLevelHelpSt
 
 // Query flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_double(query_execution_timeout_sec, 600,
-              "Maximum allowed query execution time. Queries exceeding this "
-              "limit will be aborted. Value of 0 means no limit.");
+DEFINE_VALIDATED_double(query_execution_timeout_sec, 600,
+                        "Maximum allowed query execution time. Queries exceeding this "
+                        "limit will be aborted. Value of 0 means no limit.",
+                        {
+                          if (std::isfinite(value) && value >= 0) return true;
+                          std::cerr << "Expected --" << flagname << " to be a non-negative number\n";
+                          return false;
+                        });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(hops_limit_partial_results, true,
