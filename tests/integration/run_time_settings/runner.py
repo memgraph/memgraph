@@ -253,6 +253,7 @@ def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[s
 
 def run_persistence_test(
     flag_tester_binary: str,
+    config_checker_binary: str,
     memgraph_args: List[str],
     executor_binary: str,
     store_binary: str,
@@ -284,12 +285,15 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
     stop(memgraph)
 
-    # A value persisted by an older version is restored one last time and deleted
+    # A value persisted by an older version is restored one last time and deleted. SHOW DATABASE SETTINGS reads the
+    # settings map; SHOW CONFIG reads the flag, which only the on-change callback updates.
     store_put(store_binary, data_directory, "server.name", "Old Name")
     store_put(store_binary, data_directory, "query.timeout", "321")
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", "Old Name")
     check_flag(flag_tester_binary, "query.timeout", "321")
+    check_config(config_checker_binary, "bolt_server_name_for_init", "Old Name")
+    check_config(config_checker_binary, "query_execution_timeout_sec", "321")
     stop(memgraph)
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover of server.name kept"
     assert store_get(store_binary, data_directory, "query.timeout") is None, "Leftover of query.timeout kept"
@@ -297,6 +301,8 @@ def run_persistence_test(
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", default_server_name)
     check_flag(flag_tester_binary, "query.timeout", "600")
+    check_config(config_checker_binary, "bolt_server_name_for_init", default_server_name)
+    check_config(config_checker_binary, "query_execution_timeout_sec", "600")
     stop(memgraph)
 
     # A leftover that fails validation is skipped in favor of the flag value, and deleted
@@ -305,6 +311,8 @@ def run_persistence_test(
     memgraph = start()
     check_flag(flag_tester_binary, "query.timeout", "600")
     check_flag(flag_tester_binary, "timezone", "UTC")
+    check_config(config_checker_binary, "query_execution_timeout_sec", "600")
+    check_config(config_checker_binary, "timezone", "UTC")
     stop(memgraph)
     assert store_get(store_binary, data_directory, "query.timeout") is None, "Invalid leftover of query.timeout kept"
     assert store_get(store_binary, data_directory, "timezone") is None, "Invalid leftover of timezone kept"
@@ -313,6 +321,7 @@ def run_persistence_test(
     store_put(store_binary, data_directory, "server.name", "Old Name")
     memgraph = start(["--bolt-server-name-for-init", "Flag Name"])
     check_flag(flag_tester_binary, "server.name", "Flag Name")
+    check_config(config_checker_binary, "bolt_server_name_for_init", "Flag Name")
     stop(memgraph)
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover kept when the flag was given"
     memgraph = start()
@@ -378,7 +387,13 @@ def execute_test(
 
     print("\033[1;34m~~ persistence across restarts ~~\033[0m")
     run_persistence_test(
-        flag_tester_binary, memgraph_args, executor_binary, store_binary, storage_directory.name, default_server_name
+        flag_tester_binary,
+        test_config_binary,
+        memgraph_args,
+        executor_binary,
+        store_binary,
+        storage_directory.name,
+        default_server_name,
     )
 
     print("\033[1;36m~~ Finished run-time settings check test ~~\033[0m")
