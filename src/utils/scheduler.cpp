@@ -92,12 +92,11 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
     tm_cursor.tm_isdst = -1;
     tm_cursor.tm_zone = nullptr;
 
-    // Where a timezone repeats an hour, the calendar time a cron names can map to an instant
-    // already gone, and the worker never waits for a time already due. The following match fires
-    // the schedule once per name. Each match is later in calendar terms, so the search advances.
+    // A repeated hour can map the calendar time a cron names to an instant already gone, which the
+    // worker would not wait for. Each match is later in calendar terms, so the search ends.
     while (true) {
       const auto tm_next = cron::cron_next(cron, tm_cursor);
-      // croncpp reports finding nothing with a zeroed tm, and no calendar time has a zeroth day.
+      // croncpp reports no match with a zeroed tm, and no calendar time has a zeroth day.
       if (tm_next.tm_mday == 0) return time_point::max();
       const auto next = LocalDateTime{tm_next}.us_since_epoch_;
       if (next > now) return next;
@@ -189,8 +188,7 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
-    // An exception leaving the task would terminate the process, and the schedule outlives any
-    // one execution.
+    // An exception leaving the task would terminate the process, and the schedule outlives any one execution.
     try {
       f();
     } catch (const std::exception &e) {

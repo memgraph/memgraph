@@ -55,8 +55,7 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
   return value;
 }
 
-// Daylight saving leaves a calendar time naming no instant, or two. Resolving to the earliest
-// match keeps the conversion total, so a stored value or a query is never rejected for the shift.
+// Daylight saving leaves a calendar time naming no instant, or two; the earliest match keeps this conversion total.
 auto LocalToSys(std::chrono::microseconds us_since_epoch_local) -> std::chrono::sys_time<std::chrono::microseconds> {
   const auto *tz = utils::GetTimezone();
   if (!tz) {
@@ -874,8 +873,7 @@ std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseco
 
 namespace {
 
-// The fields belong to the timezone given with them. Reading them through the configured timezone
-// would let the server's own shifts move a value that names a different one.
+// Reading the fields through the configured timezone would let the server's shifts move a value naming another.
 auto ParamsToLocalTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
   return AsLocalTime(Date{date_parameters}.MicrosecondsSinceEpoch() +
                      LocalTime{local_time_parameters}.MicrosecondsSinceEpoch());

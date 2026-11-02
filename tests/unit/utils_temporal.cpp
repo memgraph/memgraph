@@ -454,8 +454,7 @@ TEST(TemporalTest, LocalDateTimeToLocalTimeTZ) {
   test_LocalDateTimeToLocalTime();
 }
 
-// Rome advances 02:00 to 03:00 on this date, so 02:30 names no instant and both sides of the gap
-// meet at 01:00 UTC.
+// Rome advances 02:00 to 03:00 on this date, so 02:30 names no instant, and both sides meet at 01:00 UTC.
 TEST(TemporalTest, LocalDateTimeInDaylightSavingGap) {
   using namespace std::chrono;
   HandleTimezone htz;
@@ -484,8 +483,7 @@ TEST(TemporalTest, LocalDateTimeInDaylightSavingOverlap) {
             duration_cast<microseconds>(expected.time_since_epoch()).count());
 }
 
-// Sweeping whole zones and years rather than the shift dates holds no fact about when a zone
-// shifts, so a revision to the timezone database cannot turn this red on its own.
+// The sweep names no shift date, so a revision to the timezone database cannot turn it red on its own.
 TEST(TemporalTest, EveryCalendarTimeOfTheYearIsConstructible) {
   using namespace std::chrono;
   HandleTimezone htz;

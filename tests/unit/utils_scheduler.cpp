@@ -417,8 +417,7 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
   test();
 }
 
-// Rome repeats 02:00 to 03:00 local on this date, so a schedule naming 02:30 names an instant
-// already passed once the clock is in the second pass.
+// Rome repeats 02:00 to 03:00 local on this date, so 02:30 names an instant already passed in the second pass.
 TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
   using namespace std::chrono;
   HandleTimezone htz;
@@ -436,8 +435,7 @@ TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
   }
 }
 
-// The 30th of February passes validation, since each field is in range on its own, and then
-// matches nothing.
+// The 30th of February passes validation, since each field is in range on its own, and matches nothing.
 TEST(Scheduler, CronThatNeverMatchesHasNoNextExecution) {
   memgraph::utils::Scheduler scheduler;
   scheduler.SetInterval("0 0 0 30 2 *");
@@ -513,7 +511,7 @@ TEST(Scheduler, TimeDrift) {
   scheduler.Stop();
 }
 
-// A regression here aborts this binary rather than failing the expectation.
+// A regression aborts this binary. A death test instead forks a process with threads and cannot join them.
 TEST(Scheduler, ThrowingTaskKeepsSchedulerRunning) {
   std::atomic<int> runs{0};
   memgraph::utils::Scheduler scheduler;
