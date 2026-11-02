@@ -20,6 +20,15 @@
 #include "spdlog/spdlog.h"
 
 #include "auth/rpc.hpp"
+#include "utils/string.hpp"
+
+namespace {
+
+// Membership is keyed by the canonical spelling so that any spelling that reaches this registry resolves to the
+// same member, including raw spellings persisted or replicated by an older binary.
+std::string FoldUsername(std::string_view username) { return memgraph::utils::ToLowerCase(username); }
+
+}  // namespace
 
 namespace memgraph::auth {
 
@@ -56,7 +65,14 @@ void to_json(nlohmann::json &data, const memgraph::auth::UserProfiles::Profile &
 
 void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::Profile &profile) {
   if (data.contains("limits")) profile.limits = data["limits"].get<memgraph::auth::UserProfiles::limits_t>();
-  if (data.contains("usernames")) profile.usernames = data["usernames"].get<std::unordered_set<std::string>>();
+  if (data.contains("usernames")) {
+    // Fold on load so a raw spelling persisted by a pre-fix binary stays matchable without a durable rewrite.
+    std::unordered_set<std::string> usernames;
+    for (const auto &username : data["usernames"].get<std::unordered_set<std::string>>()) {
+      usernames.insert(FoldUsername(username));
+    }
+    profile.usernames = std::move(usernames);
+  }
 }
 
 UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
@@ -85,10 +101,15 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
   }
 
   // Create profile with initial usernames
-  Profile profile{std::string{name}, std::move(defined_limits), usernames};
+  std::unordered_set<std::string> folded_usernames;
+  folded_usernames.reserve(usernames.size());
+  for (const auto &username : usernames) {
+    folded_usernames.insert(FoldUsername(username));
+  }
+  Profile profile{std::string{name}, std::move(defined_limits), std::move(folded_usernames)};
 
   // Remove usernames from other profiles if they exist
-  for (const auto &username : usernames) {
+  for (const auto &username : profile.usernames) {
     // Check if username is already in another profile and remove it
     for (auto &existing_profile : profiles_) {  // NOLINT
       if (existing_profile.usernames.contains(username)) {
@@ -177,10 +198,12 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
     return std::nullopt;
   }
 
+  const auto folded_username = FoldUsername(username);
+
   // Check if username is already in another profile and remove it
   for (auto &profile : profiles_) {  // NOLINT
-    if (profile.usernames.contains(std::string{username})) {
-      profile.usernames.erase(std::string{username});
+    if (profile.usernames.contains(folded_username)) {
+      profile.usernames.erase(folded_username);
       // Update the other profile in durability
       const nlohmann::json json = profile;
       durability_->Put(Repository::ProfileKey(profile.name), json.dump());
@@ -188,13 +211,13 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
   }
 
   // Add username to the target profile
-  profile_it->usernames.insert(std::string{username});
+  profile_it->usernames.insert(folded_username);
 
   // Update durability
   const nlohmann::json json = *profile_it;
   if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
-    profile_it->usernames.erase(std::string{username});
+    profile_it->usernames.erase(folded_username);
     return std::nullopt;
   }
 
@@ -208,7 +231,8 @@ UserProfiles::MembershipResult UserProfiles::RemoveUsername(std::string_view pro
     return MembershipResult::kAbsent;
   }
 
-  auto username_it = profile_it->usernames.find(std::string{username});
+  const auto folded_username = FoldUsername(username);
+  auto username_it = profile_it->usernames.find(folded_username);
   if (username_it == profile_it->usernames.end()) {
     return MembershipResult::kAbsent;
   }
@@ -219,7 +243,7 @@ UserProfiles::MembershipResult UserProfiles::RemoveUsername(std::string_view pro
   const nlohmann::json json = *profile_it;
   if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
-    profile_it->usernames.insert(std::string{username});
+    profile_it->usernames.insert(folded_username);
     return MembershipResult::kFailed;
   }
 
@@ -238,8 +262,9 @@ std::unordered_set<std::string> UserProfiles::GetUsernames(std::string_view prof
 
 std::optional<std::string> UserProfiles::GetProfileForUsername(std::string_view username) const {
   auto l = std::shared_lock{mtx_};
+  const auto folded_username = FoldUsername(username);
   for (const auto &profile : profiles_) {
-    if (profile.usernames.contains(std::string{username})) {
+    if (profile.usernames.contains(folded_username)) {
       return profile.name;
     }
   }
