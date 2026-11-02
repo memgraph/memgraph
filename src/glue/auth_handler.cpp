@@ -12,6 +12,7 @@
 #include "glue/auth_handler.hpp"
 #include <algorithm>
 #include <exception>
+#include <map>
 #include <range/v3/all.hpp>
 
 #include <optional>
@@ -1400,6 +1401,60 @@ void AuthQueryHandler::EditPermissions(
 }
 
 #ifdef MG_ENTERPRISE
+std::vector<query::TypedValue> AuthQueryHandler::GetImpersonationPrivileges(const std::string &user_or_role,
+                                                                            auth::UserOrRoleType type,
+                                                                            auth::AuthTransaction *auth_tx) {
+  using query::TypedValue;
+  if (type == auth::UserOrRoleType::UNSPECIFIED) {
+    throw query::QueryRuntimeException("Specify USER or ROLE for impersonation privileges.");
+  }
+  try {
+    auto locked_auth = ReadLock(auth_tx);
+    const auto user = type == auth::UserOrRoleType::USER ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    const auto role = type == auth::UserOrRoleType::ROLE ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (!user && !role) {
+      throw query::QueryRuntimeException(
+          "{} '{}' doesn't exist.", type == auth::UserOrRoleType::USER ? "User" : "Role", user_or_role);
+    }
+    const auto &policy = user ? user->user_impersonation() : role->user_impersonation();
+    const auto &permissions = user ? user->permissions() : role->permissions();
+    const auto coarse_permission = auth::PermissionLevelToString(permissions.Has(auth::Permission::IMPERSONATE_USER));
+    const auto project_targets = [&](const auto &targets) {
+      std::vector<TypedValue> result;
+      result.reserve(targets.size());
+      for (const auto &target : targets) {
+        const auto current_user = locked_auth->GetUser(target.name);
+        result.emplace_back(std::map<std::string, TypedValue>{
+            {"name", TypedValue(target.name)},
+            {"uuid", TypedValue(static_cast<std::string>(target.uuid))},
+            {"current_uuid",
+             current_user ? TypedValue(static_cast<std::string>(current_user->uuid())) : TypedValue()}});
+      }
+      return result;
+    };
+    std::vector<TypedValue> granted_users;
+    std::vector<TypedValue> denied_users;
+    bool grant_all = false;
+    if (policy) {
+      grant_all = std::holds_alternative<auth::UserImpersonation::GrantAllUsers>(policy->granted());
+      if (!grant_all) {
+        granted_users = project_targets(std::get<std::set<auth::UserImpersonation::UserId>>(policy->granted()));
+      }
+      denied_users = project_targets(policy->denied());
+    }
+    return {TypedValue(int64_t{1}),
+            TypedValue(type == auth::UserOrRoleType::USER ? "USER" : "ROLE"),
+            TypedValue(user ? user->username() : role->rolename()),
+            TypedValue(coarse_permission),
+            TypedValue(policy.has_value()),
+            TypedValue(grant_all),
+            TypedValue(std::move(granted_users)),
+            TypedValue(std::move(denied_users))};
+  } catch (const auth::AuthException &error) {
+    throw query::QueryRuntimeException(error.what());
+  }
+}
+
 void AuthQueryHandler::GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
                                             auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx,
                                             system::Transaction *system_tx) {

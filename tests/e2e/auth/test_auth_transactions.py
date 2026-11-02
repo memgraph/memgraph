@@ -49,6 +49,37 @@ def cursor():
             pass
 
 
+def test_impersonation_inventory_reads_uncommitted_policy_and_target_identity(cursor):
+    other = connect().cursor()
+    execute(cursor, "CREATE USER application")
+    execute(cursor, "CREATE USER viewer")
+    execute(cursor, "GRANT IMPERSONATE_USER viewer TO USER application")
+    query = "SHOW IMPERSONATION PRIVILEGES FOR USER application"
+    original = execute(cursor, query)[0]
+
+    execute(cursor, "BEGIN")
+    execute(cursor, "DROP USER viewer")
+    execute(cursor, "CREATE USER viewer")
+    pending = execute(cursor, query)[0]
+    assert pending[6][0]["uuid"] == original[6][0]["uuid"]
+    assert pending[6][0]["current_uuid"] != original[6][0]["current_uuid"]
+    assert execute(other, query)[0] == original
+    execute(cursor, "REVOKE IMPERSONATE_USER FROM USER application")
+    assert execute(cursor, query)[0][3] == "NEUTRAL"
+    execute(cursor, "ROLLBACK")
+    assert execute(cursor, query)[0] == original
+
+
+def test_impersonation_inventory_read_only_transaction_can_commit(cursor):
+    execute(cursor, "CREATE USER application")
+    execute(cursor, "BEGIN")
+    for _ in range(2):
+        rows = execute(cursor, "SHOW IMPERSONATION PRIVILEGES FOR USER application")
+        assert len(rows) == 1
+    execute(cursor, "COMMIT")
+    assert "application" in usernames(cursor)
+
+
 def test_committed_users_are_visible(cursor):
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER alice")

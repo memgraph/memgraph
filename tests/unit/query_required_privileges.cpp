@@ -223,6 +223,16 @@ TEST_F(TestPrivilegeExtractor, ShowSnapshotsQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DURABILITY));
 }
 
+TEST_F(TestPrivilegeExtractor, ImpersonationInventoryRequiresAuthAndRejectsCoordinators) {
+  auto *query = storage.Create<AuthQuery>();
+  query->action_ = AuthQuery::Action::SHOW_IMPERSONATION_PRIVILEGES;
+  for (const auto type : {AuthQuery::UserOrRoleType::USER, AuthQuery::UserOrRoleType::ROLE}) {
+    query->entity_type_ = type;
+    EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
+    EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(*query));
+  }
+}
+
 TEST_F(TestPrivilegeExtractor, CoordinatorQuery) {
   // Read-only coordinator introspection requires COORDINATOR_READ.
   auto *show_instances = storage.Create<CoordinatorQuery>();

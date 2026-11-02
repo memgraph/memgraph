@@ -2952,6 +2952,15 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
   return auth;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowImpersonationPrivileges(
+    MemgraphCypher::ShowImpersonationPrivilegesContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_IMPERSONATION_PRIVILEGES;
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->principal->accept(this));
+  auth->entity_type_ = ctx->USER() ? AuthQuery::UserOrRoleType::USER : AuthQuery::UserOrRoleType::ROLE;
+  return auth;
+}
+
 /**
  * @return AuthQuery*
  */

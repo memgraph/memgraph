@@ -214,6 +214,79 @@ TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollba
 }
 
 #ifdef MG_ENTERPRISE
+TYPED_TEST(InterpreterTest, ImpersonationInventoryRejectsNonEnterpriseLicenses) {
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::OEM_COMMUNITY);
+  const memgraph::utils::OnScopeExit restore_license{[] { memgraph::license::global_license_checker.EnableTesting(); }};
+  EXPECT_THROW(this->Interpret("SHOW IMPERSONATION PRIVILEGES FOR USER missing"),
+               memgraph::query::QueryRuntimeException);
+}
+
+TYPED_TEST(InterpreterTest, ImpersonationInventoryReturnsNativeValuesAndReadsItsOwnWrites) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->Interpret("BEGIN");
+  this->Interpret("CREATE USER application");
+  this->Interpret("CREATE USER viewer");
+  this->Interpret("CREATE ROLE operator");
+  this->Interpret("GRANT IMPERSONATE_USER viewer TO ROLE operator");
+  this->Interpret("GRANT IMPERSONATE_USER viewer TO USER application");
+  this->Interpret("REVOKE IMPERSONATE_USER FROM USER application");
+
+  const auto stream = this->Interpret("SHOW IMPERSONATION PRIVILEGES FOR USER application");
+  EXPECT_EQ(stream.GetHeader(),
+            (std::vector<std::string>{"schema_version",
+                                      "principal_type",
+                                      "principal",
+                                      "coarse_permission",
+                                      "policy_present",
+                                      "grant_all",
+                                      "granted_users",
+                                      "denied_users"}));
+  ASSERT_EQ(stream.GetResults().size(), 1);
+  const auto &row = stream.GetResults()[0];
+  ASSERT_EQ(row.size(), 8);
+  EXPECT_EQ(row[0].ValueInt(), 1);
+  EXPECT_EQ(row[1].ValueString(), "USER");
+  EXPECT_EQ(row[2].ValueString(), "application");
+  EXPECT_EQ(row[3].ValueString(), "NEUTRAL");
+  EXPECT_TRUE(row[4].ValueBool());
+  EXPECT_FALSE(row[5].ValueBool());
+  ASSERT_EQ(row[6].ValueList().size(), 1);
+  const auto &target = row[6].ValueList()[0].ValueMap();
+  EXPECT_EQ(target.at("name").ValueString(), "viewer");
+  EXPECT_EQ(target.at("uuid").ValueString(), target.at("current_uuid").ValueString());
+  EXPECT_TRUE(row[7].ValueList().empty());
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("application"));
+
+  const auto role_stream = this->Interpret("SHOW IMPERSONATION PRIVILEGES FOR ROLE operator");
+  EXPECT_EQ(role_stream.GetResults()[0][1].ValueString(), "ROLE");
+  EXPECT_EQ(role_stream.GetResults()[0][3].ValueString(), "GRANT");
+  this->Interpret("ROLLBACK");
+  EXPECT_FALSE(auth.auth.ReadLock()->GetRole("operator"));
+}
+
+TYPED_TEST(InterpreterTest, ImpersonationInventoryDoesNotAcquireASystemTransaction) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+  this->Interpret("CREATE USER application");
+  std::promise<bool> held;
+  std::promise<void> release;
+  std::jthread const holder([&] {
+    const auto tx = this->system_state.TryCreateTransaction();
+    held.set_value(tx.has_value());
+    release.get_future().wait();
+  });
+  const bool holding = held.get_future().get();
+  if (holding) {
+    EXPECT_NO_THROW(this->Interpret("SHOW IMPERSONATION PRIVILEGES FOR USER application"));
+  }
+  release.set_value();
+  ASSERT_TRUE(holding);
+}
+
 // An auth COMMIT that cannot take the system transaction loses every buffered statement, so it reports a
 // serialization error, which a driver retries, rather than a client error it does not.
 TYPED_TEST(InterpreterTest, AnAuthCommitBlockedBySystemQueryIsRetryable) {

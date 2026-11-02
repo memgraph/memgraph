@@ -106,6 +106,7 @@ memgraphCypherKeyword : cypherKeyword
                       | IF
                       | IGNORE
                       | IMPERSONATE_USER
+                      | IMPERSONATION
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -337,6 +338,7 @@ authQuery : createRole
           | denyPrivilege
           | revokePrivilege
           | showPrivileges
+          | showImpersonationPrivileges
           | showRoleForUser
           | showUsersForRole
           | grantDatabaseToUserOrRole
@@ -646,6 +648,8 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 colonSymbolicName : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR target=userOrRole ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
+
+showImpersonationPrivileges : SHOW IMPERSONATION PRIVILEGES FOR ( USER | ROLE ) principal=userOrRoleName ;
 
 showRoleForUser : SHOW ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 

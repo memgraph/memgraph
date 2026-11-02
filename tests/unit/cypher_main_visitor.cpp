@@ -5444,6 +5444,33 @@ TEST_P(CypherMainVisitorTest, GrantCombinedReadSetPropertyPermission) {
       .Check();
 }
 
+TEST_P(CypherMainVisitorTest, ShowImpersonationPrivileges) {
+  auto &ast_generator = *GetParam();
+  for (const auto &[query, type] : std::vector<std::pair<std::string, AuthQuery::UserOrRoleType>>{
+           {"SHOW IMPERSONATION PRIVILEGES FOR USER `application-user`", AuthQuery::UserOrRoleType::USER},
+           {"show impersonation privileges for role `application-user`", AuthQuery::UserOrRoleType::ROLE}}) {
+    auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(auth);
+    EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_IMPERSONATION_PRIVILEGES);
+    EXPECT_EQ(auth->user_or_role_, "application-user");
+    EXPECT_EQ(auth->entity_type_, type);
+    AstStorage clone_storage;
+    const auto *clone = auth->Clone(&clone_storage);
+    EXPECT_EQ(clone->action_, auth->action_);
+    EXPECT_EQ(clone->user_or_role_, auth->user_or_role_);
+    EXPECT_EQ(clone->entity_type_, type);
+  }
+  for (const auto *query : {"SHOW IMPERSONATION PRIVILEGES FOR application",
+                            "SHOW IMPERSONATION PRIVILEGES FOR USER",
+                            "SHOW IMPERSONATION PRIVILEGES FOR ROLE application ON MAIN",
+                            "SHOW IMPERSONATION PRIVILEGES FOR USER application ON CURRENT",
+                            "SHOW IMPERSONATION PRIVILEGES FOR USER application ON DATABASE memgraph",
+                            "SHOW IMPERSONATION PRIVILEGES FOR USER first, second"}) {
+    EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+  EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN impersonation"));
+}
+
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"), SyntaxException);

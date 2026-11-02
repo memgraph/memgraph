@@ -108,6 +108,7 @@ IDENTIFIED              : I D E N T I F I E D ;
 IF                      : I F ;
 IGNORE                  : I G N O R E ;
 IMPERSONATE_USER        : I M P E R S O N A T E UNDERSCORE U S E R ;
+IMPERSONATION           : I M P E R S O N A T I O N ;
 IMPORT                  : I M P O R T ;
 IN_MEMORY_ANALYTICAL    : I N UNDERSCORE M E M O R Y UNDERSCORE A N A L Y T I C A L ;
 IN_MEMORY_TRANSACTIONAL : I N UNDERSCORE M E M O R Y UNDERSCORE T R A N S A C T I O N A L ;

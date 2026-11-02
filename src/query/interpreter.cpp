@@ -2156,6 +2156,28 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
+    case AuthQuery::Action::SHOW_IMPERSONATION_PRIVILEGES:
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException(license::LicenseCheckErrorToString(
+            license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonation privileges"));
+      }
+#ifdef MG_ENTERPRISE
+      callback.header = {"schema_version",
+                         "principal_type",
+                         "principal",
+                         "coarse_permission",
+                         "policy_present",
+                         "grant_all",
+                         "granted_users",
+                         "denied_users"};
+      callback.fn = [auth, user_or_role, entity_type, interpreter = &interpreter] {
+        return std::vector<std::vector<TypedValue>>{
+            auth->GetImpersonationPrivileges(user_or_role, entity_type, interpreter->auth_transaction_ptr())};
+      };
+      return callback;
+#else
+      throw QueryRuntimeException("Impersonation privileges are only available in enterprise edition.");
+#endif
     case AuthQuery::Action::GRANT_IMPERSONATE_USER:
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryRuntimeException(
@@ -10812,7 +10834,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // mutex already taken and fail. The same applies to tenant profiles.
     auto const *user_profile_query = utils::Downcast<UserProfileQuery>(parsed_query.query);
     auto const *tenant_profile_query = utils::Downcast<TenantProfileQuery>(parsed_query.query);
-    bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
+    auto const *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
+    bool system_queries = (auth_query && auth_query->action_ != AuthQuery::Action::SHOW_IMPERSONATION_PRIVILEGES) ||
                           utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
                           utils::Downcast<ReplicationQuery>(parsed_query.query) ||
                           (!in_explicit_transaction_ && user_profile_query != nullptr &&
