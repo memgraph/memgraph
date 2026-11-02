@@ -484,6 +484,57 @@ TEST(TemporalTest, LocalDateTimeInDaylightSavingOverlap) {
             duration_cast<microseconds>(expected.time_since_epoch()).count());
 }
 
+// Construction is total: a calendar time is accepted whatever the configured zone does to it. The
+// sweep covers whole zones and years rather than the shift dates, so it holds no fact about when a
+// zone shifts and keeps holding if one changes its mind.
+TEST(TemporalTest, EveryCalendarTimeOfTheYearIsConstructible) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+
+  for (const auto *zone : {"Europe/Rome", "America/Los_Angeles", "Australia/Lord_Howe"}) {
+    htz.Set(zone);
+    for (auto day = sys_days{2026y / January / 1}; day < sys_days{2027y / January / 1}; day += days{1}) {
+      const year_month_day date{day};
+      for (int hour = 0; hour < 24; ++hour) {
+        for (const int minute : {0, 30}) {
+          ASSERT_NO_THROW(
+              memgraph::utils::LocalDateTime(memgraph::utils::DateParameters{static_cast<int>(date.year()),
+                                                                             static_cast<unsigned>(date.month()),
+                                                                             static_cast<unsigned>(date.day())},
+                                             memgraph::utils::LocalTimeParameters{hour, minute}))
+              << zone << " " << static_cast<unsigned>(date.month()) << "/" << static_cast<unsigned>(date.day()) << " "
+              << hour << ":" << minute;
+        }
+      }
+    }
+  }
+}
+
+// Both constructors read the same calendar fields, so they agree, including where the zone leaves
+// the answer a choice and the two could diverge.
+TEST(TemporalTest, BothLocalDateTimeConstructorsAgree) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+
+  for (const auto *zone : {"Europe/Rome", "America/Los_Angeles"}) {
+    htz.Set(zone);
+    for (auto day = sys_days{2026y / January / 1}; day < sys_days{2027y / January / 1}; day += days{1}) {
+      const year_month_day date{day};
+      const memgraph::utils::DateParameters date_parameters{
+          static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())};
+      for (int hour = 0; hour < 24; ++hour) {
+        const memgraph::utils::LocalTimeParameters time_parameters{hour, 30};
+        ASSERT_EQ(memgraph::utils::LocalDateTime(date_parameters, time_parameters).SysMicrosecondsSinceEpoch(),
+                  memgraph::utils::LocalDateTime(memgraph::utils::Date{date_parameters},
+                                                 memgraph::utils::LocalTime{time_parameters})
+                      .SysMicrosecondsSinceEpoch())
+            << zone << " " << static_cast<unsigned>(date.month()) << "/" << static_cast<unsigned>(date.day()) << " "
+            << hour << ":30";
+      }
+    }
+  }
+}
+
 namespace {
 using namespace std::literals;
 inline constexpr std::array parsing_test_dates_extended{
