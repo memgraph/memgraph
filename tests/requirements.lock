@@ -204,7 +204,7 @@ s3transfer==0.14.0
     # via boto3
 scipy==1.13.0
     # via -r requirements.txt
-setuptools==80.9.0
+setuptools==84.1.0
     # via -r requirements.txt
 six==1.17.0
     # via
@@ -230,7 +230,7 @@ tzdata==2026.4
     #   faker
     #   pandas
     #   pymgclient
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   -r requirements.txt
     #   botocore
