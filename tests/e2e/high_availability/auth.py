@@ -2042,11 +2042,10 @@ def test_profile_mixed_case_survives_failover(test_name):
     execute_and_fetch_all(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
     execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO USER TestUser")
     execute_and_fetch_all(admin_cursor, "SET PROFILE FOR TestUser TO mixed_one")
-    # A spelling that matches the stored raw name resolves on any tree; the folded lookup is asserted after promotion.
+    # The raw spelling matches the stored member on any tree; the fold is exercised after promotion.
     assert execute_and_fetch_all(admin_cursor, "SHOW PROFILE FOR TestUser") == [("mixed_one",)]
 
-    # Wait until the replica has applied the membership. The raw spelling resolves there on any tree, so this is a
-    # catch-up wait, not the regression assertion.
+    # Wait until the replica has applied the membership; the raw spelling matches there on any tree.
     def replica_profile():
         try:
             cursor = connect(host="localhost", port=7688, username="admin", password="admin123").cursor()

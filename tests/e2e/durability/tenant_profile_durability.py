@@ -119,7 +119,7 @@ def _user_execute(cursor, query):
 
 def _ensure_admin():
     try:
-        conn = _user_connect()  # no users yet
+        conn = _user_connect()
     except Exception:
         conn = _user_connect("admin", "admin-pw")  # this test created it above
     cursor = conn.cursor()

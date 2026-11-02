@@ -804,14 +804,14 @@ def _execute(cursor, query):
 
 def _ensure_admin():
     try:
-        conn = _connect()  # no users yet
+        conn = _connect()
     except Exception:
-        conn = _connect("admin", "admin-pw")  # an earlier test in this file created one
+        conn = _connect("admin", "admin-pw")  # admin exists from an earlier test
     cursor = conn.cursor()
     try:
         _execute(cursor, "CREATE USER admin IDENTIFIED BY 'admin-pw'")
     except Exception:
-        pass  # created by an earlier test in this file
+        pass  # already created by an earlier test
     try:
         _execute(cursor, "GRANT ALL PRIVILEGES TO admin")
     except Exception:
