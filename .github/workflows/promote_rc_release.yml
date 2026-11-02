@@ -390,8 +390,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Get dockerhub token
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          dockerhub_token=$(jq -n --arg username "$DOCKERHUB_USERNAME" --arg password "$DOCKERHUB_TOKEN" \
+              '{username: $username, password: $password}' \
+            | curl -s -H "Content-Type: application/json" -X POST -d @- https://hub.docker.com/v2/users/login/ \
+            | jq -r .token)
+          echo "::add-mask::${dockerhub_token}"
           echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
 
       - name: Promote RC to Release (Release)
@@ -680,8 +687,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Get dockerhub token
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          dockerhub_token=$(jq -n --arg username "$DOCKERHUB_USERNAME" --arg password "$DOCKERHUB_TOKEN" \
+              '{username: $username, password: $password}' \
+            | curl -s -H "Content-Type: application/json" -X POST -d @- https://hub.docker.com/v2/users/login/ \
+            | jq -r .token)
+          echo "::add-mask::${dockerhub_token}"
           echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
 
       - name: Promote RC to Release
