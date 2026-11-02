@@ -85,7 +85,7 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
 }
 
 void Scheduler::SetInterval_(std::string_view cron_expr) {
-  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) {
+  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) -> time_point {
     auto tm_cursor = LocalDateTime{now}.tm();
     // Hack to force the mktime to reinterpret the time as is in the system tz
     tm_cursor.tm_gmtoff = 0;
@@ -99,7 +99,10 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
     // later than the last in calendar terms, so the search advances.
     while (true) {
       const auto tm_next = cron::cron_next(cron, tm_cursor);
-      // LocalDateTime reads only the date and time values, ignoring the system tz
+      // A zeroed result is how croncpp reports finding nothing, and no calendar time has a zeroth
+      // day. An expression can pass validation and still match no time, the 30th of February being
+      // one, and such a schedule has no next execution rather than an unreadable one.
+      if (tm_next.tm_mday == 0) return time_point::max();
       const auto next = LocalDateTime{tm_next}.us_since_epoch_;
       if (next > now) return next;
       tm_cursor = tm_next;

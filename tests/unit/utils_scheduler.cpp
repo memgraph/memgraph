@@ -437,6 +437,17 @@ TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
   }
 }
 
+// The 30th of February passes expression validation, since each field is in range on its own, and
+// then matches nothing. A schedule with no match has no next execution to report.
+TEST(Scheduler, CronThatNeverMatchesHasNoNextExecution) {
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval("0 0 0 30 2 *");
+
+  std::optional<memgraph::utils::Scheduler::time_point> next;
+  ASSERT_NO_THROW(next = scheduler.NextExecution(std::chrono::system_clock::now()));
+  EXPECT_FALSE(next.has_value());
+}
+
 #endif
 
 TEST(Scheduler, SkipSlowExecutions) {
@@ -513,7 +524,10 @@ TEST(Scheduler, ThrowingTaskKeepsSchedulerRunning) {
     throw memgraph::utils::BasicException("scheduled task failed");
   });
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (runs.load() <= 1 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
   scheduler.Stop();
 
   // A scheduler that gave up after the first failure would also have survived.
