@@ -83,12 +83,17 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
         return db_it->second >= 0 && db_it->second <= max_replica_read_lag;
       };
 
-  auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
-                 ranges::views::filter(lag_filter) | ranges::views::transform(repl_instance_to_bolt) |
-                 ranges::to_vector;
-
-  if (enabled_reads_on_main && writers.size() == 1) {
-    readers.emplace_back(writers[0]);
+  auto readers = std::vector<std::string>{};
+  // '@' is reserved in database names, so it names a branch (`<database>@<branch>`). Replicas hold no branches: the
+  // branch is read on MAIN.
+  if (db_name.contains('@')) {
+    readers = writers;
+  } else {
+    readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
+              ranges::views::filter(lag_filter) | ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
+    if (enabled_reads_on_main && writers.size() == 1) {
+      readers.emplace_back(writers[0]);
+    }
   }
 
   spdlog::trace("READERS:");
