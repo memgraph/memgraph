@@ -71,11 +71,8 @@ class CharPP final {
 
   void Add(const char *value) {
     if (size_ == kCharppMaxElements) return;
-    int len = strlen(value);
-    char *item = static_cast<char *>(malloc(sizeof(char) * (len + 1)));
+    char *item = strdup(value);
     if (item == nullptr) return;
-    memcpy(item, value, len);
-    item[len] = 0;
     data_[size_++] = item;
   }
 
