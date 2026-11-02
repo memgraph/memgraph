@@ -18,7 +18,7 @@ ARG TOOLCHAIN_VERSION
 # Stops tzdata interactive configuration.
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt update && apt install -y \
+RUN apt update && apt install -y --no-install-recommends \
     ca-certificates wget git
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
