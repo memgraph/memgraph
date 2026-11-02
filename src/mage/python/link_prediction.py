@@ -1,4 +1,3 @@
-import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from heapq import heappop, heappush
@@ -11,7 +10,6 @@ from dgl import AddReverse
 from mage.link_prediction import (
     Activations,
     Aggregators,
-    Context,
     Devices,
     Metrics,
     Models,
@@ -27,6 +25,7 @@ from mage.link_prediction import (
     create_predictor,
     inner_predict,
     inner_train,
+    load_context,
     preprocess,
     proj_0,
 )
@@ -263,7 +262,7 @@ def train(
     # Extract number of layers
     num_layers = len(link_prediction_parameters.hidden_features_size)
 
-    # Architecture of the model and predictor, saved so load_model can rebuild them
+    # Architecture of the model and predictor, saved with each checkpoint so load_model can rebuild them
     model_config = {
         "model": {
             "layer_type": link_prediction_parameters.layer_type,
@@ -282,8 +281,6 @@ def train(
             "predictor_hidden_size": link_prediction_parameters.hidden_features_size[-1],
         },
     }
-    with open(link_prediction_parameters.context_save_dir + Context.CONFIG_NAME, "w") as f:
-        json.dump(model_config, f)
 
     # Create a model
     model = create_model(**model_config["model"], device=device)
@@ -325,6 +322,7 @@ def train(
         link_prediction_parameters.batch_size,
         link_prediction_parameters.sampling_workers,
         device,
+        model_config,
     )
 
     # Return results
@@ -598,26 +596,22 @@ def get_training_results(
 
 
 @mgp.read_proc
-def load_model(ctx: mgp.ProcCtx, path: str = link_prediction_parameters.context_save_dir) -> mgp.Record(status=mgp.Any):
+def load_model(ctx: mgp.ProcCtx, path: str = "") -> mgp.Record(status=mgp.Any):
     """Loads torch model from given path. If the path doesn't exist, underlying exception is thrown.
-    If the path argument is not given, it loads from the default path. If the user has changed path and the context was deleted
+    If the path argument is not given, it loads from the context_save_dir parameter. If the user has changed path and the context was deleted
     then he/she needs to send that parameter here.
 
     Args:
         ctx (mgp.ProcCtx): A reference to the context execution.
+        path (str): Path where the model and predictor were saved. Defaults to the context_save_dir parameter.
 
     Returns:
         status(mgp.Any): True just to indicate that loading went well.
     """
 
     global model, predictor
-    with open(path + Context.CONFIG_NAME) as f:
-        model_config = json.load(f)
-    model = create_model(**model_config["model"], device=device)
-    predictor = create_predictor(**model_config["predictor"], device=device)
-    # Only weights are loaded, so loading a file can't run code. load_state_dict copies them to the model's device.
-    model.load_state_dict(torch.load(path + Context.MODEL_NAME, map_location="cpu", weights_only=True))
-    predictor.load_state_dict(torch.load(path + Context.PREDICTOR_NAME, map_location="cpu", weights_only=True))
+    # Both are loaded before either global is replaced, so a failed load leaves the previous model in place
+    model, predictor = load_context(path or link_prediction_parameters.context_save_dir, device)
     return mgp.Record(status=True)
 
 

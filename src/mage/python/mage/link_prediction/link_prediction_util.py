@@ -1,3 +1,5 @@
+import json
+import os
 import random
 from collections import defaultdict
 from typing import Callable, Dict, List, Tuple
@@ -6,6 +8,7 @@ import dgl
 import numpy as np
 import torch
 from mage.link_prediction.constants import Context, Metrics
+from mage.link_prediction.factory import create_model, create_predictor
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
 
 # Function for obtaining reverse_relation naming given original relation
@@ -268,6 +271,7 @@ def inner_train(
     batch_size: int,
     sampling_workers: int,
     device: torch.device,
+    model_config: Dict,
 ) -> Tuple[List[Dict[str, float]], torch.nn.Module, torch.Tensor]:
     """Batch training method.
 
@@ -294,6 +298,7 @@ def inner_train(
         batch_size (int): Batch size used in both training and validation procedure.
         sampling_workers (int): Number of workers that will cooperate in the sampling procedure in the training and validation.
         device (torch.device): cpu or cuda
+        model_config (Dict): Arguments the model and predictor were created with, saved with each checkpoint.
     Returns:
         Tuple[List[Dict[str, float]], torch.nn.Module, torch.Tensor]: Training and validation results. _
     """
@@ -473,28 +478,62 @@ def inner_train(
 
         # Save the model if necessary
         if epoch % checkpoint_freq == 0:
-            _save_context(model, predictor, context_save_dir)
+            save_context(model, predictor, model_config, context_save_dir)
         # All examples learnt
         if tr_finished:
             break
 
     # Save model at the end of the training
-    _save_context(model, predictor, context_save_dir)
+    save_context(model, predictor, model_config, context_save_dir)
 
     return training_results, validation_results
 
 
-def _save_context(model: torch.nn.Module, predictor: torch.nn.Module, context_save_dir: str):
-    """Saves model and predictor weights to path. Only state dicts are saved so they can be loaded with
-    torch.load(weights_only=True); the architecture is saved separately as JSON by the train procedure.
+def save_context(model: torch.nn.Module, predictor: torch.nn.Module, model_config: Dict, context_save_dir: str):
+    """Saves model and predictor weights to path, with the config load_context needs to rebuild them. Only state
+    dicts are saved so they can be loaded with torch.load(weights_only=True). The config is saved with every
+    checkpoint so it always describes the weights next to it.
 
     Args:
-        context_save_dir: str -> Path where the model and predictor will be saved every checkpoint_freq epochs.
         model (torch.nn.Module): A reference to the model.
         predictor (torch.nn.Module): A reference to the predictor.
+        model_config (Dict): create_model arguments under "model", create_predictor arguments under "predictor",
+            both without device.
+        context_save_dir: str -> Path where the model and predictor will be saved every checkpoint_freq epochs.
     """
-    torch.save(model.state_dict(), context_save_dir + Context.MODEL_NAME)
-    torch.save(predictor.state_dict(), context_save_dir + Context.PREDICTOR_NAME)
+    torch.save(model.state_dict(), os.path.join(context_save_dir, Context.MODEL_NAME))
+    torch.save(predictor.state_dict(), os.path.join(context_save_dir, Context.PREDICTOR_NAME))
+    with open(os.path.join(context_save_dir, Context.CONFIG_NAME), "w") as f:
+        json.dump(model_config, f)
+
+
+def load_context(path: str, device: torch.device) -> Tuple[torch.nn.Module, torch.nn.Module]:
+    """Rebuilds the model and predictor saved in path and loads their weights. Only weights are loaded
+    (torch.load(weights_only=True)), so loading a file can't run code.
+
+    Args:
+        path (str): Path where the model and predictor were saved.
+        device (torch.device): Device to create the model and predictor on.
+
+    Returns:
+        Tuple[torch.nn.Module, torch.nn.Module]: The model and the predictor.
+    """
+    try:
+        with open(os.path.join(path, Context.CONFIG_NAME)) as f:
+            model_config = json.load(f)
+    except FileNotFoundError:
+        raise Exception(
+            f"No {Context.CONFIG_NAME} in {path}. Models saved by older versions of link_prediction can't be loaded "
+            "and need to be trained again."
+        )
+    model = create_model(**model_config["model"], device=device)
+    predictor = create_predictor(**model_config["predictor"], device=device)
+    # load_state_dict copies the weights to the device the model was created on
+    model.load_state_dict(torch.load(os.path.join(path, Context.MODEL_NAME), map_location="cpu", weights_only=True))
+    predictor.load_state_dict(
+        torch.load(os.path.join(path, Context.PREDICTOR_NAME), map_location="cpu", weights_only=True)
+    )
+    return model, predictor
 
 
 def inner_predict(
