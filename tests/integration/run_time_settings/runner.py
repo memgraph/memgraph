@@ -300,15 +300,17 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
     stop(memgraph)
 
-    # A value persisted by an older version is restored one last time and deleted. SHOW DATABASE SETTINGS reads the
-    # settings map; SHOW CONFIG reads the flag, which only the on-change callback updates.
+    # A value persisted by an older version is restored one last time and deleted, but only for the settings that
+    # older versions restored. A leftover of a setting that was never restored is deleted without being applied.
+    # SHOW DATABASE SETTINGS reads the settings map; SHOW CONFIG reads the flag, which only the on-change callback
+    # updates.
     store_put(store_binary, data_directory, "server.name", "Old Name")
     store_put(store_binary, data_directory, "query.timeout", "321")
     memgraph = start()
     check_flag(flag_tester_binary, "server.name", "Old Name")
-    check_flag(flag_tester_binary, "query.timeout", "321")
+    check_flag(flag_tester_binary, "query.timeout", "600")
     check_config(config_checker_binary, "bolt_server_name_for_init", "Old Name")
-    check_config(config_checker_binary, "query_execution_timeout_sec", "321")
+    check_config(config_checker_binary, "query_execution_timeout_sec", "600")
     stop(memgraph)
     assert store_get(store_binary, data_directory, "server.name") is None, "Leftover of server.name kept"
     assert store_get(store_binary, data_directory, "query.timeout") is None, "Leftover of query.timeout kept"
