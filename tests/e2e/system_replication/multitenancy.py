@@ -1999,7 +1999,7 @@ def test_db_memory_tracking_cross_db_replication_isolation(connection, test_name
     )
 
 
-def test_replica_tenant_uses_replicated_salient_config(connection, test_name):
+def test_replica_tenant_uses_local_flags(connection, test_name):
     # Goal: a tenant a REPLICA receives from MAIN is built with the REPLICA's own flags, not the defaults.
     # --schema-info-enabled is the observable one.
     # 0/ Start all instances with --schema-info-enabled
