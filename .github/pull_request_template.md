@@ -14,6 +14,13 @@ ___
 ### CI Testing Labels
 - [ ] Select the appropriate CI test labels _(CI -build=**build-name** -test=**test-suite**)_
 
+### Kubernetes operator / Helm charts
+Does this change affect how Memgraph is deployed or configured on Kubernetes? It likely does if it adds, removes or renames a flag; changes run-time or startup settings; touches the license, AWS settings, coordinators, replication, TLS, monitoring or another enterprise feature.
+- [ ] No, the operator and Helm charts are unaffected
+- [ ] Yes, and I opened the matching PRs:
+    - [ ] **[ Operator PR link memgraph/kubernetes-operator#XXXX ]**
+    - [ ] **[ Helm charts PR link memgraph/helm-charts#XXXX ]**
+
 ### Documentation checklist
 - [ ] Add the documentation label
 - [ ] Add the bug / feature label
