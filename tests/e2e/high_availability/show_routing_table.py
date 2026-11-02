@@ -17,6 +17,7 @@ import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_routing_table
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_eval_function
+from neo4j import GraphDatabase
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -147,12 +148,15 @@ def register_instance(leader_cursor, instance_id: int):
     )
 
 
-def setup_full_cluster(test_name: str, main_id: int = 3):
+def setup_full_cluster(test_name: str, main_id: int = 3, data_instance_args=()):
     """
-    Starts three coordinators and three data instances, registers everything on coordinator 3 (which becomes the
-    leader) and promotes `instance_<main_id>` to MAIN. Returns the instance description and the leader's cursor.
+    Starts three coordinators and three data instances (each with `data_instance_args` appended), registers everything
+    on coordinator 3 (which becomes the leader) and promotes `instance_<main_id>` to MAIN. Returns the instance
+    description and the leader's cursor.
     """
     instances_description = get_instances_description(test_name=test_name)
+    for instance_id in (1, 2, 3):
+        instances_description[f"instance_{instance_id}"]["args"].extend(data_instance_args)
     interactive_mg_runner.start_all(instances_description, keep_directories=False)
 
     leader_cursor = connect(host="localhost", port=7692).cursor()
@@ -244,6 +248,24 @@ def test_show_routing_table_after_failover(test_name):
 
     assert routing_table["WRITE"][0] not in routing_table.get("READ", [])
     assert routing_table["ROUTE"] == ALL_COORD_BOLT
+
+
+def test_branch_requests_route_to_main(test_name):
+    # Replicas hold no branches, so a request whose `db` names one (`<database>@<branch>`) is routed to MAIN, reads
+    # included. Here every READ server of the database itself is a replica.
+    _, leader_cursor = setup_full_cluster(
+        test_name, data_instance_args=["--experimental-enabled=versioning", "--storage-wal-enabled=true"]
+    )
+    mg_sleep_and_assert(
+        {"WRITE": [INSTANCE_3_BOLT], "READ": sorted([INSTANCE_1_BOLT, INSTANCE_2_BOLT]), "ROUTE": ALL_COORD_BOLT},
+        partial(show_routing_table, leader_cursor),
+    )
+    execute_and_fetch_all(connect(host="localhost", port=7689).cursor(), "CREATE BRANCH b")
+
+    with GraphDatabase.driver("neo4j://localhost:7692") as driver, driver.session(database="memgraph@b") as session:
+        session.execute_write(lambda tx: tx.run("CREATE (:OnBranch)").consume())
+        count = session.execute_read(lambda tx: tx.run("MATCH (n:OnBranch) RETURN count(n) AS c").single()["c"])
+        assert count == 1
 
 
 def test_show_routing_table_on_data_instance(test_name):

@@ -165,3 +165,55 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
   auto const expected_routers = std::vector<std::string>{fmt::format("localhost:{}", bolt_port)};
   ASSERT_EQ(routing_instances, expected_routers);
 }
+
+// Replicas hold no branches, so a request naming one (`<database>@<branch>`) reads from MAIN whatever the reads-on-main
+// setting and the replicas' lag.
+TEST_P(RaftStateParamTest, BranchRequestRoutesToMainOnly) {
+  std::vector<DataInstanceContext> data_instances{};
+  auto const add_instance = [&](std::string const &name, uint16_t const offset, ReplicationRole const role) {
+    data_instances.emplace_back(
+        DataInstanceConfig{.instance_name = name,
+                           .mgt_server = Endpoint{"0.0.0.0", static_cast<uint16_t>(10'010 + offset)},
+                           .bolt_server = Endpoint{"0.0.0.0", static_cast<uint16_t>(7686 + offset)},
+                           .replication_client_info =
+                               ReplicationClientInfo{
+                                   .instance_name = name,
+                                   .replication_mode = ReplicationMode::ASYNC,
+                                   .replication_server = Endpoint{"0.0.0.0", static_cast<uint16_t>(10'000 + offset)}}},
+        role,
+        UUID{});
+  };
+  add_instance("instance1", 1, ReplicationRole::MAIN);
+  add_instance("instance2", 2, ReplicationRole::REPLICA);
+  add_instance("instance3", 3, ReplicationRole::REPLICA);
+
+  auto coord_instances = std::vector<CoordinatorInstanceContext>{};
+  coord_instances.emplace_back(1, fmt::format("localhost:{}", bolt_port));
+
+  auto const is_instance_main = [](auto const &instance) { return instance.config.instance_name == "instance1"sv; };
+  bool const enabled_reads_on_main = GetParam();
+  constexpr uint64_t max_read_replica_lag = 10;
+  std::map<std::string, std::map<std::string, int64_t>> const replicas_lag{
+      {"instance2", {{"x", 0}}},
+      {"instance3", {{"x", 12}}},
+  };
+  auto const routing_table_for = [&](std::string_view const db_name) {
+    return CreateRoutingTable(data_instances,
+                              coord_instances,
+                              is_instance_main,
+                              enabled_reads_on_main,
+                              max_read_replica_lag,
+                              db_name,
+                              replicas_lag);
+  };
+
+  auto const main_only = std::vector<std::string>{"0.0.0.0:7687"};
+  auto const routers = std::vector<std::string>{fmt::format("localhost:{}", bolt_port)};
+  using Table = memgraph::coordination::RoutingTable;
+  ASSERT_EQ(routing_table_for("x@b"), (Table{{main_only, "WRITE"}, {main_only, "READ"}, {routers, "ROUTE"}}));
+
+  // Control: the database itself still reads from the replicas within the lag bound.
+  auto expected_readers = std::vector<std::string>{"0.0.0.0:7688"};
+  if (enabled_reads_on_main) expected_readers.emplace_back("0.0.0.0:7687");
+  ASSERT_EQ(routing_table_for("x"), (Table{{main_only, "WRITE"}, {expected_readers, "READ"}, {routers, "ROUTE"}}));
+}
