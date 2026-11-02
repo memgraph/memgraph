@@ -92,16 +92,12 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
     tm_cursor.tm_isdst = -1;
     tm_cursor.tm_zone = nullptr;
 
-    // A cron names calendar times, and where a timezone repeats an hour one of those names an
-    // instant already gone. Returning it would hand the worker a time it never waits for, so it
-    // would run the task and ask again with the clock where it was. Take the following match
-    // instead, which fires the schedule once for the name, at its first occurrence. Each match is
-    // later than the last in calendar terms, so the search advances.
+    // Where a timezone repeats an hour, the calendar time a cron names can map to an instant
+    // already gone, and the worker never waits for a time already due. The following match fires
+    // the schedule once per name. Each match is later in calendar terms, so the search advances.
     while (true) {
       const auto tm_next = cron::cron_next(cron, tm_cursor);
-      // A zeroed result is how croncpp reports finding nothing, and no calendar time has a zeroth
-      // day. An expression can pass validation and still match no time, the 30th of February being
-      // one, and such a schedule has no next execution rather than an unreadable one.
+      // croncpp reports finding nothing with a zeroed tm, and no calendar time has a zeroth day.
       if (tm_next.tm_mday == 0) return time_point::max();
       const auto next = LocalDateTime{tm_next}.us_since_epoch_;
       if (next > now) return next;
@@ -193,8 +189,8 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
-    // A task runs on this thread, so an exception leaving it would terminate the process. The
-    // schedule outlives any one execution: report the failure and let the next tick try again.
+    // An exception leaving the task would terminate the process, and the schedule outlives any
+    // one execution.
     try {
       f();
     } catch (const std::exception &e) {

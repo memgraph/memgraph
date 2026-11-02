@@ -417,9 +417,8 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
   test();
 }
 
-// Rome repeats 02:00 to 03:00 local on this date, so a schedule naming 02:30 names an instant that
-// has already passed once the clock is inside the second pass. A due time handed back is one the
-// worker never waits for, so it runs the task and asks again with the clock barely moved.
+// Rome repeats 02:00 to 03:00 local on this date, so a schedule naming 02:30 names an instant
+// already passed once the clock is in the second pass.
 TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
   using namespace std::chrono;
   HandleTimezone htz;
@@ -437,8 +436,8 @@ TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
   }
 }
 
-// The 30th of February passes expression validation, since each field is in range on its own, and
-// then matches nothing. A schedule with no match has no next execution to report.
+// The 30th of February passes validation, since each field is in range on its own, and then
+// matches nothing.
 TEST(Scheduler, CronThatNeverMatchesHasNoNextExecution) {
   memgraph::utils::Scheduler scheduler;
   scheduler.SetInterval("0 0 0 30 2 *");

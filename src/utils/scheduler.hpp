@@ -104,8 +104,7 @@ class Scheduler {
 
   using time_point = std::chrono::system_clock::time_point;
 
-  // Taking the current instant as a parameter is what makes a schedule's behaviour around a
-  // timezone shift assertable, since a test cannot move the clock to one.
+  // Tests choose the instant, since the clock cannot be moved to a timezone shift.
   std::optional<time_point> NextExecution(time_point now) {
     if (is_paused_) return {};
     const auto next = find_next_.WithLock([now](auto &f) { return f(now, false); });

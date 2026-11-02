@@ -484,9 +484,8 @@ TEST(TemporalTest, LocalDateTimeInDaylightSavingOverlap) {
             duration_cast<microseconds>(expected.time_since_epoch()).count());
 }
 
-// Construction is total: a calendar time is accepted whatever the configured zone does to it. The
-// sweep covers whole zones and years rather than the shift dates, so it holds no fact about when a
-// zone shifts and keeps holding if one changes its mind.
+// Sweeping whole zones and years rather than the shift dates holds no fact about when a zone
+// shifts, so a revision to the timezone database cannot turn this red on its own.
 TEST(TemporalTest, EveryCalendarTimeOfTheYearIsConstructible) {
   using namespace std::chrono;
   HandleTimezone htz;
@@ -510,9 +509,7 @@ TEST(TemporalTest, EveryCalendarTimeOfTheYearIsConstructible) {
   }
 }
 
-// A zoned datetime carries the timezone its calendar fields are read in, so the server's own
-// timezone must not reach them. Rome skipping 02:30 on this date says nothing about what 02:30
-// means in UTC, where it is an ordinary time.
+// Rome skipping 02:30 on this date says nothing about 02:30 in UTC, where it is an ordinary time.
 TEST(TemporalTest, ZonedDateTimeIgnoresTheServerTimezone) {
   HandleTimezone htz;
   htz.Set("Europe/Rome");
