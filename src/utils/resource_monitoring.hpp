@@ -158,24 +158,9 @@ struct UserResources {
 
 class ResourceMonitoring {
  public:
-  std::shared_ptr<UserResources> GetUser(const std::string &name) { return GetUserByKey(ToLowerCase(name)); }
-
-  void RemoveUser(const std::string &name) {
-    // Resource is passed as a shared_ptr; anything using it should be safe
-    auto lock = std::unique_lock{mtx_};
-    per_user_resources.erase(ToLowerCase(name));
-  }
-
-  void UpdateUserLimits(const std::string &name, SessionsResource::value_type sessions_limit,
-                        TransactionsMemoryResource::value_type transactions_memory_limit) {
-    auto resource = GetUserByKey(ToLowerCase(name));
-    resource->SetSessionLimit(sessions_limit);
-    resource->SetTransactionsMemoryLimit(transactions_memory_limit);
-  }
-
- private:
-  // Every accessor folds the caller's spelling before calling this, so no spelling can key or match a registry entry.
-  std::shared_ptr<UserResources> GetUserByKey(std::string key) {
+  std::shared_ptr<UserResources> GetUser(const std::string &name) {
+    // Fold the caller's spelling so every spelling of a username resolves to the same registry entry.
+    const auto key = ToLowerCase(name);
     // Phase 1: try to find with shared access
     {
       auto lock = std::shared_lock(mtx_);
@@ -187,12 +172,26 @@ class ResourceMonitoring {
     // Phase 2: get unique access and create if not found
     // if profile already exists, we don't need to create a new one and just return the existing one
     {
-      auto lock = std::unique_lock{mtx_};
-      auto [it, _] = per_user_resources.try_emplace(std::move(key), std::make_shared<UserResources>());
+      auto lock = std::unique_lock(mtx_);
+      auto [it, _] = per_user_resources.try_emplace(key, std::make_shared<UserResources>());
       return it->second;
     }
   }
 
+  void RemoveUser(const std::string &name) {
+    // Resource is passed as a shared_ptr; anything using it should be safe
+    auto lock = std::unique_lock(mtx_);
+    per_user_resources.erase(ToLowerCase(name));
+  }
+
+  void UpdateUserLimits(const std::string &name, SessionsResource::value_type sessions_limit,
+                        TransactionsMemoryResource::value_type transactions_memory_limit) {
+    auto resource = GetUser(name);
+    resource->SetSessionLimit(sessions_limit);
+    resource->SetTransactionsMemoryLimit(transactions_memory_limit);
+  }
+
+ private:
   // Per user resources
   std::unordered_map<std::string, std::shared_ptr<UserResources>> per_user_resources;
 
