@@ -104,7 +104,7 @@ S3_WHEELS=(
 )
 for wheel in "${S3_WHEELS[@]}"; do
   echo "Fetching $BASE_URL/$wheel"
-  curl -fsSL -o "$OUTPUT_DIR/$wheel" "$BASE_URL/$wheel"
+  curl --proto "=https" --tlsv1.2 -fsSL -o "$OUTPUT_DIR/$wheel" "$BASE_URL/$wheel"
 done
 
 # --prefer-binary biases pip toward wheels over sdists so we don't bundle

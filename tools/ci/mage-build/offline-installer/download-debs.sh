@@ -60,7 +60,7 @@ apt-get update
 apt-get install -y --no-install-recommends curl gnupg ca-certificates apt-utils
 
 # Microsoft repo for msodbcsql18.
-curl -sSL -O https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
+curl --proto "=https" --tlsv1.2 -sSL -O https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
 dpkg -i packages-microsoft-prod.deb
 rm -f packages-microsoft-prod.deb
 apt-get update
