@@ -1320,33 +1320,60 @@ TEST_F(DbMemoryTrackingTest, TenantLimitRefusesArenaAllocation) {
                memgraph::utils::OutOfMemoryException);
 }
 
-// A SET_PROPERTY before-image vector must be allocated in the tenant arena, not the default one.
+// A SET_PROPERTY before-image vector must be charged to the tenant arena while alive and released with the delta.
 TEST(DeltaVectorBeforeImage, CoordinatesLiveInThePinnedDbArena) {
   using namespace memgraph::storage;
+
+  static constexpr std::size_t kDims = 3072;
+  static constexpr int64_t kVectorBytes = kDims * sizeof(float);
+  static constexpr int64_t kSlack = 4096;
 
   memgraph::utils::MemoryTracker tracker;
   memgraph::memory::ArenaPool pool{&tracker};
   const memgraph::memory::DbArenaScope scope{&pool};
 
   delta_container container;
-  container.emplace(Delta::SetPropertyTag{},
-                    PropertyId::FromUint(1),
-                    PropertyValue(PropertyValue::VectorIndexIdData{
-                        .ids = memgraph::utils::small_vector<uint64_t>{1},
-                        .vector = memgraph::utils::small_vector<float>{1.0F, 2.0F, 3.0F, 4.0F}}),
-                    static_cast<CommitInfo *>(nullptr),
-                    0);
+  auto emplace_before_image = [&] {
+    container.emplace(Delta::SetPropertyTag{},
+                      PropertyId::FromUint(1),
+                      PropertyValue(PropertyValue::VectorIndexIdData{
+                          .ids = memgraph::utils::small_vector<uint64_t>{1},
+                          .vector = memgraph::utils::small_vector<float>(static_cast<uint32_t>(kDims))}),
+                      static_cast<CommitInfo *>(nullptr),
+                      0);
+  };
+
+  // Freed blocks sit in the pinned tcache until flushed; only then can the purge release their pages.
+  auto settle = [&] {
+    unsigned tcache = memgraph::memory::tls_db_arena_state.tcache;
+    if (tcache != 0) je_mallctl("tcache.flush", nullptr, nullptr, &tcache, sizeof(tcache));
+    pool.PurgeAllArenas();
+  };
+
+  emplace_before_image();
+  container.clear();
+  settle();
+  const int64_t baseline = tracker.Amount();
+
+  emplace_before_image();
 
   auto const &delta = *container.begin();
   ASSERT_EQ(delta.action, Delta::Action::SET_PROPERTY);
   auto const &coordinates = delta.property.value->ValueVectorIndexList();
-  ASSERT_EQ(coordinates.size(), 4U);
+  ASSERT_EQ(coordinates.size(), kDims);
 
   const void *ptr = coordinates.data();
   unsigned ptr_arena = 0;
   size_t sz = sizeof(ptr_arena);
   ASSERT_EQ(je_mallctl("arenas.lookup", &ptr_arena, &sz, &ptr, sizeof(ptr)), 0);
   EXPECT_TRUE(pool.Owns(ptr_arena));
+
+  const int64_t with_delta = tracker.Amount();
+  EXPECT_GE(with_delta, baseline + kVectorBytes) << "before-image must be charged to the tenant tracker";
+
+  container.clear();
+  settle();
+  EXPECT_LE(tracker.Amount(), baseline + kSlack) << "destroying the delta must release the before-image charge";
 }
 
 #endif  // USE_JEMALLOC
