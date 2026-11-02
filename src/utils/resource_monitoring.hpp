@@ -23,6 +23,7 @@
 
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::utils {
 
@@ -158,10 +159,12 @@ struct UserResources {
 class ResourceMonitoring {
  public:
   std::shared_ptr<UserResources> GetUser(const std::string &name) {
+    // Fold the caller's spelling so every spelling of a username resolves to the same registry entry.
+    const auto key = ToLowerCase(name);
     // Phase 1: try to find with shared access
     {
       auto lock = std::shared_lock(mtx_);
-      auto it = per_user_resources.find(name);
+      auto it = per_user_resources.find(key);
       if (it != per_user_resources.end()) {
         return it->second;
       }
@@ -170,7 +173,7 @@ class ResourceMonitoring {
     // if profile already exists, we don't need to create a new one and just return the existing one
     {
       auto lock = std::unique_lock(mtx_);
-      auto [it, _] = per_user_resources.try_emplace(name, std::make_shared<UserResources>());
+      auto [it, _] = per_user_resources.try_emplace(key, std::make_shared<UserResources>());
       return it->second;
     }
   }
@@ -178,7 +181,7 @@ class ResourceMonitoring {
   void RemoveUser(const std::string &name) {
     // Resource is passed as a shared_ptr; anything using it should be safe
     auto lock = std::unique_lock(mtx_);
-    per_user_resources.erase(name);
+    per_user_resources.erase(ToLowerCase(name));
   }
 
   void UpdateUserLimits(const std::string &name, SessionsResource::value_type sessions_limit,
