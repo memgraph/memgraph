@@ -180,7 +180,15 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
-    f();
+    // A task runs on this thread, so an exception leaving it would terminate the process. The
+    // schedule outlives any one execution: report the failure and let the next tick try again.
+    try {
+      f();
+    } catch (const std::exception &e) {
+      spdlog::error("Scheduled task '{}' failed: {}", service_name, e.what());
+    } catch (...) {
+      spdlog::error("Scheduled task '{}' failed with an unrecognised exception", service_name);
+    }
   }
 }
 

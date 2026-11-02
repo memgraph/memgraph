@@ -454,6 +454,36 @@ TEST(TemporalTest, LocalDateTimeToLocalTimeTZ) {
   test_LocalDateTimeToLocalTime();
 }
 
+// Rome advances 02:00 to 03:00 on this date, so 02:30 names no instant and both sides of the gap
+// meet at 01:00 UTC.
+TEST(TemporalTest, LocalDateTimeInDaylightSavingGap) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{2026, 3, 29},
+                                                 memgraph::utils::LocalTimeParameters{2, 30}};
+
+  const auto expected = sys_days{2026y / March / 29} + 1h;
+  EXPECT_EQ(local_date_time.SysMicrosecondsSinceEpoch(),
+            duration_cast<microseconds>(expected.time_since_epoch()).count());
+}
+
+// Rome returns 03:00 to 02:00 on this date, so 02:30 names two instants, the earlier at 00:30 UTC.
+TEST(TemporalTest, LocalDateTimeInDaylightSavingOverlap) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  memgraph::utils::LocalDateTime local_date_time{
+      memgraph::utils::Date{memgraph::utils::DateParameters{2026, 10, 25}},
+      memgraph::utils::LocalTime{memgraph::utils::LocalTimeParameters{2, 30}}};
+
+  const auto expected = sys_days{2026y / October / 25} + 30min;
+  EXPECT_EQ(local_date_time.SysMicrosecondsSinceEpoch(),
+            duration_cast<microseconds>(expected.time_since_epoch()).count());
+}
+
 namespace {
 using namespace std::literals;
 inline constexpr std::array parsing_test_dates_extended{

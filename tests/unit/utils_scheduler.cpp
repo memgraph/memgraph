@@ -16,6 +16,7 @@
 #include <chrono>
 #include <thread>
 #include "tests/unit/timezone_handler.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/temporal.hpp"
 
@@ -479,4 +480,21 @@ TEST(Scheduler, TimeDrift) {
   ASSERT_GE(x.load(), 3);
 
   scheduler.Stop();
+}
+
+// A regression here aborts this binary rather than failing the expectation.
+TEST(Scheduler, ThrowingTaskKeepsSchedulerRunning) {
+  std::atomic<int> runs{0};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval(std::chrono::milliseconds(50));
+  scheduler.Run("Throwing", [&runs] {
+    ++runs;
+    throw memgraph::utils::BasicException("scheduled task failed");
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  scheduler.Stop();
+
+  // A scheduler that gave up after the first failure would also have survived.
+  EXPECT_GT(runs.load(), 1);
 }
