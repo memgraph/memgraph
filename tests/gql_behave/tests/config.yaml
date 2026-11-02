@@ -37,3 +37,187 @@
   test_suite: unstable
   storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: false
+
+# The arm of `continuous_integration --versioned-branch` (the other arms skip suites with versioned_branch): every
+# scenario's setup runs on main, then its test query runs on a fresh branch forked from it. Graph Versioning does not
+# support on-disk storage, so the on-disk suites (and `unstable`) have no branch run. A scenario listed in
+# expected_failures must fail or be refused on a branch; any other refusal on a branch fails the scenario.
+- name: memgraph_V1_versioned
+  test_suite: memgraph_V1
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  must_pass: true
+  versioned_branch: true
+  expected_failures: &memgraph_V1_versioned_expected_failures
+    - reason: "Schema and storage-global statements (descriptions, enums, index statistics, vector index DDL) are refused on a branch in v1."
+      scenarios:
+        descriptions.feature:
+          - "Set label description"
+          - "Set edge type description"
+          - "Set label-scoped property description"
+          - "Show all descriptions"
+          - "Delete description"
+          - "Update description with SET"
+          - "Multi-label description is stored as a single combo entry"
+          - "Label-scoped property descriptions are independent per label"
+          - "Multi-label property description"
+          - "Set database description"
+          - "Set edge-type-scoped property description"
+          - "Set global property description"
+          - "Set edge type pattern description"
+          - "Delete edge type pattern description"
+          - "Edge type pattern description in SHOW DESCRIPTIONS"
+          - "Multi-label edge type pattern description"
+          - "Set and delete edge type pattern property description"
+          - "Set and show property-value descriptions"
+          - "Delete a property-value description"
+          - "Property-value description with integer code"
+          - "Resolve a property-value description with description()"
+          - "description() returns null for an undefined code"
+          - "description() resolves an integer-coded value"
+          - "Property-value description with a list code"
+          - "Property-value description with a map code"
+          - "Property-value description with signed numbers"
+          - "Setting description on wrong database throws error"
+          - "Deleting description on wrong database throws error"
+          - "A null VALUE is rejected"
+          - "A NaN VALUE is rejected"
+        indices.feature:
+          - "Stats are created for all prefixes of a composite index"
+          - "Dropping an index deletes all computed stats for the index"
+          - "DROP INDEX WITH CONFIG rejects an invalid order value"
+          - "DROP INDEX WITH CONFIG rejects an unknown config key"
+        memgraph.feature:
+          - "Create enum:"
+        vector_edge_search.feature:
+          - "Create OR vector edge index on multiple edge types"
+          - "Create vector edge index with parameterized config that is not a map raises error"
+        vector_search.feature:
+          - "Dropping vector index restores vectors to vertex properties"
+          - "Dropping one vector index preserves vectors for remaining index"
+          - "Creating index after vector is already in another index"
+          - "Create vector index with parameterized config that is not a map raises error"
+    - reason: "Uses enum Status from the earlier 'Create enum:' scenario, which is refused on a branch."
+      scenarios:
+        memgraph.feature:
+          - "Show enums:"
+          - "Add value to enum:"
+          - "Update value in enum:"
+          - "Compare enum values for equality:"
+          - "Compare different enums for equality:"
+          - "Create an edge with an enum property:"
+          - "Get nodes and edges with enum properties:"
+          - "Filter nodes by enum property equal op:"
+          - "Filter nodes by enum property comparison op:"
+          - "Compare enum values for ordering:"
+          - "Enum equal to a comparison bound answers null:"
+          - "Compare enum values for inequality:"
+    - reason: "Text search procedures are refused on a branch in v1."
+      scenarios:
+        text_edge_search.feature:
+          - "Search edge by property"
+          - "Search all edge properties"
+          - "Regex search on edges"
+          - "Search edge aggregate"
+          - "Search query with boolean logic on edges"
+          - "Add edge and search"
+          - "Delete indexed edge"
+          - "Delete indexed edge via detach delete node"
+          - "Update property of indexed edge"
+          - "Case-insensitive regex search with lowercase query on edges"
+          - "Case-insensitive regex search with uppercase query on edges"
+          - "Search in property-specific edge index with both properties"
+          - "Search in property-specific edge index with only one required property"
+          - "Verify edges without indexed properties are not searchable"
+          - "Delete property from indexed edge"
+          - "Create edge index on existing edges"
+          - "Test limit parameter on edge search"
+          - "Test search returns relevance score for edges"
+          - "Fuzzy edge search with distance 1 tolerates a single edit"
+          - "Fuzzy phrase edge search enforces order with a last-word prefix"
+          - "Search on nonexistent text edge index raises error"
+        text_search.feature:
+          - "Search by property"
+          - "Search all properties"
+          - "Regex search"
+          - "Search aggregate"
+          - "Search query with boolean logic"
+          - "Add node and search"
+          - "Delete indexed node"
+          - "Update property of indexed node"
+          - "Case-insensitive regex search with lowercase query"
+          - "Case-insensitive regex search with uppercase query"
+          - "Search in property-specific index with both properties"
+          - "Search in property-specific index with only one required property"
+          - "Verify nodes without indexed properties are not searchable"
+          - "Delete property from indexed node"
+          - "Create index on existing nodes"
+          - "Test limit parameter on node search"
+          - "Test search returns relevance score for nodes"
+          - "Fuzzy search with distance 1 tolerates a single edit"
+          - "Fuzzy search with distance 2 tolerates two edits"
+          - "Fuzzy search with transpositions disabled requires two edits for a swap"
+          - "Fuzzy search with prefix matches indexed terms that start with the query"
+          - "Fuzzy search_all combines fuzzy with all-properties mode"
+          - "Empty config map preserves default behaviour"
+          - "Fuzzy phrase search enforces order and adjacency with a last-word prefix"
+          - "Fuzzy phrase search enforces word order"
+          - "Fuzzy phrase search tolerates a typo with fuzzy_distance 1"
+          - "Fuzzy phrase search shares the fuzzy budget across the whole input"
+          - "Fuzzy phrase search counts a transposition as one edit"
+          - "Fuzzy phrase search with transpositions disabled needs two edits for a swap"
+          - "Search on nonexistent text index raises error"
+          - "Unqualified query without fuzzy still errors at parse time"
+          - "Unqualified query with fuzzy errors at parse time"
+          - "Nonexistent field prefix errors at parse time"
+          - "Fuzzy phrase search requires a single-property query"
+    - reason: "Vector search procedures are refused on a branch in v1."
+      scenarios:
+        vector_edge_search.feature:
+          - "Search vector edge index"
+          - "Vector edge search performs on float values"
+          - "Vector edge search performs on integer values"
+          - "Wildcard vector edge index search returns edges of all types"
+          - "OR vector edge index search returns only matching edge types"
+        vector_search.feature:
+          - "Search vector index"
+          - "Vector search performs on float values"
+          - "Vector search performs on integer values"
+          - "Two indices on different properties work independently"
+          - "Create wildcard vector index"
+          - "Create OR vector index on multiple labels (with optional colon prefix)"
+          - "Create AND vector index on multiple labels"
+    - reason: "SHOW INDEX INFO and SHOW VECTOR INDEX INFO on a branch report main's index counts, not the branch's writes (v1)."
+      scenarios:
+        spatial.feature:
+          - "Create point index:"
+        vector_search.feature:
+          - "Adding label after creating node with property adds to vector index"
+          - "Vertex with both labels remains in one index when removing one label"
+          - "Vertex with both labels transfers property to property store when removing both labels"
+          - "Adding second label to vertex with one label adds to second index"
+          - "Updating property when vertex has both labels updates both indices"
+    - reason: "Vector index validation (dimension and value type) is not enforced for writes on a branch in v1, like unique constraints."
+      scenarios:
+        vector_search.feature:
+          - "Vector index raises error on property with wrong dimension"
+
+# The same run with commit-lock narrowing on: branches must not depend on the commit-lock mode.
+- name: memgraph_V1_versioned_narrowing
+  test_suite: memgraph_V1
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  commit_lock_narrowing: true
+  must_pass: true
+  versioned_branch: true
+  expected_failures: *memgraph_V1_versioned_expected_failures
+
+- name: openCypher_M09_versioned
+  test_suite: openCypher_M09
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  must_pass: false
+  versioned_branch: true
+
+- name: stackoverflow_answers_versioned
+  test_suite: stackoverflow_answers
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  must_pass: true
+  versioned_branch: true

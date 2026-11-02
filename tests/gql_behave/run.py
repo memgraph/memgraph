@@ -71,6 +71,14 @@ def main():
     add_argument("--storage-mode", help="Memgraph storage mode")
     add_argument("--scenario", help="Single scenario to run")
     add_argument("--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to read queries")
+    add_argument(
+        "--versioned-branch", action="store_true", help="run each scenario's test query on a Graph Versioning branch"
+    )
+    add_argument(
+        "--expected-failures",
+        default="",
+        help="JSON file {feature file: {scenario name: reason}} of scenarios that must fail on a branch",
+    )
 
     # Parse arguments
     parsed_args = argp.parse_args()
