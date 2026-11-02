@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <expected>
@@ -71,13 +72,21 @@ DEFINE_VALIDATED_string(log_level, "WARNING", memgraph::flags::GetLogLevelHelpSt
                         { return memgraph::flags::ValidLogLevel(value); });
 
 // Query flags
+namespace {
+// Adding a timeout this large to the current steady-clock reading must not overflow the clock's duration.
+constexpr int64_t kMaxQueryTimeoutSec = 1'000'000'000;
+static_assert(std::chrono::duration<double>(std::chrono::steady_clock::duration::max()).count() >
+              2.0 * kMaxQueryTimeoutSec);
+}  // namespace
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_double(query_execution_timeout_sec, 600,
                         "Maximum allowed query execution time. Queries exceeding this "
                         "limit will be aborted. Value of 0 means no limit.",
                         {
-                          if (std::isfinite(value) && value >= 0) return true;
-                          std::cerr << "Expected --" << flagname << " to be a non-negative number\n";
+                          if (std::isfinite(value) && value >= 0 && value <= kMaxQueryTimeoutSec) return true;
+                          std::cerr << "Expected --" << flagname << " to be in range [0, " << kMaxQueryTimeoutSec
+                                    << "]\n";
                           return false;
                         });
 
@@ -228,17 +237,19 @@ memgraph::utils::Settings::ValidatorResult ValidInt64Str(std::string_view in) {
   return {};
 }
 
-memgraph::utils::Settings::ValidatorResult ValidNonNegativeDoubleStr(std::string_view in) {
-  constexpr std::string_view kError = "Value must be a non-negative number.";
+memgraph::utils::Settings::ValidatorResult ValidQueryTimeoutStr(std::string_view in) {
+  const auto error = [] {
+    return std::unexpected{fmt::format("Value must be a number in range [0, {}].", kMaxQueryTimeoutSec)};
+  };
   const std::string str{in};
   try {
     size_t n_processed = 0;
     const auto value = std::stod(str, &n_processed);
-    if (n_processed != str.size() || !std::isfinite(value) || value < 0) {
-      return std::unexpected{std::string{kError}};
+    if (n_processed != str.size() || !std::isfinite(value) || value < 0 || value > kMaxQueryTimeoutSec) {
+      return error();
     }
   } catch (const std::logic_error & /* invalid_argument or out_of_range */) {
-    return std::unexpected{std::string{kError}};
+    return error();
   }
   return {};
 }
@@ -417,7 +428,7 @@ void Initialize(utils::Settings &settings) {
       [&](const std::string &val) {
         execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
       },
-      ValidNonNegativeDoubleStr);
+      ValidQueryTimeoutStr);
 
   /*
    * Register hops limit partial results

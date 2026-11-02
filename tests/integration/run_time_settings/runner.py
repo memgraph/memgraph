@@ -214,15 +214,16 @@ def run_check_config(tester_binary: str, memgraph_args: List[str], executor_bina
 def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
     atexit.register(cleanup, memgraph)
-    # query.timeout accepts any non-negative number
+    # query.timeout accepts a number in [0, 1000000000]
     execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '0'"])
     execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '1.5'"])
-    for bad in ("abc", "-1", "1s", "inf"):
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '1000000000'"])
+    for bad in ("abc", "-1", "1s", "inf", "1000000001", "1e10"):
         execute_tester(
             tester_binary,
             [f"SET DATABASE SETTING 'query.timeout' TO '{bad}'"],
             should_fail=True,
-            failure_message="Cannot update setting 'query.timeout': Value must be a non-negative number.",
+            failure_message="Cannot update setting 'query.timeout': Value must be a number in range [0, 1000000000].",
         )
     # Valid boundary values
     execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1'"])
@@ -252,8 +253,8 @@ def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[s
 
 
 def run_invalid_flag_test(memgraph_args: List[str]) -> None:
-    # A negative or non-finite query timeout is rejected while the flags are parsed, before the server starts.
-    for value in ["-1", "nan", "inf"]:
+    # A query timeout outside [0, 1000000000] is rejected while the flags are parsed, before the server starts.
+    for value in ["-1", "nan", "inf", "1e10"]:
         result = subprocess.run(
             list(map(str, memgraph_args + ["--query-execution-timeout-sec", value])),
             stdout=subprocess.PIPE,
