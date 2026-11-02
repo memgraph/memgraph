@@ -192,8 +192,10 @@ class Consumer final : public RdKafka::EventCb {
   ConsumerThreadFactory thread_factory_;
   mutable std::atomic<bool> is_running_{false};
   mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
-  std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
+  // Declared last so it is destroyed first. Its deleter closes the consumer, which drives cb_'s
+  // revoke callback and reads thread_, so both have to outlive it.
+  std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>> consumer_;
 };
 }  // namespace memgraph::integrations::kafka
