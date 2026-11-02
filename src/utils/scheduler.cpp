@@ -86,14 +86,24 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
 
 void Scheduler::SetInterval_(std::string_view cron_expr) {
   *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) {
-    auto tm_now = LocalDateTime{now}.tm();
+    auto tm_cursor = LocalDateTime{now}.tm();
     // Hack to force the mktime to reinterpret the time as is in the system tz
-    tm_now.tm_gmtoff = 0;
-    tm_now.tm_isdst = -1;
-    tm_now.tm_zone = nullptr;
-    const auto tm_next = cron::cron_next(cron, tm_now);
-    // LocalDateTime reads only the date and time values, ignoring the system tz
-    return LocalDateTime{tm_next}.us_since_epoch_;
+    tm_cursor.tm_gmtoff = 0;
+    tm_cursor.tm_isdst = -1;
+    tm_cursor.tm_zone = nullptr;
+
+    // A cron names calendar times, and where a timezone repeats an hour one of those names an
+    // instant already gone. Returning it would hand the worker a time it never waits for, so it
+    // would run the task and ask again with the clock where it was. Take the following match
+    // instead, which fires the schedule once for the name, at its first occurrence. Each match is
+    // later than the last in calendar terms, so the search advances.
+    while (true) {
+      const auto tm_next = cron::cron_next(cron, tm_cursor);
+      // LocalDateTime reads only the date and time values, ignoring the system tz
+      const auto next = LocalDateTime{tm_next}.us_since_epoch_;
+      if (next > now) return next;
+      tm_cursor = tm_next;
+    }
   };
 }
 

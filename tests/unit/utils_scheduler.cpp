@@ -416,6 +416,27 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
   htz.Set("America/Los_Angeles");
   test();
 }
+
+// Rome repeats 02:00 to 03:00 local on this date, so a schedule naming 02:30 names an instant that
+// has already passed once the clock is inside the second pass. A due time handed back is one the
+// worker never waits for, so it runs the task and asks again with the clock barely moved.
+TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval("0 30 2 * * *");
+
+  const auto day = sys_days{2026y / October / 25};
+  for (const auto offset : {0min, 45min, 65min, 75min, 89min, 95min, 125min}) {
+    const auto now = time_point_cast<system_clock::duration>(day + offset);
+    const auto next = scheduler.NextExecution(now);
+    ASSERT_TRUE(next.has_value()) << "no next execution at UTC midnight +" << offset.count() << " min";
+    EXPECT_GT(*next, now) << "at UTC midnight +" << offset.count() << " min";
+  }
+}
+
 #endif
 
 TEST(Scheduler, SkipSlowExecutions) {
