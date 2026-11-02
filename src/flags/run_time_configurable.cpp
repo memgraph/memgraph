@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <iostream>
@@ -371,24 +372,25 @@ namespace memgraph::flags::run_time {
 
 // NOTE: settings needs to be stable for the duration of the program
 void Initialize(utils::Settings &settings) {
-  // Run-time changes never survive a restart; the flag is the only durable source of a value. Older versions restored
-  // some settings from the data directory. A value they left there is applied one last time and deleted. Settings
-  // that were never restored drop their leftover without applying it.
-  constexpr bool kRestoreOnce = true;
+  // How a setting treats the value in the data directory. A kFlagOnly or kRestoreOnce setting never survives a
+  // restart; its flag is the only durable source of a value. Older versions restored the kRestoreOnce settings, so a
+  // value they left behind is applied one last time and deleted; a kFlagOnly leftover is deleted without being
+  // applied. A kPersisted setting survives a restart, and a flag given on the command line replaces the stored value.
+  enum class Durability : uint8_t { kFlagOnly, kRestoreOnce, kPersisted };
 
   /**
    * @brief Helper function that registers a run-time flag
    *
    * @param flag - GFlag name
    * @param key - Settings key used to store the flag
-   * @param restore_once - true if older versions restored this setting across restarts
+   * @param durability - how the setting treats the value in the data directory
    * @param post_update - user defined callback executed post flag update
    * @param validator - user defined value correctness checker
    */
   auto register_flag = [&](
                            const std::string &flag,
                            const std::string &key,
-                           bool restore_once,
+                           Durability durability,
                            std::function<void(const std::string &)> post_update = [](auto) {},
                            utils::Settings::Validation validator =
                                [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
@@ -401,13 +403,26 @@ void Initialize(utils::Settings &settings) {
       const auto &val = update();
       post_update(val);
     };
+
+    if (durability == Durability::kPersisted) {
+      settings.RegisterSetting(
+          key, info.default_value, utils::Settings::Persistence::kPersisted, callback, std::move(validator));
+      if (info.is_default) {
+        // The stored value is already in the settings map; propagate it to the flag and the caches
+        callback();
+      } else {
+        settings.SetValue(key, info.current_value);
+      }
+      return;
+    }
+
     // Register setting; a leftover from an older version is deleted from the store and handed back
     const auto leftover = settings.RegisterSetting(
         key, info.default_value, utils::Settings::Persistence::kRuntimeOnly, callback, std::move(validator));
 
     // Applying through SetValue validates the leftover and runs the callback that propagates it to the flag and the
     // caches. A flag given on the command line always wins over the leftover.
-    if (restore_once && info.is_default && leftover) {
+    if (durability == Durability::kRestoreOnce && info.is_default && leftover) {
       try {
         settings.SetValue(key, *leftover);
         return;
@@ -421,7 +436,7 @@ void Initialize(utils::Settings &settings) {
   /*
    * Register bolt server name settings
    */
-  register_flag(kServerNameGFlagsKey, kServerNameSettingKey, kRestoreOnce);
+  register_flag(kServerNameGFlagsKey, kServerNameSettingKey, Durability::kRestoreOnce);
 
   /*
    * Register query timeout
@@ -429,7 +444,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kQueryTxGFlagsKey,
       kQueryTxSettingKey,
-      !kRestoreOnce,
+      Durability::kFlagOnly,
       [&](const std::string &val) {
         execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
       },
@@ -441,7 +456,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kHopsLimitPartialResultsGFlagsKey,
       kHopsLimitPartialResultsSettingKey,
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) { hops_limit_partial_results = val == "true"; },
       ValidBoolStr);
 
@@ -451,7 +466,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kLogLevelGFlagsKey,
       kLogLevelSettingKey,
-      !kRestoreOnce,
+      Durability::kFlagOnly,
       [](const std::string &val) {
         const auto ll_enum = ToLLEnum(val);
         spdlog::set_level(ll_enum);
@@ -470,7 +485,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kLogToStderrGFlagsKey,
       kLogToStderrSettingKey,
-      !kRestoreOnce,
+      Durability::kFlagOnly,
       [](const std::string &val) {
         if (val == "true") {
           TurnOnStdErr();
@@ -486,7 +501,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kCartesianProductEnabledGFlagsKey,
       kCartesianProductEnabledSettingKey,
-      !kRestoreOnce,
+      Durability::kFlagOnly,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; },
       ValidBoolStr);
 
@@ -496,7 +511,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kDebugQueryPlansGFlagsKey,
       kDebugQueryPlansSettingKey,
-      !kRestoreOnce,
+      Durability::kFlagOnly,
       [](const std::string &val) { debug_query_plans_ = val == "true"; },
       ValidBoolStr);
 
@@ -506,7 +521,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kStorageGcAggressiveGFlagsKey,
       kStorageGcAggressiveSettingKey,
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) { storage_gc_aggressive_ = val == "true"; },
       ValidBoolStr);
 
@@ -516,7 +531,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kOmitVectorIndexPropertiesOnReturnGFlagsKey,
       kOmitVectorIndexPropertiesOnReturnSettingKey,
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) { omit_vector_index_properties_on_return_ = val == "true"; },
       ValidBoolStr);
 
@@ -526,7 +541,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kTimezoneGFlagsKey,
       kTimezoneSettingKey,
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
         utils::SetTimezone(timezone_);   // Propagate to utils layer
@@ -563,7 +578,7 @@ void Initialize(utils::Settings &settings) {
     register_flag(
         kSnapshotPeriodicGFlagsKey,
         kSnapshotPeriodicSettingKey,
-        !kRestoreOnce,
+        Durability::kFlagOnly,
         [](std::string_view val) {
           try {
             const auto period = ValidPeriod(val);
@@ -585,15 +600,15 @@ void Initialize(utils::Settings &settings) {
   }
 
   // AWS Section
-  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, kRestoreOnce);
-  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, kRestoreOnce);
-  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, kRestoreOnce);
-  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestoreOnce);
+  register_flag(kAwsRegionGFlagsKey, kAwsRegionSettingKey, Durability::kPersisted);
+  register_flag(kAwsAccessGFlagsKey, kAwsAccessSettingKey, Durability::kPersisted);
+  register_flag(kAwsSecretGFlagsKey, kAwsSecretSettingKey, Durability::kPersisted);
+  register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, Durability::kPersisted);
 
   register_flag(
       kFileDownloadConnTimeoutSecGFlagsKey,
       kFileDownloadConnTimeoutSecSettingKey,
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](std::string_view val) {
         file_download_conn_timeout_sec_ = utils::ParseStringToUint<uint64_t>(val);  // throw exception if not ok
       },
@@ -614,7 +629,7 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kStorageAccessTimeoutSecGFlagsKey,
       kStorageAccessTimeoutSecSettingKey,
-      !kRestoreOnce,
+      Durability::kFlagOnly,
       [](std::string_view val) {
         storage_access_timeout_sec_.store(utils::ParseStringToUint<uint64_t>(val), std::memory_order_release);
       },
@@ -633,21 +648,21 @@ void Initialize(utils::Settings &settings) {
   register_flag(
       kLogMinDurationMsGFlagsKey,
       std::string{memgraph::flags::run_time::kLogMinDurationMsKey},
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) { log_min_duration_ms_.store(utils::ParseInt(val), std::memory_order_release); },
       ValidInt64Str);
 
   register_flag(
       kLogFailedQueriesGFlagsKey,
       std::string{memgraph::flags::run_time::kLogFailedQueriesKey},
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) { log_failed_queries_.store(val == "true", std::memory_order_release); },
       ValidBoolStr);
 
   register_flag(
       kLogQueryPlanGFlagsKey,
       std::string{memgraph::flags::run_time::kLogQueryPlanKey},
-      kRestoreOnce,
+      Durability::kRestoreOnce,
       [](const std::string &val) { log_query_plan_.store(val == "true", std::memory_order_release); },
       ValidBoolStr);
 }

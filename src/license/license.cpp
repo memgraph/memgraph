@@ -126,7 +126,7 @@ void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &s
     return {};
   };
 
-  // The license is the only setting that survives a restart.
+  // The license is stored in the data directory and survives a restart.
   settings.RegisterSetting(
       std::string{kEnterpriseLicenseSettingKey},
       "",

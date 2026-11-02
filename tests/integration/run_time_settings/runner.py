@@ -285,7 +285,7 @@ def run_persistence_test(
         atexit.register(cleanup, memgraph)
         return memgraph
 
-    # Run-time changes do not survive a restart; only the license does
+    # Run-time changes do not survive a restart; only the license and the AWS settings do
     memgraph = start()
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
@@ -298,6 +298,25 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "server.name", default_server_name)
     check_flag(flag_tester_binary, "query.timeout", "600")
     check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
+    stop(memgraph)
+
+    # The AWS settings are persisted like the license; a flag given on the command line replaces the stored value
+    memgraph = start()
+    execute_query(executor_binary, ["SET DATABASE SETTING 'aws.region' TO 'eu-west-1';"])
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "aws.region") == "eu-west-1", "aws.region was not persisted"
+    memgraph = start()
+    check_flag(flag_tester_binary, "aws.region", "eu-west-1")
+    check_config(config_checker_binary, "aws_region", "eu-west-1")
+    stop(memgraph)
+    memgraph = start(["--aws-region", "us-east-1"])
+    check_flag(flag_tester_binary, "aws.region", "us-east-1")
+    check_config(config_checker_binary, "aws_region", "us-east-1")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "aws.region") == "us-east-1", "The flag value was not persisted"
+    memgraph = start()
+    check_flag(flag_tester_binary, "aws.region", "us-east-1")
+    check_config(config_checker_binary, "aws_region", "us-east-1")
     stop(memgraph)
 
     # A value persisted by an older version is restored one last time and deleted, but only for the settings that
