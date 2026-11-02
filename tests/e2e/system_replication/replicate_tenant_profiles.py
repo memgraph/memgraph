@@ -152,7 +152,7 @@ def test_user_profile_replication_mixed_case(test_name):
         host="localhost", port=BOLT_PORTS["replica_1"], username="admin", password="admin-pw"
     ).cursor()
 
-    # The replica applies the membership as it was published; give the sync replica time to receive it.
+    # Give the sync replica time to receive the membership.
     deadline = time.time() + 10
     while True:
         rows = {

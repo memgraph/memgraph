@@ -4065,12 +4065,10 @@ TEST_F(AuthWithStorage, SetProfileFoldsUsernameAcrossProfileOps) {
   ASSERT_TRUE(AddUser(*auth, "alice"));
 
   ASSERT_TRUE(auth->SetProfile("profile", "Alice").has_value());
-  // A profile assigned with any spelling is found again with every spelling.
   EXPECT_EQ(auth->GetProfileForUsername("alice"), "profile");
   EXPECT_EQ(auth->GetProfileForUsername("ALICE"), "profile");
   EXPECT_EQ(auth->GetProfileForUsername("Alice"), "profile");
 
-  // Reassigning across profiles moves the one membership, it does not duplicate it.
   ASSERT_TRUE(auth->SetProfile("other_profile", "ALICE").has_value());
   EXPECT_TRUE(auth->GetUsernamesForProfile("profile").empty());
   {
@@ -4084,7 +4082,6 @@ TEST_F(AuthWithStorage, SetProfileFoldsUsernameAcrossProfileOps) {
 }
 
 TEST_F(AuthWithStorage, CreateOrUpdateProfileFoldsReplicaPayload) {
-  // A replica applies memberships exactly as the main published them; folding happens on apply.
   ASSERT_TRUE(auth->CreateOrUpdateProfile(
       "limited",
       {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}},
@@ -4092,7 +4089,6 @@ TEST_F(AuthWithStorage, CreateOrUpdateProfileFoldsReplicaPayload) {
   EXPECT_EQ(auth->GetProfileForUsername("testuser"), "limited");
   EXPECT_EQ(auth->GetProfileForUsername("TestUser"), "limited");
 
-  // The main re-sends the same membership with another spelling: one canonical member, no duplicate.
   ASSERT_TRUE(auth->CreateOrUpdateProfile(
       "limited",
       {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}},
