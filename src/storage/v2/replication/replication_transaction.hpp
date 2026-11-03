@@ -92,7 +92,7 @@ class TransactionReplication {
   void DrainShipFutures() noexcept;
 
   // Collects every fused task scheduled by ScheduleEncodeAndShip and runs the inline bookkeeping for
-  // streamless replicas. RPC streams won't be destroyed at the end of this function.
+  // replicas that got no fused task. STRICT_SYNC streams stay open for FinalizeTransaction.
   // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
   // Failures are cached internally in replication_failures_ for CollectAllFailures.
   auto CollectShipResults(CommitArgs const &commit_args) -> bool;
