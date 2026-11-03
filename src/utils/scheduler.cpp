@@ -188,7 +188,8 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
-    // An exception leaving the task would terminate the process, and the schedule outlives any one execution.
+    // An exception leaving the task would terminate the process, and the schedule outlives any one
+    // execution. Computing the next time, above, is not covered.
     try {
       f();
     } catch (const std::exception &e) {
