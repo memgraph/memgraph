@@ -17,16 +17,14 @@
 
 namespace memgraph::storage {
 
-// A timestamp belongs to one of three sequences. Start and commit timestamps are drawn from the
-// same counter, so a comparison between them is well-formed and orders two real points in that
-// counter, which is why mixing the two has never produced a visible defect. It is still a
-// comparison between answers to different questions, and a durable timestamp is a different
-// counter outright on a replica. These types make each sequence its own, so a value can only be
-// compared with one from the sequence it came from.
+// A timestamp belongs to one of three sequences. Start and commit timestamps come from the same
+// counter, so a comparison between them is well-formed and orders two real points in that counter,
+// which is why mixing them has never produced a visible defect. They still answer different
+// questions, and on a replica a durable timestamp is a separate counter outright. Each sequence has
+// its own type here, so a value compares only with one from the sequence it came from.
 //
-// Deliberately lighter than id_types.hpp: no formatting, no hashing and no string conversion, so
-// that a header reachable from most of the storage engine pulls in nothing beyond the three
-// standard headers above.
+// Keep formatting, hashing and string conversion out of this header. Most of the storage engine can
+// reach it, so it holds nothing beyond the three standard headers above.
 #define STORAGE_DEFINE_TIMESTAMP_TYPE(name)                                                  \
   class name final {                                                                         \
    private:                                                                                  \

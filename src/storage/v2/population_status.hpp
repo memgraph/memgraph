@@ -21,8 +21,7 @@ namespace memgraph::storage {
 /// MVCC status tracking for schema objects (indices, constraints).
 ///
 /// A schema object is visible to a transaction if it committed at or before the boundary that
-/// transaction reads at, which is why both sides of that test are commit timestamps rather than
-/// the asking transaction's own start.
+/// transaction reads at, so both sides of that test are commit timestamps.
 ///
 /// The populating sentinel sits above the whole committed range, so an object still being built is
 /// visible to no snapshot and a reader does not have to test readiness separately.

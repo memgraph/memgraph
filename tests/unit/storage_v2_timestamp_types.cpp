@@ -15,8 +15,6 @@
 
 namespace memgraph::storage {
 
-// The engine mints start timestamps and commit timestamps from one counter, so a comparison across
-// the two is well-formed and meaningful only by accident. These types exist to make it ill-formed.
 template <typename L, typename R>
 concept Orderable = requires(L l, R r) { l < r; };
 
@@ -33,8 +31,7 @@ TEST(TimestampTypes, TimestampsOfDifferentSpacesDoNotCompare) {
   static_assert(!Orderable<CommitTimestamp, DurableTimestamp>);
   static_assert(!Orderable<StartTimestamp, DurableTimestamp>);
 
-  // A raw counter value is not a timestamp in any space either, so an untyped comparison that
-  // slipped through a conversion cannot be spelled.
+  // A raw counter value belongs to no sequence, so it cannot stand in for one.
   static_assert(!Orderable<CommitTimestamp, uint64_t>);
 }
 

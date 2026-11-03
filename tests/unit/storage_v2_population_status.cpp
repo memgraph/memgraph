@@ -21,8 +21,6 @@ TEST(PopulationStatus, APopulatingObjectIsVisibleToNothing) {
   PopulationStatus status;
 
   ASSERT_TRUE(status.IsPopulating());
-  // The sentinel sits above the whole committed range, which is what keeps a half-built index out
-  // of every snapshot without the reader testing readiness separately.
   EXPECT_FALSE(status.IsVisible(CommitTimestamp::FromUint(kLargestCommittedTimestamp)));
 }
 
