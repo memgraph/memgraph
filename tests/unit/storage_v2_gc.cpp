@@ -2123,6 +2123,54 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_MultisetSemanticsOldestPinWins) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
+// Two pins may share a fork timestamp (e.g. a branch and a historical reader forked without an intervening
+// commit): the multiset must release them one at a time, keeping GC pinned until the last one goes.
+TEST_F(StorageV2GcMetricsTest, ForkPin_SameTimestampPinsReleaseOneByOne) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // No commit between the two registrations, so both pins land on the same snapshot boundary.
+  const uint64_t fork_ts_a = mem_storage->RegisterForkPin();
+  const uint64_t fork_ts_b = mem_storage->RegisterForkPin();
+  ASSERT_EQ(fork_ts_a, fork_ts_b) << "no commit happened between the two registrations";
+  ASSERT_TRUE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(fork_ts_a, *mem_storage->OldestForkPin());
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(handles().unreleased_delta_objects.Value(), 0);
+  const uint64_t count_pinned = handles().unreleased_delta_objects.Value();
+
+  // Releasing the first pin must not unpin the shared timestamp: the deltas must survive.
+  mem_storage->ReleaseForkPin(fork_ts_a);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = UniqueGuard(storage->main_lock_);
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(count_pinned, handles().unreleased_delta_objects.Value())
+      << "the second pin at the same timestamp must keep the deltas alive";
+
+  mem_storage->ReleaseForkPin(fork_ts_b);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = UniqueGuard(storage->main_lock_);
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+}
+
 // OldestForkPin() must track the minimum live pin and return nullopt once none remain.
 TEST_F(StorageV2GcMetricsTest, ForkPin_OldestForkPinTracksMinimumAndClearsWhenUnpinned) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
