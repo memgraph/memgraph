@@ -185,6 +185,45 @@ TEST_F(VersioningHistoryHooksTest, SuppressedCommitsDoNotTouchTheWal) {
   EXPECT_EQ(LastDurableTs(), ts_c3 + 2);  // start ts takes ts_c3 + 1, commit ts_c3 + 2
 }
 
+TEST_F(VersioningHistoryHooksTest, ClockBumpMarksSkippedIdsThroughTargetMinusOne) {
+  WriteHistory();
+
+  memgraph::dbms::Database db{MakeConfig(true, ts_c1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
+  auto const p = s->NameToProperty("p");
+
+  constexpr uint64_t kTarget = 1'000;
+  s->BumpClockPastDurable(kTarget);
+  // The skipped ids [old clock, target - 1] are marked finished, inclusive of the endpoint: an off-by-one would
+  // leave target - 1 "active" and stall GC one id short of the target.
+  EXPECT_EQ(s->OldestActiveTimestamp(), kTarget);
+
+  // Local commits continue from the bumped clock.
+  {
+    auto acc = db.Access(ms::WRITE);
+    auto v = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->SetProperty(p, ms::PropertyValue(5)).has_value());
+    Commit(*acc);
+  }
+  EXPECT_EQ(ReadP(db), ms::PropertyValue(5));
+}
+
+TEST_F(VersioningHistoryHooksTest, WALSuppressionIsNotNestable) {
+  WriteHistory();
+
+  memgraph::dbms::Database db{MakeConfig(true, ts_c1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
+  ASSERT_TRUE(s->TakeRecoveryTail().has_value());
+
+  ms::InMemoryStorage::SuppressWalScope outer{*s};
+  ASSERT_DEATH(
+      { ms::InMemoryStorage::SuppressWalScope inner{*s}; }, "")
+      << "a second scope on the same storage must trip the non-nestable assert";
+}
+
 TEST_F(VersioningHistoryHooksTest, ClockBumpLetsLocalCommitsAndGcProceed) {
   WriteHistory();
 
