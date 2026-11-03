@@ -19,6 +19,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string_view>
 #include <system_error>
 
@@ -71,7 +72,12 @@ class Fd {
 std::string Serialize(const LedgerContents &contents) {
   nlohmann::json branches = nlohmann::json::array();
   for (const auto &[name, info] : contents.branches) {
-    nlohmann::json b{{"name", name}, {"number", info.number}, {"parent", info.parent}, {"fork_ts", info.fork_ts}};
+    nlohmann::json b{{"name", name},
+                     {"number", info.number},
+                     {"parent", info.parent},
+                     // The durable fork boundary is what the ledger persists; the runtime pin is
+                     // re-derived at recovery (it may differ after a bounded-recovery replay).
+                     {"fork_ts", info.recorded_fork_ts}};
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
     if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
     if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
@@ -119,6 +125,10 @@ std::expected<void, std::string> BranchLedger::Write(const LedgerContents &conte
   }
 
   const std::string payload = Serialize(contents);
+  // The header stores the payload size and CRC as uint32; refuse instead of silently truncating.
+  if (payload.size() > std::numeric_limits<uint32_t>::max()) {
+    return std::unexpected(fmt::format("Branch ledger: payload of {} bytes is too large.", payload.size()));
+  }
   const std::string data =
       fmt::format("{} {} {} {:08x}\n{}", kMagic, kVersion, payload.size(), Crc32(payload), payload);
 
