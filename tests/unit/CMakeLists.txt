@@ -830,6 +830,11 @@ add_unit_test(storage_v2_comparable_bounds
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(storage_v2_timestamp_types
+    SOURCES storage_v2_timestamp_types.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2
     SOURCES storage_v2.cpp
     LINK_TARGETS mg::storage storage_test_utils disk_test_utils
