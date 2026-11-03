@@ -3364,6 +3364,12 @@ TEST(StorageV2BranchedHint, VertexBitIsIndependentOfOtherFlagsAndDelta) {
   vertex.SetDeleted(false);
   vertex.set_has_uncommitted_non_sequential_deltas(false);
   EXPECT_TRUE(vertex.branched());
+
+  // Monotonic: re-setting is a no-op and later flag flips never clear it.
+  vertex.SetBranched(true);
+  EXPECT_TRUE(vertex.branched());
+  vertex.SetDeleted(true);
+  EXPECT_TRUE(vertex.branched());
 }
 
 TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
@@ -3379,6 +3385,10 @@ TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
   raw->SetBranched(true);
   EXPECT_TRUE(edge->MaybeBranchedHint());
   EXPECT_FALSE(raw->deleted());
+
+  // Monotonic: re-setting is a no-op.
+  raw->SetBranched(true);
+  EXPECT_TRUE(edge->MaybeBranchedHint());
 }
 
 // Without properties on edges the EdgeRef holds a Gid, not an Edge*, so there is no bit to read.

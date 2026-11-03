@@ -49,8 +49,11 @@ struct Edge {
   // (vertex.hpp).
   bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
 
-  // Caller MUST hold `lock`.
-  void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+  // Caller MUST hold `lock`. The hint is monotonic: it may only be set, never cleared.
+  void SetBranched(bool b) {
+    MG_ASSERT(b, "The branched hint is monotonic: clearing it would be a bug");
+    delta_.SetRelaxed<kBranchedBit>(true);
+  }
 #endif
 
  private:
