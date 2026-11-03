@@ -23,7 +23,6 @@ from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
-SIGNAL_SIGTERM = 15
 BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
 MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
 METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
@@ -75,6 +74,7 @@ def start_memgraph(memgraph_args: List[any], env=None) -> subprocess:
     memgraph = subprocess.Popen(
         list(map(str, memgraph_args)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
     )
+    atexit.register(cleanup, memgraph)
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
     wait_for_server(BOLT_PORT)
@@ -95,20 +95,26 @@ def check_config(tester_binary: str, flag: str, value: str) -> None:
 
 
 def cleanup(memgraph: subprocess):
+    # Last resort at interpreter exit; stop() is the normal way to end a server
     if memgraph.poll() is None:
-        pid = memgraph.pid
-        try:
-            os.kill(pid, SIGNAL_SIGTERM)
-        except os.OSError:
-            assert False, "Memgraph process didn't exit cleanly!"
-        time.sleep(1)
+        memgraph.kill()
+        memgraph.wait()
 
 
 def stop(memgraph: subprocess):
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
-    # The settings store must be released before anything else opens it
-    memgraph.wait(timeout=30)
+    # The data directory lock and the ports must be released before the next server starts, so a server that does
+    # not exit in time is killed and the test fails
+    try:
+        if memgraph.poll() is None:
+            memgraph.terminate()
+            try:
+                memgraph.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                memgraph.kill()
+                memgraph.wait()
+                raise
+    finally:
+        atexit.unregister(cleanup)
 
 
 def store_get(store_binary: str, data_directory: str, key: str):
@@ -129,25 +135,21 @@ def run_test(
     tester_binary: str, memgraph_args: List[str], server_name: str, query_tx: str, storage_access_timeout: str = "1"
 ):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     check_flag(tester_binary, "server.name", server_name)
     check_flag(tester_binary, "query.timeout", query_tx)
     check_flag(tester_binary, "storage.access_timeout_sec", storage_access_timeout)
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_test_w_query(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '30';"])
     check_flag(tester_binary, "server.name", "New Name")
     check_flag(tester_binary, "query.timeout", "123")
     check_flag(tester_binary, "storage.access_timeout_sec", "30")
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def consume(stream):
@@ -163,7 +165,6 @@ def consume(stream):
 def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     # Test if command line parameters work
     memgraph = start_memgraph(memgraph_args + ["--log-level", "TRACE", "--also-log-to-stderr"])
-    atexit.register(cleanup, memgraph)
     std_err = consume(memgraph.stderr)
     assert len(std_err) > 5, "Failed to log to stderr"
     # Test if run-time setting log.to_stderr works
@@ -192,13 +193,11 @@ def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: 
         should_fail=True,
         failure_message="Cannot update setting 'log.level': Unsupported log level. Log level must be defined as one of the following strings: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_check_config(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'log.level' TO 'CRITICAL';"])
@@ -207,13 +206,11 @@ def run_check_config(tester_binary: str, memgraph_args: List[str], executor_bina
     check_config(tester_binary, "query_execution_timeout_sec", "123")
     check_config(tester_binary, "log_level", "CRITICAL")
     check_config(tester_binary, "storage_access_timeout_sec", "30")
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     # query.timeout accepts a number in [0, 1000000000]
     execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '0'"])
     execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '1.5'"])
@@ -248,8 +245,7 @@ def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[s
         should_fail=True,
         failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be a valid unsigned integer",
     )
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_invalid_flag_test(memgraph_args: List[str]) -> None:
@@ -281,9 +277,7 @@ def run_persistence_test(
     }
 
     def start(extra_args: List[str] = []):
-        memgraph = start_memgraph(memgraph_args + extra_args, env)
-        atexit.register(cleanup, memgraph)
-        return memgraph
+        return start_memgraph(memgraph_args + extra_args, env)
 
     # Run-time changes do not survive a restart; only the license and the AWS settings do
     memgraph = start()

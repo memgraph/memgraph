@@ -91,6 +91,7 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
   return true;
 }
 
+// No return code, void doesn't mean necessarily that the update was successful
 void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
   const std::scoped_lock settings_guard{settings_lock_};
   const auto it = settings_.find(setting_name);
