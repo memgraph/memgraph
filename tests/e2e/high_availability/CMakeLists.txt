@@ -23,6 +23,7 @@ copy_e2e_python_files(high_availability instance_metrics.py)
 copy_e2e_python_files(high_availability tls_cluster.py)
 copy_e2e_python_files(high_availability analytical_import.py)
 copy_e2e_python_files(high_availability snapshot_transfer.py)
+copy_e2e_python_files(high_availability conftest.py)
 copy_e2e_python_files(high_availability workloads.yaml)
 
 
