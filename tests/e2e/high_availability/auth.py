@@ -2026,8 +2026,8 @@ def test_internal_system_user_hash_file_must_load(tmp_path, contents):
 
 
 def test_profile_mixed_case_survives_failover(test_name):
-    """A profile assigned with a mixed-case spelling survives the promotion of the replica: the promoted main
-    resolves the membership through both spellings."""
+    """A profile assigned with a mixed-case spelling survives the promotion of the replica: the replica and the
+    promoted main resolve the membership through both spellings."""
     instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(instances_description, keep_directories=False)
 
@@ -2042,18 +2042,27 @@ def test_profile_mixed_case_survives_failover(test_name):
     execute_and_fetch_all(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
     execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO USER TestUser")
     execute_and_fetch_all(admin_cursor, "SET PROFILE FOR TestUser TO mixed_one")
-    # The raw spelling matches the stored member on any tree; the fold is exercised after promotion.
+    # The raw spelling matches the stored member on any tree; the fold is exercised on the replica and after
+    # promotion.
     assert execute_and_fetch_all(admin_cursor, "SHOW PROFILE FOR TestUser") == [("mixed_one",)]
 
-    # Wait until the replica has applied the membership; the raw spelling matches there on any tree.
-    def replica_profile():
-        try:
-            cursor = connect(host="localhost", port=7688, username="admin", password="admin123").cursor()
-            return execute_and_fetch_all(cursor, "SHOW PROFILE FOR TestUser")
-        except Exception:
-            return None
+    # Factory shared by the replica phase and the post-promotion phase; both reach the same port (instance_2 —
+    # first as the replica, then as the promoted main).
+    def profile_at(port):
+        def query(spelling):
+            try:
+                cursor = connect(host="localhost", port=port, username="admin", password="admin123").cursor()
+                return execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {spelling}")
+            except Exception:
+                return None
 
-    mg_sleep_and_assert([("mixed_one",)], replica_profile)
+        return query
+
+    # Wait until the replica has applied the membership; once it has, both spellings resolve there: the raw one
+    # through the stored member, the folded one through the fold-on-read.
+    replica_profile = profile_at(7688)
+    mg_sleep_and_assert([("mixed_one",)], replica_profile("TestUser"))
+    assert replica_profile("testuser")() == [("mixed_one",)], "the replica did not fold the replayed membership"
 
     # Kill the main; the surviving replica is promoted, replaying the membership it applied.
     instances_description["instance_1"]["setup_queries"] = []
@@ -2071,17 +2080,8 @@ def test_profile_mixed_case_survives_failover(test_name):
 
     mg_sleep_and_assert("main", promoted_instance_role)
 
-    def promoted_profile(spelling):
-        def query():
-            try:
-                cursor = connect(host="localhost", port=7688, username="admin", password="admin123").cursor()
-                return execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {spelling}")
-            except Exception:
-                return None
-
-        return query
-
     # The promoted main still holds the membership and folds it on read: both spellings resolve.
+    promoted_profile = profile_at(7688)
     mg_sleep_and_assert([("mixed_one",)], promoted_profile("TestUser"))
     assert promoted_profile("testuser")() == [("mixed_one",)], "the promoted main did not fold the replayed membership"
 

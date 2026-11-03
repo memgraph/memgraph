@@ -15,7 +15,7 @@ import time
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -134,39 +134,6 @@ def test_mutation_forbidden_on_replica(connection, test_name):
 
     with pytest.raises(Exception, match="replica"):
         execute_and_fetch_all(repl_cursor, "CREATE TENANT PROFILE forbidden LIMIT memory_limit 100 MB")
-
-
-def test_user_profile_replication_mixed_case(test_name):
-    """A user profile published with a mixed-case spelling resolves through the canonical one on the replica."""
-    interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
-    main_anon = connect(host="localhost", port=BOLT_PORTS["main"]).cursor()
-    execute_and_fetch_all(main_anon, "CREATE USER admin IDENTIFIED BY 'admin-pw'")
-
-    main_cursor = connect(host="localhost", port=BOLT_PORTS["main"], username="admin", password="admin-pw").cursor()
-    execute_and_fetch_all(main_cursor, "CREATE PROFILE repl_one LIMIT sessions 1")
-    execute_and_fetch_all(main_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
-    execute_and_fetch_all(main_cursor, "GRANT ALL PRIVILEGES TO TestUser")
-    execute_and_fetch_all(main_cursor, "SET PROFILE FOR TestUser TO repl_one")
-
-    repl_cursor = connect(
-        host="localhost", port=BOLT_PORTS["replica_1"], username="admin", password="admin-pw"
-    ).cursor()
-
-    # Give the sync replica time to receive the membership.
-    deadline = time.time() + 10
-    while True:
-        rows = {
-            spelling: execute_and_fetch_all(repl_cursor, f"SHOW PROFILE FOR {spelling}")
-            for spelling in ("TestUser", "testuser")
-        }
-        if all(value == [("repl_one",)] for value in rows.values()):
-            break
-        if time.time() > deadline:
-            break
-        time.sleep(0.2)
-
-    assert rows["TestUser"] == [("repl_one",)], f"raw spelling not resolvable on the replica: {rows}"
-    assert rows["testuser"] == [("repl_one",)], f"canonical spelling not resolvable on the replica: {rows}"
 
 
 if __name__ == "__main__":
