@@ -17,6 +17,7 @@ import interactive_mg_runner
 import mgclient
 import pytest
 from common import *
+from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -177,8 +178,7 @@ def test_user_profile_setup(connection, test_name):
     cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # CREATE PROFILES
     execute_and_fetch_all(cursor_main, "CREATE PROFILE p1")
@@ -486,15 +486,15 @@ def test_user_profile_session_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Initial state - no sessions, no memory usage
     resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
     resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
 
-    # Simulate session creation for tracking_user1
-    cursor_user1 = connection(BOLT_PORT, "main", "tracking_user1").cursor()
+    # Bound because this test closes it: closing only a cursor leaves the connection, and so the
+    # session, open.
+    connection_user1 = connect(host="localhost", port=BOLT_PORT, username="tracking_user1", password="")
 
     # Check that session count increased
     resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
@@ -514,7 +514,7 @@ def test_user_profile_session_tracking(connection, test_name):
     resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
 
     # Close one session for tracking_user1 and verify session count decreases
-    cursor_user1.close()
+    connection_user1.close()
 
     # Check that session count decreased to 1
     resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
@@ -555,8 +555,7 @@ def test_user_profile_explicit_tx_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test explicit transaction memory tracking
     print("Testing explicit transaction memory tracking...")
@@ -684,8 +683,7 @@ def test_user_profile_implicit_tx_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test implicit transaction memory tracking
     print("Testing implicit transaction memory tracking...")
@@ -750,8 +748,7 @@ def test_user_profile_proc_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test procedure memory tracking with different allocation methods
     # Create a profile with 250MB memory limit
@@ -859,8 +856,7 @@ def test_user_profile_local_proc_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test procedure memory tracking with different allocation methods
     # Create a profile with 250MB memory limit
@@ -973,8 +969,7 @@ def test_user_profile_proc_w_limit_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test procedure memory tracking with different allocation methods
     # Create a profile with 250MB memory limit
@@ -1056,8 +1051,7 @@ def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test procedure memory tracking with different allocation methods
     # Create a profile with 300MB memory limit
@@ -1131,8 +1125,7 @@ def test_user_profile_memory_tracking_with_gc(connection, test_name):
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
     def resource_check(username, expected_usage):
-        usage = show_resource_usage_func(cursor_main, username)()
-        assert expected_usage == usage
+        mg_sleep_and_assert(expected_usage, show_resource_usage_func(cursor_main, username))
 
     # Test procedure memory tracking with different allocation methods
     # Create a profile with 300MB memory limit
