@@ -15,23 +15,8 @@
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
-(defn is-main?
-  "Tests if data instance is main. Returns bool true/false, catches all exceptions."
-  [bolt-conn]
-  (try
-    #_{:clj-kondo/ignore [:unresolved-symbol]}
-    (utils/with-session bolt-conn session
-      (let [role-map (first (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
-                                    (mgquery/show-replication-role session)))
-            role-vec (vec (apply concat role-map))
-            role (last role-vec)]
-        (info "Role:" role)
-        (info "is-main?" (= role "main"))
-        (= role "main")))
-    (catch Exception _
-      false)))
-
 (def setup-cluster? (atom false))
+(def unique-constraint-created? (atom false))
 
 
 ; By modifying batch-size, we are testing the configuration in a different replication sitauations.
@@ -190,6 +175,36 @@
   ((mgquery/set-instance-to-main first-main) session)
   (info "Set instance" first-main "to main."))
 
+(def constraint-attempts 30)
+
+(defn create-unique-constraint!
+  "Creates the unique constraint on main through the leader's routing connection, retrying while the cluster settles.
+  Without the constraint, concurrent add-nodes batches would write duplicate ids."
+  [leader]
+  (loop [attempt 1]
+    (let [result (try
+                   (let [routing-conn (utils/open-bolt-routing leader)]
+                     (try
+                       #_{:clj-kondo/ignore [:unresolved-symbol]}
+                       (utils/with-session routing-conn session
+                         #_{:clj-kondo/ignore [:unresolved-var]}
+                         (mgquery/create-unique-constraint session))
+                       :ok
+                       (finally
+                         (dbclient/disconnect routing-conn))))
+                   (catch Exception e
+                     (info "Creating unique constraint failed, attempt" attempt ":" (str e))
+                     e))]
+      (cond
+        (= result :ok) (do (reset! unique-constraint-created? true)
+                           (info "Created unique constraint."))
+        (< attempt constraint-attempts) (do (Thread/sleep 1000)
+                                            (recur (inc attempt)))
+        ; Wrapped so setup-cluster reports it as a failure rather than as a down node.
+        :else (throw (ex-info (str "Failed to create unique constraint after " constraint-attempts " attempts.")
+                              {:leader leader}
+                              result))))))
+
 (defn mg-get-nodes
   "Get all nodes as part of the txn."
   [txn]
@@ -243,32 +258,11 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :create-unique-constraint (if (and (hautils/data-instance? node) (is-main? bolt-conn))
-                                    (try
-                                      #_{:clj-kondo/ignore [:unresolved-symbol]}
-                                      (utils/with-session bolt-conn session
-                                        #_{:clj-kondo/ignore [:unresolved-var]}
-                                        (mgquery/create-unique-constraint session)
+        :add-nodes (cond
+                     (not @unique-constraint-created?)
+                     (assoc op :type :info :value "Unique constraint not created yet.")
 
-                                        (assoc op :type :ok :value {:str "Created unique constraint"}))
-
-                                      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                                        (utils/process-service-unavailable-exc op node))
-
-                                      (catch org.neo4j.driver.exceptions.ClientException e
-                                        (cond
-                                          (utils/concurrent-system-queries? e)
-                                          (assoc op :type :info :value {:str "Concurrent system queries are not allowed"})
-
-                                          :else
-                                          (assoc op :type :fail :value (str e))))
-
-                                      (catch Exception e
-                                        (assoc op :type :fail :value (str e))))
-
-                                    (assoc op :type :info :value "Not main data instance."))
-
-        :add-nodes (if (hautils/coord-instance? node)
+                     (hautils/coord-instance? node)
                      (try
                        #_{:clj-kondo/ignore [:unresolved-symbol]}
                        (utils/with-session bolt-conn session
@@ -334,6 +328,8 @@
                          (utils/process-service-unavailable-exc op node))
                        (catch Exception e
                          (assoc op :type :fail :value (str e))))
+
+                     :else
                      (assoc op :type :info :value "Not coordinator instance."))
 
 ; Show instances should be run only on coordinators/
@@ -382,6 +378,7 @@
                 (register-replication-instances session nodes-config)
                 (add-coordinator-instances session node nodes-config)
                 (set-instance-to-main session first-main))
+              (create-unique-constraint! node)
 
               (assoc op :type :ok) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
 
@@ -650,11 +647,6 @@
                 initial-result
                 updates)))))
 
-(defn create-unique-constraint
-  "Invoke show-instances-read op."
-  [_ _]
-  {:type :invoke, :f :create-unique-constraint, :value nil})
-
 (defn show-instances-reads
   "Invoke show-instances-read op."
   [_ _]
@@ -687,7 +679,6 @@
    (gen/phases
     (gen/once setup-cluster)
     (gen/sleep 5)
-    (gen/once create-unique-constraint)
     (gen/delay delay-requests-sec
                (gen/mix [show-instances-reads show-replication-lag-reads add-nodes])))))
 
