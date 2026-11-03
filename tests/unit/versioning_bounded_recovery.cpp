@@ -29,7 +29,9 @@
 #include "memory/db_arena.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -112,6 +114,31 @@ struct Recovered {
 
   size_t VertexCount() { return vertices.access().size(); }
 
+  // Replays a recovery tail the way a consumer would: resume from the recovered durable timestamp
+  // (deltas at or below it are skipped, so a straddling first file is safe), applying the rest into
+  // these bare containers. Index/constraint metadata is accumulated but not materialized.
+  void ReplayTail(md::RecoveryTail const &tail) {
+    std::optional<uint64_t> last_loaded = tail.reached_timestamp;
+    for (auto const &path : tail.wal_files) {
+      auto info = md::LoadWal(
+          path,
+          &tail_metadata_,
+          last_loaded,
+          &vertices,
+          &edges,
+          &name_id_mapper,
+          &edge_count,
+          config.salient.items,
+          &enum_store,
+          nullptr /* schema_info */,
+          [](auto) { return std::nullopt; },
+          &ttl,
+          nullptr /* description_store */);
+      EXPECT_TRUE(info.has_value()) << "tail WAL file " << path << " failed to replay";
+      if (info) last_loaded = info->last_durable_timestamp;
+    }
+  }
+
   ms::Config config;
   memgraph::utils::SkipListDb<ms::Vertex> vertices;
   memgraph::utils::SkipListDb<ms::Edge> edges;
@@ -124,6 +151,7 @@ struct Recovered {
   ms::ReplicationStorageState repl_storage_state;
   ms::EnumStore enum_store;
   ms::ttl::TTL ttl;
+  md::RecoveredIndicesAndConstraints tail_metadata_;
 };
 
 }  // namespace
@@ -269,5 +297,16 @@ TEST_F(VersioningBoundedRecoveryTest, RecoversStateAsOfBoundAndReportsTail) {
     EXPECT_EQ(r->VertexCount(), 3U);
     EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
     EXPECT_TRUE(tail.wal_files.empty());
+  }
+  {  // The returned tail must be replayable: resuming from the recovered durable timestamp (the
+     // straddling first file's already-applied deltas are skipped) and replaying the tail files has
+     // to land on the data state an unbounded recovery produces.
+    auto [r, tail] = recover(ts_c3);
+    ASSERT_FALSE(tail.wal_files.empty());
+    r->ReplayTail(tail);
+    EXPECT_EQ(r->VertexCount(), 3U);
+    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
+    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(20));
+    EXPECT_EQ(r->Property(v3, "p"), ms::PropertyValue(3));
   }
 }
