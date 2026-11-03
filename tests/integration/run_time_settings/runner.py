@@ -23,7 +23,6 @@ from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
-SIGNAL_SIGTERM = 15
 BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
 MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
 METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
@@ -71,10 +70,11 @@ def make_non_blocking(fd):
     fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
 
-def start_memgraph(memgraph_args: List[any]) -> subprocess:
+def start_memgraph(memgraph_args: List[any], env=None) -> subprocess:
     memgraph = subprocess.Popen(
-        list(map(str, memgraph_args)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        list(map(str, memgraph_args)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
     )
+    atexit.register(cleanup, memgraph)
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
     wait_for_server(BOLT_PORT)
@@ -95,38 +95,61 @@ def check_config(tester_binary: str, flag: str, value: str) -> None:
 
 
 def cleanup(memgraph: subprocess):
+    # Last resort at interpreter exit; stop() is the normal way to end a server
     if memgraph.poll() is None:
-        pid = memgraph.pid
-        try:
-            os.kill(pid, SIGNAL_SIGTERM)
-        except os.OSError:
-            assert False, "Memgraph process didn't exit cleanly!"
-        time.sleep(1)
+        memgraph.kill()
+        memgraph.wait()
+
+
+def stop(memgraph: subprocess):
+    # The data directory lock and the ports must be released before the next server starts, so a server that does
+    # not exit in time is killed and the test fails
+    try:
+        if memgraph.poll() is None:
+            memgraph.terminate()
+            try:
+                memgraph.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                memgraph.kill()
+                memgraph.wait()
+                raise
+    finally:
+        atexit.unregister(cleanup)
+
+
+def store_get(store_binary: str, data_directory: str, key: str):
+    args = [store_binary, "--data-directory", data_directory, "--key", key]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode == 2:
+        return None
+    result.check_returncode()
+    return result.stdout.strip()
+
+
+def store_put(store_binary: str, data_directory: str, key: str, value: str) -> None:
+    args = [store_binary, "--data-directory", data_directory, "--key", key, "--value", value, "--put"]
+    subprocess.run(args).check_returncode()
 
 
 def run_test(
     tester_binary: str, memgraph_args: List[str], server_name: str, query_tx: str, storage_access_timeout: str = "1"
 ):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     check_flag(tester_binary, "server.name", server_name)
     check_flag(tester_binary, "query.timeout", query_tx)
     check_flag(tester_binary, "storage.access_timeout_sec", storage_access_timeout)
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_test_w_query(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '30';"])
     check_flag(tester_binary, "server.name", "New Name")
     check_flag(tester_binary, "query.timeout", "123")
     check_flag(tester_binary, "storage.access_timeout_sec", "30")
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def consume(stream):
@@ -142,7 +165,6 @@ def consume(stream):
 def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     # Test if command line parameters work
     memgraph = start_memgraph(memgraph_args + ["--log-level", "TRACE", "--also-log-to-stderr"])
-    atexit.register(cleanup, memgraph)
     std_err = consume(memgraph.stderr)
     assert len(std_err) > 5, "Failed to log to stderr"
     # Test if run-time setting log.to_stderr works
@@ -171,13 +193,11 @@ def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: 
         should_fail=True,
         failure_message="Cannot update setting 'log.level': Unsupported log level. Log level must be defined as one of the following strings: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_check_config(tester_binary: str, memgraph_args: List[str], executor_binary: str):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'log.level' TO 'CRITICAL';"])
@@ -186,13 +206,22 @@ def run_check_config(tester_binary: str, memgraph_args: List[str], executor_bina
     check_config(tester_binary, "query_execution_timeout_sec", "123")
     check_config(tester_binary, "log_level", "CRITICAL")
     check_config(tester_binary, "storage_access_timeout_sec", "30")
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
 
 
 def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
-    atexit.register(cleanup, memgraph)
+    # query.timeout accepts a number in [0, 1000000000]
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '0'"])
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '1.5'"])
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'query.timeout' TO '1000000000'"])
+    for bad in ("abc", "-1", "1s", "inf", "1000000001", "1e10"):
+        execute_tester(
+            tester_binary,
+            [f"SET DATABASE SETTING 'query.timeout' TO '{bad}'"],
+            should_fail=True,
+            failure_message="Cannot update setting 'query.timeout': Value must be a number in range [0, 1000000000].",
+        )
     # Valid boundary values
     execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1'"])
     execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1000000'"])
@@ -216,12 +245,127 @@ def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[s
         should_fail=True,
         failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be a valid unsigned integer",
     )
-    cleanup(memgraph)
-    atexit.unregister(cleanup)
+    stop(memgraph)
+
+
+def run_invalid_flag_test(memgraph_args: List[str]) -> None:
+    # A query timeout outside [0, 1000000000] is rejected while the flags are parsed, before the server starts.
+    for value in ["-1", "nan", "inf", "1e10"]:
+        result = subprocess.run(
+            list(map(str, memgraph_args + ["--query-execution-timeout-sec", value])),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode != 0, f"Memgraph started with --query-execution-timeout-sec={value}"
+        assert "query_execution_timeout_sec" in result.stderr, f"Rejection does not name the flag: {result.stderr}"
+
+
+def run_persistence_test(
+    flag_tester_binary: str,
+    config_checker_binary: str,
+    memgraph_args: List[str],
+    executor_binary: str,
+    store_binary: str,
+    data_directory: str,
+    default_server_name: str,
+):
+    # A license from the environment would overwrite organization.name on every start
+    env = {
+        k: v for k, v in os.environ.items() if k not in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
+    }
+
+    def start(extra_args: List[str] = []):
+        return start_memgraph(memgraph_args + extra_args, env)
+
+    # Run-time changes do not survive a restart; only the license and the AWS settings do
+    memgraph = start()
+    execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'organization.name' TO 'Memgraph Ltd';"])
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "server.name") is None, "server.name was written to the store"
+    assert store_get(store_binary, data_directory, "query.timeout") is None, "query.timeout was written to the store"
+    assert store_get(store_binary, data_directory, "organization.name") == "Memgraph Ltd"
+    memgraph = start()
+    check_flag(flag_tester_binary, "server.name", default_server_name)
+    check_flag(flag_tester_binary, "query.timeout", "600")
+    check_flag(flag_tester_binary, "organization.name", "Memgraph Ltd")
+    stop(memgraph)
+
+    # The AWS settings are persisted like the license; a flag given on the command line replaces the stored value
+    memgraph = start()
+    execute_query(executor_binary, ["SET DATABASE SETTING 'aws.region' TO 'eu-west-1';"])
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "aws.region") == "eu-west-1", "aws.region was not persisted"
+    memgraph = start()
+    check_flag(flag_tester_binary, "aws.region", "eu-west-1")
+    check_config(config_checker_binary, "aws_region", "eu-west-1")
+    stop(memgraph)
+    memgraph = start(["--aws-region", "us-east-1"])
+    check_flag(flag_tester_binary, "aws.region", "us-east-1")
+    check_config(config_checker_binary, "aws_region", "us-east-1")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "aws.region") == "us-east-1", "The flag value was not persisted"
+    memgraph = start()
+    check_flag(flag_tester_binary, "aws.region", "us-east-1")
+    check_config(config_checker_binary, "aws_region", "us-east-1")
+    stop(memgraph)
+
+    # A value persisted by an older version is restored one last time and deleted, but only for the settings that
+    # older versions restored. A leftover of a setting that was never restored is deleted without being applied.
+    # SHOW DATABASE SETTINGS reads the settings map; SHOW CONFIG reads the flag, which only the on-change callback
+    # updates.
+    store_put(store_binary, data_directory, "server.name", "Old Name")
+    store_put(store_binary, data_directory, "query.timeout", "321")
+    memgraph = start()
+    check_flag(flag_tester_binary, "server.name", "Old Name")
+    check_flag(flag_tester_binary, "query.timeout", "600")
+    check_config(config_checker_binary, "bolt_server_name_for_init", "Old Name")
+    check_config(config_checker_binary, "query_execution_timeout_sec", "600")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "server.name") is None, "Leftover of server.name kept"
+    assert store_get(store_binary, data_directory, "query.timeout") is None, "Leftover of query.timeout kept"
+    assert store_get(store_binary, data_directory, "organization.name") == "Memgraph Ltd", "License entry lost"
+    memgraph = start()
+    check_flag(flag_tester_binary, "server.name", default_server_name)
+    check_flag(flag_tester_binary, "query.timeout", "600")
+    check_config(config_checker_binary, "bolt_server_name_for_init", default_server_name)
+    check_config(config_checker_binary, "query_execution_timeout_sec", "600")
+    stop(memgraph)
+
+    # A leftover that fails validation is skipped in favor of the flag value, and deleted
+    store_put(store_binary, data_directory, "query.timeout", "abc")
+    store_put(store_binary, data_directory, "timezone", "Not/AZone")
+    memgraph = start()
+    check_flag(flag_tester_binary, "query.timeout", "600")
+    check_flag(flag_tester_binary, "timezone", "UTC")
+    check_config(config_checker_binary, "query_execution_timeout_sec", "600")
+    check_config(config_checker_binary, "timezone", "UTC")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "query.timeout") is None, "Invalid leftover of query.timeout kept"
+    assert store_get(store_binary, data_directory, "timezone") is None, "Invalid leftover of timezone kept"
+
+    # A flag given on the command line wins over the leftover, which is deleted
+    store_put(store_binary, data_directory, "server.name", "Old Name")
+    memgraph = start(["--bolt-server-name-for-init", "Flag Name"])
+    check_flag(flag_tester_binary, "server.name", "Flag Name")
+    check_config(config_checker_binary, "bolt_server_name_for_init", "Flag Name")
+    stop(memgraph)
+    assert store_get(store_binary, data_directory, "server.name") is None, "Leftover kept when the flag was given"
+    memgraph = start()
+    check_flag(flag_tester_binary, "server.name", default_server_name)
+    stop(memgraph)
 
 
 def execute_test(
-    memgraph_binary: str, tester_binary: str, flag_tester_binary: str, executor_binary: str, test_config_binary: str
+    memgraph_binary: str,
+    tester_binary: str,
+    flag_tester_binary: str,
+    executor_binary: str,
+    test_config_binary: str,
+    store_binary: str,
 ) -> None:
     storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [
@@ -234,9 +378,11 @@ def execute_test(
 
     print("\033[1;36m~~ Starting run-time settings check test ~~\033[0m")
 
+    default_server_name = "Neo4j/v5.11.0 compatible graph database server - Memgraph"
+
     print("\033[1;34m~~ server.name and query.timeout ~~\033[0m")
     # Check default flags
-    run_test(flag_tester_binary, memgraph_args, "Neo4j/v5.11.0 compatible graph database server - Memgraph", "600")
+    run_test(flag_tester_binary, memgraph_args, default_server_name, "600")
 
     # Check changing flags via command-line arguments
     run_test(
@@ -269,6 +415,20 @@ def execute_test(
     print("\033[1;34m~~ storage.access_timeout_sec validation ~~\033[0m")
     run_storage_access_validation_test(tester_binary, memgraph_args)
 
+    print("\033[1;34m~~ query_execution_timeout_sec flag validation ~~\033[0m")
+    run_invalid_flag_test(memgraph_args)
+
+    print("\033[1;34m~~ persistence across restarts ~~\033[0m")
+    run_persistence_test(
+        flag_tester_binary,
+        test_config_binary,
+        memgraph_args,
+        executor_binary,
+        store_binary,
+        storage_directory.name,
+        default_server_name,
+    )
+
     print("\033[1;36m~~ Finished run-time settings check test ~~\033[0m")
 
 
@@ -280,6 +440,9 @@ if __name__ == "__main__":
     config_checker_binary = os.path.join(
         PROJECT_DIR, "build", "tests", "integration", "run_time_settings", "config_checker"
     )
+    settings_store_binary = os.path.join(
+        PROJECT_DIR, "build", "tests", "integration", "run_time_settings", "settings_store"
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)
@@ -287,8 +450,9 @@ if __name__ == "__main__":
     parser.add_argument("--flag_tester", default=flag_tester_binary)
     parser.add_argument("--executor", default=executor_binary)
     parser.add_argument("--config_checker", default=config_checker_binary)
+    parser.add_argument("--settings_store", default=settings_store_binary)
     args = parser.parse_args()
 
-    execute_test(args.memgraph, args.tester, args.flag_tester, args.executor, args.config_checker)
+    execute_test(args.memgraph, args.tester, args.flag_tester, args.executor, args.config_checker, args.settings_store)
 
     sys.exit(0)

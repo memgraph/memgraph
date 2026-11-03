@@ -11,10 +11,10 @@
 
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,28 +26,46 @@
 #include "utils/rw_lock.hpp"
 
 namespace memgraph::utils {
+
+/// Current values of every setting live in memory. Only settings registered as persisted are also written to the
+/// on-disk store and read back from it on the next start.
 struct Settings {
   using OnChangeCallback = std::function<void()>;
   using ValidatorResult = std::expected<void, std::string>;
   using Validation = std::function<ValidatorResult(std::string_view)>;
 
+  enum class Persistence : uint8_t {
+    /// Loaded from the store at registration and written through on every change.
+    kPersisted,
+    /// Never written to the store. A leftover entry written by an older version is deleted at registration and
+    /// handed back to the caller, which decides whether to apply it through SetValue.
+    kRuntimeOnly,
+  };
+
   explicit Settings(std::filesystem::path storage_path);
 
-  void RegisterSetting(
-      std::string name, const std::string &default_value, OnChangeCallback callback,
+  /// Returns the leftover store value that a run-time only registration deleted, if there was one.
+  std::optional<std::string> RegisterSetting(
+      std::string name, const std::string &default_value, Persistence persistence, OnChangeCallback callback,
       Validation validation = [](auto) -> ValidatorResult { return {}; });
   std::optional<std::string> GetValue(const std::string &setting_name) const;
   bool SetValue(const std::string &setting_name, const std::string &new_value);
-  // Write directly to KVStore, bypassing validation and the on-change callback.
+  // Set without validation and without the on-change callback.
   // Use only for internal system writes (e.g. persisting the winning license back to storage).
   void SetValueForce(const std::string &setting_name, const std::string &new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 
  private:
+  struct Entry {
+    std::string value;
+    Persistence persistence;
+    OnChangeCallback on_change;
+    Validation validation;
+  };
+
   mutable utils::RWLock settings_lock_{RWLock::Priority::WRITE};
-  std::unordered_map<std::string, OnChangeCallback> on_change_callbacks_;
-  std::unordered_map<std::string, Validation> validations_;
-  std::optional<kvstore::KVStore> storage_;
+  std::unordered_map<std::string, Entry> settings_;
+  kvstore::KVStore storage_;
 };
 
 }  // namespace memgraph::utils
