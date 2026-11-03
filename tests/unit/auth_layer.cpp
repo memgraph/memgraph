@@ -595,5 +595,6 @@ TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestores
   ASSERT_TRUE(value.has_value());
   const auto json = nlohmann::json::parse(*value);
   EXPECT_EQ(json.at("usernames").size(), 1U);
+  EXPECT_EQ(json.at("usernames"), nlohmann::json::array({"testuser"}));
   EXPECT_EQ(json.at("limits").at("sessions"), 1);
 }

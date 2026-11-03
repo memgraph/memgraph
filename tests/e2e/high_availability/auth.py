@@ -2047,9 +2047,10 @@ def test_profile_mixed_case_survives_failover(test_name):
     assert execute_and_fetch_all(admin_cursor, "SHOW PROFILE FOR TestUser") == [("mixed_one",)]
 
     # Factory shared by the replica phase and the post-promotion phase; both reach the same port (instance_2 —
-    # first as the replica, then as the promoted main).
-    def profile_at(port):
-        def query(spelling):
+    # first as the replica, then as the promoted main). The spelling is bound at factory time so the returned
+    # query is a zero-arg callable, matching the contract of mg_sleep_and_assert.
+    def profile_at(port, spelling):
+        def query():
             try:
                 cursor = connect(host="localhost", port=port, username="admin", password="admin123").cursor()
                 return execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {spelling}")
@@ -2060,12 +2061,10 @@ def test_profile_mixed_case_survives_failover(test_name):
 
     # Wait until the replica has applied the membership; once it has, both spellings resolve there: the raw one
     # through the stored member, the folded one through the fold-on-read.
-    replica_profile = profile_at(7688)
-    mg_sleep_and_assert([("mixed_one",)], replica_profile("TestUser"))
-    assert replica_profile("testuser")() == [("mixed_one",)], "the replica did not fold the replayed membership"
+    mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
+    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the replica did not fold the replayed membership"
 
     # Kill the main; the surviving replica is promoted, replaying the membership it applied.
-    instances_description["instance_1"]["setup_queries"] = []
     interactive_mg_runner.kill(instances_description, "instance_1")
 
     def promoted_instance_role():
@@ -2081,9 +2080,8 @@ def test_profile_mixed_case_survives_failover(test_name):
     mg_sleep_and_assert("main", promoted_instance_role)
 
     # The promoted main still holds the membership and folds it on read: both spellings resolve.
-    promoted_profile = profile_at(7688)
-    mg_sleep_and_assert([("mixed_one",)], promoted_profile("TestUser"))
-    assert promoted_profile("testuser")() == [("mixed_one",)], "the promoted main did not fold the replayed membership"
+    mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
+    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the promoted main did not fold the replayed membership"
 
 
 if __name__ == "__main__":
