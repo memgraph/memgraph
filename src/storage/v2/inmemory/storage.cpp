@@ -1089,7 +1089,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     // We don't have to update the commit timestamp here because no one reads
     // it.
 #ifdef MG_ENTERPRISE
-    if (!transaction_.is_historical_) {
+    if (!transaction_.is_historical_) [[likely]] {
       mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
     } else {
       mem_storage->ReleaseForkPin(transaction_.start_timestamp);
@@ -1417,7 +1417,7 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
   // requires that nothing at or above that boundary is unlinked while it waits.
 #ifdef MG_ENTERPRISE
-  if (!transaction_.is_historical_) {
+  if (!transaction_.is_historical_) [[likely]] {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   }
 #else
@@ -1921,7 +1921,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
   transaction_.abort_callbacks_.RunAll();
 
 #ifdef MG_ENTERPRISE
-  if (!transaction_.is_historical_) {
+  if (!transaction_.is_historical_) [[likely]] {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Releases the self-pin; the empty-delta commit path clears is_transaction_active_, so this runs once.
