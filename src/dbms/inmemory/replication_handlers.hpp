@@ -127,12 +127,16 @@ class InMemoryReplicationHandlers {
   static LoadWalStatus LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
                                rpc::ProgressHeartbeat &heartbeat);
 
-#ifdef MG_ENTERPRISE
+  // Decodes and applies the transactions of one WAL file. Enterprise shares it between LoadWal and
+  // ReplayWalFile; community calls it from LoadWal with no replay hook.
   static LoadWalStatus ApplyWalDeltas(std::filesystem::path const &wal_path,
                                       storage::durability::WalInfo const &wal_info, storage::InMemoryStorage *storage,
-                                      rpc::ProgressHeartbeat &heartbeat,
-                                      std::function<void(uint64_t)> const *on_txn_begin);
+                                      rpc::ProgressHeartbeat &heartbeat
+#ifdef MG_ENTERPRISE
+                                      ,
+                                      std::function<void(uint64_t)> const *on_txn_begin
 #endif
+  );
 
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
 
