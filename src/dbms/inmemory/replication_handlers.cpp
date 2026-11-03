@@ -1229,10 +1229,19 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     spdlog::trace("WAL file {} finalized successfully", wal_path);
   }
 
+  // Delta application is shared with branch tail replay (enterprise): ReplayWalFile passes a replay hook.
+  return ApplyWalDeltas(wal_path,
+                        wal_info,
+                        storage,
+                        heartbeat
 #ifdef MG_ENTERPRISE
-  return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, /*on_txn_begin*/ nullptr);
+                        ,
+                        /*on_txn_begin*/ nullptr
+#endif
+  );
 }
 
+#ifdef MG_ENTERPRISE
 bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
                                                 storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
                                                 std::function<void(uint64_t)> const *on_txn_begin) {
@@ -1250,13 +1259,18 @@ bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal
   }
   return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, on_txn_begin).success;
 }
+#endif
 
-// Decodes and applies the transactions of one WAL file, shared by LoadWal and ReplayWalFile.
+// Decodes and applies the transactions of one WAL file. Enterprise shares it between the replica's
+// LoadWal and the branch-tail ReplayWalFile; community calls it from LoadWal with no hook.
 InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::ApplyWalDeltas(
     std::filesystem::path const &wal_path, storage::durability::WalInfo const &wal_info,
-    storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
-    std::function<void(uint64_t)> const *on_txn_begin) {
+    storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat
+#ifdef MG_ENTERPRISE
+    ,
+    std::function<void(uint64_t)> const *on_txn_begin
 #endif
+) {
   spdlog::trace("Loading WAL deltas from {}", wal_path);
   storage::durability::Decoder wal_decoder;
   const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
