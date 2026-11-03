@@ -247,11 +247,11 @@ bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {
   return it->second->status.IsReady();
 }
 
-std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(CommitTimestamp visibility_bound) const {
   std::vector<LabelId> ret;
   ret.reserve(index_container_->size());
   for (const auto &item : *index_container_) {
-    if (item.second->status.IsVisible(CommitTimestamp::FromUint(start_timestamp))) ret.push_back(item.first);
+    if (item.second->status.IsVisible(visibility_bound)) ret.push_back(item.first);
   }
   return ret;
 }

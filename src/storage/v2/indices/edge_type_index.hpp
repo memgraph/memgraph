@@ -22,6 +22,7 @@
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/timestamp_types.hpp"
 
 namespace memgraph::storage {
 
@@ -79,7 +80,7 @@ struct EdgeTypeIndexActiveIndices {
   virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
   virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
 
-  virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;
+  virtual auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<EdgeTypeId> = 0;
 
   virtual auto GetAbortProcessor() const -> EdgeTypeIndexAbortProcessor = 0;
 

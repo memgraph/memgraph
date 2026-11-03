@@ -33,6 +33,7 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -433,12 +434,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override {
-      return ListIndicesImpl(start_timestamp, std::nullopt);
+    auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<LabelPropertyIndexEntry> override {
+      return ListIndicesImpl(visibility_bound, std::nullopt);
     }
 
-    auto ListIndices(uint64_t start_timestamp, IndexOrder order) const -> std::vector<LabelPropertyIndexEntry> {
-      return ListIndicesImpl(start_timestamp, order);
+    auto ListIndices(CommitTimestamp visibility_bound, IndexOrder order) const -> std::vector<LabelPropertyIndexEntry> {
+      return ListIndicesImpl(visibility_bound, order);
     }
 
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
@@ -484,7 +485,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             Storage *storage, Transaction *transaction, size_t num_chunks);
 
    private:
-    auto ListIndicesImpl(uint64_t start_timestamp, std::optional<IndexOrder> order) const
+    auto ListIndicesImpl(CommitTimestamp visibility_bound, std::optional<IndexOrder> order) const
         -> std::vector<LabelPropertyIndexEntry>;
 
     // Finds the index for (label, properties) and applies fn to it.

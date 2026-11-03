@@ -18,6 +18,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/synchronized.hpp"
@@ -34,7 +35,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
    public:
     explicit ActiveConstraints(const DiskUniqueConstraints *constraints) : constraints_{constraints} {}
 
-    auto ListConstraints(uint64_t start_timestamp) const
+    auto ListConstraints(CommitTimestamp visibility_bound) const
         -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
     void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
     auto GetAbortProcessor() const -> AbortProcessor override;

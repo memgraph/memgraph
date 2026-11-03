@@ -40,12 +40,12 @@ ExistenceConstraints::IndividualConstraint::~IndividualConstraint() = default;
 // --- ActiveConstraints implementation ---
 
 std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstraints::ListConstraints(
-    uint64_t start_timestamp) const {
+    CommitTimestamp visibility_bound) const {
   namespace r = std::ranges;
   namespace rv = std::views;
-  auto result = *container_ | rv::filter([start_timestamp](const auto &c) {
-    return c.second->status.IsVisible(CommitTimestamp::FromUint(start_timestamp));
-  }) | rv::transform([](const auto &c) { return std::pair{c.first.label, c.first.property}; }) |
+  auto result = *container_ |
+                rv::filter([visibility_bound](const auto &c) { return c.second->status.IsVisible(visibility_bound); }) |
+                rv::transform([](const auto &c) { return std::pair{c.first.label, c.first.property}; }) |
                 r::to<std::vector<std::pair<LabelId, PropertyId>>>();
   std::ranges::sort(result);
   return result;

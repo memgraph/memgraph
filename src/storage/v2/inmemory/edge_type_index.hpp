@@ -28,6 +28,7 @@
 #include "storage/v2/indices/errors.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -204,7 +205,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     bool IndexExists(EdgeTypeId edge_type) const override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
+    auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<EdgeTypeId> override;
 
     auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t override;
 

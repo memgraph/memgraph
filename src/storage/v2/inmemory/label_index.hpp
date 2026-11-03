@@ -27,6 +27,7 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -195,7 +196,7 @@ class InMemoryLabelIndex : public LabelIndex {
 
     bool IndexReady(LabelId label) const override;
 
-    std::vector<LabelId> ListIndices(uint64_t start_timestamp) const override;
+    std::vector<LabelId> ListIndices(CommitTimestamp visibility_bound) const override;
 
     uint64_t ApproximateVertexCount(LabelId label) const override;
 

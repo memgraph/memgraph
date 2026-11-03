@@ -232,11 +232,11 @@ bool InMemoryEdgeTypeIndex::ActiveIndices::IndexExists(EdgeTypeId edge_type) con
   return index_container_->indices_.contains(edge_type);
 }
 
-std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(CommitTimestamp visibility_bound) const {
   auto ret = std::vector<EdgeTypeId>{};
   ret.reserve(index_container_->indices_.size());
   for (auto const &[edge_type, index] : index_container_->indices_) {
-    if (index->status_.IsVisible(CommitTimestamp::FromUint(start_timestamp))) {
+    if (index->status_.IsVisible(visibility_bound)) {
       ret.emplace_back(edge_type);
     }
   }

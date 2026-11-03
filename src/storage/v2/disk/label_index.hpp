@@ -17,6 +17,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/synchronized.hpp"
@@ -40,7 +41,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
     bool IndexReady(LabelId label) const override;
 
-    std::vector<LabelId> ListIndices(uint64_t start_timestamp) const override;
+    std::vector<LabelId> ListIndices(CommitTimestamp visibility_bound) const override;
 
     uint64_t ApproximateVertexCount(LabelId label) const override;
 

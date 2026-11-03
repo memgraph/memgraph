@@ -63,7 +63,7 @@ bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid 
 // --- ActiveConstraints implementation ---
 
 std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::ActiveConstraints::ListConstraints(
-    [[maybe_unused]] uint64_t start_timestamp) const {
+    [[maybe_unused]] CommitTimestamp visibility_bound) const {
   // Disk storage doesn't have MVCC for constraints, return all
   return {constraints_->constraints_.begin(), constraints_->constraints_.end()};
 }

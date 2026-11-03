@@ -26,6 +26,7 @@
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/interesting_ids.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -83,7 +84,7 @@ class ExistenceConstraints {
   struct ActiveConstraints {
     explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>());
 
-    auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, PropertyId>>;
+    auto ListConstraints(CommitTimestamp visibility_bound) const -> std::vector<std::pair<LabelId, PropertyId>>;
     bool empty() const;
 
     /// The properties and the labels any active existence constraint is keyed on, as two

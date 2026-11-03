@@ -5596,25 +5596,27 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
-  return {
-      .label = transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
-      .label_properties = transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
-      .edge_type = transaction_.active_indices_->edge_type_->ListIndices(transaction_.start_timestamp),
-      .edge_type_property =
-          transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
-      .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
-      .vertex_property = transaction_.active_indices_->vertex_property_->ListIndices(transaction_.start_timestamp),
-      .text_indices = transaction_.active_indices_->text_->ListIndices(),
-      .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
-      .point_label_property = transaction_.active_indices_->point_->ListIndices(),
-      .vector_indices_spec = transaction_.active_indices_->vector_->ListIndices(),
-      .vector_edge_indices_spec = transaction_.active_indices_->vector_edge_->ListIndices()};
+  // The transaction's start, which sits above the boundary it reads at once narrowing is on. No
+  // index can be published in between, because creating one holds unique access across its publish.
+  auto const bound = CommitTimestamp::FromUint(transaction_.start_timestamp);
+  return {.label = transaction_.active_indices_->label_->ListIndices(bound),
+          .label_properties = transaction_.active_indices_->label_properties_->ListIndices(bound),
+          .edge_type = transaction_.active_indices_->edge_type_->ListIndices(bound),
+          .edge_type_property = transaction_.active_indices_->edge_type_properties_->ListIndices(bound),
+          .edge_property = transaction_.active_indices_->edge_property_->ListIndices(bound),
+          .vertex_property = transaction_.active_indices_->vertex_property_->ListIndices(bound),
+          .text_indices = transaction_.active_indices_->text_->ListIndices(),
+          .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
+          .point_label_property = transaction_.active_indices_->point_->ListIndices(),
+          .vector_indices_spec = transaction_.active_indices_->vector_->ListIndices(),
+          .vector_edge_indices_spec = transaction_.active_indices_->vector_edge_->ListIndices()};
 }
 
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
-  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
-          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
-          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
+  auto const bound = CommitTimestamp::FromUint(transaction_.start_timestamp);
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(bound),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(bound),
+          .type = transaction_.active_constraints_->type_->ListConstraints(bound)};
 }
 
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {

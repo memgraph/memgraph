@@ -234,11 +234,12 @@ bool InMemoryVertexPropertyIndex::ActiveIndices::IndexReady(PropertyId property)
   return it->second->status_.IsReady();
 }
 
-std::vector<PropertyId> InMemoryVertexPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+std::vector<PropertyId> InMemoryVertexPropertyIndex::ActiveIndices::ListIndices(
+    CommitTimestamp visibility_bound) const {
   auto ret = std::vector<PropertyId>{};
   ret.reserve(index_container_->indices_.size());
   for (auto const &[property, index] : index_container_->indices_) {
-    if (index->status_.IsVisible(CommitTimestamp::FromUint(start_timestamp))) {
+    if (index->status_.IsVisible(visibility_bound)) {
       ret.emplace_back(property);
     }
   }

@@ -202,7 +202,7 @@ bool DiskLabelIndex::ActiveIndices::IndexExists(LabelId label) const { return in
 
 bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.contains(label); }
 
-std::vector<LabelId> DiskLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+std::vector<LabelId> DiskLabelIndex::ActiveIndices::ListIndices(CommitTimestamp visibility_bound) const {
   return {index_.begin(), index_.end()};
 }
 

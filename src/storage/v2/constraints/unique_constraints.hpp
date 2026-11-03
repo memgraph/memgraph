@@ -16,6 +16,7 @@
 
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/interesting_ids.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {
@@ -56,7 +57,7 @@ class UniqueConstraints {
 
   struct ActiveConstraints {
     virtual ~ActiveConstraints() = default;
-    virtual auto ListConstraints(uint64_t start_timestamp) const
+    virtual auto ListConstraints(CommitTimestamp visibility_bound) const
         -> std::vector<std::pair<LabelId, std::set<PropertyId>>> = 0;
     virtual void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) = 0;
     virtual auto GetAbortProcessor() const -> AbortProcessor = 0;

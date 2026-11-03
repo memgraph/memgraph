@@ -18,6 +18,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/bound.hpp"
 
 namespace memgraph::storage {
@@ -103,7 +104,8 @@ struct EdgeTypePropertyIndexActiveIndices {
   /// asks: an index that is registered but not yet committed is still an index a drop evicts.
   virtual bool IndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
 
-  virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
+  virtual auto ListIndices(CommitTimestamp visibility_bound) const
+      -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
 
   virtual auto GetAbortProcessor() const -> EdgeTypePropertyIndexAbortProcessor = 0;
 

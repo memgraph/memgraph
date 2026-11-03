@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/timestamp_types.hpp"
 
 namespace memgraph::storage {
 
@@ -33,7 +34,7 @@ class DiskEdgeTypePropertyIndex : public EdgeTypePropertyIndex {
 
     bool IndexExists(EdgeTypeId edge_type, PropertyId property) const override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
+    auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;

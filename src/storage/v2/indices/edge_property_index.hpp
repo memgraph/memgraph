@@ -17,6 +17,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/bound.hpp"
 
 namespace memgraph::storage {
@@ -87,7 +88,7 @@ struct EdgePropertyIndexActiveIndices {
 
   virtual bool IndexReady(PropertyId property) const = 0;
 
-  virtual std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const = 0;
+  virtual std::vector<PropertyId> ListIndices(CommitTimestamp visibility_bound) const = 0;
 
   virtual auto GetAbortProcessor() const -> EdgePropertyIndexAbortProcessor = 0;
 

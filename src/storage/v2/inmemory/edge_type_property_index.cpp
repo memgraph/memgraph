@@ -303,7 +303,7 @@ bool InMemoryEdgeTypePropertyIndex::ActiveIndices::IndexReady(EdgeTypeId edge_ty
 }
 
 std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::ActiveIndices::ListIndices(
-    uint64_t start_timestamp) const {
+    CommitTimestamp visibility_bound) const {
   std::vector<std::pair<EdgeTypeId, PropertyId>> ret;
   ret.reserve(index_container_->size());
   for (const auto &item : *index_container_) {

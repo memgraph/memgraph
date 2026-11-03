@@ -31,6 +31,7 @@
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -243,7 +244,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     bool IndexExists(EdgeTypeId edge_type, PropertyId property) const override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
+    auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     Iterable Edges(EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,

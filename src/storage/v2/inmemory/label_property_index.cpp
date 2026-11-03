@@ -1044,7 +1044,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
   return res;
 }
 
-auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_timestamp,
+auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(CommitTimestamp visibility_bound,
                                                                 std::optional<IndexOrder> order) const
     -> std::vector<LabelPropertyIndexEntry> {
   std::vector<LabelPropertyIndexEntry> ret;
@@ -1055,9 +1055,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_t
   auto const collect_from = [&](auto const &indices_map, IndexOrder o) {
     for (auto const &[label, indices] : indices_map) {
       for (auto const &[props, index_variant] : indices) {
-        if (WithIndex(index_variant, [&](auto const &index) {
-              return index.status.IsVisible(CommitTimestamp::FromUint(start_timestamp));
-            })) {
+        if (WithIndex(index_variant, [&](auto const &index) { return index.status.IsVisible(visibility_bound); })) {
           ret.emplace_back(label, props, o);
         }
       }

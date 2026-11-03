@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/indices/vertex_property_index.hpp"
+#include "storage/v2/timestamp_types.hpp"
 
 namespace memgraph::storage {
 
@@ -31,7 +32,7 @@ class DiskVertexPropertyIndex : public VertexPropertyIndex {
 
     bool IndexReady(PropertyId property) const override;
 
-    std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
+    std::vector<PropertyId> ListIndices(CommitTimestamp visibility_bound) const override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;

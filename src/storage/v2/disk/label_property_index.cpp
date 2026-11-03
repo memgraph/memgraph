@@ -187,7 +187,7 @@ bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<
   return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const
+auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(CommitTimestamp /*visibility_bound*/) const
     -> std::vector<LabelPropertyIndexEntry> {
   auto const convert = [](auto &&index) -> LabelPropertyIndexEntry {
     auto [label, property] = index;

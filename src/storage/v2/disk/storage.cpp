@@ -50,6 +50,7 @@
 #include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
@@ -2617,23 +2618,25 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  return {
-      .label = transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
-      .label_properties = transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
-      .edge_type = {/* edge type indices */},
-      .edge_type_property = {/* edge_type_property */},
-      .edge_property = {/*edge property*/},
-      .vertex_property = {/*vertex property*/},
-      .text_indices = transaction_.active_indices_->text_->ListIndices(),
-      .text_edge_indices = {/* text edge indices */},
-      .point_label_property = {/* point indices */},
-      .vector_indices_spec = {/* vector indices */}};
+  return {.label = transaction_.active_indices_->label_->ListIndices(
+              CommitTimestamp::FromUint(transaction_.start_timestamp)),
+          .label_properties = transaction_.active_indices_->label_properties_->ListIndices(
+              CommitTimestamp::FromUint(transaction_.start_timestamp)),
+          .edge_type = {/* edge type indices */},
+          .edge_type_property = {/* edge_type_property */},
+          .edge_property = {/*edge property*/},
+          .vertex_property = {/*vertex property*/},
+          .text_indices = transaction_.active_indices_->text_->ListIndices(),
+          .text_edge_indices = {/* text edge indices */},
+          .point_label_property = {/* point indices */},
+          .vector_indices_spec = {/* vector indices */}};
 }
 
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
-  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
-          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
-          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
+  auto const bound = CommitTimestamp::FromUint(transaction_.start_timestamp);
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(bound),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(bound),
+          .type = transaction_.active_constraints_->type_->ListConstraints(bound)};
 }
 
 void DiskStorage::DiskAccessor::DropAllIndexes() {

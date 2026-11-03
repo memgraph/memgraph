@@ -43,6 +43,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
@@ -265,8 +266,8 @@ struct Transaction {
   // own commit stamp is at or below it. Inclusive, where the bound above excludes its endpoint, so
   // narrowing passes snapshot_ts here and one more there. Adding one here instead would admit a
   // commit the snapshot must not carry, and WAL recovery would refuse the duplicate.
-  [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept {
-    return commit_lock_narrowing ? snapshot_ts : start_timestamp;
+  [[nodiscard]] CommitTimestamp SnapshotVisibilityBound() const noexcept {
+    return CommitTimestamp::FromUint(commit_lock_narrowing ? snapshot_ts : start_timestamp);
   }
 
   uint64_t transaction_id{};

@@ -13,6 +13,7 @@
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -49,7 +50,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<LabelPropertyIndexEntry> override;
+    auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<LabelPropertyIndexEntry> override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
 

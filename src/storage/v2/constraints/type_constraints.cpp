@@ -62,11 +62,11 @@ bool TypeConstraints::ActiveConstraints::ConstraintRegistered(LabelId label, Pro
 }
 
 std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints::ActiveConstraints::ListConstraints(
-    uint64_t start_timestamp) const {
+    CommitTimestamp visibility_bound) const {
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> constraints;
   constraints.reserve(container_->constraints_.size());
   for (const auto &[label_props, constraint] : container_->constraints_) {
-    if (!constraint->status.IsVisible(CommitTimestamp::FromUint(start_timestamp))) [[unlikely]] {
+    if (!constraint->status.IsVisible(visibility_bound)) [[unlikely]] {
       continue;
     }
     constraints.emplace_back(label_props.first, label_props.second, constraint->type);

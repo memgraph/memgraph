@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/timestamp_types.hpp"
 
 #include <cstdint>
 
@@ -24,7 +25,7 @@ class DiskEdgeTypeIndex : public EdgeTypeIndex {
 
     bool IndexExists(EdgeTypeId edge_type) const override;
 
-    auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
+    auto ListIndices(CommitTimestamp visibility_bound) const -> std::vector<EdgeTypeId> override;
 
     auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t override;
 

@@ -33,7 +33,8 @@ bool DiskVertexPropertyIndex::ActiveIndices::IndexExists(PropertyId /*property*/
 
 bool DiskVertexPropertyIndex::ActiveIndices::IndexReady(PropertyId /*property*/) const { return false; }
 
-std::vector<PropertyId> DiskVertexPropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const {
+std::vector<PropertyId> DiskVertexPropertyIndex::ActiveIndices::ListIndices(
+    CommitTimestamp /*visibility_bound*/) const {
   return {};
 }
 

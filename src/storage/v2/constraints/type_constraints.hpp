@@ -24,6 +24,7 @@
 #include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -60,7 +61,7 @@ class TypeConstraints {
 
     bool ConstraintRegistered(LabelId label, PropertyId property) const;
 
-    auto ListConstraints(uint64_t start_timestamp) const
+    auto ListConstraints(CommitTimestamp visibility_bound) const
         -> std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>>;
 
     bool empty() const;

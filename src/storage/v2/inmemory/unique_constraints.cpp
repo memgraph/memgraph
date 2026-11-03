@@ -325,12 +325,12 @@ void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_ti
 }
 
 // --- ActiveConstraints implementation ---
-auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t start_timestamp) const
+auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(CommitTimestamp visibility_bound) const
     -> std::vector<std::pair<LabelId, std::set<PropertyId>>> {
   auto result = std::vector<std::pair<LabelId, std::set<PropertyId>>>{};
   for (auto const &[label, inner] : *container_) {
     for (auto const &[properties, constraint] : inner) {
-      if (constraint->status.IsVisible(CommitTimestamp::FromUint(start_timestamp))) {
+      if (constraint->status.IsVisible(visibility_bound)) {
         result.emplace_back(label, properties);
       }
     }

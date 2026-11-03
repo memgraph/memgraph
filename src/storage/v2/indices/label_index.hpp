@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <span>
 
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -75,7 +76,7 @@ struct LabelIndexActiveIndices {
 
   virtual bool IndexReady(LabelId label) const = 0;
 
-  virtual std::vector<LabelId> ListIndices(uint64_t start_timestamp) const = 0;
+  virtual std::vector<LabelId> ListIndices(CommitTimestamp visibility_bound) const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 

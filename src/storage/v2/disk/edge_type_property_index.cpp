@@ -33,7 +33,7 @@ bool DiskEdgeTypePropertyIndex::ActiveIndices::IndexExists(EdgeTypeId /*edge_typ
 }
 
 std::vector<std::pair<EdgeTypeId, PropertyId>> DiskEdgeTypePropertyIndex::ActiveIndices::ListIndices(
-    uint64_t start_timestamp) const {
+    CommitTimestamp visibility_bound) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return {};
 }

@@ -30,7 +30,7 @@ bool DiskEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId /*property*/) c
   return false;
 }
 
-std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const {
+std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(CommitTimestamp /*visibility_bound*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return {};
 }
