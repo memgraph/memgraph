@@ -51,10 +51,13 @@ add_library(kafka-mock STATIC kafka_mock.cpp)
 target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
+# Most of the runtime is group leader election in librdkafka's mock cluster, which cannot be
+# shortened. TIMEOUT caps a consumer that stops making progress, which otherwise waits on a broker
+# reply for as long as the run is allowed to last and reports a cancelled job rather than a failure.
 add_unit_test(integrations_kafka_consumer
     SOURCES integrations_kafka_consumer.cpp kafka_mock.cpp
     LINK_TARGETS kafka-mock mg-integrations-kafka
-    TEST_PROPERTIES COST 80
+    TEST_PROPERTIES COST 80 TIMEOUT 600
 )
 
 add_unit_test(mgp_kafka_c_api

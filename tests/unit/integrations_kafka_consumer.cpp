@@ -500,6 +500,59 @@ TEST_F(ConsumerTest, SetOffsetToBeginningIsCommittedForTheGroup) {
           "a later consumer in the group to receive every message from the beginning of the topic", kSeededMessages));
 }
 
+// Dropping a stream destroys its consumer while holding the lock that guards every stream, so the
+// wait inside that destruction decides how long an unrelated query is held up. Leaving the group
+// waits for a reply, which puts that wait at the mercy of the broker.
+TEST_F(ConsumerTest, DestroyingAConsumerIsBoundedWhenTheBrokerIsSlow) {
+  static constexpr auto kDestructionDeadline = std::chrono::seconds{25};
+
+  auto received = std::make_shared<std::atomic<int>>(0);
+  auto consumer = std::make_unique<Consumer>(
+      CreateDefaultConsumerInfo(),
+      [received](const std::vector<Message> & /*messages*/) { received->fetch_add(1, std::memory_order_release); });
+  consumer->Start();
+  ASSERT_TRUE(consumer->IsRunning());
+
+  // Having joined the group is what gives the consumer something to leave, and leaving is the part
+  // that waits for the broker. Receiving a message is the evidence of it, since the group has to
+  // have assigned a partition first. A consumer that never joined closes with nothing to do.
+  ASSERT_TRUE(ExpectEventually(
+      "the consumer to receive a message, which it can only do once the group has assigned it a partition",
+      [&] {
+        if (received->load(std::memory_order_acquire) > 0) return true;
+        SeedTopicWithInt(kTopicName, 1);
+        return false;
+      },
+      kConsumerReadyTimeout,
+      kWarmUpSeedInterval));
+  consumer->Stop();
+
+  // Long enough that a wait for any reply outlasts this test, so what is measured is the bound the
+  // consumer applies rather than how quickly the broker got back to it.
+  cluster.AnswerSlowly(std::chrono::minutes{5});
+
+  auto destroyed = std::make_shared<std::atomic<bool>>(false);
+  const auto start = Now();
+  std::thread destroyer([consumer = std::move(consumer), destroyed]() mutable {
+    consumer.reset();
+    destroyed->store(true, std::memory_order_release);
+  });
+
+  const auto finished = WaitForConditionUntil(
+      [&] { return destroyed->load(std::memory_order_acquire); }, start + kDestructionDeadline, kPollInterval);
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start);
+
+  if (finished) {
+    destroyer.join();
+  } else {
+    // Joining a thread stuck in a wait that has no end would hang the whole binary, which reports
+    // nothing. Reporting the stall and leaving the thread is what turns it into a failure.
+    destroyer.detach();
+  }
+  EXPECT_TRUE(finished) << "destroying the consumer took longer than " << kDestructionDeadline.count()
+                        << "s; it was still going after " << elapsed.count() << "ms";
+}
+
 TEST_F(ConsumerTest, CheckMethodWorks) {
   static constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();

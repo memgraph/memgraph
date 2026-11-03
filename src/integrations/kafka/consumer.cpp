@@ -43,9 +43,10 @@ namespace memgraph::integrations::kafka {
 
 namespace {
 // How long setting an offset waits for the group to assign partitions before giving up on
-// committing it. Bounded because a group whose members are still joining can take seconds to
-// assign, and the caller is a user query.
-inline constexpr std::chrono::seconds kAssignmentTimeout{30};
+// committing it. A group not yet joined takes seconds to assign, so the wait has to allow for one,
+// and the caller holds the lock guarding every stream, so it cannot allow for many. Giving up
+// costs only the commit: the offset still applies when the stream next starts.
+inline constexpr std::chrono::seconds kAssignmentTimeout{10};
 
 // How long each consume call spends serving the queue while waiting for that assignment.
 inline constexpr std::chrono::milliseconds kAssignmentPollInterval{100};
@@ -273,7 +274,8 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function, Consum
 
 Consumer::~Consumer() {
   StopIfRunning();
-  consumer_->close();
+  // Closing is the deleter's job, which also covers a constructor that threw after creating the
+  // consumer. Closing here as well would leave the group twice for every consumer.
   RdKafka::TopicPartition::destroy(last_assignment_);
 }
 
@@ -501,17 +503,15 @@ void Consumer::StopConsuming() {
 }
 
 void Consumer::CommitRequestedOffset(int64_t offset) {
-  // A group stores positions, so the beginning and the end of a topic have to be resolved to the
-  // position they currently mean. Any other negative value names no position and is left alone.
+  // A group stores positions, so the beginning and the end of a topic are committed as the
+  // position each names at the time of the call. Any other negative value names no position.
   const auto resolve_against_topic = offset == RD_KAFKA_OFFSET_BEGINNING || offset == RD_KAFKA_OFFSET_END;
   if (offset < 0 && !resolve_against_topic) {
     return;
   }
 
-  // The group hands the new assignment to this consumer's queue, and only a consume call serves it.
-  // Serving it here is what keeps the commit below on this thread. Left for the destructor to
-  // serve, the commit would be issued while librdkafka tears the group down, which ends the
-  // process.
+  // The group hands the new assignment to this consumer's queue, and only a consume call serves
+  // it, so serving it here is what keeps the commit below on this thread.
   const auto deadline = std::chrono::steady_clock::now() + kAssignmentTimeout;
   while (!cb_.HasAppliedOffset() && std::chrono::steady_clock::now() < deadline) {
     // Serving the queue is the point of this call; a message it hands back still has to be freed.
