@@ -42,6 +42,17 @@
 namespace memgraph::integrations::kafka {
 
 namespace {
+// How long setting an offset waits for the group to assign partitions before giving up on
+// committing it. Bounded because a group whose members are still joining can take seconds to
+// assign, and the caller is a user query.
+inline constexpr std::chrono::seconds kAssignmentTimeout{30};
+
+// How long each consume call spends serving the queue while waiting for that assignment.
+inline constexpr std::chrono::milliseconds kAssignmentPollInterval{100};
+
+// How long reading a topic's first and last position may take when an offset asks for one of them.
+inline constexpr std::chrono::milliseconds kWatermarkQueryTimeout{5'000};
+
 std::expected<std::vector<Message>, std::string> GetBatch(RdKafka::KafkaConsumer &consumer, const ConsumerInfo &info,
                                                           std::atomic<bool> &is_running) {
   std::vector<Message> batch{};
@@ -489,6 +500,73 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
+void Consumer::CommitRequestedOffset(int64_t offset) {
+  // A group stores positions, so the beginning and the end of a topic have to be resolved to the
+  // position they currently mean. Any other negative value names no position and is left alone.
+  const auto resolve_against_topic = offset == RD_KAFKA_OFFSET_BEGINNING || offset == RD_KAFKA_OFFSET_END;
+  if (offset < 0 && !resolve_against_topic) {
+    return;
+  }
+
+  // The group hands the new assignment to this consumer's queue, and only a consume call serves it.
+  // Serving it here is what keeps the commit below on this thread. Left for the destructor to
+  // serve, the commit would be issued while librdkafka tears the group down, which ends the
+  // process.
+  const auto deadline = std::chrono::steady_clock::now() + kAssignmentTimeout;
+  while (!cb_.HasAppliedOffset() && std::chrono::steady_clock::now() < deadline) {
+    // Serving the queue is the point of this call; a message it hands back still has to be freed.
+    const std::unique_ptr<RdKafka::Message> served{consumer_->consume(kAssignmentPollInterval.count())};
+  }
+
+  if (!cb_.HasAppliedOffset()) {
+    spdlog::warn("Consumer {} did not receive an assignment in time, so the offset it was given is not committed yet.",
+                 info_.consumer_name);
+    return;
+  }
+
+  std::vector<RdKafka::TopicPartition *> partitions;
+  utils::OnScopeExit destroy_partitions([&] { RdKafka::TopicPartition::destroy(partitions); });
+  if (const auto err = consumer_->assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
+    spdlog::warn("Couldn't get the assignment of consumer {} to commit its offset: {}",
+                 info_.consumer_name,
+                 RdKafka::err2str(err));
+    return;
+  }
+  if (partitions.empty()) {
+    spdlog::warn("Consumer {} has no assigned partition to commit an offset for.", info_.consumer_name);
+    return;
+  }
+
+  for (auto *partition : partitions) {
+    auto position = offset;
+    if (resolve_against_topic) {
+      int64_t low{};
+      int64_t high{};
+      if (const auto err = consumer_->query_watermark_offsets(
+              partition->topic(), partition->partition(), &low, &high, kWatermarkQueryTimeout.count());
+          err != RdKafka::ERR_NO_ERROR) {
+        spdlog::warn("Couldn't read the bounds of topic {} to commit the offset of consumer {}: {}",
+                     partition->topic(),
+                     info_.consumer_name,
+                     RdKafka::err2str(err));
+        return;
+      }
+      position = offset == RD_KAFKA_OFFSET_BEGINNING ? low : high;
+    }
+    partition->set_offset(position);
+  }
+
+  // Serving the queue above may have consumed a message and moved the read position past the
+  // requested offset, so the position is set again from the offset that is about to be committed.
+  if (const auto err = consumer_->assign(partitions); err != RdKafka::ERR_NO_ERROR) {
+    spdlog::warn("Assigning offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
+    return;
+  }
+  if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
+    spdlog::warn("Commiting offsets of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
+  }
+}
+
 std::expected<void, std::string> Consumer::SetConsumerOffsets(int64_t offset) {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
@@ -505,6 +583,8 @@ std::expected<void, std::string> Consumer::SetConsumerOffsets(int64_t offset) {
     return std::unexpected{
         fmt::format("Could not set offset of consumer: {}. Error: {}", info_.consumer_name, RdKafka::err2str(err))};
   }
+
+  CommitRequestedOffset(offset);
   return {};
 }
 
@@ -521,21 +601,28 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
     spdlog::critical("Consumer {} received an unexpected error {}", consumer_name_, RdKafka::err2str(err));
     return;
   }
+  auto applied_requested_offset = false;
   if (offset_) {
     for (auto &partition : partitions) {
       partition->set_offset(*offset_);
     }
     offset_.reset();
+    applied_requested_offset = true;
   }
-  auto maybe_error = consumer->assign(partitions);
+  const auto maybe_error = consumer->assign(partitions);
   if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
     spdlog::warn("Assigning offset of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
+    return;
   }
-  maybe_error = consumer->commitSync(partitions);
-  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
-    spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
+  if (applied_requested_offset) {
+    offset_applied_.store(true, std::memory_order_release);
   }
 }
 
-void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
+void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) {
+  offset_ = offset;
+  offset_applied_.store(false, std::memory_order_release);
+}
+
+bool Consumer::ConsumerRebalanceCb::HasAppliedOffset() const { return offset_applied_.load(std::memory_order_acquire); }
 }  // namespace memgraph::integrations::kafka

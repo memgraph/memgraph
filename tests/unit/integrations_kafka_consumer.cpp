@@ -179,6 +179,27 @@ struct ConsumerTest : public ::testing::Test {
     return consumer;
   }
 
+  // Starts a consumer in the same group as the rest of the test and waits for it to receive
+  // expected_count messages. Returns the value carried by the first message it received, or -1 if
+  // it received none, which is what a consumer reading from the end of the topic sees.
+  int FirstValueReceivedByAConsumerJoiningTheGroup(std::string_view what, int expected_count) {
+    std::atomic<int> first_received{-1};
+    std::atomic<int> received_count{0};
+    const auto record = [&](const std::vector<Message> &messages) {
+      for (const auto &message : messages) {
+        auto unset = -1;
+        first_received.compare_exchange_strong(unset, SpanToInt(message.Payload()));
+        received_count.fetch_add(1, std::memory_order_release);
+      }
+    };
+
+    Consumer consumer{CreateDefaultConsumerInfo(), record};
+    consumer.Start();
+    ExpectCountReaches(what, received_count, expected_count);
+    consumer.Stop();
+    return first_received.load();
+  }
+
   void SeedTopicWithInt(const std::string &topic_name, int value) {
     std::array<char, sizeof(int)> int_as_char{};
     std::memcpy(int_as_char.data(), &value, int_as_char.size());
@@ -428,6 +449,55 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
 
   ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
   ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
+}
+
+// Setting an offset asks the group to remember a position, so a consumer joining that group later
+// resumes from it. Reading it back through a second consumer is what makes this a test of the
+// group's committed offset rather than of one consumer's in-memory assignment, and a consumer that
+// is never started is the case where nothing else would commit it.
+TEST_F(ConsumerTest, SetOffsetOnStoppedConsumerIsCommittedForTheGroup) {
+  static constexpr auto kSeededMessages = 20;
+  static constexpr auto kOffsetToSet = 10;
+
+  for (auto value = 0; value < kSeededMessages; ++value) {
+    SeedTopicWithInt(kTopicName, value);
+  }
+
+  {
+    Consumer offset_setter{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+    const auto set = offset_setter.SetConsumerOffsets(kOffsetToSet);
+    ASSERT_TRUE(set.has_value()) << set.error();
+  }
+
+  // Without the position committed, a consumer joining the group reads from the end of the topic
+  // instead, which is no message at all.
+  EXPECT_EQ(kOffsetToSet,
+            FirstValueReceivedByAConsumerJoiningTheGroup(
+                "a later consumer in the group to receive the messages from the offset that was set",
+                kSeededMessages - kOffsetToSet));
+}
+
+// Asking for the beginning of a topic names a position just as a number does, so the group has to
+// remember it the same way. It is committed as the position it resolves to, because a group stores
+// positions and has no way to record the instruction itself.
+TEST_F(ConsumerTest, SetOffsetToBeginningIsCommittedForTheGroup) {
+  static constexpr auto kSeededMessages = 20;
+  static constexpr auto kBeginning = -1;
+
+  for (auto value = 0; value < kSeededMessages; ++value) {
+    SeedTopicWithInt(kTopicName, value);
+  }
+
+  {
+    Consumer offset_setter{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+    const auto set = offset_setter.SetConsumerOffsets(kBeginning);
+    ASSERT_TRUE(set.has_value()) << set.error();
+  }
+
+  EXPECT_EQ(
+      0,
+      FirstValueReceivedByAConsumerJoiningTheGroup(
+          "a later consumer in the group to receive every message from the beginning of the topic", kSeededMessages));
 }
 
 TEST_F(ConsumerTest, CheckMethodWorks) {
