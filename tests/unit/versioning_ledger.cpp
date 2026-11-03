@@ -88,6 +88,22 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   EXPECT_EQ(out.branches[1].info.vertex_gid_floor, std::nullopt);
 }
 
+TEST_F(BranchLedgerTest, PersistsRecordedForkTsNotTheRuntimePin) {
+  // After a bounded-recovery restore the runtime pin (fork_ts) is re-derived and can differ from the
+  // durable fork boundary; the ledger must persist the durable one.
+  LedgerContents in;
+  in.next_number = 2;
+  in.branches.push_back({"a", {.number = 1, .parent = "main", .fork_ts = 100, .recorded_fork_ts = 10}});
+
+  BranchLedger ledger{file_};
+  ASSERT_TRUE(ledger.Write(in).has_value());
+  const auto res = ledger.Read();
+  ASSERT_TRUE(res.has_value() && res->has_value());
+  ASSERT_EQ((*res)->branches.size(), 1);
+  EXPECT_EQ((*res)->branches[0].info.fork_ts, 10);
+  EXPECT_EQ((*res)->branches[0].info.recorded_fork_ts, 10);
+}
+
 TEST_F(BranchLedgerTest, ReadsALedgerWrittenWithADescription) {
   const std::string payload =
       R"({"next_number":3,"branches":[{"name":"a","number":2,"parent":"main","fork_ts":10,"description":"old"}]})";
