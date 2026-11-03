@@ -914,7 +914,9 @@ def init_migrate_s3(
     :param file_path: S3 file path in the format
                       's3://bucket-name/path/to/file.csv'
     :param config: Configuration map containing AWS credentials
-                   (access_key, secret_key, region, etc.)
+                   (access_key, secret_key, region, etc.). Optionally,
+                   'bucket_owner' (12-digit AWS account ID) makes
+                   the read fail if the bucket is owned by another account.
     :param config_path: Path to a JSON file containing configuration parameters
     """
     global s3_dict
@@ -944,7 +946,17 @@ def init_migrate_s3(
         region_name=config.get("region_name", os.getenv("AWS_REGION", None)),
     )
 
-    response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+    # The bucket is user-chosen, so its owner can only be verified when the caller supplies it.
+    # When set, S3 rejects the request (403) if the bucket is owned by a different account.
+    get_object_kwargs = {"Bucket": bucket_name, "Key": s3_key}
+    expected_bucket_owner = config.get("bucket_owner", None)
+    if expected_bucket_owner:
+        expected_bucket_owner = str(expected_bucket_owner)
+        if not re.fullmatch(r"[0-9]{12}", expected_bucket_owner):
+            raise ValueError("Invalid 'bucket_owner'. Expected a 12-digit AWS account ID.")
+        get_object_kwargs["ExpectedBucketOwner"] = expected_bucket_owner
+
+    response = s3_client.get_object(**get_object_kwargs)
     text_stream = io.TextIOWrapper(response["Body"], encoding="utf-8")
 
     csv_reader = csv.reader(text_stream)
@@ -966,7 +978,8 @@ def s3(
 
     :param file_path: S3 file path in the format
                       's3://bucket-name/path/to/file.csv'
-    :param config: AWS S3 connection parameters (AWS credentials, region, etc.)
+    :param config: AWS S3 connection parameters (AWS credentials, region, etc.),
+                   including the optional 'bucket_owner' (12-digit AWS account ID)
     :param config_path: Optional path to a JSON file containing AWS credentials
     :return: The result table as a stream of rows
     """
