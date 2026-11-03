@@ -1171,7 +1171,6 @@ size_t NonConcurrentOutputFile::GetSize() {
   // be a bottleneck, fstat should be considered.
   return SeekFile(Position::RELATIVE_TO_END, 0) + buffer_position_;
 }
-#ifdef MG_ENTERPRISE
 
 std::expected<void, std::string> SyncDirectory(const std::filesystem::path &dir) {
   const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -1189,6 +1188,5 @@ std::expected<void, std::string> SyncDirectory(const std::filesystem::path &dir)
   }
   return {};
 }
-#endif
 
 }  // namespace memgraph::utils
