@@ -351,6 +351,44 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
 
+// A replica builds a tenant from MAIN's name and uuid and its own flags, so the tenant matches what a restart of the
+// replica recovers it as.
+TEST_F(MultiTenantTest, UpdateUsesLocalConfig) {
+  min_mg.reset();
+  config.salient.property_store_compression_level = memgraph::utils::CompressionLevel::HIGH;
+  config.salient.items = {.properties_on_edges = true,
+                          .enable_edges_metadata = true,
+                          .enable_schema_metadata = true,
+                          .enable_schema_info = true,
+                          .enable_label_index_auto_creation = true,
+                          .enable_edge_type_index_auto_creation = true,
+                          .storage_light_edge = true,
+                          .delta_on_identical_property_update = false,
+                          .property_store_compression_enabled = true};
+  min_mg.emplace(config);
+  auto &dbms = DBMS();
+
+  memgraph::storage::SalientConfig const from_main{.name = "tenant",
+                                                   .uuid = memgraph::utils::UUID{},
+                                                   .storage_mode = memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
+                                                   .items = {.properties_on_edges = false}};
+  auto expected = config.salient;
+  expected.name = "tenant";
+  expected.uuid = from_main.uuid;
+
+  auto created = dbms.Update(from_main);
+  ASSERT_TRUE(created.has_value());
+  EXPECT_EQ(created.value()->config().salient, expected);
+
+  // Drop-and-recreate under a new uuid takes the same path.
+  auto from_main_recreated = from_main;
+  from_main_recreated.uuid = memgraph::utils::UUID{};
+  expected.uuid = from_main_recreated.uuid;
+  auto recreated = dbms.Update(from_main_recreated);
+  ASSERT_TRUE(recreated.has_value());
+  EXPECT_EQ(recreated.value()->config().salient, expected);
+}
+
 // Rebinding the default database's uuid retires the old one. Rows left under it are unreachable, and
 // the next recovery snapshot re-exports them to every replica.
 TEST_F(MultiTenantTest, UpdateDiscardsRetiredUuidsParameters) {
