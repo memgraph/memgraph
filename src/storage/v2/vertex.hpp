@@ -59,16 +59,12 @@ struct Vertex {
   void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.Set<kNonSeqDeltasBit>(b ? 1 : 0); }
 
 #ifdef MG_ENTERPRISE
-  // Monotonic, never cleared: an over-set bit only costs a missed fast path, clearing early would be a bug.
-  // Invariant (upheld by callers): false => labels, properties and incident edges match every branch's fork-state
-  // view of this vertex.
-  //
-  // Read lock-free; every write to the packed word (Set, SetPtr, SetRelaxed) goes through std::atomic_ref, but
-  // writers must still hold `lock` for mutual exclusion. Relaxed: no ordering with the writer's prior stores.
+  // Monotonic hint, never cleared (over-set only costs a missed fast path). Relaxed lock-free read; writers hold lock.
+  // Invariant (upheld by callers): false => labels, properties, incident edges match every branch's fork-state view.
   bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
 
   // Caller MUST hold `lock`.
-  void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+  void SetBranched() { delta_.Set<kBranchedBit>(1); }
 #endif
 
  private:
