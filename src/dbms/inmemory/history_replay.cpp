@@ -11,6 +11,7 @@
 
 #include "dbms/inmemory/history_replay.hpp"
 
+#include <algorithm>
 #include <exception>
 #include <functional>
 #include <limits>
@@ -27,6 +28,9 @@ namespace memgraph::dbms {
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts) {
+  // Pins are registered positionally (fork_ts[pins.size()]) as replay crosses each boundary: unsorted input would
+  // silently register a later fork's pin late and leak pre-fork state into it. Duplicates are fine (multiset pins).
+  MG_ASSERT(std::ranges::is_sorted(fork_ts), "fork_ts must be ascending (duplicates allowed)");
   std::vector<uint64_t> pins;
   pins.reserve(fork_ts.size());
   const auto release_all = [&] {
