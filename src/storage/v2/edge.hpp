@@ -44,13 +44,12 @@ struct Edge {
   void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
 #ifdef MG_ENTERPRISE
-  // Supplementary hint: branched() on the endpoint Vertex objects is what traversal fast paths key on.
-  // Only meaningful with properties_on_edges. Same monotonic/lock-free-read contract as Vertex::branched()
-  // (vertex.hpp).
+  // Whether a branch ever wrote this edge (fork-edge reads short-circuit on it); set only with properties_on_edges.
+  // Same monotonic, lock-free-read contract as Vertex::branched().
   bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
 
   // Caller MUST hold `lock`.
-  void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+  void SetBranched() { delta_.Set<kBranchedBit>(1); }
 #endif
 
  private:
