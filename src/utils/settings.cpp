@@ -47,8 +47,10 @@ std::optional<std::string> Settings::RegisterSetting(std::string name, const std
       return std::nullopt;
     }
     case Persistence::kRuntimeOnly: {
-      if (stored) {
-        MG_ASSERT(storage_.Delete(name), "Failed to delete a stale setting");
+      // Best-effort cleanup; the value is applied or dropped regardless, so a failed delete only leaves it for the
+      // next start
+      if (stored && !storage_.Delete(name)) {
+        spdlog::warn("Failed to delete the stored value of setting '{}'", name);
       }
       return stored;
     }
