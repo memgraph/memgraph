@@ -312,7 +312,7 @@ jobs:
       - name: Load Image (URL)
         if: ${{ env.IMAGE_TYPE == 'url' }}
         run: |
-          curl -L ${{ env.IMAGE_VALUE }} > memgraph.tar.gz
+          curl --proto "=https" --tlsv1.2 -L "${{ env.IMAGE_VALUE }}" > memgraph.tar.gz
           load_output=$(docker load -i memgraph.tar.gz)
 
           # grab each repo:tag, drop the ":latest" one, pick the first real tag
@@ -429,7 +429,7 @@ jobs:
       - name: Load Image (URL) and push to ECR
         if: ${{ env.IMAGE_TYPE == 'url' }}
         run: |
-          curl -L "${{ env.IMAGE_VALUE }}" > memgraph.tar.gz
+          curl --proto "=https" --tlsv1.2 -L "${{ env.IMAGE_VALUE }}" > memgraph.tar.gz
           load_output=$(docker load -i memgraph.tar.gz)
 
           repo_tag=$(echo "$load_output" \
@@ -473,7 +473,7 @@ jobs:
           K8S_ARCH="${{ inputs.arch == 'arm' && 'arm64' || 'amd64' }}"
           EKSCTL_ARCH="${{ inputs.arch == 'arm' && 'arm64' || 'amd64' }}"
 
-          curl -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/${K8S_ARCH}/kubectl"
+          curl --proto "=https" --tlsv1.2 -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl --proto "=https" --tlsv1.2 -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/${K8S_ARCH}/kubectl"
           chmod +x "$EKS_TOOLS/kubectl"
 
           # Pinned Helm release, checked against the SHA256s published on get.helm.sh.
@@ -487,7 +487,7 @@ jobs:
           tar -xzf "$HELM_TARBALL" -C "$EKS_TOOLS" --strip-components=1 "linux-${K8S_ARCH}/helm"
           rm -f "$HELM_TARBALL"
 
-          curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_${EKSCTL_ARCH}.tar.gz" | tar -xz -C "$EKS_TOOLS"
+          curl --proto "=https" --tlsv1.2 -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_${EKSCTL_ARCH}.tar.gz" | tar -xz -C "$EKS_TOOLS"
 
           echo "$EKS_TOOLS" >> $GITHUB_PATH
 

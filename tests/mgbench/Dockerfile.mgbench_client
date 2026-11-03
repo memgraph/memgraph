@@ -22,7 +22,7 @@ RUN cd /memgraph && \
     ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS
 
 # Install Node.js 20 if needed by benchmarks
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl --proto "=https" --tlsv1.2 -fsSL https://deb.nodesource.com/setup_20.x | bash - \
   && apt-get update && apt-get install -y nodejs \
   && rm -rf /var/lib/apt/lists/*
 

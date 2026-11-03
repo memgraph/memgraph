@@ -13,9 +13,9 @@ BEST_URL=""
 
 # 1) Fetch HTML
 if command -v curl &>/dev/null; then
-  HTML=$(curl -fsSL "$LP_URL")
+  HTML=$(curl --proto "=https" --tlsv1.2 -fsSL "$LP_URL")
 else
-  HTML=$(wget -qO- "$LP_URL")
+  HTML=$(wget --https-only -qO- "$LP_URL")
 fi
 
 # 2) Extract only http://*.archive.ubuntu.com URLs
@@ -31,7 +31,7 @@ for base in "${MIRRORS[@]}"; do
   SEC_URL="${base}/ubuntu/dists/${SUITE}-security/Release"
 
   # does the security Release file exist?
-  if ! curl -fsSL --max-time 2 -o /dev/null "$SEC_URL" &>/dev/null; then
+  if ! curl --proto-redir "=https" -fsSL --max-time 2 -o /dev/null "$SEC_URL" &>/dev/null; then
     continue
   fi
 
