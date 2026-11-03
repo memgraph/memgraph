@@ -365,6 +365,66 @@ TEST_F(VersioningHistoricalAccessGcTest, HistoricalReadExcludesWriterThatStraddl
   mem_storage->ReleaseForkPin(fork_ts);
 }
 
+// The exact P == C boundary: RegisterForkPin reads timestamp_ without incrementing and the sole
+// in-between commit mints its timestamp with timestamp_++ (post-increment), so it lands exactly ON
+// fork_ts. A historical reader at fork_ts must still see the PRE-commit state (SI is exclusive), and
+// the pin must keep the commit's deltas (a '>=' off-by-one in the fast-discard gate would free them).
+TEST_F(VersioningHistoricalAccessGcTest, HistoricalReadExcludesCommitExactlyAtForkTimestamp) {
+  namespace st = memgraph::storage;
+  auto *mem_storage = static_cast<st::InMemoryStorage *>(storage.get());
+  const auto prop_id = storage->NameToProperty("p");
+
+  st::Gid v_gid;
+  {
+    auto acc = storage->Access(st::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(v.SetProperty(prop_id, st::PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto writer = storage->Access(st::WRITE);
+  {
+    auto v = writer->FindVertex(v_gid, st::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->SetProperty(prop_id, st::PropertyValue(2)).has_value());
+  }
+
+  // Captures timestamp_ without incrementing; the writer's commit below then gets commit_ts == fork_ts.
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  // Open the historical reader BEFORE the commit so it must survive the commit landing on its boundary.
+  auto historical = mem_storage->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+
+  ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  writer.reset();
+
+  {
+    auto &hist_acc = **historical;
+    auto v = hist_acc.FindVertex(v_gid, st::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    auto prop = v->GetProperty(prop_id, st::View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    EXPECT_EQ(*prop, st::PropertyValue(1))
+        << "a commit at exactly fork_ts must stay invisible to the fork reader, even after it lands";
+  }
+
+  // The pin at exactly the commit ts must keep the deltas (the fast-discard gate is strict >).
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_GT(registration_.handles().unreleased_delta_objects.Value(), 0)
+      << "the pin at P == C must keep the sole commit's deltas";
+
+  historical->reset();
+  mem_storage->ReleaseForkPin(fork_ts);
+  for (int i = 0; i < 6; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(0, registration_.handles().unreleased_delta_objects.Value());
+}
+
 // The GC floor must be the OLDEST pin (a newest-pin floor would unlink A's history). After releasing
 // it, B's history stays reconstructible and A's timestamp is rejected.
 TEST_F(VersioningHistoricalAccessGcTest, GcFloorIsOldestPinAndAdvancesWhenOlderPinReleased) {
