@@ -646,7 +646,7 @@ def load_model(ctx: mgp.ProcCtx, num: int = 0) -> mgp.Record(path=str, status=st
 
     path_to_load_model = os.path.join(model_saving_folder, models[num])
 
-    model.load_state_dict(torch.load(path_to_load_model))
+    model.load_state_dict(torch.load(path_to_load_model, weights_only=True))
 
     return mgp.Record(path=path_to_load_model, status="Model has been successfully loaded.")
 

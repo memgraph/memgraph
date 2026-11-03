@@ -21,6 +21,7 @@ from mage.link_prediction.link_prediction_util import (  # noqa: F401
     classify,
     inner_predict,
     inner_train,
+    load_context,
     preprocess,
     proj_0,
 )

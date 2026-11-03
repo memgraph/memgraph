@@ -10,7 +10,6 @@ from dgl import AddReverse
 from mage.link_prediction import (
     Activations,
     Aggregators,
-    Context,
     Devices,
     Metrics,
     Models,
@@ -26,6 +25,7 @@ from mage.link_prediction import (
     create_predictor,
     inner_predict,
     inner_train,
+    load_context,
     preprocess,
     proj_0,
 )
@@ -262,27 +262,31 @@ def train(
     # Extract number of layers
     num_layers = len(link_prediction_parameters.hidden_features_size)
 
+    # Architecture of the model and predictor, saved with each checkpoint so load_model can rebuild them
+    model_config = {
+        "model": {
+            "layer_type": link_prediction_parameters.layer_type,
+            "in_feats": link_prediction_parameters.in_feats,
+            "hidden_features_size": link_prediction_parameters.hidden_features_size,
+            "aggregator": link_prediction_parameters.aggregator,
+            "attn_num_heads": link_prediction_parameters.attn_num_heads,
+            "feat_drops": [feat_drop_rate for _ in range(num_layers)],
+            "attn_drops": [attn_drop_rate for _ in range(num_layers)],
+            "alphas": [alpha_rate for _ in range(num_layers)],
+            "residuals": [res_def for _ in range(num_layers)],
+            "edge_types": graph.etypes,
+        },
+        "predictor": {
+            "predictor_type": link_prediction_parameters.predictor_type,
+            "predictor_hidden_size": link_prediction_parameters.hidden_features_size[-1],
+        },
+    }
+
     # Create a model
-    model = create_model(
-        layer_type=link_prediction_parameters.layer_type,
-        in_feats=link_prediction_parameters.in_feats,
-        hidden_features_size=link_prediction_parameters.hidden_features_size,
-        aggregator=link_prediction_parameters.aggregator,
-        attn_num_heads=link_prediction_parameters.attn_num_heads,
-        feat_drops=[feat_drop_rate for _ in range(num_layers)],
-        attn_drops=[attn_drop_rate for _ in range(num_layers)],
-        alphas=[alpha_rate for _ in range(num_layers)],
-        residuals=[res_def for _ in range(num_layers)],
-        edge_types=graph.etypes,
-        device=device,
-    )
+    model = create_model(**model_config["model"], device=device)
 
     # Create a predictor
-    predictor = create_predictor(
-        predictor_type=link_prediction_parameters.predictor_type,
-        predictor_hidden_size=link_prediction_parameters.hidden_features_size[-1],
-        device=device,
-    )
+    predictor = create_predictor(**model_config["predictor"], device=device)
 
     # Create an optimizer
     optimizer = create_optimizer(
@@ -318,6 +322,7 @@ def train(
         link_prediction_parameters.batch_size,
         link_prediction_parameters.sampling_workers,
         device,
+        model_config,
     )
 
     # Return results
@@ -591,21 +596,22 @@ def get_training_results(
 
 
 @mgp.read_proc
-def load_model(ctx: mgp.ProcCtx, path: str = link_prediction_parameters.context_save_dir) -> mgp.Record(status=mgp.Any):
+def load_model(ctx: mgp.ProcCtx, path: str = "") -> mgp.Record(status=mgp.Any):
     """Loads torch model from given path. If the path doesn't exist, underlying exception is thrown.
-    If the path argument is not given, it loads from the default path. If the user has changed path and the context was deleted
+    If the path argument is not given, it loads from the context_save_dir parameter. If the user has changed path and the context was deleted
     then he/she needs to send that parameter here.
 
     Args:
         ctx (mgp.ProcCtx): A reference to the context execution.
+        path (str): Path where the model and predictor were saved. Defaults to the context_save_dir parameter.
 
     Returns:
         status(mgp.Any): True just to indicate that loading went well.
     """
 
     global model, predictor
-    model = torch.load(path + Context.MODEL_NAME)
-    predictor = torch.load(path + Context.PREDICTOR_NAME)
+    # Both are loaded before either global is replaced, so a failed load leaves the previous model in place
+    model, predictor = load_context(path or link_prediction_parameters.context_save_dir, device)
     return mgp.Record(status=True)
 
 
