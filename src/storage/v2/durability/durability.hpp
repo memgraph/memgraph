@@ -135,10 +135,9 @@ void RecordWalEpoch(ReplicationStorageState &repl_storage_state, std::string con
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
-#ifdef MG_ENTERPRISE
-  /// With `max_delta_timestamp`, recovers the state as of that durable timestamp: newest snapshot not above it (else
-  /// WALs alone, which must start at sequence 0), replaying only transactions up to it. `tail` receives the rest.
-#endif
+  /// With `max_delta_timestamp` (enterprise, branch recovery), recovers the state as of that durable timestamp:
+  /// newest snapshot not above it (else WALs alone, which must start at sequence 0), replaying only transactions
+  /// up to it. `tail` receives the rest.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(

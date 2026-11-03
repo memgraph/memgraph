@@ -2231,12 +2231,15 @@ std::optional<RecoveryInfo> LoadWal(
 
   for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
-    if (auto delta_ts = ReadWalDeltaHeader(&wal);
+    const auto delta_ts = ReadWalDeltaHeader(&wal);
 #ifdef MG_ENTERPRISE
-        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp) &&
-        (!max_delta_timestamp || delta_ts <= *max_delta_timestamp)) {
+    // Newer than what a snapshot already recovered, and (branch recovery) not above the recovery
+    // bound: bounded recovery applies only deltas at or below max_delta_timestamp.
+    const bool newer_than_snapshot = !last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp;
+    const bool within_recovery_bound = !max_delta_timestamp || delta_ts <= *max_delta_timestamp;
+    if (newer_than_snapshot && within_recovery_bound) {
 #else
-        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
+    if (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp) {
 #endif
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, version);
