@@ -21,7 +21,7 @@ TEST(PopulationStatus, APopulatingObjectIsVisibleToNothing) {
   PopulationStatus status;
 
   ASSERT_TRUE(status.IsPopulating());
-  EXPECT_FALSE(status.IsVisible(CommitTimestamp::FromUint(kLargestCommittedTimestamp)));
+  EXPECT_FALSE(status.IsVisible(kLargestCommittedTimestamp));
 }
 
 TEST(PopulationStatus, ACommittedObjectIsVisibleAtAndAboveItsCommitTimestamp) {
@@ -39,7 +39,7 @@ TEST(PopulationStatus, ARecoveredObjectIsVisibleToEverySnapshot) {
   status.Commit(CommitTimestamp::FromUint(kTimestampInitialId));
 
   EXPECT_TRUE(status.IsVisible(CommitTimestamp::FromUint(kTimestampInitialId)));
-  EXPECT_TRUE(status.IsVisible(CommitTimestamp::FromUint(kLargestCommittedTimestamp)));
+  EXPECT_TRUE(status.IsVisible(kLargestCommittedTimestamp));
 }
 
 }  // namespace memgraph::storage

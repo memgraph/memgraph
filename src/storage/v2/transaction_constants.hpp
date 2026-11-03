@@ -13,6 +13,8 @@
 
 #include <cstdint>
 
+#include "storage/v2/timestamp_types.hpp"
+
 namespace memgraph::storage {
 
 constexpr uint64_t kTimestampInitialId = 0;
@@ -21,6 +23,6 @@ constexpr uint64_t kTransactionInitialId = 1ULL << 63U;
 /// for reads that want "everything committed, nothing populating/in-flight":
 /// IsVisible(commit_ts) returns true for every committed entry and false for
 /// the kPopulating sentinel (which equals kTransactionInitialId).
-constexpr uint64_t kLargestCommittedTimestamp = kTransactionInitialId - 1;
+constexpr CommitTimestamp kLargestCommittedTimestamp = CommitTimestamp::FromUint(kTransactionInitialId - 1);
 
 }  // namespace memgraph::storage

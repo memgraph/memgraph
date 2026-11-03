@@ -7903,7 +7903,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                        ai->edge_property_ && ai->vertex_property_ && ai->text_ && ai->text_edge_ && ai->point_ &&
                        ai->vector_ && ai->vector_edge_,
                    "DatabaseInfoQuery (INDEX) called with partially-constructed ActiveIndices");
-        auto const ts = storage::CommitTimestamp::FromUint(storage::kLargestCommittedTimestamp);
+        auto const ts = storage::kLargestCommittedTimestamp;
         storage::IndicesInfo const info{
             .label = ai->label_->ListIndices(ts),
             .label_properties = ai->label_properties_->ListIndices(ts),
@@ -8049,7 +8049,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"constraint type", "label", "properties", "data_type"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
         auto ac = storage->GetActiveConstraints();
-        auto const ts = storage::CommitTimestamp::FromUint(storage::kLargestCommittedTimestamp);
+        auto const ts = storage::kLargestCommittedTimestamp;
         storage::ConstraintsInfo const info{
             .existence = ac->existence_->ListConstraints(ts),
             .unique = ac->unique_->ListConstraints(ts),
