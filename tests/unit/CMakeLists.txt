@@ -835,6 +835,11 @@ add_unit_test(storage_v2_timestamp_types
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(storage_v2_population_status
+    SOURCES storage_v2_population_status.cpp
+    LINK_TARGETS mg::storage mg-utils
+)
+
 add_unit_test(storage_v2
     SOURCES storage_v2.cpp
     LINK_TARGETS mg::storage storage_test_utils disk_test_utils

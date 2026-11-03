@@ -23,6 +23,7 @@
 #include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/counter.hpp"
 
 namespace {
@@ -261,7 +262,7 @@ bool InMemoryEdgePropertyIndex::PublishIndex(PropertyId property, uint64_t commi
 }
 
 void InMemoryEdgePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status_.Commit(commit_timestamp);
+  status_.Commit(CommitTimestamp::FromUint(commit_timestamp));
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -301,7 +302,7 @@ std::vector<PropertyId> InMemoryEdgePropertyIndex::ActiveIndices::ListIndices(ui
   auto ret = std::vector<PropertyId>{};
   ret.reserve(index_container_->indices_.size());
   for (auto const &[property, index] : index_container_->indices_) {
-    if (index->status_.IsVisible(start_timestamp)) {
+    if (index->status_.IsVisible(CommitTimestamp::FromUint(start_timestamp))) {
       ret.emplace_back(property);
     }
   }

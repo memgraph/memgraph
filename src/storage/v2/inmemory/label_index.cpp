@@ -20,6 +20,7 @@
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/all_indices_cleanup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/counter.hpp"
 
 namespace {
@@ -92,7 +93,7 @@ auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) 
 }
 
 void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status.Commit(commit_timestamp);
+  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -250,7 +251,7 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
   std::vector<LabelId> ret;
   ret.reserve(index_container_->size());
   for (const auto &item : *index_container_) {
-    if (item.second->status.IsVisible(start_timestamp)) ret.push_back(item.first);
+    if (item.second->status.IsVisible(CommitTimestamp::FromUint(start_timestamp))) ret.push_back(item.first);
   }
   return ret;
 }

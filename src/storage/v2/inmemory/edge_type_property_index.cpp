@@ -24,6 +24,7 @@
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/counter.hpp"
 
 namespace r = ranges;
@@ -208,7 +209,7 @@ bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyI
 }
 
 void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status.Commit(commit_timestamp);
+  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 

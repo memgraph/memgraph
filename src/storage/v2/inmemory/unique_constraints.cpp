@@ -25,6 +25,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
@@ -319,7 +320,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 // --- IndividualConstraint implementation ---
 
 void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status.Commit(commit_timestamp);
+  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -329,7 +330,7 @@ auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t star
   auto result = std::vector<std::pair<LabelId, std::set<PropertyId>>>{};
   for (auto const &[label, inner] : *container_) {
     for (auto const &[properties, constraint] : inner) {
-      if (constraint->status.IsVisible(start_timestamp)) {
+      if (constraint->status.IsVisible(CommitTimestamp::FromUint(start_timestamp))) {
         result.emplace_back(label, properties);
       }
     }

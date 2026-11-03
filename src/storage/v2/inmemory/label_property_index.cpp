@@ -28,6 +28,7 @@
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/bound.hpp"
@@ -672,7 +673,7 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 template <typename EntryT>
 void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp,
                                                                   metrics::GaugeHandle gauge) {
-  status.Commit(commit_timestamp);
+  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -1054,7 +1055,9 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndicesImpl(uint64_t start_t
   auto const collect_from = [&](auto const &indices_map, IndexOrder o) {
     for (auto const &[label, indices] : indices_map) {
       for (auto const &[props, index_variant] : indices) {
-        if (WithIndex(index_variant, [&](auto const &index) { return index.status.IsVisible(start_timestamp); })) {
+        if (WithIndex(index_variant, [&](auto const &index) {
+              return index.status.IsVisible(CommitTimestamp::FromUint(start_timestamp));
+            })) {
           ret.emplace_back(label, props, o);
         }
       }

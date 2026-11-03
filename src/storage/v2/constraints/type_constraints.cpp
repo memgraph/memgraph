@@ -21,6 +21,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/timestamp_types.hpp"
 
 namespace memgraph::storage {
 
@@ -65,7 +66,7 @@ std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> constraints;
   constraints.reserve(container_->constraints_.size());
   for (const auto &[label_props, constraint] : container_->constraints_) {
-    if (!constraint->status.IsVisible(start_timestamp)) [[unlikely]] {
+    if (!constraint->status.IsVisible(CommitTimestamp::FromUint(start_timestamp))) [[unlikely]] {
       continue;
     }
     constraints.emplace_back(label_props.first, label_props.second, constraint->type);
@@ -216,7 +217,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
   });
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
-  constraint->status.Commit(commit_timestamp);
+  constraint->status.Commit(CommitTimestamp::FromUint(commit_timestamp));
   constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
 }
 

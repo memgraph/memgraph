@@ -16,6 +16,7 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
@@ -42,9 +43,9 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
     uint64_t start_timestamp) const {
   namespace r = std::ranges;
   namespace rv = std::views;
-  auto result = *container_ |
-                rv::filter([start_timestamp](const auto &c) { return c.second->status.IsVisible(start_timestamp); }) |
-                rv::transform([](const auto &c) { return std::pair{c.first.label, c.first.property}; }) |
+  auto result = *container_ | rv::filter([start_timestamp](const auto &c) {
+    return c.second->status.IsVisible(CommitTimestamp::FromUint(start_timestamp));
+  }) | rv::transform([](const auto &c) { return std::pair{c.first.label, c.first.property}; }) |
                 r::to<std::vector<std::pair<LabelId, PropertyId>>>();
   std::ranges::sort(result);
   return result;
@@ -116,7 +117,7 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     DMG_ASSERT(false, "Existence constraint not found during publish");
     return false;
   }
-  constraint->status.Commit(commit_timestamp);
+  constraint->status.Commit(CommitTimestamp::FromUint(commit_timestamp));
   constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
   return true;
 }
@@ -192,7 +193,7 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
       auto [it, inserted] = new_constraints->emplace(constraint_key, std::make_shared<IndividualConstraint>());
       if (inserted) {
         // Immediately commit with timestamp 0 so constraint is visible to all transactions
-        it->second->status.Commit(kTimestampInitialId);
+        it->second->status.Commit(CommitTimestamp::FromUint(kTimestampInitialId));
       }
     }
     constraints = std::move(new_constraints);

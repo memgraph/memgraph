@@ -13,28 +13,24 @@
 
 #include <atomic>
 
+#include "storage/v2/timestamp_types.hpp"
 #include "storage/v2/transaction_constants.hpp"
 
 namespace memgraph::storage {
 
 /// MVCC status tracking for schema objects (indices, constraints).
 ///
-/// Tracks the commit timestamp for proper snapshot isolation.
-/// A schema object is visible to a transaction if:
-///   commit_timestamp <= transaction_start_timestamp
+/// A schema object is visible to a transaction if it committed at or before the boundary that
+/// transaction reads at, which is why both sides of that test are commit timestamps rather than
+/// the asking transaction's own start.
 ///
-/// Uses atomics to allow lock-free reads during query execution.
-/// This enables indices/constraints to be checked without acquiring container locks,
-/// improving performance for read-heavy workloads.
+/// The populating sentinel sits above the whole committed range, so an object still being built is
+/// visible to no snapshot and a reader does not have to test readiness separately.
 ///
-/// Timestamp space:
-/// - [0, kTransactionInitialId): Committed transaction timestamps
-/// - kTransactionInitialId (1<<63): POPULATING state sentinel
-///
-/// Recovery uses kTimestampInitialId (0) to make objects immediately visible.
+/// Reads are atomic so that indices and constraints can be checked during query execution without
+/// acquiring container locks.
 struct PopulationStatus {
-  // kTransactionInitialId used as sentinel - commit timestamps are always below this value
-  static constexpr uint64_t kPopulating = kTransactionInitialId;
+  static constexpr CommitTimestamp kPopulating = CommitTimestamp::FromUint(kTransactionInitialId);
 
   PopulationStatus() = default;
   ~PopulationStatus() = default;
@@ -47,13 +43,15 @@ struct PopulationStatus {
 
   bool IsReady() const { return !IsPopulating(); }
 
-  /// A schema object is visible if it was committed at or before the given timestamp.
-  bool IsVisible(uint64_t timestamp) const { return commit_timestamp_.load(std::memory_order_acquire) <= timestamp; }
+  bool IsVisible(CommitTimestamp bound) const { return commit_timestamp_.load(std::memory_order_acquire) <= bound; }
 
-  void Commit(uint64_t timestamp) { commit_timestamp_.store(timestamp, std::memory_order_release); }
+  void Commit(CommitTimestamp timestamp) { commit_timestamp_.store(timestamp, std::memory_order_release); }
 
  private:
-  std::atomic<uint64_t> commit_timestamp_{kPopulating};
+  std::atomic<CommitTimestamp> commit_timestamp_{kPopulating};
 };
+
+// A lock would defeat the point of reading this during query execution.
+static_assert(std::atomic<CommitTimestamp>::is_always_lock_free);
 
 }  // namespace memgraph::storage

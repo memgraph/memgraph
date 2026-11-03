@@ -20,6 +20,7 @@
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/all_indices_cleanup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/timestamp_types.hpp"
 #include "utils/counter.hpp"
 
 namespace r = ranges;
@@ -196,7 +197,7 @@ bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_t
 }
 
 void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status_.Commit(commit_timestamp);
+  status_.Commit(CommitTimestamp::FromUint(commit_timestamp));
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -235,7 +236,7 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64
   auto ret = std::vector<EdgeTypeId>{};
   ret.reserve(index_container_->indices_.size());
   for (auto const &[edge_type, index] : index_container_->indices_) {
-    if (index->status_.IsVisible(start_timestamp)) {
+    if (index->status_.IsVisible(CommitTimestamp::FromUint(start_timestamp))) {
       ret.emplace_back(edge_type);
     }
   }
