@@ -50,7 +50,7 @@ class TransactionReplication {
   // stream is dropped and the replica falls back to recovery via MAYBE_BEHIND) and surfaces as that
   // replica's ShipResult; it never aborts main by itself. `db_acc` may be null only when no client
   // has a stream (a replica applying a transaction). The caller must keep everything `encode` and
-  // `db_acc` reference alive until ShipDeltas returns.
+  // `db_acc` reference alive until CollectShipResults returns.
   template <InvocableWithStream F>
   void ScheduleEncodeAndShip(F encode, std::shared_future<void> wal_result, uint64_t durability_commit_timestamp,
                              DatabaseProtector const *db_acc) {
@@ -58,7 +58,7 @@ class TransactionReplication {
     // task with no future to collect.
     ship_futures_.reserve(locked_clients->size());
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      // A streamless replica already failed to start this transaction; ShipDeltas runs its quick,
+      // A streamless replica already failed to start this transaction; CollectShipResults runs its quick,
       // RPC-free bookkeeping inline. Queueing a no-op would make the commit thread await this
       // replica's worker, whose queue may hold a task that blocks on the engine_lock_ this thread
       // holds.
@@ -95,7 +95,7 @@ class TransactionReplication {
   // streamless replicas. RPC streams won't be destroyed at the end of this function.
   // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
   // Failures are cached internally in replication_failures_ for CollectAllFailures.
-  auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
+  auto CollectShipResults(CommitArgs const &commit_args) -> bool;
 
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, uint64_t durability_commit_timestamp)
       -> bool;
@@ -105,7 +105,7 @@ class TransactionReplication {
   // Returns all replication failures (start-txn + ship/finalize) and additionally
   // marks 2nd-phase finalize failures in failed_replicas_ so UpdateCommitTsInfo skips them.
   // Finalize failures are NOT included in the returned vector (no ReplicationException for them).
-  // Must be called after ShipDeltas and FinalizeTransaction (if applicable), and before UpdateCommitTsInfo.
+  // Must be called after CollectShipResults and FinalizeTransaction (if applicable), and before UpdateCommitTsInfo.
   auto CollectAllFailures() -> std::vector<ReplicaFailure>;
 
   // Advance-only merges each successfully-committed (non-ASYNC) replica's cached progress to this transaction's
@@ -131,7 +131,7 @@ class TransactionReplication {
   memory::ArenaPool *arena_pool_{nullptr};
   bool run_two_phase_commit{false};
   // Replicas that failed start-txn or ship/finalize (excludes ASYNC — fire-and-forget).
-  // Populated by the constructor and ShipDeltas. Returned by CollectAllFailures.
+  // Populated by the constructor and CollectShipResults. Returned by CollectAllFailures.
   std::vector<ReplicaFailure> replication_failures_;
   // Replicas that failed the 2nd phase of 2PC (SendFinalizeCommitRpc failed).
   // Populated by FinalizeTransaction. NOT returned by CollectAllFailures (no ReplicationException),
