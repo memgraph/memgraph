@@ -121,6 +121,10 @@ std::string Serialize(const LedgerContents &contents) {
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
     if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
     if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
+    if (info.fork_counts) {
+      b["fork_vertex_count"] = info.fork_counts->vertices;
+      b["fork_edge_count"] = info.fork_counts->edges;
+    }
     branches.push_back(std::move(b));
   }
   const nlohmann::json root{{"next_number", contents.next_number}, {"branches", std::move(branches)}};
@@ -142,6 +146,10 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
                                        .vertex_gid_floor = OptionalUnsigned(b, "vertex_gid_floor"),
                                        .edge_gid_floor = OptionalUnsigned(b, "edge_gid_floor"),
                                        .created_at_us = OptionalUnsigned(b, "created_at_us")}});
+      if (b.contains("fork_vertex_count") && b.contains("fork_edge_count")) {
+        out.branches.back().info.fork_counts = ObjectCounts{.vertices = Unsigned(b.at("fork_vertex_count"), "fork_vertex_count"),
+                                                            .edges = Unsigned(b.at("fork_edge_count"), "fork_edge_count")};
+      }
     }
   } catch (const nlohmann::json::exception &e) {
     return std::unexpected(fmt::format("malformed payload: {}", e.what()));

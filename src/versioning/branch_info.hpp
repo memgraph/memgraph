@@ -17,6 +17,20 @@
 
 namespace memgraph::versioning {
 
+// Approximate vertex and edge counts, as Storage::Accessor::ApproximateVertexCount/ApproximateEdgeCount report them.
+struct ObjectCounts {
+  uint64_t vertices{0};
+  uint64_t edges{0};
+
+  friend bool operator==(const ObjectCounts &, const ObjectCounts &) = default;
+};
+
+// A branch's fork pin and main's counts read with it.
+struct ForkPoint {
+  uint64_t fork_ts;
+  ObjectCounts counts;
+};
+
 // Gid floors are unset until the branch's core is first built.
 struct BranchInfo {
   // Never reused, even across drops; main is implicit version 1, the first branch is 2.
@@ -32,6 +46,13 @@ struct BranchInfo {
   std::optional<uint64_t> edge_gid_floor;
   // Wall-clock creation time, microseconds since the Unix epoch. Absent in ledgers written before it was recorded.
   std::optional<uint64_t> created_at_us;
+  // Main's counts at the fork, the base of the branch's counts. Absent in ledgers written before they were recorded.
+  std::optional<ObjectCounts> fork_counts;
 };
+
+// The durable timestamp the branch still needs recoverable: one below its recorded fork, clamped at 0.
+inline uint64_t RecoverableBelow(const BranchInfo &info) {
+  return info.recorded_fork_ts == 0 ? 0 : info.recorded_fork_ts - 1;
+}
 
 }  // namespace memgraph::versioning
