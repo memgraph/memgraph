@@ -3449,7 +3449,7 @@ TEST(StorageV2BranchedHint, VertexBitIsIndependentOfOtherFlagsAndDelta) {
   vertex.set_has_uncommitted_non_sequential_deltas(true);
   EXPECT_FALSE(vertex.branched());
 
-  vertex.SetBranched(true);
+  vertex.SetBranched();
   EXPECT_TRUE(vertex.branched());
   EXPECT_TRUE(vertex.deleted());
   EXPECT_TRUE(vertex.has_uncommitted_non_sequential_deltas());
@@ -3457,6 +3457,11 @@ TEST(StorageV2BranchedHint, VertexBitIsIndependentOfOtherFlagsAndDelta) {
 
   vertex.SetDeleted(false);
   vertex.set_has_uncommitted_non_sequential_deltas(false);
+  EXPECT_TRUE(vertex.branched());
+
+  vertex.SetBranched();
+  EXPECT_TRUE(vertex.branched());
+  vertex.SetDeleted(true);
   EXPECT_TRUE(vertex.branched());
 }
 
@@ -3470,9 +3475,12 @@ TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
   EXPECT_FALSE(edge->MaybeBranchedHint());
 
   auto *raw = edge->edge_.ptr;
-  raw->SetBranched(true);
+  raw->SetBranched();
   EXPECT_TRUE(edge->MaybeBranchedHint());
   EXPECT_FALSE(raw->deleted());
+
+  raw->SetBranched();
+  EXPECT_TRUE(edge->MaybeBranchedHint());
 }
 
 // Without properties on edges the EdgeRef holds a Gid, not an Edge*, so there is no bit to read.
