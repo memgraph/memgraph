@@ -47,6 +47,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                       system::Transaction *system_tx) override;
 
 #ifdef MG_ENTERPRISE
+  std::vector<query::TypedValue> GetImpersonationPrivileges(const std::string &user_or_role, auth::UserOrRoleType type,
+                                                            auth::AuthTransaction *auth_tx) override;
+
   void GrantDatabase(const std::string &db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                      memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
 

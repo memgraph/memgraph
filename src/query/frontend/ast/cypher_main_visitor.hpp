@@ -843,6 +843,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) override;
 
+  antlrcpp::Any visitShowImpersonationPrivileges(MemgraphCypher::ShowImpersonationPrivilegesContext *ctx) override;
+
   /**
    * @return AuthQuery*
    */
