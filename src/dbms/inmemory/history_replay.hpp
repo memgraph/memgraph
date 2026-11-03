@@ -22,6 +22,7 @@
 
 namespace memgraph::dbms {
 
+#ifdef MG_ENTERPRISE
 // Replays `tail` into `storage` as MVCC txns with WAL appends suppressed, registering a fork pin per (ascending)
 // `fork_ts` right before the first txn with durable ts >= it (after all if none), then bumps the clock past the last
 // durable ts and to at least the newest `fork_ts`. Returns the pins in `fork_ts` order, caller-owned. On failure no pin
@@ -29,5 +30,6 @@ namespace memgraph::dbms {
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts);
+#endif
 
 }  // namespace memgraph::dbms
