@@ -444,3 +444,118 @@ TEST_F(VersioningHistoryReplayTest, TailReplayRestoresEpochAndHistory) {
   }
   for (auto const pin : *pins) storage->ReleaseForkPin(pin);
 }
+
+// The pin for a fork whose timestamp equals the durable timestamp of the first replayed transaction must be
+// registered BEFORE that transaction is applied: the fork's snapshot-isolation read is exclusive, so a commit
+// landing exactly on fork_ts is part of main but invisible to the branch, and its deltas stay pinned (a pin at P
+// protects deltas with commit_ts == P). The replay runs on a WAL-enabled storage and must leave the WAL files and
+// the current epoch untouched.
+TEST_F(VersioningHistoryReplayTest, PinAtForkTimestampEqualsFirstReplayedCommit) {
+  uint64_t fork_ts{0};
+  ms::Gid v1{}, v2{};
+  {
+    memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+    auto const p = storage->NameToProperty("p");
+
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto v = acc->CreateVertex();
+      v1 = v.Gid();
+      Commit(*acc);
+    }
+    {
+      // A transaction open across the fork capture commits exactly at fork_ts: the clock is captured without
+      // incrementing, and the commit mints the post-increment value.
+      auto acc = db.Access(ms::WRITE);
+      auto v = acc->FindVertex(v1, ms::View::OLD);
+      ASSERT_TRUE(v.has_value());
+      ASSERT_TRUE(v->SetProperty(p, ms::PropertyValue(1)).has_value());
+      fork_ts = storage->RegisterForkPin();
+      Commit(*acc);
+    }
+    {
+      auto acc = db.Access(ms::WRITE);
+      v2 = acc->CreateVertex().Gid();
+      Commit(*acc);
+    }
+    storage->ReleaseForkPin(fork_ts);  // the recovered storage re-registers its own pin
+  }
+
+  // Recover only through fork_ts - 1: the commit at fork_ts is the first transaction of the tail.
+  memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/true, fork_ts - 1)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *storage = static_cast<ms::InMemoryStorage *>(db.storage());
+  {
+    auto acc = db.Access(ms::READ);
+    EXPECT_EQ(CountVertices(*acc, ms::View::OLD), 1U) << "recovery stops below the commit at fork_ts";
+    auto vv = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(vv.has_value());
+    EXPECT_TRUE(vv->GetProperty(storage->NameToProperty("p"), ms::View::OLD)->IsNull())
+        << "recovery stops below the commit at fork_ts";
+  }
+  auto tail = storage->TakeRecoveryTail();
+  ASSERT_TRUE(tail.has_value());
+  ASSERT_FALSE(tail->wal_files.empty());
+
+  auto const wal_before =
+      memgraph::storage::durability::GetWalFiles(kDirMain / memgraph::storage::durability::kWalDirectory);
+  ASSERT_TRUE(wal_before.has_value());
+  auto const epoch_before = std::string(storage->repl_storage_state_.epoch_.id());
+
+  auto pins = memgraph::dbms::ReplayHistoryTail(*storage, *tail, std::array{fork_ts});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  ASSERT_EQ(pins->size(), 1U);
+
+  auto const wal_after =
+      memgraph::storage::durability::GetWalFiles(kDirMain / memgraph::storage::durability::kWalDirectory);
+  ASSERT_TRUE(wal_after.has_value());
+  EXPECT_EQ(wal_after->size(), wal_before->size()) << "tail replay must not append to the WAL";
+  for (size_t i = 0; i < std::min(wal_before->size(), wal_after->size()); ++i) {
+    EXPECT_EQ((*wal_after)[i].path, (*wal_before)[i].path);
+    EXPECT_EQ((*wal_after)[i].to_timestamp, (*wal_before)[i].to_timestamp);
+  }
+  EXPECT_EQ(std::string(storage->repl_storage_state_.epoch_.id()), epoch_before) << "replay must not switch the epoch";
+
+  {
+    auto acc = db.Access(ms::READ);
+    EXPECT_EQ(CountVertices(*acc, ms::View::OLD), 2U);
+    auto v1_acc = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v1_acc.has_value());
+    EXPECT_EQ(*v1_acc->GetProperty(storage->NameToProperty("p"), ms::View::OLD), ms::PropertyValue(1))
+        << "the commit at fork_ts belongs to main";
+  }
+  {
+    auto historical = storage->HistoricalAccess((*pins)[0]);
+    ASSERT_TRUE(historical.has_value());
+    auto acc = std::move(*historical);
+    EXPECT_EQ(CountVertices(*acc, ms::View::OLD), 1U)
+        << "a commit exactly at fork_ts is invisible to the fork (snapshot isolation is exclusive)";
+    auto v1_acc = acc->FindVertex(v1, ms::View::OLD);
+    ASSERT_TRUE(v1_acc.has_value());
+    EXPECT_TRUE(v1_acc->GetProperty(storage->NameToProperty("p"), ms::View::OLD)->IsNull())
+        << "the commit at fork_ts is invisible to the fork";
+    EXPECT_FALSE(acc->FindVertex(v2, ms::View::OLD).has_value());
+  }
+
+  // The pinned deltas include the commit at fork_ts: the fast-discard gate needs oldest pin > commit_ts.
+  for (int i = 0; i < 6; ++i) storage->FreeMemory({}, false);
+  EXPECT_GT(db.metric_handles()->unreleased_delta_objects.Value(), 0)
+      << "the pin must keep the deltas of the commit at fork_ts";
+  storage->ReleaseForkPin((*pins)[0]);
+  for (int i = 0; i < 6; ++i) storage->FreeMemory({}, false);
+  EXPECT_EQ(db.metric_handles()->unreleased_delta_objects.Value(), 0) << "history is reclaimable without the pin";
+  auto released = storage->HistoricalAccess((*pins)[0]);
+  ASSERT_FALSE(released.has_value());
+}
+
+// The pins are registered positionally as replay crosses each fork timestamp: unsorted input would silently
+// register a later fork's pin late, leaking pre-fork state into it, so it is rejected outright.
+TEST_F(VersioningHistoryReplayTest, RejectsUnsortedForkTimestamps) {
+  memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *main_storage = static_cast<ms::InMemoryStorage *>(db.storage());
+  ms::durability::RecoveryTail tail{};
+  ASSERT_DEATH((void)memgraph::dbms::ReplayHistoryTail(*main_storage, tail, std::array<uint64_t, 2>{5, 3}), "");
+}
