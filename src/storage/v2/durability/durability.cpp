@@ -664,7 +664,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
     std::optional<RecoveredSnapshot> recovered_snapshot;
 #ifdef MG_ENTERPRISE
-    bool tried_a_snapshot{false};
+    // An ELIGIBLE snapshot was tried and failed: that is fatal even with a bound (the bound only
+    // permits skipping snapshots that are newer than it, never corrupt ones).
+    bool eligible_snapshot_attempted{false};
 #endif
 
     for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
@@ -675,14 +677,17 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         continue;
       }
 #ifdef MG_ENTERPRISE
-      if (max_delta_timestamp && snapshot_file.durable_timestamp > *max_delta_timestamp) {
+      // Snapshots above the bound are skipped, not failed: recovery up to the bound may continue
+      // from the WAL alone.
+      const bool snapshot_is_eligible = !max_delta_timestamp || snapshot_file.durable_timestamp <= *max_delta_timestamp;
+      if (!snapshot_is_eligible) {
         spdlog::info("Snapshot {} is past the recovery bound ({} > {}).",
                      path,
                      snapshot_file.durable_timestamp,
                      *max_delta_timestamp);
         continue;
       }
-      tried_a_snapshot = true;
+      eligible_snapshot_attempted = true;
 #endif
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
@@ -705,7 +710,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
     }
 #ifdef MG_ENTERPRISE
-    if (!recovered_snapshot && tried_a_snapshot) {
+    if (!recovered_snapshot && eligible_snapshot_attempted) {
       throw RecoveryFailure(
           "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
           "database is now in the broken state.");
@@ -816,6 +821,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       previous_seq_num = wal_file.seq_num;
 
 #ifdef MG_ENTERPRISE
+      // A file reaching past the bound is BOTH partially consumed below (deltas above the bound are
+      // skipped, framing/CRC still verified) and recorded in the tail: the first tail file may
+      // contain deltas already applied here, so tail replay must resume from the recovered durable
+      // timestamp. Files starting past the bound belong to the tail only.
       if (max_delta_timestamp && wal_file.to_timestamp > *max_delta_timestamp && tail) {
         tail->wal_files.push_back(wal_file.path);
       }
