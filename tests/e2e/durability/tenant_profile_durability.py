@@ -44,8 +44,11 @@ INSTANCE = {
 }
 
 
-def connect():
-    conn = mgclient.connect(host="127.0.0.1", port=BOLT_PORT)
+def connect(user=None, password=None):
+    if user is None:
+        conn = mgclient.connect(host="127.0.0.1", port=BOLT_PORT)
+    else:
+        conn = mgclient.connect(host="127.0.0.1", port=BOLT_PORT, username=user, password=password)
     conn.autocommit = True
     return conn
 
@@ -104,49 +107,6 @@ def test_tenant_profile_survives_restart():
     conn.close()
 
 
-def _user_connect(user=None, password=None):
-    if user is None:
-        return connect()
-    conn = mgclient.connect(host="127.0.0.1", port=BOLT_PORT, username=user, password=password)
-    conn.autocommit = True
-    return conn
-
-
-def _user_execute(cursor, query):
-    cursor.execute(query)
-    return cursor.fetchall()
-
-
-def _ensure_admin():
-    try:
-        conn = _user_connect()
-    except Exception:
-        conn = _user_connect("admin", "admin-pw")  # this test created it above
-    cursor = conn.cursor()
-    try:
-        _user_execute(cursor, "GRANT ALL PRIVILEGES TO admin")
-    except Exception:
-        pass
-    conn.close()
-
-
-def _resource_usage(cursor, user):
-    return {row[0]: list(row[1:]) for row in _user_execute(cursor, f"SHOW RESOURCE USAGE FOR {user}")}
-
-
-def _second_session_error(user, password):
-    conn = None
-    try:
-        conn = _user_connect(user, password)
-        _user_execute(conn.cursor(), "RETURN 1")
-        return None
-    except Exception as exc:  # noqa: BLE001 - the refusal is the assertion, not its message
-        return exc
-    finally:
-        if conn is not None:
-            conn.close()
-
-
 def test_user_profile_survives_restart_mixed_case():
     """A profile assigned with a mixed-case spelling survives a restart and throttles the account afterwards."""
     interactive_mg_runner.start(INSTANCE, "main")
@@ -156,30 +116,51 @@ def test_user_profile_survives_restart_mixed_case():
     execute(cursor, "CREATE USER admin IDENTIFIED BY 'admin-pw'")
     conn.close()
 
-    _ensure_admin()
-    admin = _user_connect("admin", "admin-pw")
+    admin = connect("admin", "admin-pw")
     admin_cursor = admin.cursor()
-    _user_execute(admin_cursor, "CREATE PROFILE durable_one LIMIT sessions 1")
-    _user_execute(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
-    _user_execute(admin_cursor, "GRANT ALL PRIVILEGES TO TestUser")
-    _user_execute(admin_cursor, "SET PROFILE FOR TestUser TO durable_one")
-    assert _user_execute(admin_cursor, "SHOW PROFILE FOR testuser") == [("durable_one",)]
+    try:
+        execute(admin_cursor, "GRANT ALL PRIVILEGES TO admin")
+    except Exception:  # noqa: BLE001, S110 - idempotent, the first user already holds every privilege
+        pass
+    execute(admin_cursor, "CREATE PROFILE durable_one LIMIT sessions 1, transactions_memory 100MB")
+    execute(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
+    execute(admin_cursor, "GRANT ALL PRIVILEGES TO TestUser")
+    execute(admin_cursor, "SET PROFILE FOR TestUser TO durable_one")
+    assert execute(admin_cursor, "SHOW PROFILE FOR testuser") == [("durable_one",)]
     admin.close()
 
     interactive_mg_runner.kill(INSTANCE, "main")
     interactive_mg_runner.start(INSTANCE, "main")
 
-    admin = _user_connect("admin", "admin-pw")
+    admin = connect("admin", "admin-pw")
     admin_cursor = admin.cursor()
     for spelling in ("TestUser", "testuser"):
-        assert _user_execute(admin_cursor, f"SHOW PROFILE FOR {spelling}") == [("durable_one",)]
+        assert execute(admin_cursor, f"SHOW PROFILE FOR {spelling}") == [("durable_one",)]
 
-    session = _user_connect("TestUser", "pw")
+    session = connect("TestUser", "pw")
     try:
         for spelling in ("TestUser", "testuser"):
-            usage = _resource_usage(admin_cursor, spelling)
+            usage = {row[0]: list(row[1:]) for row in execute(admin_cursor, f"SHOW RESOURCE USAGE FOR {spelling}")}
             assert usage["sessions"] == [1, 1], f"{spelling} sees {usage['sessions']} after restart"
-        assert _second_session_error("testuser", "pw") is not None, "the restored limit did not refuse a second session"
+
+        refused = None
+        second = None
+        try:
+            second = connect("testuser", "pw")
+            execute(second.cursor(), "RETURN 1")
+        except Exception as exc:  # noqa: BLE001 - the refusal is the assertion
+            refused = exc
+        finally:
+            if second is not None:
+                second.close()
+        assert refused is not None, "the restored limit did not refuse a second session"
+
+        memory_refused = False
+        try:
+            execute(session.cursor(), "UNWIND range(1, 20000000) AS i WITH collect(i) AS c RETURN size(c)")
+        except Exception:  # noqa: BLE001 - the refusal is the assertion
+            memory_refused = True
+        assert memory_refused, "the restored profile did not enforce transactions_memory after restart"
     finally:
         session.close()
         admin.close()
