@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -130,7 +133,11 @@ struct ResourceLock {
 
   void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
     lock.unlock();
-    if (kind == NotifyKind::All) cv.notify_all();
+    if (kind == NotifyKind::All) {
+      cv.notify_all();
+      // Off `mtx` so the hook may take an unrelated lock without a lock-order inversion.
+      if (auto *h = on_notify_all_.load(std::memory_order_acquire)) (*h)();
+    }
   }
 
   /// Acquires in mode `Req`, `wait` supplying the wait strategy. Requires `lock` to own mtx; leaves
@@ -220,6 +227,17 @@ struct ResourceLock {
     return true;
   }
 
+  /// Timeout returns false and keeps the pending registration; no wake here, ~PendingScope's
+  /// unregister_pending fires it when the campaign ends.
+  template <LockReq Req, typename Rep, typename Period>
+  bool try_acquire_pending_for(std::chrono::duration<Rep, Period> const &time) {
+    auto guard = std::unique_lock{mtx};
+    if (!cv.wait_for(guard, time, [this] { return can_acquire<Req>(); })) return false;
+    commit_state<Req>();
+    pending_sub<Req>();
+    return true;
+  }
+
  public:
   void lock() {
     auto lock = std::unique_lock{mtx};
@@ -238,6 +256,17 @@ struct ResourceLock {
   }
 
   void unlock() { release<LockReq::UNIQUE>(); }
+
+  /// Installs a callback fired off `mtx` on every NotifyKind::All, to wake parked schedulers.
+  /// Install at most once (Storage guards with an exchange); clear before pool destruction.
+  void SetNotifyHook(std::move_only_function<void()> hook) noexcept {
+    on_notify_all_storage_ = std::move(hook);
+    on_notify_all_.store(on_notify_all_storage_ ? &on_notify_all_storage_ : nullptr, std::memory_order_release);
+  }
+
+  /// Disarms the hook; in-flight maybe_notify readers holding the old pointer stay safe because
+  /// on_notify_all_storage_ lives until ~ResourceLock.
+  void ClearNotifyHook() noexcept { on_notify_all_.store(nullptr, std::memory_order_release); }
 
   template <LockReq Req = LockReq::WRITE>
     requires(Req != LockReq::UNIQUE)
@@ -294,6 +323,9 @@ struct ResourceLock {
   // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
   // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
   uint32_t unique_pending_count = 0;
+  // Atomic so maybe_notify reads the hook off-mtx without a race; release in SetNotifyHook publishes storage_.
+  std::move_only_function<void()> on_notify_all_storage_;
+  std::atomic<std::move_only_function<void()> *> on_notify_all_{nullptr};
 };
 
 struct SharedResourceLockGuard {
@@ -662,6 +694,15 @@ class PendingScope {
   std::optional<ResourceLockGuard> try_acquire() {
     if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
     if (!lock_->template try_acquire_pending<Req>()) return std::nullopt;
+    Lock *acquired_lock = std::exchange(lock_, nullptr);
+    return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
+  }
+
+  /// Waits up to `time`; on timeout returns nullopt and keeps the pending registration.
+  template <typename Rep, typename Period>
+  std::optional<ResourceLockGuard> try_acquire_for(std::chrono::duration<Rep, Period> const &time) {
+    if (lock_ == nullptr) return std::nullopt;
+    if (!lock_->template try_acquire_pending_for<Req>(time)) return std::nullopt;
     Lock *acquired_lock = std::exchange(lock_, nullptr);
     return ResourceLockGuard{*acquired_lock, ToGuardType(Req), std::adopt_lock};
   }
