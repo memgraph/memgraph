@@ -16,12 +16,12 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,6 +35,9 @@ namespace memgraph::versioning {
 
 class BranchCore;
 
+// Outcome of a DROP that may be refused.
+enum class DropResult : uint8_t { kDropped, kNotFound, kInUse };
+
 // Per-Database registry of branches. Starts empty; Database restores it at startup (Restore/RestoreHidden). Once a
 // BranchLedger is attached, every CREATE/DROP and the first gid-floor record per branch is persisted to it.
 //
@@ -42,10 +45,13 @@ class BranchCore;
 // InMemoryStorage::RegisterBranchForkPin/ReleaseForkPin, the acquire also reading main's approximate counts), so tests
 // need no storage engine.
 //
-// Structural validation only (unknown parent, duplicate name): callers MUST run name validation
-// (ValidateBranchName) and gate/privilege checks before CreateBranch/DropBranch.
+// Structural validation only (duplicate name): callers MUST run name validation (ValidateBranchName) and
+// gate/privilege checks before CreateBranch/DropBranch.
 class VersionStore {
  public:
+  using CoreResult = std::expected<std::shared_ptr<BranchCore>, std::string>;
+  using CoreBuilder = std::function<CoreResult()>;
+
   // The callbacks must stay bound to the owning storage's fork-pin primitive for this VersionStore's lifetime.
   VersionStore(std::function<ForkPoint()> acquire_pin, std::function<void(uint64_t)> release_pin);
 
@@ -56,36 +62,40 @@ class VersionStore {
   // Withdraws this store's branches and checkouts from the process-wide active gauges.
   ~VersionStore();
 
-  // Receives the durable timestamp branches still need recoverable (oldest recorded_fork_ts - 1), or nullopt when no
-  // branch exists; invoked after Restore, a failed CREATE and a DROP. Set before use. Never called with lock_ held, but
-  // may be with ledger_mutex_ held, so it must not call back into this store.
+  // Receives the durable timestamp branches still need recoverable (RecoverableBelow of the oldest branch), or nullopt
+  // when no branch exists; invoked after Restore, a failed CREATE and a DROP. Set before use. Called with no lock of
+  // this store held except the mutation serializer, so it must not call back into this store.
   void SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback);
 
   // Starts persisting to `file`. Call before the first CreateBranch; does not read or write the file itself.
   void AttachLedger(std::filesystem::path file);
 
-  // Startup only, before any other call. Installs `contents` without writing the ledger: branch i gets `pins[i]` as its
-  // runtime fork_ts (already registered with the storage by the caller; DropBranch releases it) and keeps the recorded
-  // value in `recorded_fork_ts`. `pins` must have exactly one entry per branch.
-  void Restore(const LedgerContents &contents, std::span<const uint64_t> pins);
+  // Startup only, before any other call. Installs `contents` without writing the ledger. Each branch's info.fork_ts is
+  // its runtime fork pin, already registered with the storage by the caller (DropBranch releases it); its
+  // recorded_fork_ts is the value the ledger keeps.
+  void Restore(const LedgerContents &contents);
 
   // Startup only, instead of Restore when versioning is off. Keeps `contents` as hidden branches: not listed, checked
   // out or droppable, but still in every ledger write, in Empty() and in the retention floor. Does not write the
   // ledger.
   void RestoreHidden(const LedgerContents &contents);
 
-  // `name` must be new and `parent` must be "main" or an existing branch. On success acquires the fork pin; on
-  // failure (including a ledger write failure) returns a user-facing message and changes no state (no pin held).
-  std::expected<BranchInfo, std::string> CreateBranch(std::string name, std::string parent);
+  // Creates `name` forked from main. `name` must be new. On success acquires the fork pin; on failure (including a
+  // ledger write failure) returns a user-facing message and changes no state (no pin held).
+  std::expected<BranchInfo, std::string> CreateBranch(std::string name);
 
-  // Returns false, changing nothing, if `name` doesn't exist or has an attached session. Otherwise releases the fork
-  // pin, retires the branch's core and, with `remove_files`, deletes its directory (recovery keeps the files of a
-  // branch it could not restore). A ledger write failure is reported as an error (nothing is dropped).
-  std::expected<bool, std::string> DropBranch(std::string_view name, bool remove_files = true);
+  // Drops `name` unless a session is attached to it. `own_checkout` is the number of the branch the caller itself is
+  // attached to (and leaves afterwards): that one attach does not count if it is `name`'s. Releases the fork pin,
+  // retires the branch's core and deletes its directory once no core holder or session of it is left. A ledger write
+  // failure is reported as an error (nothing is dropped). A crash between the ledger write and the directory removal
+  // leaves the directory behind; its number is never reused.
+  std::expected<DropResult, std::string> DropBranch(std::string_view name,
+                                                    std::optional<uint64_t> own_checkout = std::nullopt);
 
-  // As DropBranch, but drops although sessions are attached. Their attaches stay valid until released (keyed by branch
-  // number, so a branch re-created under the same name is unaffected) and their cores live until they let go.
-  std::expected<bool, std::string> ForceDropBranch(std::string_view name);
+  // As DropBranch, but drops although sessions are attached (never kInUse). Their attaches stay valid until released
+  // (keyed by branch number, so a branch re-created under the same name is unaffected) and their cores live until they
+  // let go.
+  std::expected<DropResult, std::string> ForceDropBranch(std::string_view name);
 
   // Replica demotion: refuses new branches and checkouts from here on (until Unfreeze), then durably drops every
   // branch, including those with attached sessions (their ReleaseCheckout stays valid and keeps the gauges balanced).
@@ -128,68 +138,16 @@ class VersionStore {
   // Attaches of the live branch `name`; 0 if there is none.
   size_t CheckoutCount(std::string_view name) const;
 
-  // One live BranchCore per branch number. Held here, not in dbms::Database, so cores are destroyed with the
+  // Returns the live core of `number`, building it on first use; racing first checkouts of one branch wait for a single
+  // build, other branches build in parallel. Caller must hold an attach, which keeps DropBranch from retiring the core
+  // mid-build. Fails, keeping no core, if `number` is not a live branch (dropped, e.g. by FreezeAndDropAll, which does
+  // not wait for attached sessions). Cores are held here, not in dbms::Database, so they are destroyed with the
   // VersionStore, strictly before the storage they point into.
-  using CoreBuilder = std::function<std::expected<std::shared_ptr<BranchCore>, std::string>()>;
-
-  // Returns the live core of `number`, building it on first use; racing first checkouts wait for one build. Caller must
-  // hold an attach, which keeps DropBranch from retiring the core mid-build. Fails, keeping no core, if `number` is not
-  // a live branch (dropped, e.g. by FreezeAndDropAll, which does not wait for attached sessions).
-  std::expected<std::shared_ptr<BranchCore>, std::string> GetOrBuildCore(uint64_t number, const CoreBuilder &build);
+  CoreResult GetOrBuildCore(uint64_t number, const CoreBuilder &build);
 
  private:
-  mutable utils::SpinLock lock_;
-  std::map<std::string, BranchInfo, std::less<>> branches_;
-  // Branches kept only in the ledger while versioning is off (RestoreHidden). Guarded by lock_.
-  std::vector<LedgerBranch> hidden_;
-  // Attached sessions per branch number; entries are erased at zero.
-  std::map<uint64_t, size_t> checked_out_;
-  size_t total_checkouts_{0};
-  uint64_t next_number_{2};
-  std::function<ForkPoint()> acquire_pin_;
-  std::function<void(uint64_t)> release_pin_;
-  std::function<void(std::optional<uint64_t>)> retention_floor_callback_;
-
-  // Serializes registry mutations that touch the ledger so the (blocking) ledger write runs without lock_ held.
-  // Lock order: ledger_mutex_ then lock_. Guards ledger_.
-  std::mutex ledger_mutex_;
-  std::optional<BranchLedger> ledger_;
-  // Parent of the ledger file: holds one directory per branch number. Empty without a ledger. Guarded by ledger_mutex_.
-  std::filesystem::path branches_root_;
-  // Branches whose DROP is writing the ledger; TryAcquireCheckout refuses them. Guarded by lock_.
-  std::set<std::string, std::less<>> dropping_;
-  // Set by FreezeAndDropAll under ledger_mutex_; CreateBranch and TryAcquireCheckout refuse. Guarded by lock_.
-  bool frozen_{false};
-
-  // Call with ledger_mutex_ held and lock_ NOT held. No-op if no ledger is attached.
-  std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
-
-  std::expected<bool, std::string> DropBranchImpl(std::string_view name, bool remove_files, bool force);
-  LedgerContents SnapshotLocked() const;
-
-  // Call WITHOUT lock_ held (it takes lock_ itself).
-  void PublishRetentionFloor() const;
-
-  // Destroys the core outside cores_mutex_ (its destructor tears down a storage engine). Call WITHOUT lock_ held.
-  // Returns a weak reference that is non-expired iff another holder still keeps the core (and its directory) alive.
-  std::weak_ptr<BranchCore> RetireCore(uint64_t number);
-
-  // Removes the branch directory now, or queues it until the core is gone and no session of `number` is attached.
-  // Call without lock_, cores_mutex_ or pending_mutex_ held; the caller holds ledger_mutex_ (reads branches_root_).
-  void RemoveOrDefer(uint64_t number, std::weak_ptr<BranchCore> remaining);
-  // Removes queued directories whose core is gone and whose branch has no attached session. Call without lock_;
-  // file removal runs unlocked.
-  void SweepPendingRemovals();
-  static void RemoveDirectory(const std::filesystem::path &directory);
-
-  // Takes lock_; call without it.
-  bool IsLiveNumber(uint64_t number) const;
-
-  // Serializes builds so one branch directory is never built twice; order: build_mutex_ -> cores_mutex_.
-  std::mutex build_mutex_;
-  // Guards cores_ only; never nested with lock_.
-  mutable std::mutex cores_mutex_;
-  std::map<uint64_t, std::shared_ptr<BranchCore>> cores_;
+  // A branch's core: ready once its first build finished. Shared by racing first checkouts.
+  using CoreSlot = std::shared_future<CoreResult>;
 
   struct PendingRemoval {
     std::weak_ptr<BranchCore> core;
@@ -197,10 +155,63 @@ class VersionStore {
     std::filesystem::path directory;
   };
 
-  // Dropped branches whose directory awaits the last core holder. Taken after lock_ when both are needed; nothing is
-  // acquired under it.
-  std::mutex pending_mutex_;
+  // What a mutation hands over to run after the ledger is released: core teardown and directory removal.
+  struct Retired {
+    std::vector<std::pair<uint64_t, CoreSlot>> cores;
+    std::filesystem::path branches_root;
+  };
+
+  // Lock order: ledger_mutex_ -> lock_. Nothing else is acquired under lock_, and no callback, core destruction or
+  // file I/O runs under it. Readers (IsLive runs on every statement of a branch session) take only lock_, briefly. A
+  // copy-on-write registry behind std::atomic<std::shared_ptr> would not drop it: that atomic is not lock-free in
+  // libstdc++, and checkouts and core slots still need a mutable home.
+  mutable utils::SpinLock lock_;
+  std::map<std::string, BranchInfo, std::less<>> branches_;
+  // Branches kept only in the ledger while versioning is off (RestoreHidden).
+  std::vector<LedgerBranch> hidden_;
+  // Attached sessions per branch number; entries are erased at zero.
+  std::map<uint64_t, size_t> checked_out_;
+  size_t total_checkouts_{0};
+  uint64_t next_number_{2};
+  // Branches whose DROP is writing the ledger; TryAcquireCheckout refuses them.
+  std::set<std::string, std::less<>> dropping_;
+  // Set by FreezeAndDropAll; CreateBranch and TryAcquireCheckout refuse.
+  bool frozen_{false};
+  // One slot per live branch whose core is built or being built.
+  std::map<uint64_t, CoreSlot> cores_;
+  // Dropped branches whose directory awaits the last core holder and attached session.
   std::vector<PendingRemoval> pending_removals_;
+
+  std::function<ForkPoint()> acquire_pin_;
+  std::function<void(uint64_t)> release_pin_;
+  std::function<void(std::optional<uint64_t>)> retention_floor_callback_;
+
+  // Serializes registry mutations so the (blocking) ledger write runs without lock_ held. Guards ledger_ and
+  // branches_root_.
+  std::mutex ledger_mutex_;
+  std::optional<BranchLedger> ledger_;
+  // Parent of the ledger file: holds one directory per branch number. Empty without a ledger.
+  std::filesystem::path branches_root_;
+
+  // Call with ledger_mutex_ held and lock_ NOT held. No-op if no ledger is attached.
+  std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
+
+  std::expected<DropResult, std::string> DropBranchImpl(std::string_view name, bool force,
+                                                        std::optional<uint64_t> own_checkout);
+  LedgerContents SnapshotLocked() const;
+  bool IsLiveNumberLocked(uint64_t number) const;
+  // Moves the core slot of `number` into `retired`; it is destroyed by Finish, outside every lock.
+  void RetireCoreLocked(uint64_t number, Retired &retired);
+  // Takes the queued directories that no core holder or attached session keeps any more.
+  std::vector<std::filesystem::path> TakeRemovableLocked();
+
+  // Call WITHOUT lock_ held (it takes lock_ itself).
+  void PublishRetentionFloor() const;
+
+  // Destroys the retired cores, then removes each directory or queues it until its last core holder and session are
+  // gone. Call without any lock held.
+  void Finish(Retired retired);
+  static void RemoveDirectory(const std::filesystem::path &directory);
 };
 
 // FreezeAndDropAll for an instance that is or becomes a REPLICA (a REPLICA has no branches): the one automatic drop of

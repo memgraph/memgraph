@@ -147,8 +147,9 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
                                        .edge_gid_floor = OptionalUnsigned(b, "edge_gid_floor"),
                                        .created_at_us = OptionalUnsigned(b, "created_at_us")}});
       if (b.contains("fork_vertex_count") && b.contains("fork_edge_count")) {
-        out.branches.back().info.fork_counts = ObjectCounts{.vertices = Unsigned(b.at("fork_vertex_count"), "fork_vertex_count"),
-                                                            .edges = Unsigned(b.at("fork_edge_count"), "fork_edge_count")};
+        out.branches.back().info.fork_counts =
+            ObjectCounts{.vertices = Unsigned(b.at("fork_vertex_count"), "fork_vertex_count"),
+                         .edges = Unsigned(b.at("fork_edge_count"), "fork_edge_count")};
       }
     }
   } catch (const nlohmann::json::exception &e) {
