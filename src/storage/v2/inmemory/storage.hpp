@@ -158,7 +158,19 @@ class InMemoryStorage final : public Storage {
                            metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
-                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr
+#ifdef MG_ENTERPRISE
+                           // Forwarded to Storage: a versioning diff engine shares main's NameIdMapper.
+                           ,
+                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr
+#endif
+  );
+
+#ifdef MG_ENTERPRISE
+  /// The embedding tracker this storage was built with (nullptr if none); lets the versioning diff engine charge its
+  /// vector indices to the same tenant.
+  utils::MemoryTracker *DbEmbeddingMemoryTracker() const noexcept { return db_embedding_memory_tracker_; }
+#endif
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -1140,6 +1152,9 @@ class InMemoryStorage final : public Storage {
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
   memgraph::memory::ArenaPool *db_arena_{nullptr};
+#ifdef MG_ENTERPRISE
+  utils::MemoryTracker *db_embedding_memory_tracker_{nullptr};
+#endif
 
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at

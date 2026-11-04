@@ -9,6 +9,7 @@ target_sources(mg-versioning
         branch_change_kind.hpp
         branch_info.hpp
         branch_ledger.hpp
+        branch_engine.hpp
         gate.hpp
         name.hpp
         reserve_for_append.hpp
@@ -17,6 +18,7 @@ target_sources(mg-versioning
         vertex_overlay_store.hpp
 
         PRIVATE
+        branch_engine.cpp
         branch_ledger.cpp
         gate.cpp
         name.cpp

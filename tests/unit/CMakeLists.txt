@@ -1018,6 +1018,11 @@ add_unit_test(versioning_branch_change_filter
     SOURCES versioning_branch_change_filter.cpp
     LINK_TARGETS mg::versioning
 )
+
+add_unit_test(versioning_branch_engine
+    SOURCES versioning_branch_engine.cpp
+    LINK_TARGETS mg::versioning mg::storage mg-memory-utils
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
