@@ -14660,15 +14660,15 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
                static_cast<double>(snapshot_size) / (1024.0 * 1024.0),
                std::chrono::duration<double>(timer.Elapsed()).count());
 
-  std::optional<uint64_t> retention_floor;
 #ifdef MG_ENTERPRISE
+  std::optional<uint64_t> retention_floor;
   {
     // Read the floor and delete under one lock: a branch lowering the floor waits for this pass and
     // then pins the new snapshot, never a file this pass already decided to delete. The lock
     // deliberately spans the directory scans, header reads and file deletions of the retention pass
     // (potentially seconds) — that atomicity is the point; shortening it would reintroduce the
     // lost-recovery-base race.
-    auto const floor_guard = std::lock_guard{storage->retention_floor_mutex_};
+    auto const floor_guard = std::scoped_lock{storage->retention_floor_mutex_};
     retention_floor = storage->retention_floor_;
     auto const old_snapshot_files =
         EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage, retention_floor);
@@ -14681,6 +14681,8 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     }
   }
 #else
+  // Community builds have no floor: the floor-aware helpers behave exactly as the floorless ones.
+  const std::optional<uint64_t> retention_floor;
   auto const old_snapshot_files =
       EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage, retention_floor);
 
