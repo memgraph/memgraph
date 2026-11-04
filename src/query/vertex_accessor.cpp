@@ -69,10 +69,11 @@ bool PrepareBranchWrite(VertexAccessor &vertex, versioning::BranchChangeKind kin
   return fork;
 }
 
-// Feeds GetProperty's per-key filter and, for a fork vertex, the property scans' touched set.
+// Feeds GetProperty's per-key filter, the scan epochs and, for a fork vertex, the property scans' touched set.
 void RecordPropertyWrites(versioning::BranchContext &ctx, storage::Gid gid, bool fork, const PropertyMap &properties) {
   for (auto const &[pid, _] : properties) {
     ctx.core()->RecordPropertyFieldChange(gid, pid);
+    ctx.BumpScanEpoch(versioning::BranchContext::ScanInput::kProperty, pid.AsUint());
     if (fork) ctx.core()->RecordPropertyTouched(pid, gid);
   }
 }
@@ -155,6 +156,7 @@ storage::Result<uint64_t> VertexAccessor::BranchGetPropertySize(storage::Propert
 storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
   auto &ctx = *branch_ctx_;
   if (ctx.IsForkVertexGid(Gid())) ctx.core()->RecordLabelTouched(label, Gid());
+  ctx.BumpScanEpoch(versioning::BranchContext::ScanInput::kLabel, label.AsUint());
   if (!PrepareBranchWrite(*this, versioning::BranchChangeKind::kLabel)) return impl_.AddLabel(label);
   return ctx.OverlayAddLabel(Gid(), label);
 }
@@ -171,6 +173,7 @@ storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storag
   auto &ctx = *branch_ctx_;
   bool const fork = PrepareBranchWrite(*this, versioning::BranchChangeKind::kProperty);
   ctx.core()->RecordPropertyFieldChange(Gid(), key);
+  ctx.BumpScanEpoch(versioning::BranchContext::ScanInput::kProperty, key.AsUint());
   if (!fork) return impl_.SetProperty(key, value);
   ctx.core()->RecordPropertyTouched(key, Gid());
   return ctx.OverlaySetProperty(Gid(), key, value);
