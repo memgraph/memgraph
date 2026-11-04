@@ -55,6 +55,10 @@ enum class Op : uint8_t {
 /// its no-op merge lets the core call `analysis.merge(...)` unconditionally.
 struct NoAnalysis {
   void merge(NoAnalysis const & /*other*/) {}
+
+  /// Comparable so the rewriter's debug-only audit of "facts move only on merge"
+  /// runs over these graphs instead of silently skipping them.
+  auto operator==(NoAnalysis const &) const -> bool = default;
 };
 
 constexpr auto op_to_string(Op op) -> std::string_view {

@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <ranges>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include <boost/unordered/unordered_flat_set.hpp>
@@ -29,6 +31,7 @@
 #include "planner/rewrite/rule.hpp"
 #include "planner/rewrite/rule_latch.hpp"
 #include "planner/rewrite/rule_set.hpp"
+#include "utils/logging.hpp"
 
 import memgraph.planner.core.egraph;
 
@@ -227,7 +230,15 @@ class Rewriter {
       }
 
       driver.before_pass(*egraph_);
+
+#ifndef NDEBUG
+      auto const analysis_before = snapshot_analysis_for_audit();
+#endif
       auto const rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, driver.armed(), driver.active());
+#ifndef NDEBUG
+      audit_moved_analysis_was_touched(analysis_before);
+#endif
+
       result.rewrites_applied += rewrites_this_iter;
 
       if (rewrites_this_iter == 0) {
@@ -280,6 +291,42 @@ class Rewriter {
   /// Re-seed the latch from the current rule set's derived data. Called on
   /// construction and whenever set_rules replaces the rules.
   void reseat_latch() { latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size()); }
+
+#ifndef NDEBUG
+  /// An analysis the audit below can compare across a pass. One that cannot be
+  /// copied or compared is not audited, rather than refusing to compile.
+  static constexpr bool kAuditsAnalysis = std::copy_constructible<Analysis> && std::equality_comparable<Analysis>;
+
+  using AnalysisSnapshot = std::vector<std::pair<EClassId, Analysis>>;
+
+  /// The analysis of every canonical e-class, to compare after the pass.
+  auto snapshot_analysis_for_audit() const -> AnalysisSnapshot {
+    AnalysisSnapshot snapshot;
+    if constexpr (kAuditsAnalysis) {
+      snapshot.reserve(egraph_->num_classes());
+      for (auto const id : egraph_->canonical_eclass_ids()) snapshot.emplace_back(id, egraph_->analysis_of(id));
+    }
+    return snapshot;
+  }
+
+  /// Incremental arming learns that a fact moved only from the touch the merge
+  /// recorded, so a fact that moves without one leaves a newly matching rewrite
+  /// unarmed, and the skip is silent. Checked per pass, where the touched-set
+  /// holds this pass's touches. A merged-away id canonicalises to its survivor,
+  /// which the merge touched, so a legitimate merge cannot trip this.
+  void audit_moved_analysis_was_touched(AnalysisSnapshot const &before) const {
+    if constexpr (kAuditsAnalysis) {
+      boost::unordered_flat_set<EClassId> touched;
+      egraph_->touched_eclasses_into(touched);
+      for (auto const &[id, was] : before) {
+        if (egraph_->analysis_of(id) == was) continue;
+        DMG_ASSERT(touched.contains(egraph_->find(id)),
+                   "analysis of an e-class moved during a pass that never touched it; incremental arming cannot "
+                   "see the change and will skip a rule that full saturation would fire");
+      }
+    }
+  }
+#endif
 
   /**
    * @brief Apply all rules once and accumulate per-rule statistics
