@@ -43,10 +43,28 @@ struct Edge {
 
   void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
+#ifdef MG_ENTERPRISE
+  // Supplementary hint: branched() on the endpoint Vertex objects is what traversal fast paths key on.
+  // Only meaningful with properties_on_edges. Same monotonic/lock-free-read contract as Vertex::branched()
+  // (vertex.hpp).
+  bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
+
+  // Caller MUST hold `lock`. The hint is monotonic: it may only be set, never cleared.
+  void SetBranched(bool b) {
+    MG_ASSERT(b, "The branched hint is monotonic: clearing it would be a bug");
+    delta_.SetRelaxed<kBranchedBit>(true);
+  }
+#endif
+
  private:
   static constexpr int kDeletedBit = 0;
+#ifdef MG_ENTERPRISE
+  static constexpr int kBranchedBit = 1;
 
+  utils::PointerPack<Delta, 2> delta_{};
+#else
   utils::PointerPack<Delta, 1> delta_{};
+#endif
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");

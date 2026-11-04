@@ -3346,3 +3346,61 @@ TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
   EXPECT_EQ(edges->edges.At(0).ToVertex(), to);
   EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
 }
+
+#ifdef MG_ENTERPRISE
+// The branched hint shares the delta pointer word with the deleted / non-sequential-deltas bits.
+TEST(StorageV2BranchedHint, VertexBitIsIndependentOfOtherFlagsAndDelta) {
+  memgraph::storage::Vertex vertex{memgraph::storage::Gid::FromUint(0), nullptr};
+  vertex.SetDeleted(true);
+  vertex.set_has_uncommitted_non_sequential_deltas(true);
+  EXPECT_FALSE(vertex.branched());
+
+  vertex.SetBranched(true);
+  EXPECT_TRUE(vertex.branched());
+  EXPECT_TRUE(vertex.deleted());
+  EXPECT_TRUE(vertex.has_uncommitted_non_sequential_deltas());
+  EXPECT_EQ(vertex.delta(), nullptr);
+
+  vertex.SetDeleted(false);
+  vertex.set_has_uncommitted_non_sequential_deltas(false);
+  EXPECT_TRUE(vertex.branched());
+
+  // Monotonic: re-setting is a no-op and later flag flips never clear it.
+  vertex.SetBranched(true);
+  EXPECT_TRUE(vertex.branched());
+  vertex.SetDeleted(true);
+  EXPECT_TRUE(vertex.branched());
+}
+
+TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
+  memgraph::storage::InMemoryStorage store;
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("T"));
+  ASSERT_TRUE(edge.has_value());
+  EXPECT_FALSE(edge->MaybeBranchedHint());
+
+  auto *raw = edge->edge_.ptr;
+  raw->SetBranched(true);
+  EXPECT_TRUE(edge->MaybeBranchedHint());
+  EXPECT_FALSE(raw->deleted());
+
+  // Monotonic: re-setting is a no-op.
+  raw->SetBranched(true);
+  EXPECT_TRUE(edge->MaybeBranchedHint());
+}
+
+// Without properties on edges the EdgeRef holds a Gid, not an Edge*, so there is no bit to read.
+TEST(StorageV2BranchedHint, EdgeAccessorHintIsFalseWithoutPropertiesOnEdges) {
+  memgraph::storage::Config config;
+  config.salient.items.properties_on_edges = false;
+  memgraph::storage::InMemoryStorage store{config};
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("T"));
+  ASSERT_TRUE(edge.has_value());
+  EXPECT_FALSE(edge->MaybeBranchedHint());
+}
+#endif  // MG_ENTERPRISE
