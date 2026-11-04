@@ -21,6 +21,7 @@
 #include <optional>
 #include <ranges>
 #ifdef MG_ENTERPRISE
+#include <limits>
 #include <set>
 #endif
 #include <string_view>
@@ -853,7 +854,7 @@ class InMemoryStorage final : public Storage {
 
 #ifdef MG_ENTERPRISE
   // Captures the current timestamp as a branch fork point and pins GC at it; returns it.
-  // Lock order: engine_lock_ then version_fork_pin_lock_.
+  // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
   // Call exactly once per RegisterForkPin; an unregistered fork_ts MG_ASSERTs.
@@ -1254,8 +1255,11 @@ class InMemoryStorage final : public Storage {
 #ifdef MG_ENTERPRISE
   // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: several pins may share a fork_ts.
   // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
-  mutable utils::SpinLock version_fork_pin_lock_;
+  utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
+  // Min of version_fork_pins_ (kNoForkPin when empty), stored under version_fork_pin_lock_ so readers skip the lock.
+  static constexpr uint64_t kNoForkPin = std::numeric_limits<uint64_t>::max();
+  std::atomic<uint64_t> oldest_fork_pin_{kNoForkPin};
 #endif
 };
 
