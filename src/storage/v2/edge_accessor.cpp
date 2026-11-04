@@ -328,8 +328,10 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(
         properties,
         IndexedPropertyDecoder<Edge>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr},
+        skip_duplicate_write));
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
+      // A key the store kept comes back with old == new; it was rebuilt from its stored value, so it needs no delta.
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDeltaForEdgeSetProperty(

@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <cmath>
 #include <filesystem>
 #include <type_traits>
 #include <variant>
@@ -2717,6 +2718,46 @@ TEST_P(UniquePropertyTrackingTest, IdenticalConstrainedWritesHonourDeltaFlag) {
     EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification(), GetParam());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
+}
+
+// A map write of a value equal to the stored one but stored differently must leave the stored
+// representation as it was once the write is undone, whether or not the write was skipped.
+TEST_P(UniquePropertyTrackingTest, MapWriteOfAnEqualValueKeepsTheStoredRepresentationAcrossAbort) {
+  auto const key = storage->NameToProperty("a");
+  auto const nested = [&](PropertyValue value) { return PropertyValue(PropertyValue::map_t{{key, std::move(value)}}); };
+  auto const check =
+      [&](std::string_view name, PropertyValue const &seeded, PropertyValue const &written, auto const &kept) {
+        SCOPED_TRACE(name);
+        auto gid = Seed(seeded);
+        {
+          auto acc = storage->Access(WRITE);
+          auto vertex = acc->FindVertex(gid, View::NEW);
+          ASSERT_TRUE(vertex);
+          auto const deltas_before = acc->GetTransaction()->deltas.size();
+          ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, written, 2));
+          // The write takes effect exactly when the flag says so; a skip that ignored the flag would
+          // pass the check after the abort too.
+          auto const now = vertex->GetProperty(prop1, View::NEW);
+          ASSERT_TRUE(now.has_value());
+          EXPECT_EQ(kept(*now), !GetParam());
+          EXPECT_EQ(acc->GetTransaction()->deltas.size() - deltas_before, GetParam() ? 1U : 0U);
+          acc->Abort();
+        }
+        auto acc = storage->Access(READ);
+        auto vertex = acc->FindVertex(gid, View::OLD);
+        ASSERT_TRUE(vertex);
+        auto const value = vertex->GetProperty(prop1, View::OLD);
+        ASSERT_TRUE(value.has_value());
+        EXPECT_TRUE(kept(*value)) << "the aborted map write left its new representation in the store";
+        acc->Abort();
+      };
+  check("int then double", PropertyValue(7), PropertyValue(7.0), [](PropertyValue const &v) { return v.IsInt(); });
+  check("nested int then double", nested(PropertyValue(7)), nested(PropertyValue(7.0)), [&](PropertyValue const &v) {
+    return v.IsMap() && v.ValueMap().at(key).IsInt();
+  });
+  check("zero then negative zero", PropertyValue(0.0), PropertyValue(-0.0), [](PropertyValue const &v) {
+    return v.IsDouble() && !std::signbit(v.ValueDouble());
+  });
 }
 
 TEST_P(UniquePropertyTrackingTest, SkippedWritesPreserveEntriesAcrossAbortAndGc) {

@@ -3071,7 +3071,7 @@ struct NoDecode {
 
 template <typename TDecoder>
 std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::DoUpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder) {
+    std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder, bool skip_identical) {
   auto old_properties = Properties();
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
@@ -3086,7 +3086,20 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
     auto [it, inserted] = properties.emplace(old_key, old_value);
     if (!inserted) {
       auto &new_value = it->second;
-      decoder.DecodeProperty(old_value);
+      if (skip_identical) {
+        // Compared as the caller sees them, rebuilt from the stored value: a skipped key keeps its stored
+        // representation, so it cannot change without a delta.
+        auto decoded = old_value;
+        decoder.DecodeProperty(decoded);
+        if (decoded == new_value) {
+          new_value = std::move(old_value);
+          id_old_new_change.emplace_back(it->first, decoded, decoded);
+          continue;
+        }
+        old_value = std::move(decoded);
+      } else {
+        decoder.DecodeProperty(old_value);
+      }
       id_old_new_change.emplace_back(it->first, std::move(old_value), new_value);
     }
   }
@@ -3097,20 +3110,20 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
 }
 
 std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties) {
-  return DoUpdateProperties(properties, NoDecode{});
+    std::map<PropertyId, PropertyValue> &properties, bool skip_identical) {
+  return DoUpdateProperties(properties, NoDecode{}, skip_identical);
 }
 
 template <typename T>
 std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder) {
-  return DoUpdateProperties(properties, decoder);
+    std::map<PropertyId, PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder, bool skip_identical) {
+  return DoUpdateProperties(properties, decoder, skip_identical);
 }
 
 template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Vertex> &);
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Vertex> &, bool);
 template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Edge> &);
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Edge> &, bool);
 
 template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
     const std::map<PropertyId, PropertyValue> &);

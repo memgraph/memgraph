@@ -163,18 +163,20 @@ class PropertyStore {
   /// @throw std::bad_alloc
   bool InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties);
 
-  /// Update property values in property store with sent properties. Returns vector of changed
-  /// properties. Each tuple inside vector consists of PropertyId of inserted property, together with old
-  /// property (if existed or empty PropertyValue if didn't exist) and new property which was inserted.
+  /// Update property values in property store with sent properties. Returns one tuple (id, old, new) per key
+  /// the map names, old being the empty PropertyValue for a key that did not exist. With skip_identical, a key
+  /// whose stored value compares equal to the new one is rebuilt from its stored value and reported with
+  /// old == new, so the caller can leave it without a delta.
   /// The time complexity of this function is O(n*log(n)):
   /// @throw std::bad_alloc
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
-      std::map<storage::PropertyId, storage::PropertyValue> &properties);
+      std::map<storage::PropertyId, storage::PropertyValue> &properties, bool skip_identical = false);
 
   /// Same as above, but old values are decoded with `decoder` before the store is modified.
   template <typename T>
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
-      std::map<storage::PropertyId, storage::PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder);
+      std::map<storage::PropertyId, storage::PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder,
+      bool skip_identical = false);
 
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time
@@ -197,7 +199,7 @@ class PropertyStore {
 
   template <typename TDecoder>
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> DoUpdateProperties(
-      std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder);
+      std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder, bool skip_identical);
 
   template <typename Func>
   auto WithReader(Func &&func) const;

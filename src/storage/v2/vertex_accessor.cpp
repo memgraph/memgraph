@@ -630,11 +630,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     id_old_new_change.emplace(vertex->properties.UpdateProperties(
         properties,
         IndexedPropertyDecoder<Vertex>{
-            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex},
+        skip_duplicate_update));
     if (!id_old_new_change) {
       return;
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
+      // A key the store kept comes back with old == new; it was rebuilt from its stored value, so it needs no delta.
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
       storage->indices_.UpdateOnSetProperty(id, old_value, new_value, vertex, *transaction);
