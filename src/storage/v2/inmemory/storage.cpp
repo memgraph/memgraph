@@ -4070,7 +4070,6 @@ StorageInfo InMemoryStorage::GetInfo() {
 
 bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
 #ifdef MG_ENTERPRISE
-  // The transaction being committed is already in an existing WAL file; the caller then only finalizes the commit.
   if (suppress_wal_.load(std::memory_order_acquire)) return false;
 #endif
 
@@ -5220,7 +5219,7 @@ void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
   // Ids in [timestamp_, target) were never handed out, so no transaction can hold them: mark them finished or the
   // oldest-active id would stall at the gap and block GC.
   auto const first_skipped = timestamp_;
-  timestamp_ = target;
+  SetTimestampQuiescent(target);
   commit_log_->MarkFinishedInRange(first_skipped, target - 1);
 }
 
