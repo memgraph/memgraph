@@ -42,6 +42,10 @@
 #include "tests/unit/ddl_abort_helpers.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
+#ifdef MG_ENTERPRISE
+#include "query/edge_accessor.hpp"
+#include "versioning/branch_engine.hpp"
+#endif
 
 #include "storage/v2/exceptions.hpp"
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -191,6 +195,47 @@ TEST_F(VectorEdgeIndexTest, ToBoltEdgeOmitsVectorIndexedPropertyWhenFlagOn) {
   EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
   EXPECT_TRUE(without_prop->properties.contains("weight"));
 }
+
+#ifdef MG_ENTERPRISE
+// The branch arm of ToBoltEdge hides vector-indexed properties like the storage arm. The edge is untouched on the
+// branch, so its reads fall through to main@fork while the index lookup still consults main.
+TEST_F(VectorEdgeIndexTest, ToBoltEdgeBranchArmOmitsVectorIndexedPropertyWhenFlagOn) {
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_vector_edge_index_branch_arm_omit";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  const auto set_omit = [&](bool enabled) {
+    settings.SetValue("storage.omit_vector_index_properties_on_return", enabled ? "true" : "false");
+  };
+  memgraph::utils::OnScopeExit reset_flag{[&] { set_omit(false); }};
+
+  this->CreateEdgeIndex(2, 10);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto [from, to, storage_edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+  ASSERT_TRUE(storage_edge.SetProperty(acc->NameToProperty("weight"), PropertyValue(0.5)).has_value());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  const auto fork_ts = mem_storage->RegisterForkPin();
+  memgraph::utils::OnScopeExit release_pin{[&] { mem_storage->ReleaseForkPin(fork_ts); }};
+  auto branch_ctx = memgraph::versioning::BranchContext::BuildFromFork(*mem_storage, fork_ts);
+  ASSERT_TRUE(branch_ctx.has_value());
+  memgraph::query::EdgeAccessor const query_edge(storage_edge, branch_ctx->get());
+
+  set_omit(false);
+  auto with_prop = memgraph::glue::ToBoltEdge(query_edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(with_prop.has_value());
+  EXPECT_TRUE(with_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(with_prop->properties.contains("weight"));
+
+  set_omit(true);
+  auto without_prop = memgraph::glue::ToBoltEdge(query_edge, *this->storage, View::NEW, nullptr);
+  ASSERT_TRUE(without_prop.has_value());
+  EXPECT_FALSE(without_prop->properties.contains(test_property.data()));
+  EXPECT_TRUE(without_prop->properties.contains("weight"));
+}
+#endif
 
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   this->CreateEdgeIndex(2, 10);

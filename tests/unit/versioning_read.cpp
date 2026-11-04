@@ -13,6 +13,7 @@
 // session's BranchContext; branch writes go through the BranchContext API with the change records a query-layer write
 // makes.
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -24,18 +25,23 @@
 
 #include "auth/models.hpp"
 #include "glue/auth_checker.hpp"
+#include "glue/communication.hpp"
 #include "query/db_accessor.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/graph.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/hops_limit.hpp"
 #include "storage/v2/property_value.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/memory.hpp"
 #include "versioning/branch_change_kind.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning_fixture.hpp"
 
+using memgraph::tests::versioning_fixture::ExplainText;
 using memgraph::tests::versioning_fixture::IntRows;
+using memgraph::tests::versioning_fixture::PlanHasOperator;
 
 namespace {
 
@@ -66,6 +72,22 @@ class VersioningReadTest : public VersioningGatedTest {
     body(ctx);
     if (commit) ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
     ctx.EndTransaction();
+  }
+
+  // The DbAccessor a branch query gets, on the open branch transaction.
+  static mq::DbAccessor BranchDba(mv::BranchContext &ctx) { return mq::DbAccessor{ctx.current_diff_txn(), &ctx}; }
+
+  // A branch-native edge from fork vertex `from` (through its stub) to `to`, recorded as a query-layer write does.
+  static ms::EdgeAccessor CreateEdgeFromFork(mv::BranchContext &ctx, int64_t from, ms::VertexAccessor to,
+                                             ms::EdgeTypeId type) {
+    auto const from_gid = ms::Gid::FromInt(from);
+    auto stub = ctx.CowVertex(from_gid);
+    MG_ASSERT(stub.has_value());
+    auto edge = ctx.CreateNativeEdge(&*stub, &to, type);
+    MG_ASSERT(edge.has_value());
+    ctx.RecordEdgeChange(from_gid);
+    ctx.RecordEdgeChange(to.Gid());
+    return *edge;
   }
 
   // The fork vertex `gid` as the branch's query layer sees it.
@@ -398,4 +420,252 @@ TEST_F(VersioningReadTest, BranchAccessorReportsMainDatabaseNameForFineGrainedAu
   memgraph::glue::FineGrainedAuthChecker denied_checker{denied, &branch_dba};
   EXPECT_TRUE(denied_checker.Has(std::array{a}, read));
   EXPECT_FALSE(denied_checker.Has(std::array{b}, read));
+}
+
+// A full scan on a branch is main@fork (never main's later commits) joined with the branch's native vertices and
+// without the vertices it deleted; the untouched branch takes the fork stream as is.
+TEST_F(VersioningReadTest, BranchFullScanUntouchedBranchIsForkStreamOnly) {
+  faker.Interpret("CREATE (:K {i: 1}), (:K {i: 2})");
+  auto const one = Int("MATCH (n:K {i: 1}) RETURN id(n)");
+  Fork();
+  EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 2);
+  InBranchTxn([](mv::BranchContext &ctx) { ctx.CreateNativeVertex(); });
+  EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 3) << "a branch-native vertex joins the scan";
+
+  faker.interpreter.current_db_.LeaveBranch();
+  faker.Interpret("CREATE (:K {i: 3})");
+  Fork("c2");
+  faker.interpreter.current_db_.LeaveBranch();
+  faker.Interpret("CREATE (:K {i: 4})");
+  Attach(faker, "c2");
+  EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 3) << "a post-fork main vertex must not leak";
+
+  InBranchTxn([&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.OverlayMarkDeleted(ms::Gid::FromInt(one))); });
+  EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 2) << "a vertex deleted on the branch leaves the scan";
+  EXPECT_EQ(Int("MATCH (n) WHERE n.i = 1 RETURN count(n)"), 0);
+
+  faker.interpreter.current_db_.LeaveBranch();
+  EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 4) << "main is untouched";
+}
+
+// Lookups by id (ScanAllById / ScanAllByEdgeId, and the FROM-vertex edge lookup) resolve fork and branch-native
+// objects, and miss main's post-fork objects and what the branch deleted.
+TEST_F(VersioningReadTest, IdLookupsResolveForkAndNativeObjectsOnly) {
+  faker.Interpret("CREATE (:S)-[:E]->(:A)");
+  auto const s_gid = Int("MATCH (n:S) RETURN id(n)");
+  auto const a_gid = Int("MATCH (n:A) RETURN id(n)");
+  auto const fork_edge = Int("MATCH ()-[e:E]->() RETURN id(e)");
+  Fork();
+
+  int64_t later_vertex = 0;
+  int64_t later_edge = 0;
+  {
+    auto acc = Main()->Access(ms::WRITE);
+    auto v = acc->CreateVertex();
+    auto u = acc->CreateVertex();
+    auto e = acc->CreateEdge(&v, &u, Main()->NameToEdgeType("E"));
+    ASSERT_TRUE(e.has_value());
+    later_vertex = v.Gid().AsInt();
+    later_edge = e->Gid().AsInt();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  int64_t native_vertex = 0;
+  int64_t native_edge = 0;
+  InBranchTxn([&](mv::BranchContext &ctx) {
+    auto native = ctx.CreateNativeVertex();
+    native_vertex = native.Gid().AsInt();
+    native_edge = CreateEdgeFromFork(ctx, a_gid, native, Main()->NameToEdgeType("F")).Gid().AsInt();
+  });
+
+  auto const vertex_by_id = [&](int64_t gid) {
+    return "MATCH (n) WHERE id(n) = " + std::to_string(gid) + " RETURN count(n)";
+  };
+  auto const edge_by_id = [&](int64_t gid) {
+    return "MATCH ()-[e]->() WHERE id(e) = " + std::to_string(gid) + " RETURN count(e)";
+  };
+  ASSERT_TRUE(PlanHasOperator(ExplainText(faker, vertex_by_id(a_gid)), "ScanAllById"));
+  ASSERT_TRUE(PlanHasOperator(ExplainText(faker, edge_by_id(fork_edge)), "ScanAllByEdgeId"));
+  EXPECT_EQ(Int(vertex_by_id(a_gid)), 1);
+  EXPECT_EQ(Int(vertex_by_id(native_vertex)), 1);
+  EXPECT_EQ(Int(vertex_by_id(later_vertex)), 0);
+  EXPECT_EQ(Int(edge_by_id(fork_edge)), 1);
+  EXPECT_EQ(Int(edge_by_id(native_edge)), 1);
+  EXPECT_EQ(Int(edge_by_id(later_edge)), 0);
+  EXPECT_EQ(Int(edge_by_id(999999)), 0);
+
+  InBranchTxn(
+      [&](mv::BranchContext &ctx) {
+        auto dba = BranchDba(ctx);
+        auto const by_from = dba.FindEdge(ms::Gid::FromInt(fork_edge), ms::Gid::FromInt(s_gid), ms::View::NEW);
+        ASSERT_TRUE(by_from.has_value());
+        EXPECT_EQ(by_from->branch_ctx_, &ctx);
+        EXPECT_TRUE(dba.FindEdge(ms::Gid::FromInt(native_edge), ms::Gid::FromInt(a_gid), ms::View::NEW).has_value())
+            << "a native edge hangs off the fork vertex's stub";
+        EXPECT_FALSE(dba.FindEdge(ms::Gid::FromInt(fork_edge), ms::Gid::FromInt(a_gid), ms::View::NEW).has_value())
+            << "only the FROM vertex's OUT adjacency is searched";
+
+        ASSERT_TRUE(*ctx.OverlayMarkDeleted(ms::Gid::FromInt(s_gid)));
+        EXPECT_FALSE(dba.FindVertex(ms::Gid::FromInt(s_gid), ms::View::NEW).has_value());
+        EXPECT_TRUE(dba.FindVertex(ms::Gid::FromInt(s_gid), ms::View::OLD).has_value());
+        EXPECT_FALSE(dba.FindEdge(ms::Gid::FromInt(fork_edge), ms::View::NEW).has_value())
+            << "a deleted endpoint hides the fork edge";
+        auto const found = dba.FindVertex(ms::Gid::FromInt(a_gid), ms::View::NEW);
+        ASSERT_TRUE(found.has_value());
+        EXPECT_EQ(found->branch_ctx_, &ctx);
+      },
+      /*commit=*/false);
+}
+
+TEST_F(VersioningReadTest, BranchHopsLimitEnforcedOnExpand) {
+  faker.Interpret("UNWIND range(1, 100) AS x CREATE ()-[:NEXT]->()");
+  Fork();
+  EXPECT_EQ(Int("USING HOPS LIMIT 5 MATCH p=()-[:NEXT]->() RETURN count(p) AS c"), 5);
+}
+
+TEST_F(VersioningReadTest, BranchGetHopsCounterTracksTraversal) {
+  faker.Interpret("UNWIND range(1, 100) AS x CREATE ()-[:NEXT]->()");
+  Fork();
+  // The CALL subquery traverses 50 of the 100 edges, within the 100-hop budget.
+  EXPECT_EQ(Int("USING HOPS LIMIT 100 CALL { MATCH (a)-[r]->(b) WITH a, r, b LIMIT 50 RETURN count(*) AS cnt } "
+                "RETURN getHopsCounter() AS hc"),
+            50);
+}
+
+// Bolt encodes what the branch reads: the overlay's labels and properties, and a native edge's stub endpoint as the
+// fork vertex's id.
+TEST_F(VersioningReadTest, BoltEncodingOfBranchAccessorsReadsTheBranchView) {
+  faker.Interpret("CREATE (:P {id: 1, x: 1})-[:E {w: 1}]->(:P {id: 2})");
+  auto const v = Int("MATCH (n:P {id: 1}) RETURN id(n)");
+  auto const e = Int("MATCH ()-[e:E]->() RETURN id(e)");
+  Fork();
+
+  auto const x = Main()->NameToProperty("x");
+  auto const w = Main()->NameToProperty("w");
+  int64_t native_edge = 0;
+  InBranchTxn([&](mv::BranchContext &ctx) {
+    WriteProperty(ctx, v, x, ms::PropertyValue{2});
+    ToggleLabel(ctx, v, Main()->NameToLabel("Q"), true);
+    auto fork_edge = ctx.FindForkEdge(ms::Gid::FromInt(e), ms::Gid::FromInt(v));
+    ASSERT_TRUE(fork_edge.has_value());
+    ASSERT_TRUE(ctx.PrepareForkEdgeWrite(*fork_edge).has_value());
+    ctx.core()->RecordForkEdgeProperty(fork_edge->Gid(), w);
+    ASSERT_TRUE(ctx.EdgeOverlaySetProperty(*fork_edge, w, ms::PropertyValue{5}).has_value());
+    native_edge = CreateEdgeFromFork(ctx, v, ctx.CreateNativeVertex(), Main()->NameToEdgeType("N")).Gid().AsInt();
+  });
+
+  InBranchTxn([&](mv::BranchContext &) {
+    auto const vertex = memgraph::glue::ToBoltVertex(BranchVertex(v), *Main(), ms::View::NEW, nullptr);
+    ASSERT_TRUE(vertex.has_value());
+    auto labels = vertex->labels;
+    std::ranges::sort(labels);
+    EXPECT_EQ(labels, (std::vector<std::string>{"P", "Q"}));
+    EXPECT_EQ(vertex->properties.at("x").ValueInt(), 2);
+
+    auto out = BranchVertex(v).OutEdges(ms::View::NEW);
+    ASSERT_TRUE(out.has_value());
+    ASSERT_EQ(out->edges.size(), 2U);
+    for (auto const &edge : out->edges) {
+      auto const bolt = memgraph::glue::ToBoltEdge(edge, *Main(), ms::View::NEW, nullptr);
+      ASSERT_TRUE(bolt.has_value());
+      EXPECT_EQ(bolt->from.AsInt(), v);
+      if (edge.Gid().AsInt() == e) {
+        EXPECT_EQ(bolt->properties.at("w").ValueInt(), 5);
+      } else {
+        EXPECT_EQ(edge.Gid().AsInt(), native_edge);
+        EXPECT_EQ(bolt->type, "N");
+      }
+    }
+  });
+}
+
+// A subgraph's adjacency on a branch is the branch's adjacency narrowed to the subgraph's edges: an edge deleted on
+// the branch is gone, a native one shows from both ends, and endpoints read the branch state.
+TEST_F(VersioningReadTest, SubgraphAdjacencyOnBranchIsBranchView) {
+  faker.Interpret("CREATE (a:A {name: 'a'})-[:R1]->(b:B {name: 'b'}), (a)-[:R2]->(c:C {name: 'c'})");
+  faker.Interpret("CREATE (:D {name: 'd'})-[:R4]->(:E {name: 'e'})");
+  auto const a_gid = Int("MATCH (n:A) RETURN id(n)");
+  auto const c_gid = Int("MATCH (n:C) RETURN id(n)");
+  auto const b_gid = Int("MATCH (n:B) RETURN id(n)");
+  auto const r2 = Int("MATCH ()-[r:R2]->() RETURN id(r)");
+  Fork();
+
+  auto const name = Main()->NameToProperty("name");
+  InBranchTxn([&](mv::BranchContext &ctx) {
+    auto c_stub = ctx.CowVertex(ms::Gid::FromInt(c_gid));
+    ASSERT_TRUE(c_stub.has_value());
+    CreateEdgeFromFork(ctx, b_gid, *c_stub, Main()->NameToEdgeType("R3"));
+    auto r2_edge = ctx.FindForkEdge(ms::Gid::FromInt(r2), ms::Gid::FromInt(a_gid));
+    ASSERT_TRUE(r2_edge.has_value());
+    ASSERT_TRUE(*ctx.DeleteForkEdge(*r2_edge));
+    ToggleLabel(ctx, a_gid, Main()->NameToLabel("A"), false);
+    ToggleLabel(ctx, a_gid, Main()->NameToLabel("X"), true);
+    WriteProperty(ctx, a_gid, name, ms::PropertyValue{"a2"});
+  });
+
+  InBranchTxn([&](mv::BranchContext &ctx) {
+    auto dba = BranchDba(ctx);
+    auto const keys = [&](const mq::ExpandedEdges &edges) {
+      std::vector<std::string> types;
+      for (auto const &edge : edges) types.push_back(dba.EdgeTypeToName(edge.EdgeType()));
+      std::ranges::sort(types);
+      return types;
+    };
+    using Types = std::vector<std::string>;
+
+    std::map<std::string, mq::VertexAccessor> by_name;
+    for (auto vertex : dba.Vertices(ms::View::NEW)) {
+      by_name.emplace(vertex.GetProperty(ms::View::NEW, name)->ValueString(), vertex);
+    }
+    ASSERT_EQ(by_name.size(), 5U);
+    auto const &a = by_name.at("a2");
+    auto const &b = by_name.at("b");
+    auto const &c = by_name.at("c");
+
+    mq::Graph full{memgraph::utils::NewDeleteResource()};
+    for (auto const &vertex : {a, b, c}) {
+      full.InsertVertex(vertex);
+      for (auto const &edge : vertex.OutEdges(ms::View::NEW)->edges) full.InsertEdge(edge);
+    }
+    ASSERT_EQ(full.edges().size(), 2U);
+    mq::SubgraphVertexAccessor const sa{a, &full};
+    mq::SubgraphVertexAccessor const sb{b, &full};
+    mq::SubgraphVertexAccessor const sc{c, &full};
+    EXPECT_EQ(keys(sa.OutEdges(ms::View::NEW)->edges), (Types{"R1"})) << "R2 was deleted on the branch";
+    EXPECT_EQ(keys(sa.InEdges(ms::View::NEW)->edges), Types{});
+    EXPECT_EQ(keys(sb.InEdges(ms::View::NEW)->edges), (Types{"R1"}));
+    EXPECT_EQ(keys(sb.OutEdges(ms::View::NEW)->edges), (Types{"R3"}));
+    EXPECT_EQ(keys(sc.InEdges(ms::View::NEW)->edges), (Types{"R3"}));
+    EXPECT_EQ(keys(sc.OutEdges(ms::View::NEW)->edges), Types{});
+
+    for (auto const &edge : sa.OutEdges(ms::View::NEW)->edges) {
+      EXPECT_EQ(edge.branch_ctx_, &ctx);
+      EXPECT_EQ(edge.From().GetProperty(ms::View::NEW, name)->ValueString(), "a2") << "endpoints read the branch";
+      EXPECT_TRUE(*edge.From().HasLabel(ms::View::NEW, Main()->NameToLabel("X")));
+    }
+
+    // A subgraph holding only R3 hides R1 from both of its ends.
+    mq::Graph partial{memgraph::utils::NewDeleteResource()};
+    for (auto const &vertex : {a, b, c}) partial.InsertVertex(vertex);
+    for (auto const &edge : sb.OutEdges(ms::View::NEW)->edges) partial.InsertEdge(edge);
+    mq::SubgraphVertexAccessor const pa{a, &partial};
+    mq::SubgraphVertexAccessor const pb{b, &partial};
+    EXPECT_EQ(keys(pa.OutEdges(ms::View::NEW)->edges), Types{});
+    EXPECT_EQ(keys(pb.InEdges(ms::View::NEW)->edges), Types{});
+    EXPECT_EQ(keys(pb.OutEdges(ms::View::NEW)->edges), (Types{"R3"}));
+
+    // d -R4-> e is untouched on the branch; membership still filters it.
+    auto const &d = by_name.at("d");
+    auto const &e = by_name.at("e");
+    mq::Graph with_r4{memgraph::utils::NewDeleteResource()};
+    mq::Graph without_r4{memgraph::utils::NewDeleteResource()};
+    for (auto const &vertex : {d, e}) {
+      with_r4.InsertVertex(vertex);
+      without_r4.InsertVertex(vertex);
+    }
+    for (auto const &edge : d.OutEdges(ms::View::NEW)->edges) with_r4.InsertEdge(edge);
+    EXPECT_EQ(keys(mq::SubgraphVertexAccessor{d, &with_r4}.OutEdges(ms::View::NEW)->edges), (Types{"R4"}));
+    EXPECT_EQ(keys(mq::SubgraphVertexAccessor{e, &with_r4}.InEdges(ms::View::NEW)->edges), (Types{"R4"}));
+    EXPECT_EQ(keys(mq::SubgraphVertexAccessor{d, &without_r4}.OutEdges(ms::View::NEW)->edges), Types{});
+    EXPECT_EQ(keys(mq::SubgraphVertexAccessor{e, &without_r4}.InEdges(ms::View::NEW)->edges), Types{});
+  });
 }
