@@ -3066,7 +3066,11 @@ uint64_t InMemoryStorage::RegisterForkPin() {
   // Capture and pin under engine_lock_: CheckForFastDiscardOfDeltas reads the pin under it, so no commit can mint
   // a timestamp >= fork_ts and fast-discard its deltas before the pin is visible.
   auto engine_guard = std::scoped_lock{engine_lock_};
-  const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
+  // Do NOT increment timestamp_. Narrowed committers publish outside engine_lock_, so past the watermark a
+  // minted, unpublished commit could later turn visible at this fork.
+  const uint64_t fork_ts = config_.experimental_commit_lock_narrowing
+                               ? last_committed_mvcc_ts_.load(std::memory_order_acquire) + 1
+                               : timestamp_;
   auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
   version_fork_pins_.insert(fork_ts);
   oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
@@ -3329,7 +3333,6 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   }
 
 #ifdef MG_ENTERPRISE
-  // Clamp the GC horizon (and so visibility_horizon below) to the oldest live fork pin.
   oldest_active_start_timestamp =
       std::min(oldest_active_start_timestamp, oldest_fork_pin_.load(std::memory_order_acquire));
 #endif
