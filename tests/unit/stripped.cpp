@@ -769,10 +769,8 @@ TEST(HashedString, DisambiguatesOnHashCollision) {
   EXPECT_EQ(map.at(HashedString{"RETURN 1"}), 2);
 }
 
-// The codepoint tables are built at compile time by a stand-in for
-// std::bitset, whose string constructor is not constexpr. This asserts the
-// stand-in reads a bit string exactly as std::bitset does, so the tables hold
-// what the literals say.
+// A table that disagrees with its bit string would change which characters the
+// lexer accepts, and would do it silently.
 template <typename TSet>
 void ExpectMatchesBitset(const TSet &set, std::string_view bits) {
   ASSERT_EQ(bits.size(), static_cast<size_t>(lexer_constants::kBitsetSize));
