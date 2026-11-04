@@ -27,6 +27,18 @@
 
 namespace memgraph::dbms {
 
+namespace {
+// RecoverData's per-WAL-file epoch bookkeeping.
+void RecordWalEpoch(storage::ReplicationStorageState &state, std::string const &epoch_id, uint64_t ldt) {
+  if (!state.history.empty() && state.history.back().first == epoch_id) {
+    state.history.back().second = ldt;
+  } else {
+    state.history.emplace_back(epoch_id, ldt);
+    state.epoch_.SetEpoch(epoch_id);
+  }
+}
+}  // namespace
+
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts) {
@@ -63,10 +75,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
         // Same per-file epoch bookkeeping as RecoverData.
         const auto ldt_after = storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
         if (ldt_after != ldt_before) {
-          storage::durability::RecordWalEpoch(storage.repl_storage_state_,
-                                              storage::durability::ReadWalContents(file).epoch_id,
-                                              ldt_after,
-                                              storage.name());
+          RecordWalEpoch(storage.repl_storage_state_, storage::durability::ReadWalContents(file).epoch_id, ldt_after);
         }
       }
     }
