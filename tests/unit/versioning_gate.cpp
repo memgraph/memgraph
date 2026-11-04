@@ -23,17 +23,16 @@ using memgraph::versioning::GateErrorMessage;
 using memgraph::versioning::GateOperation;
 using memgraph::versioning::GateState;
 
-// Precedence follows the spec's prerequisites: flag, license, storage mode, durability, commit-lock narrowing (first
-// failure wins). Only kCreate needs the license and durability; kObserve (SHOW, USE, DROP) needs neither.
+// Precedence follows the spec's prerequisites: flag, license, storage mode, durability (first failure wins). Only
+// kCreate needs the license and durability; kObserve (SHOW, USE, DROP) needs neither.
 TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
   for (const auto op : {GateOperation::kObserve, GateOperation::kCreate}) {
     const bool creating = op == GateOperation::kCreate;
-    for (unsigned bits = 0; bits < 32; ++bits) {
+    for (unsigned bits = 0; bits < 16; ++bits) {
       const GateState state{.flag_enabled = (bits & 1U) != 0,
                             .enterprise_valid = (bits & 2U) != 0,
                             .is_in_memory_transactional = (bits & 4U) != 0,
-                            .durable = (bits & 8U) != 0,
-                            .commit_lock_narrowing = (bits & 16U) != 0};
+                            .durable = (bits & 8U) != 0};
       std::optional<GateError> expected;
       if (!state.flag_enabled) {
         expected = GateError::kDisabled;
@@ -43,8 +42,6 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
         expected = GateError::kUnsupportedStorageMode;
       } else if (creating && !state.durable) {
         expected = GateError::kNotDurable;
-      } else if (state.commit_lock_narrowing) {
-        expected = GateError::kCommitLockNarrowing;
       }
       EXPECT_EQ(CheckVersioningGate(op, state), expected) << "creating=" << creating << " bits=" << bits;
     }
@@ -52,11 +49,8 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
 }
 
 TEST(VersioningGate, UnlicensedObserveIsAllowedButCreateIsNot) {
-  const GateState state{.flag_enabled = true,
-                        .enterprise_valid = false,
-                        .is_in_memory_transactional = true,
-                        .durable = true,
-                        .commit_lock_narrowing = false};
+  const GateState state{
+      .flag_enabled = true, .enterprise_valid = false, .is_in_memory_transactional = true, .durable = true};
   EXPECT_EQ(CheckVersioningGate(GateOperation::kObserve, state), std::nullopt);
   EXPECT_EQ(CheckVersioningGate(GateOperation::kCreate, state), GateError::kNoLicense);
 }
@@ -72,8 +66,6 @@ TEST(VersioningGate, ErrorMessagesAreExact) {
             "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL.");
   ASSERT_EQ(GateErrorMessage(GateError::kNotDurable),
             "Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.");
-  ASSERT_EQ(GateErrorMessage(GateError::kCommitLockNarrowing),
-            "Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing.");
 }
 
 TEST(VersioningGate, BranchesDurableNeedsWalAndRecoveryOnStartup) {
