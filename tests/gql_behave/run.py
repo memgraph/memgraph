@@ -57,6 +57,11 @@ def main():
     )
     add_config("--test-suite")
     add_config("--test-directory")
+    argp.add_argument(
+        "--feature-file",
+        action="append",
+        help="run only this feature file of the suite (relative to its features/ directory); may be repeated",
+    )
 
     # Arguments that should be passed on to Behave
     add_argument("--db-host", default="127.0.0.1", help="server host (default is 127.0.0.1)")
@@ -71,6 +76,9 @@ def main():
     add_argument("--storage-mode", help="Memgraph storage mode")
     add_argument("--scenario", help="Single scenario to run")
     add_argument("--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to read queries")
+    add_argument(
+        "--versioned-branch", action="store_true", help="run each scenario's test query on a Graph Versioning branch"
+    )
 
     # Parse arguments
     parsed_args = argp.parse_args()
@@ -100,16 +108,17 @@ def main():
     # Find tests
     test_directory = os.path.join(SCRIPT_DIR, "tests", test_suite_name)
 
-    # Determine what path to pass to behave (can be suite dir or specific feature file)
-    if "/" in parsed_args.test_suite:
+    # Determine what to pass to behave (suite dir, specific feature file or --feature-file list)
+    if parsed_args.feature_file:
+        behave_args = [os.path.join(test_directory, "features", f) for f in parsed_args.feature_file]
+    elif "/" in parsed_args.test_suite:
         # Specific feature file provided
-        behave_test_path = os.path.join(SCRIPT_DIR, "tests", parsed_args.test_suite)
+        behave_args = [os.path.join(SCRIPT_DIR, "tests", parsed_args.test_suite)]
     else:
         # Just test suite name
-        behave_test_path = test_directory
+        behave_args = [test_directory]
 
     # Create arguments for Behave
-    behave_args = [behave_test_path]
     for arg_name in args_value:
         var_name = arg_name[2:].replace("-", "_")
         behave_args.extend([arg_name, getattr(parsed_args, var_name)])

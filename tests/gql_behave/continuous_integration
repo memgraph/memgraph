@@ -208,6 +208,12 @@ def main():
     argp.add_argument(
         "--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to all queries"
     )
+    argp.add_argument(
+        "--versioned-branch",
+        action="store_true",
+        help="run only the suites with a feature_allowlist, each scenario's test query on a Graph Versioning branch "
+        "(enterprise build and license required)",
+    )
     args = argp.parse_args()
 
     # Load tests from config file
@@ -235,12 +241,19 @@ def main():
     # Run suites
     old_storage_mode = ""
     for suite in suites:
+        # A suite with a feature_allowlist is a branch-safe subset of another suite: it runs only in this arm.
+        if args.versioned_branch != ("feature_allowlist" in suite):
+            continue
+
         print("Starting suite '{}' scenarios.".format(suite["name"]))
 
         suite_storage_mode = suite["storage_mode"]
         if old_storage_mode != suite_storage_mode:
             memgraph.stop()
-            memgraph.start(["--storage-mode", suite_storage_mode])
+            versioning = (
+                ["--experimental-enabled=versioning", "--storage-wal-enabled=true"] if args.versioned_branch else []
+            )
+            memgraph.start(["--storage-mode", suite_storage_mode] + versioning)
             old_storage_mode = suite_storage_mode
 
         suite["stats_file"] = os.path.join(output_dir.name, suite["name"] + ".json")
@@ -256,6 +269,10 @@ def main():
         ]
         if args.parallel_execution:
             cmd.append("--parallel-execution")
+        if args.versioned_branch:
+            cmd.append("--versioned-branch")
+            for feature_file in suite["feature_allowlist"]:
+                cmd.extend(["--feature-file", feature_file])
 
         # The exit code isn't checked here because the `behave` framework
         # returns a non-zero exit code when some tests fail.
