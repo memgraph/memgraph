@@ -31,6 +31,7 @@
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
+#include "query/plan/rewrite/order_by_elimination.hpp"
 #include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
@@ -95,7 +96,9 @@ class PostProcessor final {
                  std::move(p), symbol_table, ast, db, context->query->pre_query_directives_, parameters_);
            }
 #endif
-    ;
+           // Last of all: it reads what sits above each scan, so it wants the
+           // plan every other rewrite has finished with.
+           | [&](auto p) { return KeepTheRefusalWhereNothingDropsARow(std::move(p)); };
   }
 
   bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {

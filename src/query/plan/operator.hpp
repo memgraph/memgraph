@@ -739,6 +739,14 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
+  /// Whether a sort was dropped in favour of this walk, so that it refuses the
+  /// pairs that sort refused.
+  ///
+  /// A flag rather than a list of columns: a sort this walk can stand in for
+  /// read @ref property_ and nothing else, where one over a composite index may
+  /// have read any of its properties.
+  bool stands_in_for_a_sort_{false};
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
@@ -766,6 +774,10 @@ class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
+  /// Whether a sort over @ref property_ was dropped in favour of this walk, so
+  /// that it refuses the pairs that sort refused.
+  bool stands_in_for_a_sort_{false};
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
@@ -786,6 +798,10 @@ class ScanAllByVertexProperty : public memgraph::query::plan::ScanAll {
 
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
+
+  /// Whether a sort over @ref property_ was dropped in favour of this walk, so
+  /// that it refuses the pairs that sort refused.
+  bool stands_in_for_a_sort_{false};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -823,6 +839,16 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
   storage::IndexOrder index_order_{storage::IndexOrder::ASC};
+
+  /// Which of @ref properties_ a sort read, where this walk was kept in place of
+  /// one, as positions into it.
+  ///
+  /// A sort refuses a pair it has no order for, and a walk handing back the
+  /// stored order has one for every pair. Naming the columns the sort read is
+  /// what keeps the refusal to those columns: a trailing column the sort never
+  /// looked at, or one an equality fenced to a single value, carries values the
+  /// sort was never asked to place.
+  std::vector<std::size_t> sort_columns_;
 
   std::string ToString(const DbAccessor *dba) const override;
 
