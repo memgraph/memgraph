@@ -376,6 +376,22 @@ DbAccessor::BranchDetachDelete(std::vector<VertexAccessor> nodes, std::vector<Ed
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
+storage::Result<EdgeAccessor> DbAccessor::BranchInsertEdge(const VertexAccessor &from, const VertexAccessor &to,
+                                                           storage::EdgeTypeId edge_type) {
+  auto &ctx = *branch_ctx_;
+  auto from_diff = ctx.CowVertex(from.Gid());
+  if (!from_diff) throw QueryRuntimeException(from_diff.error().message);
+  auto to_diff = ctx.CowVertex(to.Gid());
+  if (!to_diff) throw QueryRuntimeException(to_diff.error().message);
+
+  auto edge = ctx.CreateNativeEdge(&*from_diff, &*to_diff, edge_type);
+  if (!edge) return std::unexpected{edge.error()};
+  // Turns off both endpoints' unchanged-adjacency fast path.
+  ctx.RecordEdgeChange(from.Gid());
+  ctx.RecordEdgeChange(to.Gid());
+  return EdgeAccessor(*edge, branch_ctx_);
+}
+
 #endif
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 

@@ -97,6 +97,7 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
 TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
   faker.Interpret("CREATE (:Person:Employee {id: 1})");
   faker.Interpret("CREATE (:User {id: 1})-[:E]->(:User {id: 2, age: 40, keep: 7})");
+  faker.Interpret("CREATE (s:S)-[:E1 {w: 1}]->(:A), (s)-[:E2 {w: 2}]->(:B)");
   faker.Interpret("CREATE (:RP {id: 1, p: 7, q: 8})");
   Fork();
 
@@ -105,6 +106,8 @@ TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
   faker.Interpret("MATCH (n:M1) SET n.v = 2");
   faker.Interpret("MATCH (n:Person {id: 1}) REMOVE n:Employee");
   faker.Interpret("MATCH (v:User {id: 2}) SET v.age = 99");
+  faker.Interpret("MATCH (:S)-[e:E1]->(:A) SET e.w = 99");
+  faker.Interpret("MATCH (s:S), (b:B) CREATE (s)-[:E3 {w: 3}]->(b)");
   faker.Interpret("MATCH (n:RP) REMOVE n.p");
   faker.Interpret("MATCH (n:RP) SET n.q = null");
 
@@ -115,6 +118,7 @@ TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
     ASSERT_EQ(labels.GetResults().size(), 1U);
     EXPECT_EQ(SortedNames(labels.GetResults()[0][0]), (std::vector<std::string>{"Person"}));
     EXPECT_EQ(IntRows(faker, "MATCH (:User {id: 1})-[:E]->(v) RETURN v.age, v.keep"), (Rows{{99, 7}}));
+    EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e]->() RETURN e.w ORDER BY e.w"), (Rows{{2}, {3}, {99}}));
     auto removed = faker.Interpret("MATCH (n:RP) RETURN keys(n), n.id");
     ASSERT_EQ(removed.GetResults().size(), 1U);
     EXPECT_EQ(SortedNames(removed.GetResults()[0][0]), (std::vector<std::string>{"id"}));
@@ -134,6 +138,7 @@ TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:M2) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:Person:Employee) RETURN count(n)"), (Rows{{1}}));
   EXPECT_EQ(IntRows(faker, "MATCH (v:User {id: 2}) RETURN v.age"), (Rows{{40}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (:S)-[e]->() RETURN e.w ORDER BY e.w"), (Rows{{1}, {2}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:RP) RETURN n.p, n.q"), (Rows{{7, 8}}));
 }
 

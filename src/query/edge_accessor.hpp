@@ -78,6 +78,26 @@ class EdgeAccessor final {
   }
 #endif
 
+#ifdef MG_ENTERPRISE
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchSetProperty(key, value);
+    return impl_.SetProperty(key, value);
+  }
+
+  storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchInitProperties(properties);
+    return impl_.InitProperties(properties);
+  }
+
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchUpdateProperties(properties);
+    return impl_.UpdateProperties(properties);
+  }
+#else
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
@@ -90,12 +110,17 @@ class EdgeAccessor final {
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
     return impl_.UpdateProperties(properties);
   }
+#endif
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchClearProperties();
+#endif
     return impl_.ClearProperties();
   }
 
@@ -137,6 +162,15 @@ class EdgeAccessor final {
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchProperties(storage::View view) const;
   storage::Result<storage::PropertyValue> BranchGetProperty(storage::View view, storage::PropertyId key) const;
   storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
+
+  // Branch writes: a fork edge is written in its overlay version by gid (impl_ stays the fork accessor), a
+  // branch-native one in the diff engine. A write to a fork edge hidden on the branch throws QueryRuntimeException.
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
 #endif
 };
 
