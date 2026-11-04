@@ -26,11 +26,9 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::storage::durability {
 struct WalInfo;
 }  // namespace memgraph::storage::durability
-#endif
 
 namespace memgraph::rpc {
 class FileReplicationHandler;
