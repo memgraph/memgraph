@@ -10491,8 +10491,8 @@ void Interpreter::ResetInterpreter() {
   tx_mode_.reset();
   // A session whose current database was FORCE-dropped releases it here. Only one whose database was named in the Bolt
   // connection metadata is closed (as the drain hook closes idle ones): it cannot switch away and would keep failing.
-  // A USE DATABASE session keeps its connection and may switch databases. RequestTermination only posts to the
-  // session's strand, so the current message still completes first.
+  // A USE DATABASE session keeps its connection and may switch databases. RequestTermination never closes a
+  // session mid-request, so the current message still completes first.
   [[maybe_unused]] auto const released = current_db_.ReleaseDbIfMarked();
 #ifdef MG_ENTERPRISE
   if (released && current_db_.in_explicit_db_) {
