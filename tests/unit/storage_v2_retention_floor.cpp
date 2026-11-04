@@ -14,14 +14,21 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <thread>
+#include <tuple>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
+#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -41,6 +48,8 @@ ms::Config MakeConfig(bool recover_on_startup, uint64_t snapshot_retention_count
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)},
                      .snapshot_retention_count = snapshot_retention_count,
+                     .wal_file_size_kibibytes = 1,
+                     .wal_file_flush_every_n_tx = 1,
                      .recovery_history_bound = recovery_history_bound,
                      .retention_floor = retention_floor},
   };
@@ -89,7 +98,6 @@ void SetV1(memgraph::dbms::Database &db, const Gids &g, int64_t value) {
   Commit(*acc);
 }
 
-// update v1.p, detach-delete v2, delete v3, create v4.
 Gids MoveMainOn(memgraph::dbms::Database &db, Gids g) {
   SetV1(db, g, 10);
   auto acc = db.Access(ms::WRITE);
@@ -103,7 +111,6 @@ Gids MoveMainOn(memgraph::dbms::Database &db, Gids g) {
   return g;
 }
 
-// The state CreateBase left, before MoveMainOn.
 void ExpectBaseState(memgraph::dbms::Database &db, const Gids &g) {
   auto acc = db.Access(ms::READ);
   auto v1 = acc->FindVertex(g.v1, ms::View::OLD);
@@ -118,16 +125,34 @@ void ExpectBaseState(memgraph::dbms::Database &db, const Gids &g) {
   EXPECT_FALSE(acc->FindVertex(g.v4, ms::View::OLD).has_value()) << "vertex created after the floor must be absent";
 }
 
-// Moves main on past the floor and takes three snapshots above it under a retention count of 1.
-void SnapshotPastTheFloor(memgraph::dbms::Database &db, Gids &gids, bool snapshot_below_floor) {
+// Fills several 1 KiB WAL files, so snapshot passes have WAL files to prune.
+void RotateWal(memgraph::dbms::Database &db, const Gids &g, int64_t base) {
+  for (int i = 0; i < 20; ++i) SetV1(db, g, base + i);
+}
+
+void SnapshotPastTheFloor(memgraph::dbms::Database &db, Gids &gids, bool snapshot_below_floor,
+                          uint64_t retention_count) {
   gids = MoveMainOn(db, gids);
+  RotateWal(db, gids, 200);
   Snapshot(db);
+  RotateWal(db, gids, 300);
   SetV1(db, gids, 11);
   Snapshot(db);
+  RotateWal(db, gids, 400);
   SetV1(db, gids, 12);
   Snapshot(db);
-  EXPECT_EQ(CountFiles("snapshots"), snapshot_below_floor ? 2U : 1U)
-      << (snapshot_below_floor ? "the newest snapshot and the one below the floor" : "only the newest snapshot");
+  EXPECT_EQ(CountFiles("snapshots"), retention_count + (snapshot_below_floor ? 1U : 0U))
+      << "the newest " << retention_count << " snapshots"
+      << (snapshot_below_floor ? " and the one below the floor" : "");
+  if (!snapshot_below_floor) {
+    // No snapshot to rebuild the floor from: the whole WAL chain back to the first file must stay.
+    auto wals =
+        memgraph::storage::durability::GetWalFiles(kStorageDirectory / memgraph::storage::durability::kWalDirectory);
+    ASSERT_TRUE(wals.has_value());
+    EXPECT_GT(wals->size(), 1U) << "the WAL must have rotated";
+    EXPECT_TRUE(std::ranges::any_of(*wals, [](const auto &w) { return w.seq_num == 0; }))
+        << "the first WAL file must survive";
+  }
 }
 
 class RetentionFloorTest : public ::testing::Test {
@@ -137,29 +162,29 @@ class RetentionFloorTest : public ::testing::Test {
   void TearDown() override { std::filesystem::remove_all(kStorageDirectory); }
 };
 
-// Retention keeps only the newest snapshot, yet the state at the floor must stay recoverable: the snapshot below the
+// Retention keeps only the newest snapshots, yet the state at the floor must stay recoverable: the snapshot below the
 // floor plus the WAL after it, or, when no snapshot exists below the floor, every WAL file back to the first one.
-class RetentionFloorSnapshotTest : public RetentionFloorTest, public ::testing::WithParamInterface<bool> {};
+class RetentionFloorSnapshotTest : public RetentionFloorTest,
+                                   public ::testing::WithParamInterface<std::tuple<bool, uint64_t>> {};
 
 TEST_P(RetentionFloorSnapshotTest, ForkPinFloorSurvivesSnapshotRetention) {
-  const bool snapshot_below_floor = GetParam();
+  const auto [snapshot_below_floor, retention_count] = GetParam();
   Gids gids{};
   uint64_t floor = 0;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, retention_count)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
     if (snapshot_below_floor) Snapshot(db);
     EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
     floor = Mem(db)->RegisterBranchForkPin() - 1;
     EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
-    SnapshotPastTheFloor(db, gids, snapshot_below_floor);
-    // A later pin does not raise the floor.
+    SnapshotPastTheFloor(db, gids, snapshot_below_floor, retention_count);
     Mem(db)->RegisterBranchForkPin();
     EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
   }
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, retention_count, std::nullopt, floor)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   EXPECT_EQ(Mem(db)->RetentionFloor(), floor) << "the recovery bound seeds the floor";
   ExpectBaseState(db, gids);
@@ -167,64 +192,83 @@ TEST_P(RetentionFloorSnapshotTest, ForkPinFloorSurvivesSnapshotRetention) {
 
 // The floor comes from the configuration (no pin in this run): its snapshot passes must keep the base too.
 TEST_P(RetentionFloorSnapshotTest, ConfiguredFloorSurvivesSnapshotRetention) {
-  const bool snapshot_below_floor = GetParam();
+  const auto [snapshot_below_floor, retention_count] = GetParam();
   Gids gids{};
   uint64_t floor = 0;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, retention_count)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
     if (snapshot_below_floor) Snapshot(db);
     floor = Mem(db)->RegisterForkPin() - 1;
   }
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, floor)};
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, retention_count, floor)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
-    SnapshotPastTheFloor(db, gids, snapshot_below_floor);
+    SnapshotPastTheFloor(db, gids, snapshot_below_floor, retention_count);
   }
 
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, retention_count, std::nullopt, floor)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   ExpectBaseState(db, gids);
 }
 
-INSTANTIATE_TEST_SUITE_P(Retention, RetentionFloorSnapshotTest, ::testing::Bool(), [](const auto &info) {
-  return info.param ? "WithASnapshotBelowTheFloor" : "WithoutASnapshotBelowTheFloor";
-});
+INSTANTIATE_TEST_SUITE_P(Retention, RetentionFloorSnapshotTest,
+                         ::testing::Combine(::testing::Bool(), ::testing::Values(uint64_t{1}, uint64_t{2})),
+                         [](const auto &info) {
+                           return std::string{std::get<0>(info.param) ? "WithASnapshotBelowTheFloor"
+                                                                      : "WithoutASnapshotBelowTheFloor"} +
+                                  "_Retain" + std::to_string(std::get<1>(info.param));
+                         });
 
-TEST_F(RetentionFloorTest, ClearingTheFloorLetsRetentionCleanUpAgain) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  auto gids = CreateBase(db);
-  Snapshot(db);
-  const auto fork_ts = Mem(db)->RegisterBranchForkPin();
-  SetV1(db, gids, 2);
-  Snapshot(db);
-  SetV1(db, gids, 3);
-  Snapshot(db);
-  ASSERT_EQ(CountFiles("snapshots"), 2U);
-  EXPECT_TRUE(Mem(db)->RetentionFloor().has_value());
+// A fork lowering the floor while snapshot retention passes run keeps the state at the fork recoverable.
+TEST_F(RetentionFloorTest, ForkDuringSnapshotRetentionKeepsItsBase) {
+  for (int round = 0; round < 3; ++round) {
+    SCOPED_TRACE("round " + std::to_string(round));
+    std::filesystem::remove_all(kStorageDirectory);
+    Gids gids{};
+    uint64_t floor = 0;
+    ms::PropertyValue at_fork;
+    {
+      memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      gids = CreateBase(db);
+      std::atomic<int> passes{0};
+      std::jthread snapshots{[&] {
+        const memgraph::memory::DbArenaScope thread_scope{&db.Arena()};
+        for (int i = 0; i < 20; ++i) {
+          SetV1(db, gids, 100 + i);
+          Snapshot(db);
+          passes.fetch_add(1, std::memory_order_release);
+        }
+      }};
+      while (passes.load(std::memory_order_acquire) < 3 + 3 * round) std::this_thread::yield();
+      auto const fork_ts = Mem(db)->RegisterBranchForkPin();
+      floor = fork_ts - 1;
+      auto historical = Mem(db)->HistoricalAccess(fork_ts);
+      ASSERT_TRUE(historical.has_value());
+      auto v1 = (*historical)->FindVertex(gids.v1, ms::View::OLD);
+      ASSERT_TRUE(v1.has_value());
+      at_fork = *v1->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD);
+      snapshots.join();
+      EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
+    }
 
-  const auto wal_files_with_floor = CountFiles("wal");
-  Mem(db)->ReleaseForkPin(fork_ts);
-  Mem(db)->SetRetentionFloor(std::nullopt);
-  SetV1(db, gids, 4);
-  Snapshot(db);
-  EXPECT_EQ(CountFiles("snapshots"), 1U);
-  EXPECT_LE(CountFiles("wal"), wal_files_with_floor);
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(ms::READ);
+    auto v1 = acc->FindVertex(gids.v1, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    EXPECT_EQ(*v1->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD), at_fork);
+  }
 }
 
-TEST_F(RetentionFloorTest, RetentionIsUnchangedWithoutAFloor) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/2)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  auto gids = CreateBase(db);
-  EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
-  for (int i = 0; i < 4; ++i) {
-    Snapshot(db);
-    SetV1(db, gids, i);
-  }
-  EXPECT_EQ(CountFiles("snapshots"), 2U);
+TEST(RetentionFloorDeathTest, BoundAndFloorAreMutuallyExclusive) {
+  std::filesystem::remove_all(kStorageDirectory);
+  EXPECT_DEATH(ms::InMemoryStorage{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1, 5, 5)},
+               "mutually exclusive");
+  std::filesystem::remove_all(kStorageDirectory);
 }
 
 }  // namespace
