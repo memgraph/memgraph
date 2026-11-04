@@ -31,12 +31,14 @@
 // insert-during-rewrite path - touched-set insert + incremental matcher reindex -
 // is fuzzed, not just merges.
 //
-// Analysis is deliberately out of scope. Arming keys on symbol and parent-hop
-// only, and analysis moves only on merge (which touches), so analysis can only
-// make arming more conservative, never cause a skip - the trivial FuzzAnalysis
-// hides no divergence here. A rule whose enabling depends on analysis propagating
-// beyond structural parent-adjacency would break that argument and need its own
-// differential; no such rule exists.
+// The seeded leaves carry analysis facts, one bit each, unioned on merge, and a
+// round compares the facts the two runs propagated to the probe set. Arming keys
+// on symbol and parent-hop only, so analysis can make arming more conservative
+// but never cause a skip; carrying real facts is what lets the oracle observe
+// that, and lets the rewriter's debug-only audit that facts move only on merge
+// run over these graphs. A rule whose enabling depends on analysis propagating
+// beyond structural parent-adjacency would break the arming argument and need
+// its own differential; no such rule exists.
 
 #include <cstdint>
 #include <cstdlib>
@@ -155,10 +157,16 @@ auto make_rules(std::uint8_t selection, std::uint8_t tower_depth_raw) -> RuleSet
 // (same op sequence, no saturation yet), so a single shared `pool` indexes both.
 void seed_leaves(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<EClassId> &pool) {
   pool.clear();
+  std::uint16_t bit = 1;
   for (auto const leaf : {FuzzSymbol::A, FuzzSymbol::B, FuzzSymbol::C, FuzzSymbol::D, FuzzSymbol::E}) {
     for (std::uint64_t d = 0; d < 2; ++d) {
-      auto const id = ref_eg.core().emplace(leaf, d).eclass_id;
-      inc_eg.core().emplace(leaf, d);  // same id by construction
+      // One analysis bit per seeded leaf, so a merge that unions two leaves is
+      // observable as a fact that moved, and a merge incremental arming skipped
+      // shows up as a fact that did not.
+      auto const seed = FuzzAnalysis{.leaves = bit};
+      bit = static_cast<std::uint16_t>(bit << 1U);
+      auto const id = ref_eg.core().emplace(leaf, d, seed).eclass_id;
+      inc_eg.core().emplace(leaf, d, seed);  // same id by construction
       pool.push_back(id);
     }
   }
@@ -245,6 +253,17 @@ auto partition_labels(FuzzGraph const &eg, std::vector<EClassId> const &pool) ->
   return labels;
 }
 
+// The analysis fact each probe class carries. A merge unions the facts of the two
+// classes, so a merge one run made and the other missed leaves a probe holding
+// fewer leaves there. Independent of how each graph numbers its representatives,
+// and it reads the facts the engine propagates rather than the shape alone.
+auto probe_facts(FuzzGraph const &eg, std::vector<EClassId> const &pool) -> std::vector<std::uint16_t> {
+  std::vector<std::uint16_t> facts;
+  facts.reserve(pool.size());
+  for (auto const id : pool) facts.push_back(eg.analysis_of(id).leaves);
+  return facts;
+}
+
 }  // namespace
 
 extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int {
@@ -302,6 +321,15 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
     // the counts above and the sharp fixpoint oracle below, not by this check.
     if (partition_labels(ref_eg.core(), pool) != partition_labels(inc_eg.core(), pool)) {
       fail("merge partition over seeded nodes differs between full and incremental");
+    }
+
+    // The facts the engine propagated, not just the shape it reached. The seeded
+    // leaves carry one analysis bit each and a merge unions them, so this catches
+    // a skipped merge through what the analysis records rather than through the
+    // partition, and it is the oracle that makes an analysis-carrying graph part
+    // of the differential at all.
+    if (probe_facts(ref_eg.core(), pool) != probe_facts(inc_eg.core(), pool)) {
+      fail("analysis facts over seeded nodes differ between full and incremental");
     }
 
     // Sharp oracle: one all-rules pass on the incremental result must find
