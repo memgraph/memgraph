@@ -196,6 +196,7 @@ TEST_F(VersioningEdgeTest, BranchForkEdgeWriteAfterRollbackSucceeds) {
 // A written fork edge, deleted directly or through a DETACH DELETE of its endpoint, is gone from both ends and from
 // filtered scans while its parallel sibling stays; main keeps all of them.
 TEST_F(VersioningEdgeTest, BranchDeleteWrittenForkEdgeIsGoneEverywhere) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
   faker.Interpret(
       "CREATE (a:A {id: 1}), (b:B {id: 2}), (a)-[:R {w: 1}]->(b), (a)-[:R {w: 4}]->(b), "
       "(:A {id: 3})-[:R {w: 5}]->(:B {id: 4}), (:A {id: 5})-[:R {w: 6}]->(:B {id: 6})");
@@ -206,10 +207,13 @@ TEST_F(VersioningEdgeTest, BranchDeleteWrittenForkEdgeIsGoneEverywhere) {
   EXPECT_EQ(IntRows(faker, "MATCH (:A {id: 1})-[r]->() RETURN r.w"), (Rows{{4}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B {id: 2})<-[r]-() RETURN r.w"), (Rows{{4}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{4}, {5}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{0}}));
 
   faker.Interpret("MATCH (:A {id: 3})-[r:R]->() SET r.w = 8");
   faker.Interpret("MATCH (a:A {id: 3}) DETACH DELETE a");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w ORDER BY r.w"), (Rows{{4}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{4}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 8 RETURN count(r)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B {id: 4})<-[r]-() RETURN count(r)"), (Rows{{0}}));
 
   UseMain();

@@ -211,6 +211,24 @@ struct MirroredIndexCase {
 };
 
 constexpr MirroredIndexCase kMirroredIndexCases[] = {
+    {"EdgeType",
+     "CREATE EDGE INDEX ON :KNOWS",
+     "CREATE (:N)-[:KNOWS]->(:N)",
+     "MATCH ()-[r:KNOWS]->() RETURN r",
+     "ScanAllByEdgeType",
+     false},
+    {"EdgeTypeProperty",
+     "CREATE EDGE INDEX ON :KNOWS(w)",
+     "CREATE (:N)-[:KNOWS {w: 1}]->(:N)",
+     "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w",
+     "ScanAllByEdgeTypeProperty",
+     true},
+    {"GlobalEdgeProperty",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     "CREATE (:N)-[:KNOWS {w: 1}]->(:N)",
+     "MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w",
+     "ScanAllByEdgeProperty",
+     true},
     {"GlobalVertexProperty",
      "CREATE GLOBAL INDEX ON :(w)",
      "CREATE (:V {w: 1}), (:V {w: 2})",
@@ -597,5 +615,242 @@ TEST_F(VersioningIndexTest, BranchObjectsOmitVectorIndexedPropertiesWhenFlagOn) 
     EXPECT_FALSE(edge.contains("emb")) << "edge " << edge.at("id").ValueInt();
     EXPECT_TRUE(vertex.contains("id"));
     EXPECT_FALSE(vertex.contains("emb")) << "vertex " << vertex.at("id").ValueInt();
+  }
+}
+
+TEST_F(VersioningIndexTest, BranchEdgeTypeIndexScanReflectsBranchMutations) {
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
+  faker.Interpret(
+      "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}), (a)-[:KNOWS]->(b), (b)-[:KNOWS]->(c), (a)-[:KNOWS]->(c), "
+      "(a)-[:LIKES]->(c)");
+  Fork();
+
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'b'}) DELETE r");
+  faker.Interpret("MATCH (c:N {n:'c'}), (a:N {n:'a'}) CREATE (c)-[:KNOWS]->(a)");
+  faker.Interpret("MATCH (b:N {n:'b'}) DETACH DELETE b");
+
+  const std::string query = "MATCH (x)-[r:KNOWS]->(y) RETURN x.n + '->' + y.n AS e ORDER BY e";
+  ExpectPlanUses(faker, query, "ScanAllByEdgeType");
+  EXPECT_EQ(StringRows(faker, query), (Strings{"a->c", "c->a"}));
+  UseMain();
+  EXPECT_EQ(StringRows(faker, query), (Strings{"a->b", "a->c", "b->c"}));
+}
+
+// The planner drops ORDER BY for an edge-property index scan, so the merge alone must yield ascending values.
+TEST_F(VersioningIndexTest, BranchEdgePropertyIndexScansAreOrderedOverBranchMutations) {
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  // Creation order differs from w order.
+  faker.Interpret(
+      "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}), (e:N {n:'e'}), (a)-[:KNOWS {w: 50}]->(b), "
+      "(b)-[:KNOWS {w: 20}]->(c), (a)-[:KNOWS {w: 40}]->(c), (c)-[:KNOWS {w: 10}]->(e), (a)-[:LIKES {w: 30}]->(e)");
+  Fork();
+
+  faker.Interpret("MATCH (:N {n:'b'})-[r:KNOWS]->(:N {n:'c'}) SET r.w = 99");
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'c'}) DELETE r");
+  faker.Interpret("MATCH (e:N {n:'e'}), (a:N {n:'a'}) CREATE (e)-[:KNOWS {w: 25}]->(a), (e)-[:FOLLOWS {w: 5}]->(a)");
+  faker.Interpret("MATCH (:N {n:'a'})-[r:LIKES]->() SET r.w = 60");
+
+  const std::string typed = "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w";
+  const std::string global = "MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, global, "ScanAllByEdgeProperty");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{10}, {25}, {50}, {99}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{5}, {10}, {25}, {50}, {60}, {99}}));
+  UseMain();
+  EXPECT_EQ(IntRows(faker, global), (Rows{{10}, {20}, {30}, {40}, {50}}));
+}
+
+// A fork edge is found at its branch value only; an unrelated property write keeps the fork value findable.
+TEST_F(VersioningIndexTest, BranchEdgePropertyIndexScansOverlayForkEdges) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:1}]->(:B {id:2}), (:A {id:3})-[:R {w:5}]->(:B {id:4}), "
+      "(:A {id:5})-[:R {w:7}]->(:B {id:6}), (:A {id:7})-[:Q {w:3}]->(:B {id:8})");
+  Fork();
+
+  faker.Interpret("MATCH (:A {id:1})-[r:R]->() SET r.w = 9");
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.x = 1");
+  faker.Interpret("MATCH (:A {id:5})-[r:R]->() REMOVE r.w");
+  faker.Interpret("MATCH (:A {id:7})-[r:Q]->() SET r.w = 2");  // another type: the global index only
+
+  auto const typed = [&](const std::string &where) {
+    return IntRows(faker, "MATCH ()-[r:R]->() WHERE " + where + " RETURN r.w ORDER BY r.w");
+  };
+  ExpectPlanUses(faker, "MATCH ()-[r:R]->() WHERE r.w = 1 RETURN r.w", "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w", "ScanAllByEdgeProperty");
+  EXPECT_EQ(typed("r.w = 1"), Rows{});
+  EXPECT_EQ(typed("r.w = 9"), (Rows{{9}}));
+  EXPECT_EQ(typed("r.w = 5"), (Rows{{5}}));
+  EXPECT_EQ(typed("r.w = 7"), Rows{});
+  EXPECT_EQ(typed("r.w > 0"), (Rows{{5}, {9}}));
+  EXPECT_EQ(typed("r.w >= 5 AND r.w < 9"), (Rows{{5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w"), (Rows{{2}, {5}, {9}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{0}}));
+}
+
+// A fork edge that gains the property is found only through the branch's record of it, through rollback and delete.
+TEST_F(VersioningIndexTest, BranchEdgePropertyIndexScanFollowsGainedPropertyThroughRollbackAndDelete) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:4}]->(:B {id:2}), (:A {id:3})-[:R {z:1}]->(:B {id:4}), "
+      "(:A {id:5})-[:Q {z:1}]->(:B {id:6})");
+  Fork();
+
+  auto const all_typed = [&] { return IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"); };
+  auto const all_global = [&] {
+    return IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w");
+  };
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (:A {id:5})-[r:Q]->() SET r.w = 6");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{1}}));
+  EXPECT_EQ(all_typed(), (Rows{{3}, {4}}));
+  EXPECT_EQ(all_global(), (Rows{{3}, {4}, {6}}));
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(all_typed(), (Rows{{4}}));
+  EXPECT_EQ(all_global(), (Rows{{4}}));
+
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (:A {id:5})-[r:Q]->() SET r.w = 6");
+  EXPECT_EQ(all_global(), (Rows{{3}, {4}, {6}}));
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 8");
+  EXPECT_EQ(all_typed(), (Rows{{4}, {8}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 4 AND r.w < 8 RETURN r.w"), (Rows{{4}}));
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() DELETE r");
+  EXPECT_EQ(all_typed(), (Rows{{4}}));
+  EXPECT_EQ(all_global(), (Rows{{4}, {6}}));
+
+  UseMain();
+  EXPECT_EQ(all_global(), (Rows{{4}}));
+}
+
+// An edge index main drops after the fork is not visible at it: the planner still picks the mirrored index and the
+// branch answers, in order, from a scan.
+TEST_F(VersioningIndexTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingIndex) {
+  struct Case {
+    const char *ddl;
+    const char *drop;
+    const char *match;
+    const char *op;
+  };
+
+  static constexpr Case kCases[] = {
+      {"CREATE EDGE INDEX ON :T(p)", "DROP EDGE INDEX ON :T(p)", "()-[r:T]->()", "ScanAllByEdgeTypeProperty"},
+      {"CREATE GLOBAL EDGE INDEX ON :(p)", "DROP GLOBAL EDGE INDEX ON :(p)", "()-[r]->()", "ScanAllByEdgeProperty"},
+  };
+  int branch = 0;
+  for (const auto &c : kCases) {
+    SCOPED_TRACE(c.ddl);
+    UseMain();
+    faker.Interpret("MATCH (n) DETACH DELETE n");
+    faker.Interpret(c.ddl);
+    // Creation order differs from p order.
+    faker.Interpret("CREATE (:V)-[:T {p: 3}]->(:V), (:V)-[:T {p: 1}]->(:V), (:V)-[:T {p: 2}]->(:V)");
+    const auto name = "d" + std::to_string(branch++);
+    Fork(name);
+    UseMain();
+    faker.Interpret(c.drop);
+    Use(faker, name);
+
+    const std::string presence = std::string{"MATCH "} + c.match + " WHERE r.p IS NOT NULL RETURN r.p ORDER BY r.p";
+    const std::string range = std::string{"MATCH "} + c.match + " WHERE r.p > 1 RETURN r.p ORDER BY r.p";
+    ExpectPlanUses(faker, range, c.op);
+    EXPECT_EQ(IntRows(faker, presence), (Rows{{1}, {2}, {3}}));
+    EXPECT_EQ(IntRows(faker, range), (Rows{{2}, {3}}));
+  }
+}
+
+namespace {
+constexpr auto kSeedEdges =
+    "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}),"
+    " (a)-[:R {w:1, t:'e1'}]->(b), (b)-[:R {w:2, t:'e2'}]->(c), (a)-[:Q {w:3, t:'e3'}]->(c)";
+constexpr auto kEdgeMainDrift =
+    "MATCH ()-[e {t:'e1'}]->() DELETE e;"
+    "MATCH ()-[e {t:'e2'}]->() SET e.w = 20;"
+    "MATCH (a:N {n:'a'}), (c:N {n:'c'}) CREATE (a)-[:R {w:4, t:'e4'}]->(c);"
+    "MATCH ()-[e {t:'e3'}]->() DELETE e";
+constexpr auto kEdgeBranchWrites =
+    "MATCH (c:N {n:'c'}), (a:N {n:'a'}) CREATE (c)-[:R {w:7, t:'bn'}]->(a);"
+    "MATCH ()-[e {t:'e1'}]->() SET e.w = 10";
+
+struct LateEdgeIndexCase {
+  const char *name;
+  bool rebuilt;
+  bool branch_writes_before;
+  TagP expected_r;
+  std::vector<int64_t> probe_w;
+};
+
+const std::vector<LateEdgeIndexCase> kLateEdgeIndexCases = {
+    {"LateMainDrift", false, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
+    {"LateMainDriftAndBranchWritesBefore", false, true, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20}},
+    {"RebuiltMainDrift", true, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
+};
+
+class VersioningLateEdgeIndexTest : public VersioningIndexTest,
+                                    public ::testing::WithParamInterface<LateEdgeIndexCase> {};
+}  // namespace
+
+TEST_P(VersioningLateEdgeIndexTest, BranchReadsForkStateAndOwnWrites) {
+  const auto &c = GetParam();
+  if (c.rebuilt) {
+    faker.Interpret("CREATE EDGE INDEX ON :R");
+    faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  }
+  faker.Interpret(kSeedEdges);
+  Fork();
+  if (c.branch_writes_before) RunStatements(faker, kEdgeBranchWrites);
+  UseMain();
+  RunStatements(faker, kEdgeMainDrift);
+  if (c.rebuilt) {
+    faker.Interpret("DROP EDGE INDEX ON :R");
+    faker.Interpret("DROP EDGE INDEX ON :R(w)");
+  }
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  Use(faker, "b");
+
+  const std::string type_idx = "MATCH ()-[e:R]->() RETURN e.t AS t ORDER BY t";
+  const std::string type_scan = "MATCH ()-[e]->() WHERE type(e) = 'R' RETURN e.t AS t ORDER BY t";
+  const std::string prop_idx = "MATCH ()-[e:R]->() WHERE e.w > 0 RETURN e.t AS t ORDER BY t";
+  EXPECT_EQ(PlanHasOperator(ExplainText(faker, type_idx), "ScanAllByEdgeType"), c.rebuilt);
+  EXPECT_EQ(PlanHasOperator(ExplainText(faker, prop_idx), "ScanAllByEdgeTypeProperty"), c.rebuilt);
+
+  const auto want = Tags(c.expected_r);
+  EXPECT_EQ(StringRows(faker, type_scan), want) << "the scan disagrees with the hand-derived state";
+  EXPECT_EQ(StringRows(faker, type_idx), want);
+  EXPECT_EQ(StringRows(faker, prop_idx), want);
+  for (auto w : c.probe_w) {
+    EXPECT_EQ(StringRows(faker, "MATCH ()-[e:R]->() WHERE e.w = " + std::to_string(w) + " RETURN e.t AS t ORDER BY t"),
+              Tags(c.expected_r, w))
+        << "w = " << w;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Cases, VersioningLateEdgeIndexTest, ::testing::ValuesIn(kLateEdgeIndexCases),
+                         [](const ::testing::TestParamInfo<LateEdgeIndexCase> &info) {
+                           return std::string{info.param.name};
+                         });
+
+TEST_F(VersioningIndexTest, BranchRebuiltGlobalEdgePropertyIndexReadsForkState) {
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(kSeedEdges);
+  Fork();
+  UseMain();
+  RunStatements(faker, kEdgeMainDrift);
+  faker.Interpret("DROP GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  Use(faker, "b");
+
+  const std::string range = "MATCH ()-[e]->() WHERE e.w > 0 RETURN e.t ORDER BY e.w";
+  ExpectPlanUses(faker, range, "ScanAllByEdgeProperty");
+  EXPECT_EQ(StringRows(faker, range), (Strings{"e1", "e2", "e3"}));
+  const std::vector<std::pair<int64_t, Strings>> probes = {{1, {"e1"}}, {2, {"e2"}}, {3, {"e3"}}, {4, {}}, {20, {}}};
+  for (const auto &[w, want] : probes) {
+    EXPECT_EQ(StringRows(faker, "MATCH ()-[e]->() WHERE e.w = " + std::to_string(w) + " RETURN e.t"), want)
+        << "w = " << w;
   }
 }

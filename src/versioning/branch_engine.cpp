@@ -82,6 +82,15 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
   for (const auto &property : main_indices.vertex_property) {
     mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalVertexIndex(property); });
   }
+  for (const auto &edge_type : main_indices.edge_type) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type); });
+  }
+  for (const auto &[edge_type, property] : main_indices.edge_type_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type, property); });
+  }
+  for (const auto &property : main_indices.edge_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalEdgeIndex(property); });
+  }
 }
 
 }  // namespace
