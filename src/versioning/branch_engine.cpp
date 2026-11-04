@@ -14,7 +14,9 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <exception>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -143,7 +145,18 @@ BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
       diff_engine_(std::move(diff_engine)) {}
 
 // The diff engine's deltas and indexes point at stubs, so it goes before stub_index_ (declared, hence destroyed, last).
-BranchCore::~BranchCore() { diff_engine_.reset(); }
+BranchCore::~BranchCore() {
+  const bool light_edges = diff_engine_->config_.salient.items.storage_light_edge;
+  diff_engine_.reset();
+  // The engine's teardown frees light edges reachable from vertices_ only; those linked from a stub are freed here.
+  if (light_edges) {
+    stub_index_.ForEachStub([](storage::Vertex *stub) {
+      for (const auto &[edge_type, to_vertex, edge_ref] : stub->out_edges) {
+        storage::InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+      }
+    });
+  }
+}
 
 void BranchCore::RecordVertexDeleted(storage::Gid gid) {
   change_filters_.RecordVertexDeleted(gid);
@@ -218,6 +231,7 @@ std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical() {
                        core_->fork_ts())});
   }
   historical_ = std::move(*hist_exp);
+  snapshot_pin_ = core_->PinSnapshot();
   return {};
 }
 
@@ -229,16 +243,31 @@ void BranchContext::SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) {
 void BranchContext::StartOverlayTransaction() {
   auto const *txn = current_diff_txn_->GetTransaction();
   overlay_txn_ = std::make_unique<OverlayTransaction>(txn->start_timestamp, txn->transaction_id, txn->isolation_level);
+  // The pin was taken before the diff transaction started, so it is normally already <= its start; a caller that
+  // opened the diff transaction first (tests) gets the pin lowered.
+  if (!snapshot_pin_) {
+    snapshot_pin_ = core_->PinSnapshot();
+  } else if (txn->start_timestamp < *snapshot_pin_) {
+    core_->RepinSnapshot(*snapshot_pin_, txn->start_timestamp);
+    snapshot_pin_ = txn->start_timestamp;
+  }
 }
 
 void BranchContext::EndTransaction() noexcept {
+  bool wrote = false;
   if (overlay_txn_ != nullptr) {
+    wrote = overlay_txn_->has_writes();
     if (!overlay_txn_->finished()) core_->overlay_store().Abort(*overlay_txn_);
     overlay_txn_.reset();
   }
   current_diff_txn_ = nullptr;
   historical_.reset();
   stub_cursor_.Reset();
+  if (snapshot_pin_) {
+    core_->UnpinSnapshot(*snapshot_pin_);
+    snapshot_pin_.reset();
+  }
+  if (wrote) core_->OnOverlayTxnEnded();
 }
 
 void BranchContext::SyncOverlayCommand() noexcept {
@@ -275,9 +304,136 @@ std::vector<uint64_t> BranchContext::OverlayWrittenGids() const {
   return gids;
 }
 
+void BranchContext::AddOverlayCommitCallback() {
+  // Runs inside the diff commit's publication, under engine_lock_ and before any later snapshot can start; the
+  // diff commit cannot fail once it gets here, so neither can the overlay's.
+  current_diff_txn_->GetTransaction()->commit_callbacks_.Add(
+      [&store = core_->overlay_store(), overlay = overlay_txn_.get()](uint64_t commit_ts) {
+        store.Commit(*overlay, commit_ts);
+      });
+}
+
+std::exception_ptr BranchContext::StampOverlayOnlyCommit() {
+  // The accessor owns the timestamp for the commit log: FinalizeTransaction marks it finished.
+  auto &accessor = *static_cast<storage::ReplicationAccessor *>(current_diff_txn_);
+  std::lock_guard engine_guard{diff_engine().engine_lock_};
+  uint64_t const commit_ts = diff_engine().timestamp_++;
+  accessor.GetCommitTimestamp().emplace(commit_ts);
+  try {
+    core_->overlay_store().Commit(*overlay_txn_, commit_ts);
+  } catch (...) {
+    return std::current_exception();
+  }
+  return nullptr;
+}
+
+std::expected<void, storage::StorageManipulationError> BranchContext::CommitTransaction(
+    storage::CommitArgs commit_args) {
+  MG_ASSERT(current_diff_txn_ != nullptr && overlay_txn_ != nullptr,
+            "BranchContext::CommitTransaction: no transaction.");
+  auto *txn = current_diff_txn_->GetTransaction();
+  bool const diff_has_deltas = !txn->deltas.empty() || !txn->md_deltas.empty();
+
+  if (!overlay_txn_->has_writes()) return current_diff_txn_->PrepareForCommitPhase(std::move(commit_args));
+
+  if (diff_has_deltas) {
+    AddOverlayCommitCallback();
+    return current_diff_txn_->PrepareForCommitPhase(std::move(commit_args));
+  }
+
+  // Overlay-only: the diff commit finishes without a commit timestamp, so take one here. The accessor still aborts
+  // after this, so it is FinalizeTransaction that marks the timestamp finished.
+  auto res = current_diff_txn_->PrepareForCommitPhase(std::move(commit_args));
+  if (!res) return res;
+  auto const failure = StampOverlayOnlyCommit();
+  static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->FinalizeTransaction();
+  if (failure) std::rethrow_exception(failure);  // the overlay is unfinished: EndTransaction aborts it
+  return res;
+}
+
+std::expected<void, storage::StorageManipulationError> BranchContext::PeriodicCommitTransaction(
+    storage::CommitArgs commit_args) {
+  MG_ASSERT(current_diff_txn_ != nullptr && overlay_txn_ != nullptr, "BranchContext::PeriodicCommit: no transaction.");
+  auto *txn = current_diff_txn_->GetTransaction();
+  bool const diff_has_deltas = !txn->deltas.empty() || !txn->md_deltas.empty();
+  bool const wrote = overlay_txn_->has_writes();
+
+  if (wrote && diff_has_deltas) {
+    AddOverlayCommitCallback();
+  } else if (wrote) {
+    // The diff PeriodicCommit finishes an empty batch without a timestamp and cannot fail; hand it ours first, so its
+    // FinalizeTransaction marks it finished.
+    if (auto const failure = StampOverlayOnlyCommit()) {
+      static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->FinalizeTransaction();
+      std::rethrow_exception(failure);
+    }
+  }
+  auto res = current_diff_txn_->PeriodicCommit(std::move(commit_args));
+  if (!res) return res;  // the caller ends the transaction, which aborts an unfinished overlay
+  overlay_txn_.reset();
+  StartOverlayTransaction();
+  // The previous batch is committed: release its snapshot from the GC horizon.
+  if (snapshot_pin_ && *snapshot_pin_ < txn->start_timestamp) {
+    core_->RepinSnapshot(*snapshot_pin_, txn->start_timestamp);
+    snapshot_pin_ = txn->start_timestamp;
+  }
+  return res;
+}
+
+uint64_t BranchCore::PinSnapshot() {
+  std::lock_guard lock{snapshot_mutex_};
+  uint64_t now = 0;
+  {
+    std::lock_guard engine_guard{diff_engine_->engine_lock_};
+    now = diff_engine_->timestamp_;  // <= the start timestamp of any transaction created from here on
+  }
+  snapshot_pins_.insert(now);
+  return now;
+}
+
+void BranchCore::RepinSnapshot(uint64_t from, uint64_t to) {
+  std::lock_guard lock{snapshot_mutex_};
+  snapshot_pins_.insert(to);
+  snapshot_pins_.erase(snapshot_pins_.find(from));
+}
+
+void BranchCore::UnpinSnapshot(uint64_t ts) {
+  std::lock_guard lock{snapshot_mutex_};
+  snapshot_pins_.erase(snapshot_pins_.find(ts));
+}
+
+void BranchCore::OnOverlayTxnEnded() noexcept {
+  if ((overlay_txns_ended_.fetch_add(1, std::memory_order_relaxed) + 1) % kGcEveryTxns != 0) return;
+  try {
+    CollectOverlayGarbage();
+  } catch (...) {
+    // Out of memory while collecting; the dirty set is kept, the next cycle retries.
+  }
+}
+
+void BranchCore::CollectOverlayGarbage() {
+  overlay_store_.CollectGarbage([this] {
+    std::lock_guard lock{snapshot_mutex_};
+    uint64_t now = 0;
+    {
+      std::lock_guard engine_guard{diff_engine_->engine_lock_};
+      now = diff_engine_->timestamp_;
+    }
+    return VertexOverlayStore::Horizon{snapshot_pins_.empty() ? now : std::min(now, *snapshot_pins_.begin()), now};
+  });
+}
+
 void BranchContext::MarkMainObjectBranched(storage::Vertex *main_vertex) {
   auto guard = std::unique_lock{main_vertex->lock};
   main_vertex->SetBranched(true);
+}
+
+void BranchContext::MarkForkEdgeBranched(const storage::EdgeAccessor &fork_edge) {
+  if (!diff_engine().config_.salient.items.properties_on_edges) return;  // reference edges: no Edge object to mark.
+  // fork_edge.edge_.ptr is main's live Edge* directly (historical_ is a view over main's physical objects).
+  storage::Edge *main_edge = fork_edge.edge_.ptr;
+  auto edge_guard = std::unique_lock{main_edge->lock};
+  main_edge->SetBranched(true);
 }
 
 std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {
@@ -328,6 +484,22 @@ std::expected<void, BranchContext::CowError> BranchContext::PrepareForkWrite(sto
   return {};
 }
 
+std::expected<void, BranchContext::CowError> BranchContext::PrepareForkEdgeWrite(
+    const storage::EdgeAccessor &fork_edge) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::PrepareForkEdgeWrite: no current diff transaction set.");
+  const auto edge_gid = fork_edge.Gid();
+  if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write edge {}: already deleted on this branch.", edge_gid.AsUint())});
+  }
+  if (!diff_engine().config_.salient.items.properties_on_edges) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write edge {}: edge properties are disabled.", edge_gid.AsUint())});
+  }
+  MarkForkEdgeBranched(fork_edge);
+  return {};
+}
+
 std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid) {
   return historical().FindEdge(edge_gid, from_gid, storage::View::OLD);
 }
@@ -344,6 +516,21 @@ storage::VertexAccessor BranchContext::CreateNativeVertex() {
             "BranchContext::CreateNativeVertex: gid {} already exists in the diff engine.",
             gid.AsUint());
   return *created;
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::VertexAccessor *from,
+                                                                       storage::VertexAccessor *to,
+                                                                       storage::EdgeTypeId edge_type) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::CreateNativeEdge: no current diff transaction set.");
+  const auto gid = storage::Gid::FromUint(core_->main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto edge = static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->CreateEdgeEx(from, to, edge_type, gid);
+  if (!edge) return edge;
+  // The edge is on the anchors, a different conflict domain from the overlay's delete flag. Checked after the write
+  // so a concurrent delete of a fork endpoint fails one side (see CanDeleteAnchor); the poisoned txn aborts.
+  if (!CanAttachEdgeTo(from->Gid()) || !CanAttachEdgeTo(to->Gid())) {
+    return std::unexpected{storage::Error::SERIALIZATION_ERROR};
+  }
+  return edge;
 }
 
 bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
@@ -596,6 +783,36 @@ storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchCon
   return OverlayClearPropertiesAt(gid.AsUint(), *fork_props);
 }
 
+storage::Result<storage::PropertyValue> BranchContext::EdgeOverlaySetProperty(const storage::EdgeAccessor &fork_edge,
+                                                                              storage::PropertyId key,
+                                                                              const storage::PropertyValue &value) {
+  auto fork_value = fork_edge.GetProperty(key, storage::View::OLD);
+  if (!fork_value) return std::unexpected{fork_value.error()};
+  return OverlaySetPropertyAt(EdgeKey(fork_edge.Gid().AsUint()), key, value, *fork_value);
+}
+
+storage::Result<bool> BranchContext::EdgeOverlayInitProperties(
+    const storage::EdgeAccessor &fork_edge, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  auto fork_props = fork_edge.Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  return OverlayInitPropertiesAt(EdgeKey(fork_edge.Gid().AsUint()), properties, *fork_props);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+BranchContext::EdgeOverlayUpdateProperties(const storage::EdgeAccessor &fork_edge,
+                                           std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  auto fork_props = fork_edge.Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  return OverlayUpdatePropertiesAt(EdgeKey(fork_edge.Gid().AsUint()), properties, *fork_props);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchContext::EdgeOverlayClearProperties(
+    const storage::EdgeAccessor &fork_edge) {
+  auto fork_props = fork_edge.Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  return OverlayClearPropertiesAt(EdgeKey(fork_edge.Gid().AsUint()), *fork_props);
+}
+
 storage::Result<bool> BranchContext::OverlayMarkDeleted(storage::Gid gid) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::OverlayMarkDeleted: no current diff transaction set.");
   if (IsVertexDeleted(gid, storage::View::NEW)) return false;
@@ -637,11 +854,62 @@ bool BranchContext::CanDeleteAnchor(storage::Gid gid) {
   return true;
 }
 
+bool BranchContext::CanAttachEdgeTo(storage::Gid gid) {
+  if (!IsForkVertexGid(gid) || !MayHaveVertexDeleted(gid)) return true;  // the delete records itself first
+  SyncOverlayCommand();
+  if (core_->overlay_store().CanWrite(gid.AsUint(), *overlay_txn_)) return true;
+  current_diff_txn_->GetTransaction()->has_serialization_error = true;
+  return false;
+}
+
 storage::VertexAccessor BranchContext::ForkIdentity(const storage::VertexAccessor &v) {
   if (!IsStub(v) || historical_ == nullptr) return v;
   auto fork = FindForkVertex(v.Gid());
   DMG_ASSERT(fork.has_value(), "Fork vertex missing for stub {}", v.Gid().AsUint());
   return fork ? *fork : v;
+}
+
+bool BranchContext::CanDeleteForkEdge(storage::Gid edge_gid) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::CanDeleteForkEdge: no current diff transaction set.");
+  if (!MayHaveForkEdgeDeleted(edge_gid)) return true;
+  SyncOverlayCommand();
+  if (core_->overlay_store().CanWrite(EdgeKey(edge_gid.AsUint()), *overlay_txn_)) return true;
+  current_diff_txn_->GetTransaction()->has_serialization_error = true;
+  return false;
+}
+
+storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor &fork_edge) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::DeleteForkEdge: no current diff transaction set.");
+  if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) return false;
+
+  const auto edge_gid = fork_edge.Gid();
+  const auto from_gid = fork_edge.FromVertex().Gid();
+  const auto to_gid = fork_edge.ToVertex().Gid();
+
+  MarkForkEdgeBranched(fork_edge);
+
+  if (!PrepareForkWrite(from_gid) || !PrepareForkWrite(to_gid)) {
+    return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  }
+
+  // The endpoints are only checked, never written: the edge itself carries the delete.
+  SyncOverlayCommand();
+  for (auto const gid : {from_gid, to_gid}) {
+    if (!core_->overlay_store().CanWrite(gid.AsUint(), *overlay_txn_)) {
+      current_diff_txn_->GetTransaction()->has_serialization_error = true;
+      return std::unexpected{storage::Error::SERIALIZATION_ERROR};
+    }
+  }
+
+  RecordEdgeChange(from_gid);
+  RecordEdgeChange(to_gid);
+  core_->RecordForkEdgeDeleted(edge_gid);
+
+  return WriteOverlay(EdgeKey(edge_gid.AsUint()), [](OverlayState &state) {
+    if (state.deleted) return false;
+    state.MarkDeleted();
+    return true;
+  });
 }
 
 std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gid gid) {
