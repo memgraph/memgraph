@@ -2511,6 +2511,65 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
   }
 }
 
+TYPED_TEST(InterpreterTest, ResetQueryPlanCache) {
+  const std::string query = "MATCH (n) RETURN n";
+  const auto key = memgraph::query::frontend::StrippedQuery{query}.stripped_query();
+  auto *plan_cache = this->db->plan_cache();
+  auto cached_plan = [&] {
+    return plan_cache->WithLock([&](auto &cache) {
+      auto entry = cache.get(key);
+      return entry ? *entry : nullptr;
+    });
+  };
+  this->Interpret(query);
+  auto first = cached_plan();
+  ASSERT_NE(first, nullptr);
+  this->Interpret(query);
+  EXPECT_EQ(cached_plan(), first);
+  auto cached_ast = [&] {
+    return this->interpreter_context.ast_cache.WithLock([&](auto &cache) {
+      auto entry = cache.get(key);
+      return entry ? *entry : nullptr;
+    });
+  };
+  auto first_ast = cached_ast();
+  ASSERT_NE(first_ast, nullptr);
+
+  memgraph::utils::OnScopeExit const restore_auth_checker(
+      [this]() { this->interpreter_context.auth_checker = &this->default_interpreter.auth_checker; });
+  InterpreterFaker other_interpreter{&this->interpreter_context, this->db};
+  memgraph::utils::OnScopeExit const unregister_interpreter([this, &other_interpreter]() {
+    this->interpreter_context.interpreters.WithLock(
+        [&other_interpreter](auto &interpreters) { interpreters.erase(&other_interpreter.interpreter); });
+  });
+  auto [stream, qid] = other_interpreter.Prepare("RESET QUERY PLAN CACHE;");
+  EXPECT_EQ(cached_plan(), first);
+  other_interpreter.Pull(&stream, {}, qid);
+  EXPECT_TRUE(stream.GetHeader().empty());
+  EXPECT_TRUE(stream.GetResults().empty());
+  EXPECT_EQ(plan_cache->WithLock([](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(cached_ast(), first_ast);
+  this->Interpret("RESET QUERY PLAN CACHE");
+  EXPECT_EQ(plan_cache->WithLock([](auto &cache) { return cache.size(); }), 0U);
+
+  this->Interpret(query);
+  EXPECT_NE(cached_plan(), nullptr);
+  EXPECT_NE(cached_plan(), first);
+}
+
+TYPED_TEST(InterpreterTest, ResetQueryPlanCacheRejectedInExplicitTransaction) {
+  this->Interpret("RETURN 1");
+  this->Interpret("BEGIN");
+  ASSERT_THROW(this->Interpret("RESET QUERY PLAN CACHE"), memgraph::query::QueryException);
+  EXPECT_EQ(this->db->plan_cache()->WithLock([](auto &cache) { return cache.size(); }), 1U);
+  this->default_interpreter.Abort();
+}
+
+TYPED_TEST(InterpreterTest, ResetQueryPlanCacheWithoutCurrentDatabaseThrows) {
+  this->default_interpreter.interpreter.current_db_.ResetDB();
+  EXPECT_THROW(this->Interpret("RESET QUERY PLAN CACHE"), memgraph::query::DatabaseContextRequiredException);
+}
+
 TYPED_TEST(InterpreterTest, CacheableQueries) {
   // Accessor-free queries are planned and executed like any Cypher query (just without opening a storage
   // transaction), so they populate both the AST cache and the plan cache -- which lets a repeated Lab ping

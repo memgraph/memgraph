@@ -3649,6 +3649,21 @@ class LoadJsonl : public Clause {
   friend class AstStorage;
 };
 
+class ResetQueryPlanCacheQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
+  ResetQueryPlanCacheQuery *Clone(AstStorage *storage) const override {
+    return storage->Create<ResetQueryPlanCacheQuery>();
+  }
+};
+
 class FreeMemoryQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

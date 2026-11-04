@@ -365,6 +365,20 @@ INSTANTIATE_TEST_SUITE_P(AstGeneratorTypes, CypherMainVisitorTest, ::testing::Va
 //
 // TYPED_TEST_SUITE(CypherMainVisitorTest, AstGeneratorTypes);
 
+TEST_P(CypherMainVisitorTest, ResetQueryPlanCache) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"RESET QUERY PLAN CACHE", "reset query plan cache;"}) {
+    ASSERT_NE(dynamic_cast<ResetQueryPlanCacheQuery *>(ast_generator.ParseQuery(query)), nullptr);
+  }
+  ASSERT_THROW(ast_generator.ParseQuery("RESET QUERY CACHE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RESET QUERY PLAN CACHE extra"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, PlanAndCacheRemainValidSymbolicNames) {
+  auto &ast_generator = *GetParam();
+  ASSERT_NE(dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (plan:cache) RETURN plan.cache")), nullptr);
+}
+
 TEST_P(CypherMainVisitorTest, SyntaxException) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ()-[*1....2]-()"), SyntaxException);
