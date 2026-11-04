@@ -131,13 +131,9 @@ class Connection {
 class Client {
  public:
   /// A request name to its timeout in milliseconds. Borrowed, so a caller
-  /// passing a table of its own must keep it alive for the client's lifetime;
-  /// the default has static storage duration.
+  /// passing a table of its own must keep it alive for the client's lifetime.
   using RpcTimeoutTable = std::span<std::pair<std::string_view, int> const>;
 
-  /// Read on every call and never copied: the table is constant, so it sits
-  /// in read-only data rather than being built into a hash map at startup and
-  /// then duplicated into each client.
   static constexpr auto kDefaultRpcTimeoutsMs = std::to_array<std::pair<std::string_view, int>>({
       {"ShowInstancesReq"sv, 10'000},          // coordinator sending to coordinator
       {"YieldLeadershipReq"sv, 10'000},        // coordinator sending to coordinator

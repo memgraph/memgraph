@@ -156,7 +156,6 @@ class Buffer final {
    */
   void Resize(size_t len);
 
-  /// Keeps the storage the buffer has already grown to.
   void Clear() { have_ = 0; }
 
   /**

@@ -41,9 +41,6 @@ inline constexpr std::array compression_level_mappings{std::pair{"low"sv, utils:
                                                        std::pair{"mid"sv, utils::CompressionLevel::MID},
                                                        std::pair{"high"sv, utils::CompressionLevel::HIGH}};
 
-/// Built on first use. As a variable it was an initializer and an exit-time
-/// destructor in every translation unit including this header, for a string one
-/// flag declaration reads once.
 std::string const &StoragePropertyStoreCompressionLevelHelpString();
 
 bool ValidStoragePropertyStoreCompressionLevel(std::string_view value);
