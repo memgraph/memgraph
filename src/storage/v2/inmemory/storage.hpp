@@ -1036,12 +1036,10 @@ class InMemoryStorage final : public Storage {
     InMemoryStorage &storage_;
   };
 
-  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`). Replayed commits record
-  /// main's durable timestamps but take local MVCC ids, so the clock can trail them. Skipped ids are marked finished
-  /// in the commit log.
+  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`); replayed commits take local
+  /// MVCC ids but record main's durable timestamps, so the clock can trail them. Requires no transaction in flight.
   void BumpClockPastDurable(uint64_t min_next = 0);
 
-  /// Smallest transaction id that may still be active.
   [[nodiscard]] uint64_t OldestActiveTimestamp();
 #endif
 
@@ -1212,7 +1210,6 @@ class InMemoryStorage final : public Storage {
   uint64_t wal_unsynced_transactions_{0};
 
 #ifdef MG_ENTERPRISE
-  // Set by SuppressWalScope; read by InitializeWalFile.
   std::atomic<bool> suppress_wal_{false};
 
   std::optional<durability::RecoveryTail> recovery_tail_;
