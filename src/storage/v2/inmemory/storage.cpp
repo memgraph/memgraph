@@ -3133,7 +3133,7 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   ActiveIndicesPtr active_indices;
   ActiveConstraintsPtr active_constraints;
   {
-    auto guard = std::lock_guard{engine_lock_};
+    auto guard = std::scoped_lock{engine_lock_};
     transaction_id = transaction_id_++;
     // Current (not fork-era) index snapshot: scans re-check MVCC visibility at fork_ts, so results stay correct.
     point_index_context = indices_.point_index_.CreatePointIndexContext();
@@ -3168,7 +3168,7 @@ std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAcc
 InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
   {
     // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
-    auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+    auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
     if (!version_fork_pins_.contains(fork_ts)) {
       return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
     }
@@ -3177,7 +3177,7 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
   }
   // Undo the self-pin if no accessor is returned: no Abort() will run to release it.
   bool self_pin_transferred = false;
-  utils::OnScopeExit release_self_pin_on_failure{[&] {
+  const utils::OnScopeExit release_self_pin_on_failure{[&] {
     if (!self_pin_transferred) ReleaseForkPin(fork_ts);
   }};
   auto accessor = std::unique_ptr<Storage::Accessor>(
