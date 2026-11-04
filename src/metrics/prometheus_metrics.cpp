@@ -2153,22 +2153,22 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
 #ifdef MG_ENTERPRISE
 
   // Graph versioning (global only)
-  out.push_back({"VersioningBranchesCreated",
-                 "Versioning",
-                 "Counter",
-                 static_cast<int64_t>(global.versioning_branches_created->Value())});
-  out.push_back({"VersioningBranchesDropped",
-                 "Versioning",
-                 "Counter",
-                 static_cast<int64_t>(global.versioning_branches_dropped->Value())});
-  out.push_back({"VersioningActiveBranches",
-                 "Versioning",
-                 "Gauge",
-                 static_cast<int64_t>(global.versioning_active_branches->Value())});
-  out.push_back({"VersioningActiveSessions",
-                 "Versioning",
-                 "Gauge",
-                 static_cast<int64_t>(global.versioning_active_sessions->Value())});
+  out.push_back({.name = "VersioningBranchesCreated",
+                 .type = "Versioning",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(global.versioning_branches_created->Value())});
+  out.push_back({.name = "VersioningBranchesDropped",
+                 .type = "Versioning",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(global.versioning_branches_dropped->Value())});
+  out.push_back({.name = "VersioningActiveBranches",
+                 .type = "Versioning",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(global.versioning_active_branches->Value())});
+  out.push_back({.name = "VersioningActiveSessions",
+                 .type = "Versioning",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(global.versioning_active_sessions->Value())});
 #endif
 
   // Session
