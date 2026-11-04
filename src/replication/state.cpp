@@ -178,7 +178,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 try {
                   durability::ReplicationReplicaEntry local_data = json_data.get<durability::ReplicationReplicaEntry>();
 
-                  auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
+                  auto key_name = std::string_view{replica_name}.substr(
+                      std::string_view{durability::kReplicationReplicaPrefix}.size());
                   if (key_name != local_data.config.name) {
                     return std::unexpected{FetchReplicationError::PARSE_ERROR};
                   }
