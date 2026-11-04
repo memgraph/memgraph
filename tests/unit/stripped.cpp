@@ -14,6 +14,7 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include <bitset>
 #include <cstdint>
 #include <limits>
 #include <unordered_map>
@@ -24,6 +25,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/stripped.hpp"
+#include "query/frontend/stripped_lexer_constants.hpp"
 #include "query/typed_value.hpp"
 
 using namespace memgraph::query;
@@ -765,6 +767,25 @@ TEST(HashedString, DisambiguatesOnHashCollision) {
   ASSERT_EQ(map.size(), 2U);
   EXPECT_EQ(map.at(HashedString{"RETURN 0"}), 1);
   EXPECT_EQ(map.at(HashedString{"RETURN 1"}), 2);
+}
+
+// The codepoint tables are built at compile time by a stand-in for
+// std::bitset, whose string constructor is not constexpr. This asserts the
+// stand-in reads a bit string exactly as std::bitset does, so the tables hold
+// what the literals say.
+template <typename TSet>
+void ExpectMatchesBitset(const TSet &set, std::string_view bits) {
+  ASSERT_EQ(bits.size(), static_cast<size_t>(lexer_constants::kBitsetSize));
+  const std::bitset<lexer_constants::kBitsetSize> reference{std::string{bits}};
+  for (size_t pos = 0; pos != static_cast<size_t>(lexer_constants::kBitsetSize); ++pos) {
+    ASSERT_EQ(set[pos], reference[pos]) << "codepoint " << pos;
+  }
+}
+
+TEST(StrippedQuery, CodepointSetsMatchTheirBitStrings) {
+  ExpectMatchesBitset(lexer_constants::kUnescapedNameAllowedStarts, lexer_constants::kUnescapedNameAllowedStartsBits);
+  ExpectMatchesBitset(lexer_constants::kUnescapedNameAllowedParts, lexer_constants::kUnescapedNameAllowedPartsBits);
+  ExpectMatchesBitset(lexer_constants::kSpaceParts, lexer_constants::kSpacePartsBits);
 }
 
 }  // namespace

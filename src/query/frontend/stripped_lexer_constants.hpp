@@ -11,9 +11,12 @@
 
 #pragma once
 
-#include <bitset>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace memgraph::query::lexer_constants {
@@ -87,6 +90,51 @@ class Trie {
 // All word constants should be lowercase in this file.
 
 constexpr int kBitsetSize = 65'536;
+
+namespace detail {
+
+/// A set of Unicode codepoints fixed at compile time, written as one character
+/// per codepoint, '1' for a member.
+///
+/// This stands in for `std::bitset`, whose constructor from a string of bits
+/// libstdc++ does not make `constexpr`. Bit `pos` is the character `pos` places
+/// from the end, which is the order `std::bitset` reads a string in.
+template <std::size_t N>
+class CodepointSet {
+  static_assert(N % 64 == 0, "the bits must fill whole words");
+
+  using word_t = std::uint64_t;
+  static constexpr std::size_t kWordBits = 64;
+
+ public:
+  /// Each word is accumulated in a local and stored once. Setting bits straight
+  /// into the array instead costs enough constant-evaluation steps for a table
+  /// this wide to exceed the compiler's limit.
+  explicit constexpr CodepointSet(std::string_view bits) {
+    auto const *const chars = bits.data();
+    auto const count = bits.size() < N ? bits.size() : N;
+    for (std::size_t word = 0; word != N / kWordBits; ++word) {
+      word_t bit_mask = 0;
+      auto const first = word * kWordBits;
+      auto const last = first + kWordBits < count ? first + kWordBits : count;
+      for (std::size_t pos = first; pos < last; ++pos) {
+        if (chars[count - 1 - pos] == '1') {
+          bit_mask |= word_t{1} << (pos - first);
+        }
+      }
+      words_[word] = bit_mask;
+    }
+  }
+
+  constexpr bool operator[](std::size_t pos) const {
+    return ((words_[pos / kWordBits] >> (pos % kWordBits)) & word_t{1}) != 0;
+  }
+
+ private:
+  std::array<word_t, N / kWordBits> words_{};
+};
+
+}  // namespace detail
 
 const trie::Trie kKeywords = {"aborting",
                               "active",
@@ -392,8 +440,9 @@ const trie::Trie kKeywords = {"aborting",
                               "zoneddatetime"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
-const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(
-    std::string("00000000000000000000000000000000000111001111110011111100111111000111111111"
+// clang-format off
+inline constexpr std::string_view kUnescapedNameAllowedStartsBits =
+                "00000000000000000000000000000000000111001111110011111100111111000111111111"
                 "11111111111111111111111111111111111111111111111111111111111111111111111111"
                 "11111100000000000111111111111111111111111110100001111111111111111111111111"
                 "10000000000000000000000000000000000001111111111111111111111111111111111111"
@@ -1278,11 +1327,15 @@ const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(
                 "11111111111111111111011111111111111111111111111111110111111111111111111111"
                 "11000001000010000000000100000000000000000000000000000000000000000000000111"
                 "11111111111111111111111010000111111111111111111111111110000000000000000000"
-                "0000000000000000000000000000000000000000000000"));
+                "0000000000000000000000000000000000000000000000";
+// clang-format on
+
+inline constexpr detail::CodepointSet<kBitsetSize> kUnescapedNameAllowedStarts{kUnescapedNameAllowedStartsBits};
 
 // Unicode codepoints that are allowed at the middle of the unescaped name.
-const std::bitset<kBitsetSize> kUnescapedNameAllowedParts(
-    std::string("00000000000000000000000001100011000111001111110011111100111111000111111111"
+// clang-format off
+inline constexpr std::string_view kUnescapedNameAllowedPartsBits =
+                "00000000000000000000000001100011000111001111110011111100111111000111111111"
                 "11111111111111111111111111111111111111111111111111111111111111111111111111"
                 "11111100000000000111111111111111111111111110100001111111111111111111111111"
                 "10000000111111111100000000000100000001111111111111111111111111111111111111"
@@ -2167,10 +2220,14 @@ const std::bitset<kBitsetSize> kUnescapedNameAllowedParts(
                 "11111111111111111111011111111111111111111111111111110111111111111111111111"
                 "11000001001010000000000100001111000000000000000000000000000000000000000111"
                 "11111111111111111111111010000111111111111111111111111110000000111111111100"
-                "0000000001000000000000000000000000000000000000"));
+                "0000000001000000000000000000000000000000000000";
+// clang-format on
 
-const std::bitset<kBitsetSize> kSpaceParts(
-    std::string("00000000000000000000000000000000000000000000000000000000000000000000000000"
+inline constexpr detail::CodepointSet<kBitsetSize> kUnescapedNameAllowedParts{kUnescapedNameAllowedPartsBits};
+
+// clang-format off
+inline constexpr std::string_view kSpacePartsBits =
+                "00000000000000000000000000000000000000000000000000000000000000000000000000"
                 "00000000000000000000000000000000000000000000000000000000000000000000000000"
                 "00000000000000000000000000000000000000000000000000000000000000000000000000"
                 "00000000000000000000000000000000000000000000000000000000000000000000000000"
@@ -3055,7 +3112,10 @@ const std::bitset<kBitsetSize> kSpaceParts(
                 "00000000000000000000000000000000000000000000000000000000000000000000000000"
                 "00000000000000000000000000000000010000000000000000000000000000000000000000"
                 "00000000000000000000000000000000000000000000000000000000000000000000000000"
-                "0000000000000111110000000000000011111000000000"));
+                "0000000000000111110000000000000011111000000000";
+// clang-format on
+
+inline constexpr detail::CodepointSet<kBitsetSize> kSpaceParts{kSpacePartsBits};
 
 const trie::Trie kSpecialTokens = {";",
                                    ",",
