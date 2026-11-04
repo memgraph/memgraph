@@ -185,7 +185,7 @@ class InMemoryStorage final : public Storage {
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                               utils::ResourceLockGuard guard);
 #ifdef MG_ENTERPRISE
-    // Read-only via the `Transaction::is_historical_` write assert, not lock mode (plain SHARED guard).
+    // Read-only via `Transaction::is_historical_` write refusal, not lock mode (plain SHARED guard).
     // `build_transaction` runs from the base ctor, after storage_guard_ is already held.
     explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
                               std::function<Transaction()> build_transaction,
@@ -200,6 +200,11 @@ class InMemoryStorage final : public Storage {
 
     // Hands this transaction's noted arming to the next collection cycle; see the definition.
     void PublishIndexArming();
+
+#ifdef MG_ENTERPRISE
+    // Releases the HistoricalAccess self-pin on the first call (commit, Abort or destruction); later calls are no-ops.
+    void ReleaseHistoricalPin();
+#endif
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
                                                    DeltaChainState from_state, DeltaChainState to_state,
@@ -911,12 +916,17 @@ class InMemoryStorage final : public Storage {
 
   enum class HistoricalAccessError : uint8_t {
     // `fork_ts` is not a live pin: never registered, or already released.
-    ForkTimestampNotPinned
+    ForkTimestampNotPinned,
+    // Only IN_MEMORY_TRANSACTIONAL keeps the MVCC history a past snapshot is rebuilt from.
+    StorageModeNotTransactional,
   };
 
   // Opens a read-only accessor snapshotted at `fork_ts`, which must be a live pin (else ForkTimestampNotPinned);
   // self-pins it until finalize. Always SNAPSHOT_ISOLATION and a plain SHARED lock (main stays writable); writes
-  // are refused by `Transaction::is_historical_`. Uses the CURRENT active indices, not fork-era ones.
+  // throw WriteInHistoricalAccessorException. Label/edge/property indexes are used only if committed by fork_ts;
+  // point/text/vector indexes are not used.
+  // Blocks on main_lock_ without a timeout: the calling thread must not already hold an accessor on this storage,
+  // or it deadlocks behind a pending UNIQUE (main_lock_ is writer-preferring).
   std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
 #endif
 
