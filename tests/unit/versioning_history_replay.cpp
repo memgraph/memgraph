@@ -21,6 +21,7 @@
 #include <chrono>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -31,10 +32,12 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/history_replay.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/general.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/fmt.hpp"
 #include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -68,7 +71,6 @@ ms::Config MakeConfigA() {
 
 ms::Config MakeConfigB() {
   ms::Config config;
-  // Manual GC only: the test drives FreeMemory() itself.
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = kDirB,
                        .recover_on_startup = true,
@@ -99,7 +101,7 @@ uint64_t Ldt(ms::InMemoryStorage const &storage) {
   return storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 }
 
-// A recovered database, with the tail bounded recovery left out (if bounded).
+// A recovered database plus the tail that bounded recovery left out.
 struct Recovered {
   explicit Recovered(const std::filesystem::path &dir, std::optional<uint64_t> bound = std::nullopt,
                      bool narrowing = false)
@@ -217,7 +219,6 @@ std::vector<uint64_t> WriteMainHistory(const std::filesystem::path &dir, int wri
   return durable;
 }
 
-// Same MVCC checks for both reads, parameterised on which of the two states is expected.
 struct Names {
   ms::LabelId l, m;
   ms::PropertyId p, w;
@@ -300,7 +301,6 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
   BaseGids g{};
   TailGids t{};
 
-  // ---- Step 1: storage A. Base state, snapshot at T, tail transactions, shutdown without snapshot. ----
   {
     memgraph::dbms::Database db_a{MakeConfigA()};
     const memgraph::memory::DbArenaScope arena_scope{&db_a.Arena()};
@@ -339,7 +339,7 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
                                  kDirB / memgraph::storage::durability::kSnapshotDirectory / entry.path().filename());
     }
 
-    // Tail. Each write is its own commit; read-only accessors in between make main's timestamps sparse.
+    // Read-only commits/aborts between the writes make main's timestamps sparse.
     auto const sparse_read = [&](bool abort) {
       auto acc = db_a.Access(ms::READ);
       (void)CountVertices(*acc, ms::View::OLD);
@@ -350,14 +350,14 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
       }
     };
 
-    {  // v1.p = 10
+    {
       auto acc = db_a.Access(ms::WRITE);
       auto v1 = acc->FindVertex(g.v1, ms::View::OLD);
       ASSERT_TRUE(v1->SetProperty(p, ms::PropertyValue(10)).has_value());
       Commit(*acc);
     }
     sparse_read(false);
-    {  // v2: -L +M
+    {
       auto acc = db_a.Access(ms::WRITE);
       auto v2 = acc->FindVertex(g.v2, ms::View::OLD);
       ASSERT_TRUE(v2->RemoveLabel(l).has_value());
@@ -366,7 +366,7 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
     }
     sparse_read(true);
     sparse_read(false);
-    {  // delete e1
+    {
       auto acc = db_a.Access(ms::WRITE);
       auto e1 = acc->FindEdge(g.e1, ms::View::OLD);
       ASSERT_TRUE(e1.has_value());
@@ -374,7 +374,7 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
       Commit(*acc);
     }
     sparse_read(true);
-    {  // detach-delete v3 (takes e2 with it)
+    {  // takes e2 with it
       auto acc = db_a.Access(ms::WRITE);
       auto v3 = acc->FindVertex(g.v3, ms::View::OLD);
       ASSERT_TRUE(v3.has_value());
@@ -382,7 +382,7 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
       Commit(*acc);
     }
     sparse_read(false);
-    {  // create v4 {p:4} and v1 -> v4
+    {
       auto acc = db_a.Access(ms::WRITE);
       auto v1 = acc->FindVertex(g.v1, ms::View::OLD);
       auto v4 = acc->CreateVertex();
@@ -393,12 +393,12 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
       Commit(*acc);
     }
     sparse_read(true);
-    {  // label-property index :L(p)
+    {
       auto acc = db_a.ReadOnlyAccess();
       ASSERT_TRUE(acc->CreateIndex(l, {ms::PropertyPath{p}}, ms::IndexOrder::ASC).has_value());
       Commit(*acc);
     }
-    {  // v4.p = 40
+    {
       auto acc = db_a.Access(ms::WRITE);
       auto v4 = acc->FindVertex(t.v4, ms::View::OLD);
       ASSERT_TRUE(v4->SetProperty(p, ms::PropertyValue(40)).has_value());
@@ -412,7 +412,6 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
   ASSERT_TRUE(wal_files.has_value());
   ASSERT_FALSE(wal_files->empty());
 
-  // ---- Step 2: storage B recovers from the copied snapshot only (T). ----
   memgraph::dbms::Database db_b{MakeConfigB()};
   const memgraph::memory::DbArenaScope arena_scope_b{&db_b.Arena()};
   auto *b = static_cast<ms::InMemoryStorage *>(db_b.storage());
@@ -422,7 +421,6 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
     ExpectStateAtT(*acc, names, g, t);
   }
 
-  // ---- Step 3: replay main's WAL files over T, pinning a fork right after T. ----
   std::vector<std::filesystem::path> paths;
   for (auto const &info : *wal_files) paths.push_back(info.path);  // GetWalFiles is ordered by sequence number
   ms::durability::RecoveryTail const tail{.wal_files = std::move(paths), .reached_timestamp = Ldt(*b)};
@@ -433,7 +431,6 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
   // Names added by the replay (e.g. M after recovery of a snapshot that only had L) must be resolved afterwards.
   names = ResolveNames(*b);
 
-  // ---- Step 4: latest = full state, historical(pin) = state at T, before and after GC. ----
   auto const check_reads = [&] {
     {
       auto acc = db_b.Access(ms::READ);
@@ -452,7 +449,7 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
   check_reads();
   EXPECT_GT(db_b.metric_handles()->unreleased_delta_objects.Value(), 0) << "GC reclaimed history a pin still needs";
 
-  // ---- Negative control: without the pin the history is reclaimable and the pin is rejected. ----
+  // Negative control: without the pin the history is reclaimable and the pin is rejected.
   b->ReleaseForkPin(pin);
   for (int i = 0; i < 6; ++i) b->FreeMemory({}, false);
   EXPECT_EQ(db_b.metric_handles()->unreleased_delta_objects.Value(), 0)
@@ -466,9 +463,8 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
   }
 }
 
-// A failover inside the replayed WAL tail must leave main with the same epoch and epoch history that an unbounded
-// recovery of the same files produces; replicas compare both on reconnect. The pin for a fork inside the tail must
-// keep the state at the fork readable, both for a fork at the recovered state and one inside the tail.
+// A failover inside the replayed tail must leave the same epoch and epoch history as an unbounded recovery (replicas
+// compare both on reconnect); pins for a fork at the recovered state and one inside the tail keep their state readable.
 TEST_F(VersioningHistoryReplayTest, TailReplayRestoresEpochAndHistory) {
   std::string first_epoch;
   std::string second_epoch;
@@ -503,7 +499,6 @@ TEST_F(VersioningHistoryReplayTest, TailReplayRestoresEpochAndHistory) {
 
   std::filesystem::copy(kDirMain, kDirUnbounded, std::filesystem::copy_options::recursive);
 
-  // Reference: unbounded recovery of the same files.
   EpochState expected;
   {
     memgraph::dbms::Database db{MakeDurableConfig(kDirUnbounded, /*recover_on_startup=*/true)};
@@ -543,11 +538,8 @@ TEST_F(VersioningHistoryReplayTest, TailReplayRestoresEpochAndHistory) {
   for (auto const pin : *pins) storage->ReleaseForkPin(pin);
 }
 
-// The pin for a fork whose timestamp equals the durable timestamp of the first replayed transaction must be
-// registered BEFORE that transaction is applied: the fork's snapshot-isolation read is exclusive, so a commit
-// landing exactly on fork_ts is part of main but invisible to the branch, and its deltas stay pinned (a pin at P
-// protects deltas with commit_ts == P). The replay runs on a WAL-enabled storage and must leave the WAL files and
-// the current epoch untouched.
+// A fork at the first replayed commit's timestamp must be pinned BEFORE that commit applies: the commit is main's but
+// invisible to the fork, and its deltas must stay pinned. Replay must leave the WAL files and the epoch untouched.
 TEST_F(VersioningHistoryReplayTest, PinAtForkTimestampEqualsFirstReplayedCommit) {
   uint64_t fork_ts{0};
   ms::Gid v1{}, v2{};
@@ -578,7 +570,7 @@ TEST_F(VersioningHistoryReplayTest, PinAtForkTimestampEqualsFirstReplayedCommit)
       v2 = acc->CreateVertex().Gid();
       Commit(*acc);
     }
-    storage->ReleaseForkPin(fork_ts);  // the recovered storage re-registers its own pin
+    storage->ReleaseForkPin(fork_ts);  // the replay registers its own pin
   }
 
   // Recover only through fork_ts - 1: the commit at fork_ts is the first transaction of the tail.
@@ -637,7 +629,7 @@ TEST_F(VersioningHistoryReplayTest, PinAtForkTimestampEqualsFirstReplayedCommit)
     EXPECT_FALSE(acc->FindVertex(v2, ms::View::OLD).has_value());
   }
 
-  // The pinned deltas include the commit at fork_ts: the fast-discard gate needs oldest pin > commit_ts.
+  // The commit at fork_ts must not be fast-discarded (needs oldest pin > commit_ts).
   for (int i = 0; i < 6; ++i) storage->FreeMemory({}, false);
   EXPECT_GT(db.metric_handles()->unreleased_delta_objects.Value(), 0)
       << "the pin must keep the deltas of the commit at fork_ts";
@@ -646,6 +638,15 @@ TEST_F(VersioningHistoryReplayTest, PinAtForkTimestampEqualsFirstReplayedCommit)
   EXPECT_EQ(db.metric_handles()->unreleased_delta_objects.Value(), 0) << "history is reclaimable without the pin";
   auto released = storage->HistoricalAccess((*pins)[0]);
   ASSERT_FALSE(released.has_value());
+
+  CommitVertex(db);
+  auto const wal_end =
+      memgraph::storage::durability::GetWalFiles(kDirMain / memgraph::storage::durability::kWalDirectory);
+  ASSERT_TRUE(wal_end.has_value());
+  ASSERT_FALSE(wal_end->empty());
+  uint64_t newest{0};
+  for (auto const &info : *wal_end) newest = std::max(newest, info.to_timestamp);
+  EXPECT_EQ(newest, Ldt(*storage));
 }
 
 // Replay registers pins positionally as it crosses each fork timestamp, and a fork at or before the recovered state
@@ -689,8 +690,19 @@ TEST_F(VersioningHistoryReplayTest, EmptyTailPinsEveryForkAndBumpsTheClock) {
   EXPECT_FALSE(r.storage.OldestForkPin().has_value());
 }
 
+// A branch forked before main's first commit has fork_ts 0; an empty recovered state holds no commit it must not see.
+TEST_F(VersioningHistoryReplayTest, ForkAtZeroIsPastAnEmptyRecoveredState) {
+  Recovered r{kDirMain};
+  ASSERT_EQ(Ldt(r.storage), 0U);
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, {.wal_files = {}, .reached_timestamp = 0}, std::array{0UL});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  CommitVertex(r.db);
+  EXPECT_EQ(DumpAt(r.storage, pins->front()), "");
+  r.storage.ReleaseForkPin(pins->front());
+}
+
 // Bounded recovery + tail replay ends where an unbounded recovery of the same files does, and each fork (including
-// one past the end of the tail) sees exactly the commits below it.
+// one past the end of the tail) sees exactly the commits below it, with commit lock narrowing off and on.
 TEST_F(VersioningHistoryReplayTest, ReplayMatchesUnboundedRecovery) {
   auto const durable = WriteMainHistory(kDirMain, 6);
   std::filesystem::copy(kDirMain, kDirUnbounded, std::filesystem::copy_options::recursive);
@@ -717,25 +729,31 @@ TEST_F(VersioningHistoryReplayTest, ReplayMatchesUnboundedRecovery) {
   }
   ASSERT_EQ(unbounded_graph, at_fork.back());
 
-  Recovered r{kDirMain, durable[0]};
-  ASSERT_TRUE(r.tail.has_value());
-  // Forks right after writes 0, 2 and 5 (the last one past the end of the tail).
-  auto pins =
-      memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[0] + 1, durable[2] + 1, durable[5] + 1});
-  ASSERT_TRUE(pins.has_value()) << pins.error();
-  ASSERT_EQ(pins->size(), 3U);
+  // Forks right after writes 0, 2 and 5 (the last past the end of the tail), and one exactly at write 1's durable
+  // timestamp, which does not see write 1.
+  const std::array forks{durable[0] + 1, durable[1], durable[2] + 1, durable[5] + 1};
+  const std::array<std::string const *, 4> expected_at{&at_fork[0], &at_fork[0], &at_fork[2], &at_fork[5]};
+  for (bool const narrowing : {false, true}) {
+    SCOPED_TRACE(fmt::format("commit lock narrowing: {}", narrowing));
+    std::filesystem::remove_all(kDirB);
+    std::filesystem::copy(kDirMain, kDirB, std::filesystem::copy_options::recursive);
+    Recovered r{kDirB, durable[0], narrowing};
+    ASSERT_TRUE(r.tail.has_value());
+    auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, forks);
+    ASSERT_TRUE(pins.has_value()) << pins.error();
+    ASSERT_EQ(pins->size(), forks.size());
+    EXPECT_EQ(r.storage.LastCommittedMvccTimestamp() + 1, r.storage.timestamp_);
 
-  EXPECT_EQ(DumpLatest(r.db), unbounded_graph);
-  auto const info = r.storage.repl_storage_state_.commit_ts_info_.load();
-  EXPECT_EQ(info.ldt_, unbounded_ldt);
-  EXPECT_EQ(info.num_committed_txns_, unbounded_committed);
-  EXPECT_EQ(DumpAt(r.storage, (*pins)[0]), at_fork[0]);
-  EXPECT_EQ(DumpAt(r.storage, (*pins)[1]), at_fork[2]);
-  EXPECT_EQ(DumpAt(r.storage, (*pins)[2]), at_fork[5]);
+    EXPECT_EQ(DumpLatest(r.db), unbounded_graph);
+    auto const info = r.storage.repl_storage_state_.commit_ts_info_.load();
+    EXPECT_EQ(info.ldt_, unbounded_ldt);
+    EXPECT_EQ(info.num_committed_txns_, unbounded_committed);
+    for (size_t i = 0; i < forks.size(); ++i) EXPECT_EQ(DumpAt(r.storage, (*pins)[i]), *expected_at[i]) << "fork " << i;
 
-  CommitVertex(r.db);
-  EXPECT_EQ(Ldt(r.storage), unbounded_next) << "the next commit lands where it would after an unbounded recovery";
-  for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
+    CommitVertex(r.db);
+    EXPECT_EQ(Ldt(r.storage), unbounded_next) << "the next commit lands where it would after an unbounded recovery";
+    for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
+  }
 }
 
 // The newest WAL was never finalized (main still running); replay reads it like recovery does.
@@ -810,8 +828,8 @@ TEST_F(VersioningHistoryReplayTest, AbortedWalTransactionIsSkipped) {
   for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
 }
 
-// A tail WAL that cannot be replayed fails the call and releases every pin it took, including those taken before the
-// failing file.
+// A tail WAL that cannot be replayed fails the call and releases every pin taken so far. Halving the newest WAL keeps
+// its header summary, so the failure is a delta decode error thrown out of replay.
 TEST_F(VersioningHistoryReplayTest, CorruptTailWalFailsWithoutPins) {
   auto const durable = WriteMainHistory(kDirMain, 3);
   Recovered r{kDirMain, durable[0]};
@@ -821,42 +839,37 @@ TEST_F(VersioningHistoryReplayTest, CorruptTailWalFailsWithoutPins) {
   std::filesystem::resize_file(wal, std::filesystem::file_size(wal) / 2);
 
   auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[0] + 1, durable[2] + 1});
-  EXPECT_FALSE(pins.has_value());
+  ASSERT_FALSE(pins.has_value());
+  EXPECT_THAT(pins.error(), ::testing::HasSubstr("threw"));
   EXPECT_FALSE(r.storage.OldestForkPin().has_value());
 }
 
-// The narrowed commit path publishes commits differently; replay must produce the same state and pins either way.
-TEST_F(VersioningHistoryReplayTest, ReplayIsTheSameWithCommitLockNarrowing) {
-  auto const durable = WriteMainHistory(kDirMain, 5);
-  std::filesystem::copy(kDirMain, kDirB, std::filesystem::copy_options::recursive);
-  const std::array forks{durable[0] + 1, durable[1], durable[3] + 1, durable[4] + 2};
+TEST_F(VersioningHistoryReplayTest, ReplayWalFileRejectsADeltaCountShortfall) {
+  auto const durable = WriteMainHistory(kDirMain, 3);
+  Recovered r{kDirMain, durable[0]};
+  ASSERT_TRUE(r.tail.has_value());
+  ASSERT_FALSE(r.tail->wal_files.empty());
+  auto const &path = r.tail->wal_files.front();
+  auto info = ms::durability::ReadWalContents(path);
+  ASSERT_GT(info.num_deltas, 1U);
+  --info.num_deltas;
 
-  struct Result {
-    std::vector<uint64_t> pins;
-    std::vector<std::string> at_pin;
-    std::string latest;
-    uint64_t ldt;
-  };
-
-  auto const replay = [&](const std::filesystem::path &dir, bool narrowing) {
-    Recovered r{dir, durable[0], narrowing};
-    EXPECT_TRUE(r.tail.has_value());
-    auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, forks);
-    EXPECT_TRUE(pins.has_value());
-    Result result{.pins = *pins, .at_pin = {}, .latest = DumpLatest(r.db), .ldt = Ldt(r.storage)};
-    for (auto const pin : *pins) result.at_pin.push_back(DumpAt(r.storage, pin));
-    for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
-    return result;
-  };
-  auto const off = replay(kDirMain, false);
-  auto const on = replay(kDirB, true);
-  EXPECT_EQ(on.pins, off.pins);
-  EXPECT_EQ(on.at_pin, off.at_pin);
-  EXPECT_EQ(on.latest, off.latest);
-  EXPECT_EQ(on.ldt, off.ldt);
+  const ms::InMemoryStorage::SuppressWalScope no_wal{r.storage};
+  EXPECT_FALSE(memgraph::dbms::InMemoryReplicationHandlers::ReplayWalFile(path, info, &r.storage, [](uint64_t) {}));
 }
 
-// After replay, readers at each pin keep seeing their fork's state while main writes and GC runs.
+TEST_F(VersioningHistoryReplayTest, NoForksReplaysTheWholeTail) {
+  auto const durable = WriteMainHistory(kDirMain, 3);
+  Recovered r{kDirMain, durable[0]};
+  ASSERT_TRUE(r.tail.has_value());
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::span<const uint64_t>{});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  EXPECT_TRUE(pins->empty());
+  EXPECT_EQ(Ldt(r.storage), durable.back());
+  CommitVertex(r.db);
+  EXPECT_GT(Ldt(r.storage), durable.back());
+}
+
 TEST_F(VersioningHistoryReplayTest, ForkReadersStayStableUnderMainWrites) {
   auto const durable = WriteMainHistory(kDirMain, 4);
   Recovered r{kDirMain, durable[0]};
@@ -907,8 +920,10 @@ TEST_F(VersioningHistoryReplayTest, ClockBumpMarksSkippedIdsFinished) {
   constexpr uint64_t kTarget = 1'000;
   storage.BumpClockPastDurable(kTarget);
   EXPECT_EQ(storage.OldestActiveTimestamp(), kTarget);
-  storage.BumpClockPastDurable(kTarget);
-  EXPECT_EQ(storage.OldestActiveTimestamp(), kTarget) << "idempotent once ahead";
+  EXPECT_EQ(storage.LastCommittedMvccTimestamp(), kTarget - 1);
+  storage.BumpClockPastDurable(10);
+  EXPECT_EQ(storage.OldestActiveTimestamp(), kTarget) << "a lower target leaves the clock alone";
+  EXPECT_EQ(storage.LastCommittedMvccTimestamp(), kTarget - 1);
   CommitVertex(db);
   EXPECT_GT(Ldt(storage), kTarget);
   storage.FreeMemory({}, false);
