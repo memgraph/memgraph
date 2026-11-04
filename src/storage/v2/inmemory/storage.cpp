@@ -5210,7 +5210,7 @@ uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 #ifdef MG_ENTERPRISE
 void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
-  auto guard = std::lock_guard{engine_lock_};
+  auto guard = std::scoped_lock{engine_lock_};
   auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   auto const target = std::max(ldt + 1, min_next);
   if (timestamp_ >= target) return;
