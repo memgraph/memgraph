@@ -401,12 +401,39 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
   }
 }
 
+#ifdef MG_ENTERPRISE
+// On a branch, main's deleted flag on a fork object says nothing: the fork vertex or edge is deleted only if the branch
+// deleted (or, for an edge, hid) it. Branch-created objects live in the diff engine and carry their own flag.
+bool IsDeletedOnBranch(const memgraph::query::VertexAccessor &vertex) {
+  auto *branch = vertex.branch_ctx_;
+  if (!branch->IsForkVertexGid(vertex.impl_.Gid())) return vertex.impl_.vertex_->deleted();
+  return branch->IsVertexDeleted(vertex.impl_.Gid(), memgraph::storage::View::NEW);
+}
+
+bool IsDeletedOnBranch(const memgraph::query::EdgeAccessor &edge) {
+  auto *branch = edge.branch_ctx_;
+  if (edge.impl_.storage_ == &branch->diff_engine()) return edge.IsDeleted();
+  return branch->IsForkEdgeHidden(edge.impl_, memgraph::storage::View::NEW);
+}
+
+#endif
 bool IsDeleted(const mgp_vertex *vertex) {
   if (vertex->IsVirtual()) return false;
+#ifdef MG_ENTERPRISE
+  if (auto const accessor = vertex->getImpl(); accessor.branch_ctx_ != nullptr) [[unlikely]] {
+    return IsDeletedOnBranch(accessor);
+  }
+#endif
   return vertex->getImpl().impl_.vertex_->deleted();
 }
 
 bool IsDeleted(const mgp_edge *edge) {
+#ifdef MG_ENTERPRISE
+  if (auto const *accessor = std::get_if<memgraph::query::EdgeAccessor>(&edge->impl);
+      accessor != nullptr && accessor->branch_ctx_ != nullptr) [[unlikely]] {
+    return IsDeletedOnBranch(*accessor);
+  }
+#endif
   return std::visit(memgraph::utils::Overloaded{[](const memgraph::query::EdgeAccessor &ea) { return ea.IsDeleted(); },
                                                 [](const memgraph::query::VirtualEdge &) { return false; }},
                     edge->impl);
@@ -5163,8 +5190,23 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
+#ifdef MG_ENTERPRISE
+// The branch of a database graph (subgraphs included), nullptr on main and for a virtual graph. On a branch the diff
+// engine holds only touched and branch-created objects, so the approximate counts are main's.
+memgraph::versioning::BranchContext *BranchOfGraph(const mgp_graph &graph) {
+  if (std::holds_alternative<memgraph::query::VirtualGraphDbAccessor *>(graph.CheckedImpl())) return nullptr;
+  return graph.getImpl()->branch_context();
+}
+
+#endif
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
+#ifdef MG_ENTERPRISE
+    if (auto *branch = BranchOfGraph(*graph); branch != nullptr) [[unlikely]] {
+      *result = branch->historical().ApproximateVertexCount();
+      return;
+    }
+#endif
     *result =
         std::visit(memgraph::utils::Overloaded{
                        [](memgraph::query::DbAccessor *impl) { return impl->VerticesCount(); },
@@ -5178,6 +5220,12 @@ mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
+#ifdef MG_ENTERPRISE
+    if (auto *branch = BranchOfGraph(*graph); branch != nullptr) [[unlikely]] {
+      *result = branch->historical().ApproximateEdgeCount();
+      return;
+    }
+#endif
     *result =
         std::visit(memgraph::utils::Overloaded{
                        [](memgraph::query::DbAccessor *impl) { return impl->EdgesCount(); },
@@ -5972,6 +6020,14 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type allo
                                                                           graph->getImpl()->DatabaseName()
 #endif
                                                                               ));
+#ifdef MG_ENTERPRISE
+  // The caller's accessor has a branch only when its query runs on one, so under USING BRANCH main the nested query
+  // runs on main.
+  if (auto const *branch = graph->getImpl()->branch_context(); branch != nullptr) [[unlikely]] {
+    auto &current_db = pImpl->interpreter->current_db_;
+    current_db.AttachBranchOf(current_db.db_acc_->get()->version_store(), *branch);
+  }
+#endif
 }
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }
