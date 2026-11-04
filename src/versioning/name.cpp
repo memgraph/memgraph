@@ -38,7 +38,7 @@ std::optional<std::string> ValidateBranchName(std::string_view name) {
   if (name.size() > kMaxBranchNameLength) {
     return fmt::format("Branch name must be at most {} characters.", kMaxBranchNameLength);
   }
-  if (name.find('@') != std::string_view::npos) {
+  if (name.contains('@')) {
     return "Branch name must not contain '@': it names a branch as <database>@<branch>.";
   }
   // The charset rule first: it rejects separators like '/' anywhere, while the ends rule only
