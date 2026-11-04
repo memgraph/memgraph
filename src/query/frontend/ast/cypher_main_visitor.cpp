@@ -4920,6 +4920,14 @@ antlrcpp::Any CypherMainVisitor::visitDropBranch(MemgraphCypher::DropBranchConte
   return versioning_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitUseBranch(MemgraphCypher::UseBranchContext *ctx) {
+  auto *versioning_query = storage_->Create<VersioningQuery>();
+  versioning_query->action_ = VersioningQuery::Action::USE_BRANCH;
+  versioning_query->name_ = std::any_cast<Expression *>(ctx->branchName()->accept(this));
+  query_ = versioning_query;
+  return versioning_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) {
   auto *versioning_query = storage_->Create<VersioningQuery>();
   versioning_query->action_ = VersioningQuery::Action::SHOW_BRANCH;
