@@ -36,14 +36,15 @@ struct LedgerContents {
 // fsync of the directory), so a reader sees either the previous or the new contents, never a partial file.
 //
 // File layout: a header line "MGBL <version> <payload_size> <crc32 hex>\n" followed by a JSON payload of exactly
-// `payload_size` bytes. Read rejects a wrong magic/version, a size mismatch (truncation/extension) and a CRC mismatch.
+// `payload_size` bytes. Read rejects a wrong magic/version, a size mismatch (truncation/extension), a CRC mismatch and
+// an invalid registry (bad or duplicate names or numbers); Write refuses to persist the latter.
 //
 // Not thread-safe: the owner serializes Write/Read.
 class BranchLedger {
  public:
   static constexpr uint32_t kVersion = 1;
 
-  // The parent directory of `file` is created by Write if missing.
+  // Write creates the parent directory of `file` if missing and fsyncs its entry.
   explicit BranchLedger(std::filesystem::path file);
 
   // Failures before the rename leave the previous ledger untouched and are returned; once renamed the write counts as
