@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <utility>
 
 #include <cmath>
@@ -73,6 +74,11 @@ TEST(FoldConstant, UnaryMinusNegates) {
 
 TEST(FoldConstant, DivisionByZeroDeclines) {
   EXPECT_FALSE(Fold(symbol::Div, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{0}}}).has_value());
+}
+
+TEST(FoldConstant, IntegerOverflowDeclines) {
+  auto const max = ExternalPropertyValue{std::numeric_limits<int64_t>::max()};
+  EXPECT_FALSE(Fold(symbol::Add, {max, ExternalPropertyValue{int64_t{1}}}).has_value());
 }
 
 TEST(FoldConstant, NonNumericArithmeticDeclines) {

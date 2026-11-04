@@ -1,3 +1,4 @@
+import math
 import sys
 from typing import Any, Dict, List
 
@@ -235,6 +236,37 @@ class TestParallelCorrectness:
         verify_parallel_matches_serial(
             populated_db, "MATCH (n:Person) OPTIONAL MATCH (n)-[r]->(m) RETURN n.name, type(r)"
         )
+
+
+class TestParallelIntegerSumOverflow:
+    """Integer sums whose total overflows int64 only after the worker branches are merged."""
+
+    COUNT = 1024
+
+    @pytest.fixture
+    def overflow_db(self, memgraph):
+        # Each branch's partial sum fits int64; the total of 2**63 does not.
+        memgraph.clear_database()
+        memgraph.execute_query(
+            f"UNWIND range(1, {self.COUNT}) AS i CREATE (:A {{v: 9007199254740992, d: 9007199254740991 + i}})"
+        )
+        return memgraph
+
+    def test_sum_promotes_to_float_at_merge(self, overflow_db):
+        result = overflow_db.fetch_all(pq("MATCH (n:A) RETURN sum(n.v) AS s"))
+        assert result[0]["s"] == float(2**63)
+        verify_parallel_matches_serial(overflow_db, "MATCH (n:A) RETURN sum(n.v) AS s")
+
+    def test_avg_over_overflowing_total(self, overflow_db):
+        result = overflow_db.fetch_all(pq("MATCH (n:A) RETURN avg(n.v) AS a"))
+        assert result[0]["a"] == float(2**53)
+        verify_parallel_matches_serial(overflow_db, "MATCH (n:A) RETURN avg(n.v) AS a")
+
+    def test_sum_distinct_promotes_to_float_at_merge(self, overflow_db):
+        expected = float(sum(2**53 - 1 + i for i in range(1, self.COUNT + 1)))
+        result = overflow_db.fetch_all(pq("MATCH (n:A) RETURN sum(DISTINCT n.d) AS s"))
+        assert math.isclose(result[0]["s"], expected, rel_tol=1e-12)
+        verify_parallel_matches_serial(overflow_db, "MATCH (n:A) RETURN sum(DISTINCT n.d) AS s")
 
 
 class TestParallelIndices:
