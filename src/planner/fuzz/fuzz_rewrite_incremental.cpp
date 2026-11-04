@@ -281,7 +281,7 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
     // pass count is bounded by the class count; the wide margin leaves room for
     // Incremental's documented extra passes without risking a false report.
     auto cfg = RewriteConfig::Unlimited();
-    cfg.max_iterations = 8 * inc_eg.core().num_classes() + 64;
+    cfg.max_iterations = (8 * inc_eg.core().num_classes()) + 64;
     auto const ref_result = ref.saturate_full(cfg);
     auto const inc_result = inc.saturate_incremental(cfg);
     if (!ref_result.saturated() || !inc_result.saturated()) {
