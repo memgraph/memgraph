@@ -101,12 +101,9 @@ class Client final {
   /**
    * This function removes first `len` bytes from the data buffer.
    */
-  void ShiftData(size_t len);
+  void ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
 
-  /**
-   * This function clears the data buffer.
-   */
-  void ClearData();
+  void ClearData() { buffer_.read_end()->Clear(); }
 
   /**
    * This function writes data to the socket.

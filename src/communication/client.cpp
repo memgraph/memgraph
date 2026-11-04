@@ -282,10 +282,6 @@ auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
   return {};
 }
 
-void Client::ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
-
-void Client::ClearData() { buffer_.read_end()->Clear(); }
-
 auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::optional<int> timeout_ms)
     -> std::expected<void, io::network::ClientCommunicationError> {
   if (ssl_) {
