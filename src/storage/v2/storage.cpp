@@ -153,8 +153,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
-
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
