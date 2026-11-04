@@ -49,7 +49,9 @@
 #include "utils/exceptions.hpp"
 #ifdef MG_ENTERPRISE
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/string.hpp"
 #include "versioning/branch_ledger.hpp"
+#include "versioning/branch_recovery.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
@@ -417,7 +419,19 @@ Database::Database(storage::Config config)
     if (branch_plan.bound) {
       version_store_->Restore(branch_plan.ledger, branch_pins);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
+      if (auto recovered = versioning::RecoverBranchContents(*version_store_, *in_memory_storage); !recovered) {
+        in_memory_storage->config_.durability.snapshot_on_exit = false;
+        RefuseToStart(database_name,
+                      recovered.error().branches.empty() ? BranchNames(branch_plan.ledger)
+                                                         : utils::Join(recovered.error().branches, ", "),
+                      recovered.error().reason,
+                      "repair or restore the files under the 'branches' directory of the database, or start with the "
+                      "previous settings and run DROP BRANCH for the affected branches");
+      }
     } else if (branch_plan.hidden) {
+      // Commits made while the branches are hidden must stay above every fork point.
+      in_memory_storage->BumpClockPastDurable(branch_plan.ledger.branches.back().info.recorded_fork_ts);
+      versioning::RaiseGidCountersForHiddenBranches(branch_plan.ledger, *in_memory_storage);
       version_store_->RestoreHidden(branch_plan.ledger);
     } else {
       version_store_->Restore(branch_plan.ledger, {});

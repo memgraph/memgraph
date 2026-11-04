@@ -12,22 +12,38 @@
 #pragma once
 
 #include <expected>
-#include <filesystem>
 #include <string>
+#include <vector>
+
+#include "storage/v2/inmemory/storagefwd.hpp"
+#include "versioning/branch_ledger.hpp"
 
 namespace memgraph::versioning {
 
-class BranchCore;
+class VersionStore;
 
-// Replays the branch WAL in `wal_dir` (an existing directory) into `core`, which was just built with the branch's
-// recorded gid floors and is not yet used by any session. Branch-native vertices and edges are recreated through the
-// diff engine; an endpoint that is a fork vertex resolves to its anchor, as BranchContext::CowVertex does. Afterwards
-// the diff engine's clock is past every replayed commit and its next WAL file continues the sequence numbering.
+// `branches` names only the branches whose contents failed; it is empty when the failure is not tied to one branch.
+struct BranchRecoveryFailure {
+  std::vector<std::string> branches;
+  std::string reason;
+};
+
+// Startup only, after VersionStore::Restore and with main fully recovered (fork pins held). Replays each restored
+// branch's diff-engine WAL into a core built with its recorded gid floors, rebuilds the filters, touched sets and
+// `branched()` bits derived from the overlay, and registers the core with `store`. Then raises main's gid counters
+// above every recorded floor and branch-native gid so new objects never collide with a branch's.
 //
 // WAL files are read the way main's recovery reads its own: a file with no readable header or no complete transaction
 // is skipped (never renamed), an unfinalized file is replayed up to its last whole transaction, and a missing file in
-// the sequence-number chain, a finalized file that fails its CRC, or a delta that does not apply is an error. Nothing
-// is dropped, renamed or rewritten. Never throws.
-[[nodiscard]] std::expected<void, std::string> ReplayBranchWal(BranchCore &core, const std::filesystem::path &wal_dir);
+// the sequence-number chain, a finalized file that fails its CRC, or a WAL that does not replay or cannot be listed
+// makes the result an error naming each affected branch and why. Nothing is dropped, renamed or rewritten; the caller
+// refuses to start, since keeping the branch would show main@fork as its contents. Main's gid counters are raised even
+// on failure. Never throws.
+[[nodiscard]] std::expected<void, BranchRecoveryFailure> RecoverBranchContents(VersionStore &store,
+                                                                               storage::InMemoryStorage &main);
+
+// Startup only, with the branches in `ledger` hidden: raises main's gid counters above every recorded floor and every
+// gid a hidden branch's WAL created. An unreadable WAL contributes what was read before the damage. Never throws.
+void RaiseGidCountersForHiddenBranches(const LedgerContents &ledger, storage::InMemoryStorage &main);
 
 }  // namespace memgraph::versioning
