@@ -291,6 +291,9 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::ActiveIndices::Search(const std
     throw TextSearchException("Text index {} doesn't exist.", index_name);
   }
   auto &index_data = *it->second;
+  if (index_data.dirty.load(std::memory_order_acquire)) {
+    throw TextSearchException("Text index {} is out of sync with the data; DROP and re-CREATE it.", index_name);
+  }
   auto &context = index_data.context;
 
   mgcxx::text_search::EdgeGidScoreOutput search_results;
@@ -365,6 +368,9 @@ std::string TextEdgeIndex::ActiveIndices::Aggregate(const std::string &index_nam
                                                     const std::string &aggregation_query) {
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_container_->find(index_name); it != index_container_->end()) {
+      if (it->second->dirty.load(std::memory_order_acquire)) {
+        throw TextSearchException("Text index {} is out of sync with the data; DROP and re-CREATE it.", index_name);
+      }
       return it->second->context;
     }
     throw TextSearchException("Text index {} doesn't exist.", index_name);
@@ -405,54 +411,91 @@ std::optional<uint64_t> TextEdgeIndex::ActiveIndices::ApproximateEdgesTextCount(
   return std::nullopt;
 }
 
+namespace {
+struct PreparedEdgeDoc {
+  std::int64_t edge_gid;
+  std::int64_t from_vertex_gid;
+  std::int64_t to_vertex_gid;
+  nlohmann::json properties;
+  std::string all_property_values;
+};
+
+struct PreparedEdgeBatch {
+  std::vector<std::int64_t> gids_to_remove;
+  std::vector<PreparedEdgeDoc> docs_to_add;
+};
+
+PreparedEdgeBatch PrepareBatch(const TextEdgeIndexData &index_data, const TextEdgeIndexPending &pending,
+                               NameIdMapper *name_id_mapper) {
+  PreparedEdgeBatch batch;
+  batch.gids_to_remove.reserve(pending.to_remove.size());
+  for (const auto *edge : pending.to_remove) {
+    batch.gids_to_remove.push_back(edge->gid.AsInt());
+  }
+
+  batch.docs_to_add.reserve(pending.to_add.size());
+  for (const auto &edge_with_vertices : pending.to_add) {
+    auto edge_properties = index_data.properties.empty()
+                               ? edge_with_vertices.edge->properties.Properties()
+                               : ExtractProperties(edge_with_vertices.edge->properties, index_data.properties);
+    batch.docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
+                                 edge_with_vertices.from_vertex->gid.AsInt(),
+                                 edge_with_vertices.to_vertex->gid.AsInt(),
+                                 SerializeProperties(edge_properties, name_id_mapper),
+                                 StringifyProperties(edge_properties)});
+  }
+  return batch;
+}
+}  // namespace
+
 void TextEdgeIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
+  // Runs after the commit is published, so it must not throw: a failing index is marked dirty instead.
   for (const auto &[index_data_ptr, pending] : tx.text_edge_index_change_collector_) {
-    struct PreparedEdgeDoc {
-      std::int64_t edge_gid;
-      std::int64_t from_vertex_gid;
-      std::int64_t to_vertex_gid;
-      nlohmann::json properties;
-      std::string all_property_values;
-    };
-
-    std::vector<std::int64_t> gids_to_remove;
-    gids_to_remove.reserve(pending.to_remove.size());
-    for (const auto *edge : pending.to_remove) {
-      gids_to_remove.push_back(edge->gid.AsInt());
-    }
-
-    std::vector<PreparedEdgeDoc> docs_to_add;
-    docs_to_add.reserve(pending.to_add.size());
-    for (const auto &edge_with_vertices : pending.to_add) {
-      auto edge_properties = index_data_ptr->properties.empty()
-                                 ? edge_with_vertices.edge->properties.Properties()
-                                 : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
-      docs_to_add.push_back({edge_with_vertices.edge->gid.AsInt(),
-                             edge_with_vertices.from_vertex->gid.AsInt(),
-                             edge_with_vertices.to_vertex->gid.AsInt(),
-                             SerializeProperties(edge_properties, name_id_mapper),
-                             StringifyProperties(edge_properties)});
-    }
-
-    const std::lock_guard lock(index_data_ptr->write_mutex);
+    if (index_data_ptr->dirty.load(std::memory_order_acquire)) continue;
     try {
-      for (auto gid : gids_to_remove) {
-        mgcxx::text_search::delete_document(
-            index_data_ptr->context,
-            mgcxx::text_search::SearchInput{.search_query = fmt::format("edge_gid:{}", gid)},
-            kDoSkipCommit);
+      auto batch = PrepareBatch(*index_data_ptr, pending, name_id_mapper);
+      const std::lock_guard lock(index_data_ptr->write_mutex);
+      const auto apply = [&](bool is_retry) {
+        for (auto gid : batch.gids_to_remove) {
+          mgcxx::text_search::delete_document(
+              index_data_ptr->context,
+              mgcxx::text_search::SearchInput{.search_query = fmt::format("edge_gid:{}", gid)},
+              kDoSkipCommit);
+        }
+        // A retry may follow a commit that did land, so drop any copy of the documents about to be re-added.
+        if (is_retry) {
+          for (const auto &doc : batch.docs_to_add) {
+            mgcxx::text_search::delete_document(
+                index_data_ptr->context,
+                mgcxx::text_search::SearchInput{.search_query = fmt::format("edge_gid:{}", doc.edge_gid)},
+                kDoSkipCommit);
+          }
+        }
+        for (auto &doc : batch.docs_to_add) {
+          TextEdgeIndex::AddEdgeToTextIndex(doc.edge_gid,
+                                            doc.from_vertex_gid,
+                                            doc.to_vertex_gid,
+                                            std::move(doc.properties),
+                                            std::move(doc.all_property_values),
+                                            index_data_ptr->context);
+        }
+        mgcxx::text_search::commit(index_data_ptr->context);
+      };
+      try {
+        apply(false);
+      } catch (const std::exception &e) {
+        spdlog::warn("Text edge index update failed, retrying once: {}", e.what());
+        // The documents were moved into the failed attempt; rebuild them from the pending changes.
+        batch = PrepareBatch(*index_data_ptr, pending, name_id_mapper);
+        apply(true);
       }
-      for (auto &doc : docs_to_add) {
-        TextEdgeIndex::AddEdgeToTextIndex(doc.edge_gid,
-                                          doc.from_vertex_gid,
-                                          doc.to_vertex_gid,
-                                          std::move(doc.properties),
-                                          std::move(doc.all_property_values),
-                                          index_data_ptr->context);
-      }
-      mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {
-      throw TextSearchException("Text search error: {}", e.what());
+      index_data_ptr->dirty.store(true, std::memory_order_release);
+      spdlog::error("Text edge index is out of sync with the data and must be dropped and re-created. Error: {}",
+                    e.what());
+    } catch (...) {
+      index_data_ptr->dirty.store(true, std::memory_order_release);
+      spdlog::error("Text edge index is out of sync with the data and must be dropped and re-created.");
     }
   }
 }

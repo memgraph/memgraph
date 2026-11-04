@@ -293,6 +293,9 @@ std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string
     throw TextSearchException("Text index {} doesn't exist.", index_name);
   }
   auto &index_data = *it->second;
+  if (index_data.dirty.load(std::memory_order_acquire)) {
+    throw TextSearchException("Text index {} is out of sync with the data; DROP and re-CREATE it.", index_name);
+  }
   auto &context = index_data.context;
 
   mgcxx::text_search::GidScoreOutput search_results;
@@ -364,6 +367,9 @@ std::string TextIndex::ActiveIndices::Aggregate(const std::string &index_name, c
                                                 const std::string &aggregation_query) {
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_container_->find(index_name); it != index_container_->end()) {
+      if (it->second->dirty.load(std::memory_order_acquire)) {
+        throw TextSearchException("Text index {} is out of sync with the data; DROP and re-CREATE it.", index_name);
+      }
       return it->second->context;
     }
     throw TextSearchException("Text index {} doesn't exist.", index_name);
@@ -404,45 +410,82 @@ std::optional<uint64_t> TextIndex::ActiveIndices::ApproximateVerticesTextCount(s
   return std::nullopt;
 }
 
+namespace {
+struct PreparedDoc {
+  std::int64_t gid;
+  nlohmann::json properties;
+  std::string all_property_values;
+};
+
+struct PreparedBatch {
+  std::vector<std::int64_t> gids_to_remove;
+  std::vector<PreparedDoc> docs_to_add;
+};
+
+PreparedBatch PrepareBatch(const TextIndexData &index_data, const TextIndexPending &pending,
+                           NameIdMapper *name_id_mapper) {
+  PreparedBatch batch;
+  batch.gids_to_remove.reserve(pending.to_remove.size());
+  for (const auto *vertex : pending.to_remove) {
+    batch.gids_to_remove.push_back(vertex->gid.AsInt());
+  }
+
+  batch.docs_to_add.reserve(pending.to_add.size());
+  for (const auto *vertex : pending.to_add) {
+    auto vertex_properties = index_data.properties.empty()
+                                 ? vertex->properties.Properties()
+                                 : ExtractProperties(vertex->properties, index_data.properties);
+    batch.docs_to_add.push_back({vertex->gid.AsInt(),
+                                 SerializeProperties(vertex_properties, name_id_mapper),
+                                 StringifyProperties(vertex_properties)});
+  }
+  return batch;
+}
+}  // namespace
+
 void TextIndex::ActiveIndices::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
+  // Runs after the commit is published, so it must not throw: a failing index is marked dirty instead.
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
-    struct PreparedDoc {
-      std::int64_t gid;
-      nlohmann::json properties;
-      std::string all_property_values;
-    };
-
-    std::vector<std::int64_t> gids_to_remove;
-    gids_to_remove.reserve(pending.to_remove.size());
-    for (const auto *vertex : pending.to_remove) {
-      gids_to_remove.push_back(vertex->gid.AsInt());
-    }
-
-    std::vector<PreparedDoc> docs_to_add;
-    docs_to_add.reserve(pending.to_add.size());
-    for (const auto *vertex : pending.to_add) {
-      auto vertex_properties = index_data_ptr->properties.empty()
-                                   ? vertex->properties.Properties()
-                                   : ExtractProperties(vertex->properties, index_data_ptr->properties);
-      docs_to_add.push_back({vertex->gid.AsInt(),
-                             SerializeProperties(vertex_properties, name_id_mapper),
-                             StringifyProperties(vertex_properties)});
-    }
-
-    const std::lock_guard lock(index_data_ptr->write_mutex);
+    if (index_data_ptr->dirty.load(std::memory_order_acquire)) continue;
     try {
-      for (auto gid : gids_to_remove) {
-        mgcxx::text_search::delete_document(index_data_ptr->context,
-                                            mgcxx::text_search::SearchInput{.search_query = fmt::format("gid:{}", gid)},
-                                            kDoSkipCommit);
+      auto batch = PrepareBatch(*index_data_ptr, pending, name_id_mapper);
+      const std::lock_guard lock(index_data_ptr->write_mutex);
+      const auto apply = [&](bool is_retry) {
+        for (auto gid : batch.gids_to_remove) {
+          mgcxx::text_search::delete_document(
+              index_data_ptr->context,
+              mgcxx::text_search::SearchInput{.search_query = fmt::format("gid:{}", gid)},
+              kDoSkipCommit);
+        }
+        // A retry may follow a commit that did land, so drop any copy of the documents about to be re-added.
+        if (is_retry) {
+          for (const auto &doc : batch.docs_to_add) {
+            mgcxx::text_search::delete_document(
+                index_data_ptr->context,
+                mgcxx::text_search::SearchInput{.search_query = fmt::format("gid:{}", doc.gid)},
+                kDoSkipCommit);
+          }
+        }
+        for (auto &doc : batch.docs_to_add) {
+          TextIndex::AddNodeToTextIndex(
+              doc.gid, std::move(doc.properties), std::move(doc.all_property_values), index_data_ptr->context);
+        }
+        mgcxx::text_search::commit(index_data_ptr->context);
+      };
+      try {
+        apply(false);
+      } catch (const std::exception &e) {
+        spdlog::warn("Text index update failed, retrying once: {}", e.what());
+        // The documents were moved into the failed attempt; rebuild them from the pending changes.
+        batch = PrepareBatch(*index_data_ptr, pending, name_id_mapper);
+        apply(true);
       }
-      for (auto &doc : docs_to_add) {
-        TextIndex::AddNodeToTextIndex(
-            doc.gid, std::move(doc.properties), std::move(doc.all_property_values), index_data_ptr->context);
-      }
-      mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {
-      throw TextSearchException("Text search error: {}", e.what());
+      index_data_ptr->dirty.store(true, std::memory_order_release);
+      spdlog::error("Text index is out of sync with the data and must be dropped and re-created. Error: {}", e.what());
+    } catch (...) {
+      index_data_ptr->dirty.store(true, std::memory_order_release);
+      spdlog::error("Text index is out of sync with the data and must be dropped and re-created.");
     }
   }
 }
