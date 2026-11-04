@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -219,12 +220,16 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
-  // Record a reference in every open body, not just the innermost.
+  // Record a reference in every open body, not just the innermost. Refuses a list element read inside a comprehension
+  // opened after it.
   void RecordSubqueryReference(const Symbol &symbol);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
-  void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
+  /// Which construct binds the identifiers. Only kListExpression symbols enter @c list_element_symbols_in_scope_.
+  enum class Binder : uint8_t { kListExpression, kEdgeLambda };
+
+  void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &, Binder binder);
 
   SymbolTable *symbol_table_;
 
@@ -239,6 +244,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Open subquery bodies, outermost first. External means created before the body, not visible outside it:
   // `CALL (v) {}` imports `v` without creating a symbol, so `v` keeps its outer position.
   std::vector<OpenSubquery> open_subqueries_;
+  // Symbols a list expression binds once per element, while its body is visited.
+  std::unordered_set<Symbol> list_element_symbols_in_scope_;
+  // Nondecreasing, so back() is the innermost open pattern comprehension.
+  std::vector<int32_t> open_comprehension_first_positions_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups

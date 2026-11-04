@@ -72,6 +72,14 @@ void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
   for (auto &subquery : open_subqueries_) {
     subquery.referenced.insert(symbol);
   }
+  // A comprehension runs once per row, so it would read the element of another iteration.
+  if (!open_comprehension_first_positions_.empty() && symbol.position() < open_comprehension_first_positions_.back() &&
+      list_element_symbols_in_scope_.contains(symbol)) {
+    throw SemanticException(
+        "A pattern comprehension cannot yet read '{}', which an enclosing list expression binds once per element. "
+        "Use COUNT {{ ... }} or EXISTS {{ ... }} instead.",
+        symbol.name());
+  }
 }
 
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
@@ -727,25 +735,25 @@ bool SymbolGenerator::PostVisit(Aggregation &) {
 
 bool SymbolGenerator::PreVisit(All &all) {
   all.list_expression_->Accept(*this);
-  VisitWithIdentifiers({all.where_->expression_}, {all.identifier_});
+  VisitWithIdentifiers({all.where_->expression_}, {all.identifier_}, Binder::kListExpression);
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Single &single) {
   single.list_expression_->Accept(*this);
-  VisitWithIdentifiers({single.where_->expression_}, {single.identifier_});
+  VisitWithIdentifiers({single.where_->expression_}, {single.identifier_}, Binder::kListExpression);
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Any &any) {
   any.list_expression_->Accept(*this);
-  VisitWithIdentifiers({any.where_->expression_}, {any.identifier_});
+  VisitWithIdentifiers({any.where_->expression_}, {any.identifier_}, Binder::kListExpression);
   return false;
 }
 
 bool SymbolGenerator::PreVisit(None &none) {
   none.list_expression_->Accept(*this);
-  VisitWithIdentifiers({none.where_->expression_}, {none.identifier_});
+  VisitWithIdentifiers({none.where_->expression_}, {none.identifier_}, Binder::kListExpression);
   return false;
 }
 
@@ -754,7 +762,7 @@ bool SymbolGenerator::PreVisit(Reduce &reduce) {
   scope.in_reduce = true;
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
-  VisitWithIdentifiers({reduce.expression_}, {reduce.accumulator_, reduce.identifier_});
+  VisitWithIdentifiers({reduce.expression_}, {reduce.accumulator_, reduce.identifier_}, Binder::kListExpression);
   return false;
 }
 
@@ -766,7 +774,7 @@ bool SymbolGenerator::PostVisit(Reduce & /*reduce*/) {
 
 bool SymbolGenerator::PreVisit(Extract &extract) {
   extract.list_->Accept(*this);
-  VisitWithIdentifiers({extract.expression_}, {extract.identifier_});
+  VisitWithIdentifiers({extract.expression_}, {extract.identifier_}, Binder::kListExpression);
   return false;
 }
 
@@ -784,7 +792,7 @@ bool SymbolGenerator::PreVisit(ListComprehension &list_comprehension) {
     exprs.push_back(list_comprehension.expression_);
   }
 
-  VisitWithIdentifiers(exprs, {list_comprehension.identifier_});
+  VisitWithIdentifiers(exprs, {list_comprehension.identifier_}, Binder::kListExpression);
   return false;
 }
 
@@ -852,10 +860,11 @@ bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   const auto &body = open_subqueries_.back();
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
   subquery.external_symbols_.clear();
+  subquery.element_symbols_.clear();
   for (const auto &symbol : body.referenced) {
-    if (symbol.position() < body.first_own_position) {
-      subquery.external_symbols_.insert(symbol);
-    }
+    if (symbol.position() >= body.first_own_position) continue;
+    subquery.external_symbols_.insert(symbol);
+    if (list_element_symbols_in_scope_.contains(symbol)) subquery.element_symbols_.insert(symbol);
   }
   open_subqueries_.pop_back();
   scopes_.pop_back();
@@ -1113,7 +1122,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_weight);
         }
       }
-      VisitWithIdentifiers({edge_atom.filter_lambda_.expression}, filter_lambda_identifiers);
+      VisitWithIdentifiers({edge_atom.filter_lambda_.expression}, filter_lambda_identifiers, Binder::kEdgeLambda);
     } else {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
@@ -1136,7 +1145,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers({edge_atom.weight_lambda_.expression},
-                           {edge_atom.weight_lambda_.inner_edge, edge_atom.weight_lambda_.inner_node});
+                           {edge_atom.weight_lambda_.inner_edge, edge_atom.weight_lambda_.inner_node},
+                           Binder::kEdgeLambda);
     }
     scopes_[scope_idx].in_pattern = true;
   }
@@ -1164,6 +1174,7 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
   scopes_.emplace_back(
       Scope{.in_pattern_comprehension = true, .call_subquery_base = scopes_.back().call_subquery_base});
+  open_comprehension_first_positions_.push_back(symbol_table_->max_position());
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
@@ -1184,12 +1195,13 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 }
 
 bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
+  open_comprehension_first_positions_.pop_back();
   scopes_.pop_back();
   return true;
 }
 
 void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
-                                           const std::vector<Identifier *> &identifiers) {
+                                           const std::vector<Identifier *> &identifiers, Binder binder) {
   // Index rather than hold a reference: the body may push a Scope, and scopes_ reallocating would dangle it.
   const auto scope_idx = scopes_.size() - 1;
   std::vector<std::pair<std::optional<Symbol>, Identifier *>> prev_symbols;
@@ -1201,7 +1213,9 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
     if (prev_symbol_it != symbols.end()) {
       prev_symbol = prev_symbol_it->second;
     }
-    identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+    auto const symbol = CreateSymbol(identifier->name_, identifier->user_declared_);
+    identifier->MapTo(symbol);
+    if (binder == Binder::kListExpression) list_element_symbols_in_scope_.insert(symbol);
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
   // Visit the expressions with the new symbols bound. Every construct binding a per-element identifier funnels
@@ -1211,6 +1225,9 @@ void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
     expr->Accept(*this);
   }
   --scopes_[scope_idx].element_lambda_depth;
+  if (binder == Binder::kListExpression) {
+    for (const auto *identifier : identifiers) list_element_symbols_in_scope_.erase(symbol_table_->at(*identifier));
+  }
   // Restore back to previous symbols.
   for (const auto &prev : prev_symbols) {
     const auto &prev_symbol = prev.first;
