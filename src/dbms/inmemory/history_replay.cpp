@@ -21,8 +21,7 @@
 #include <fmt/format.h>
 
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "rpc/progress_heartbeat.hpp"
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::dbms {
@@ -37,55 +36,59 @@ void RecordWalEpoch(storage::ReplicationStorageState &state, std::string const &
     state.epoch_.SetEpoch(epoch_id);
   }
 }
+
+uint64_t LastDurableTimestamp(storage::InMemoryStorage const &storage) {
+  return storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+}
 }  // namespace
 
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts) {
-  // Pins are registered positionally (fork_ts[pins.size()]) as replay crosses each boundary: unsorted input would
-  // silently register a later fork's pin late and leak pre-fork state into it. Duplicates are fine (multiset pins).
-  MG_ASSERT(std::ranges::is_sorted(fork_ts), "fork_ts must be ascending (duplicates allowed)");
+  // Pins are taken positionally as replay crosses each fork: unsorted input would pin a later fork too late.
+  if (!std::ranges::is_sorted(fork_ts)) return std::unexpected("fork timestamps must be ascending");
+  // The recovered state already holds the commit at reached_timestamp, which such a fork must not see.
+  if (!fork_ts.empty() && fork_ts.front() <= tail.reached_timestamp) {
+    return std::unexpected(
+        fmt::format("fork at {} is not past the recovered state at {}", fork_ts.front(), tail.reached_timestamp));
+  }
+
   std::vector<uint64_t> pins;
   pins.reserve(fork_ts.size());
-  const auto release_all = [&] {
-    for (const auto pin : pins) storage.ReleaseForkPin(pin);
-    pins.clear();
-  };
-
   // Runs before the txn committed at `durable_ts` is replayed: every fork at or below it already sees its full history.
-  const auto pin_due = [&](uint64_t durable_ts) {
+  const std::function<void(uint64_t)> pin_due = [&](uint64_t durable_ts) {
     while (pins.size() < fork_ts.size() && fork_ts[pins.size()] <= durable_ts) {
       pins.push_back(storage.RegisterForkPin());
     }
   };
 
+  const auto failed = [&](std::string reason) -> std::unexpected<std::string> {
+    for (const auto pin : pins) storage.ReleaseForkPin(pin);
+    return std::unexpected(std::move(reason));
+  };
+
   try {
-    // Pins for forks at or before the recovered state must exist before the first replayed txn.
     pin_due(tail.reached_timestamp + 1);
     {
       const storage::InMemoryStorage::SuppressWalScope suppress_wal{storage};
-      rpc::ProgressHeartbeat heartbeat;  // never started: nobody to send progress to
-      const std::function<void(uint64_t)> on_txn_begin = pin_due;
       for (const auto &file : tail.wal_files) {
-        const auto ldt_before = storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
-        if (!InMemoryReplicationHandlers::ReplayWalFile(file, &storage, heartbeat, &on_txn_begin)) {
-          release_all();
-          return std::unexpected(fmt::format("replaying WAL file '{}' failed", file.string()));
+        const auto info = storage::durability::ReadWalContents(file);
+        const auto ldt_before = LastDurableTimestamp(storage);
+        if (info.to_timestamp <= ldt_before) continue;
+        if (!InMemoryReplicationHandlers::ReplayWalFile(file, info, &storage, pin_due)) {
+          return failed(fmt::format("replaying WAL file '{}' failed", file.string()));
         }
-        // Same per-file epoch bookkeeping as RecoverData.
-        const auto ldt_after = storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
-        if (ldt_after != ldt_before) {
-          RecordWalEpoch(storage.repl_storage_state_, storage::durability::ReadWalContents(file).epoch_id, ldt_after);
+        if (const auto ldt_after = LastDurableTimestamp(storage); ldt_after != ldt_before) {
+          RecordWalEpoch(storage.repl_storage_state_, info.epoch_id, ldt_after);
         }
       }
     }
     pin_due(std::numeric_limits<uint64_t>::max());
   } catch (const std::exception &e) {
-    release_all();
-    return std::unexpected(fmt::format("replaying the WAL tail threw: {}", e.what()));
+    return failed(fmt::format("replaying the WAL tail threw: {}", e.what()));
   }
 
-  // Every future commit must get a ts >= the newest recorded fork_ts, or it would leak into that branch's fork base.
+  // Later commits must not fall below a recorded fork, or a bounded recovery at that fork would include them.
   storage.BumpClockPastDurable(fork_ts.empty() ? 0 : fork_ts.back());
   return pins;
 }
