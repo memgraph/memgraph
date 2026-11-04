@@ -16,11 +16,8 @@
 namespace memgraph::versioning {
 
 namespace {
-// Branch-name policy, bounded like database identifiers elsewhere:
-//  - PostgreSQL: identifiers are letters/digits/underscores, max 63 bytes (NAMEDATALEN - 1);
-//  - git-check-ref-format: no leading/trailing '-', no trailing '.', no spaces or control chars;
-//  - Kubernetes labels: DNS-style lowercase alphanumerics + '-'/'.'/'_', 63-char bound.
-// '@' stays forbidden: it is the <database>@<branch> separator (Bolt db pin).
+// Same shape as a Kubernetes label: max 63, alphanumeric ends, '.', '_', '-' inside. '@' is excluded because it
+// separates <database>@<branch>.
 constexpr size_t kMaxBranchNameLength = 63;
 
 bool IsAlphaNum(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); }
@@ -41,8 +38,6 @@ std::optional<std::string> ValidateBranchName(std::string_view name) {
   if (name.contains('@')) {
     return "Branch name must not contain '@': it names a branch as <database>@<branch>.";
   }
-  // The charset rule first: it rejects separators like '/' anywhere, while the ends rule only
-  // covers the characters the charset allows.
   for (const char c : name) {
     if (!IsMiddleChar(c)) {
       return "Branch name may contain only letters, digits, '.', '_' and '-'.";

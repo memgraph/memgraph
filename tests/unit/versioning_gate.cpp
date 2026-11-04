@@ -11,6 +11,8 @@
 
 #include "gtest/gtest.h"
 
+#include <optional>
+#include <string>
 #include <utility>
 
 #include "flags/experimental.hpp"
@@ -22,9 +24,8 @@ using memgraph::versioning::GateError;
 using memgraph::versioning::GateErrorMessage;
 using memgraph::versioning::GateOperation;
 using memgraph::versioning::GateState;
+using memgraph::versioning::StartupConfigError;
 
-// Precedence follows the spec's prerequisites: flag, license, storage mode, durability (first failure wins). Only
-// kCreate needs the license and durability; kObserve (SHOW, USE, DROP) needs neither.
 TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
   for (const auto op : {GateOperation::kObserve, GateOperation::kCreate}) {
     const bool creating = op == GateOperation::kCreate;
@@ -46,13 +47,6 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
       EXPECT_EQ(CheckVersioningGate(op, state), expected) << "creating=" << creating << " bits=" << bits;
     }
   }
-}
-
-TEST(VersioningGate, UnlicensedObserveIsAllowedButCreateIsNot) {
-  const GateState state{
-      .flag_enabled = true, .enterprise_valid = false, .is_in_memory_transactional = true, .durable = true};
-  EXPECT_EQ(CheckVersioningGate(GateOperation::kObserve, state), std::nullopt);
-  EXPECT_EQ(CheckVersioningGate(GateOperation::kCreate, state), GateError::kNoLicense);
 }
 
 TEST(VersioningGate, ErrorMessagesAreExact) {
@@ -81,6 +75,34 @@ TEST(VersioningGate, BranchesDurableNeedsWalAndRecoveryOnStartup) {
   }
 }
 
+TEST(VersioningGate, StartupConfigErrorNamesTheSettingThatCannotHostBranches) {
+  using SnapshotWalMode = memgraph::storage::Config::Durability::SnapshotWalMode;
+  using memgraph::storage::StorageMode;
+  const auto config_with = [](SnapshotWalMode wal, bool recover) {
+    memgraph::storage::Config config;
+    config.durability.snapshot_wal_mode = wal;
+    config.durability.recover_on_startup = recover;
+    return config;
+  };
+  const auto durable = config_with(SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL, true);
+  EXPECT_EQ(StartupConfigError(StorageMode::IN_MEMORY_TRANSACTIONAL, durable), std::nullopt);
+
+  for (const auto mode : {StorageMode::IN_MEMORY_ANALYTICAL, StorageMode::ON_DISK_TRANSACTIONAL}) {
+    const auto error = StartupConfigError(mode, durable);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("IN_MEMORY_TRANSACTIONAL"), std::string::npos) << *error;
+    EXPECT_NE(error->find("--experimental-enabled=versioning"), std::string::npos) << *error;
+  }
+  for (const auto &config : {config_with(SnapshotWalMode::DISABLED, true),
+                             config_with(SnapshotWalMode::PERIODIC_SNAPSHOT, true),
+                             config_with(SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL, false)}) {
+    const auto error = StartupConfigError(StorageMode::IN_MEMORY_TRANSACTIONAL, config);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("--data-recovery-on-startup=true"), std::string::npos) << *error;
+    EXPECT_NE(error->find("PERIODIC_SNAPSHOT_WITH_WAL"), std::string::npos) << *error;
+  }
+}
+
 TEST(VersioningExperimentalFlag, VersioningIsItsOwnExperimentsBit) {
   using memgraph::flags::Experiments;
   EXPECT_TRUE(memgraph::flags::ValidExperimentalFlag("versioning"));
@@ -92,7 +114,11 @@ TEST(VersioningExperimentalFlag, VersioningIsItsOwnExperimentsBit) {
 
   memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("planner-v2"));
   EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("commit-lock-narrowing"));
+  EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  EXPECT_TRUE(memgraph::flags::AreExperimentsEnabled(Experiments::COMMIT_LOCK_NARROWING));
   memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("versioning"));
   EXPECT_TRUE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::COMMIT_LOCK_NARROWING));
   memgraph::flags::SetExperimental(Experiments::NONE);
 }

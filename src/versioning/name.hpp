@@ -18,9 +18,8 @@
 namespace memgraph::versioning {
 
 // Returns a user-facing error if `name` is not a valid branch name; std::nullopt when valid.
-// Policy (bounded like database identifiers elsewhere): 1..63 characters of [A-Za-z0-9._-],
-// starting and ending with an alphanumeric; exact "main" (case-sensitive) is reserved; '@' is
-// forbidden as the <database>@<branch> separator.
+// Valid: 1..63 chars of [A-Za-z0-9._-], alphanumeric at both ends. Exact "main" is reserved;
+// '@' is rejected as the <database>@<branch> separator.
 std::optional<std::string> ValidateBranchName(std::string_view name);
 
 }  // namespace memgraph::versioning

@@ -28,6 +28,19 @@ bool BranchesDurable(const storage::Config &config) {
              storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
 }
 
+std::optional<std::string> StartupConfigError(storage::StorageMode mode, const storage::Config &config) {
+  const auto error =
+      CheckVersioningGate(GateOperation::kCreate,
+                          {.flag_enabled = true,
+                           .enterprise_valid = true,
+                           .is_in_memory_transactional = mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                           .durable = BranchesDurable(config)});
+  if (!error) return std::nullopt;
+  return std::string{GateErrorMessage(*error)} +
+         " Memgraph does not start with --experimental-enabled=versioning and these settings: change them, or start "
+         "without the flag.";
+}
+
 std::string_view GateErrorMessage(GateError err) {
   using namespace std::string_view_literals;
   switch (err) {
