@@ -508,7 +508,8 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *RandomString(
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
       "abcdefghijklmnopqrstuvwxyz";
   static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
-  static thread_local std::uniform_int_distribution<size_t> rand_dist{0, strlen(charset) - 1};
+  static thread_local std::uniform_int_distribution<size_t> rand_dist{
+      0, std::size(charset) - 2};  // -1 for the NUL, -1 for inclusive bound
   out->resize(length);
   std::ranges::generate(*out, [] { return charset[rand_dist(pseudo_rand_gen)]; });
   return out;

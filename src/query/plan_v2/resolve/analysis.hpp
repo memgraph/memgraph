@@ -28,14 +28,22 @@ struct ExpressionAnalysis {
   std::optional<std::size_t> known_list_length;
 
   void merge(ExpressionAnalysis const &other);
+
+  /// Equality is what lets the rewriter audit, in a debug build, that facts move
+  /// only on merge. See EClass's note on a conforming analysis.
+  auto operator==(ExpressionAnalysis const &) const -> bool = default;
 };
 
 /// Analysis facts about an operator's output. Empty for now; future facts
 /// (distinctness, ordering, cardinality bounds, ...) land here.
-struct OperatorAnalysis {};
+struct OperatorAnalysis {
+  auto operator==(OperatorAnalysis const &) const -> bool = default;
+};
 
 /// Symbol e-classes are singletons by invariant and carry no analysis facts.
-struct SymbolAnalysis {};
+struct SymbolAnalysis {
+  auto operator==(SymbolAnalysis const &) const -> bool = default;
+};
 
 using analysis_variant = std::variant<ExpressionAnalysis, OperatorAnalysis, SymbolAnalysis>;
 

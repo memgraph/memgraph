@@ -72,6 +72,11 @@ struct EClassBase {
  * @details
  * An E-class represents a set of e-nodes that are known to be semantically
  * equivalent.
+ *
+ * A conforming `Analysis` holds its facts by value. Incremental arming learns
+ * that a fact moved only from the merge that moved it, so an analysis whose
+ * facts live behind a pointer, or which computes one lazily on read, can change
+ * behind the `const` accessor below and leave a newly matching rewrite unarmed.
  */
 template <typename Analysis>
 struct EClass : private detail::EClassBase {
