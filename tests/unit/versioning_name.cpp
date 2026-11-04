@@ -19,9 +19,6 @@
 
 using memgraph::versioning::ValidateBranchName;
 
-// A branch name is 1..63 chars of [A-Za-z0-9._-], starts/ends alphanumeric, is not exactly "main",
-// and contains no '@' (the <database>@<branch> separator).
-
 namespace {
 constexpr std::string_view kEmptyMsg = "must not be empty";
 constexpr std::string_view kReservedMsg = "reserved branch name";
@@ -37,7 +34,7 @@ struct Rejection {
 }  // namespace
 
 TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
-  constexpr std::array<Rejection, 24> kRejections{{
+  constexpr std::array<Rejection, 29> kRejections{{
       {"", kEmptyMsg},
       {"main", kReservedMsg},
       {"a.", kEndsMsg},
@@ -56,6 +53,11 @@ TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
       {"release/1.2", kCharsetMsg},
       {"release\\1.2", kCharsetMsg},
       {"a:b", kCharsetMsg},
+      {"a`", kCharsetMsg},
+      {"a{", kCharsetMsg},
+      {"a[", kCharsetMsg},
+      {"a/", kCharsetMsg},
+      {"a:", kCharsetMsg},
       {"a?b", kCharsetMsg},
       {"a*b", kCharsetMsg},
       {"@", kAtMsg},
@@ -71,7 +73,7 @@ TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
 }
 
 TEST(VersioningName, ValidNamesAreAccepted) {
-  // "Main"/"MAIN": only exact lowercase "main" is reserved. "mainly-not-main": contains but != "main".
+  // Only exact lowercase "main" is reserved.
   for (const std::string_view input : {"feature-1",
                                        "my_branch",
                                        "release_2026_07",
@@ -81,13 +83,19 @@ TEST(VersioningName, ValidNamesAreAccepted) {
                                        "MAIN",
                                        "release.1.2",
                                        "a1",
-                                       "b-1.c_2"}) {
+                                       "b-1.c_2",
+                                       "a",
+                                       "z",
+                                       "A",
+                                       "Z",
+                                       "0",
+                                       "9",
+                                       "zZ0-9Aa"}) {
     EXPECT_EQ(ValidateBranchName(input), std::nullopt) << "input '" << input << "'";
   }
 }
 
 TEST(VersioningName, NameLengthIsBoundedAt63) {
-  // 63 chars: 'a' + 61 middle chars + '9'. Accepted; the 64-char variant is rejected.
   std::string ok(63, 'x');
   ok.front() = 'a';
   ok.back() = '9';
