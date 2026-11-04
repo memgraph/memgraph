@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <charconv>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -187,12 +188,32 @@ std::expected<std::optional<LedgerContents>, std::string> BranchLedger::Read() c
   const std::string header = data.substr(0, nl);
   const std::string_view payload = std::string_view{data}.substr(nl + 1);
 
-  char magic[8]{};
-  unsigned version = 0;
-  unsigned long long size = 0;
-  unsigned crc = 0;
-  if (std::sscanf(header.c_str(), "%7s %u %llu %x", magic, &version, &size, &crc) != 4 || magic != kMagic) {
-    return corrupt("bad header");
+  // Token parse instead of sscanf: from_chars checks numeric conversion failures, and no fixed-size char buffer.
+  uint64_t version = 0;
+  uint64_t size = 0;
+  uint32_t crc = 0;
+  {
+    size_t pos = 0;
+    const auto next_token = [&]() -> std::optional<std::string_view> {
+      pos = header.find_first_not_of(' ', pos);
+      if (pos == std::string::npos) return std::nullopt;
+      const size_t end = header.find(' ', pos);
+      const std::string_view token =
+          std::string_view{header}.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+      pos = end == std::string::npos ? header.size() : end + 1;
+      return token;
+    };
+    const auto magic_token = next_token();
+    const auto version_token = next_token();
+    const auto size_token = next_token();
+    const auto crc_token = next_token();
+    if (!magic_token || *magic_token != kMagic || !version_token || !size_token || !crc_token ||
+        std::from_chars(version_token->data(), version_token->data() + version_token->size(), version).ec !=
+            std::errc{} ||
+        std::from_chars(size_token->data(), size_token->data() + size_token->size(), size).ec != std::errc{} ||
+        std::from_chars(crc_token->data(), crc_token->data() + crc_token->size(), crc, 16).ec != std::errc{}) {
+      return corrupt("bad header");
+    }
   }
   if (version != kVersion) return corrupt(fmt::format("unsupported version {}", version));
   if (size != payload.size()) {
