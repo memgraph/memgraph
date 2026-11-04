@@ -14,14 +14,22 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -436,6 +444,72 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkIsReplayedUnderTheF
   auto branch = ReadBranch(db, "b1");
   ASSERT_NE(branch, nullptr);
   EXPECT_FALSE(branch->FindVertex(post_fork_vertex, ms::View::OLD).has_value());
+}
+
+namespace {
+// Every vertex with its p and out edges, ordered by gid.
+std::string Dump(ms::Storage::Accessor &acc, ms::PropertyId p) {
+  std::map<uint64_t, std::string> vertices;
+  for (auto v : acc.Vertices(ms::View::OLD)) {
+    std::vector<uint64_t> edges;
+    for (const auto &e : v.OutEdges(ms::View::OLD)->edges) edges.push_back(e.Gid().AsUint());
+    std::ranges::sort(edges);
+    vertices[v.Gid().AsUint()] = fmt::format("{}{}", *v.GetProperty(p, ms::View::OLD), edges);
+  }
+  return fmt::format("{}", vertices);
+}
+}  // namespace
+
+// Commit-lock narrowing does not change what bounded startup rebuilds: the same durable files (written with narrowing
+// on) restarted with it on and off give the same branches, each at exactly its own fork, forks at one timestamp
+// included.
+TEST_F(VersioningDurabilityRestartTest, NarrowingOnAndOffRecoverTheSameBranches) {
+  const auto write_config = [] {
+    auto config = MakeConfig(/*recover_on_startup=*/false);
+    config.experimental_commit_lock_narrowing = true;
+    return config;
+  };
+  {
+    memgraph::dbms::Database db{write_config()};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("a1").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("a2").has_value());
+    SetV1(db, gids, 2);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    MoveMainOn(db, gids);
+  }
+  const auto pristine = kStorageDirectory.string() + "_pristine";
+  std::filesystem::remove_all(pristine);
+  std::filesystem::copy(kStorageDirectory, pristine, std::filesystem::copy_options::recursive);
+
+  using State = std::map<std::string, std::pair<uint64_t, std::string>>;  // name -> {recorded fork, contents}
+  const auto restart = [&](bool narrowing) {
+    std::filesystem::remove_all(kStorageDirectory);
+    std::filesystem::copy(pristine, kStorageDirectory, std::filesystem::copy_options::recursive);
+    auto config = MakeConfig(/*recover_on_startup=*/true);
+    config.experimental_commit_lock_narrowing = narrowing;
+    memgraph::dbms::Database db{std::move(config)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto p = db.storage()->NameToProperty("p");
+    State state;
+    for (const auto &[name, info] : db.version_store()->List()) {
+      auto branch = ReadBranch(db, name);
+      if (branch) state[name] = {info.recorded_fork_ts, Dump(*branch, p)};
+    }
+    state["main"] = {0, Dump(*db.Access(ms::READ), p)};
+    return state;
+  };
+  const auto on = restart(true);
+  const auto off = restart(false);
+  std::filesystem::remove_all(pristine);
+
+  ASSERT_EQ(on.size(), 4U);
+  EXPECT_EQ(on, off);
+  EXPECT_EQ(on.at("a1"), on.at("a2"));
+  EXPECT_LT(on.at("a1").first, on.at("b").first);
+  EXPECT_NE(on.at("a1").second, on.at("b").second);
+  EXPECT_NE(on.at("b").second, on.at("main").second);
 }
 
 // Retention keeps only the newest snapshot while versioning is off, yet the hidden branch's fork base must stay
