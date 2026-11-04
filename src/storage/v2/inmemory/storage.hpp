@@ -853,12 +853,11 @@ class InMemoryStorage final : public Storage {
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
 #ifdef MG_ENTERPRISE
-  // Captures the current timestamp as a branch fork point and pins GC at it; returns it.
+  // Pins GC at the fork point (what a BEGIN now would see: commits below it) and returns it.
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
-  // Call exactly once per RegisterForkPin; an unregistered fork_ts MG_ASSERTs.
-  // Removes one instance of the multiset key, not all equal ones.
+  // Call exactly once per RegisterForkPin (unregistered fork_ts MG_ASSERTs); removes one equal pin, not all.
   void ReleaseForkPin(uint64_t fork_ts);
 
   // Oldest live fork pin, or nullopt if none; mirrors the GC horizon clamp in CollectGarbage.
@@ -1253,11 +1252,10 @@ class InMemoryStorage final : public Storage {
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
 
 #ifdef MG_ENTERPRISE
-  // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: several pins may share a fork_ts.
-  // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
+  // Live branch fork points (multiset: pins may share a fork_ts); GC's horizon is clamped to the oldest.
   utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
-  // Min of version_fork_pins_ (kNoForkPin when empty), stored under version_fork_pin_lock_ so readers skip the lock.
+  // Min of version_fork_pins_ (kNoForkPin when empty); written under the lock so readers skip it.
   static constexpr uint64_t kNoForkPin = std::numeric_limits<uint64_t>::max();
   std::atomic<uint64_t> oldest_fork_pin_{kNoForkPin};
 #endif
