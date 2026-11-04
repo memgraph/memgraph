@@ -15,6 +15,9 @@
 #include <cstddef>
 #include <iterator>
 #include <utility>
+#ifdef MG_ENTERPRISE
+#include <vector>
+#endif
 
 #include "query/edge_accessor.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -32,6 +35,11 @@ class ExpandedEdges {
 
   explicit ExpandedEdges(storage::ExpandedEdges edges) : storage_edges_(std::move(edges)) {}
 
+#ifdef MG_ENTERPRISE
+  /// A branch's edges are resolved against its overlay and each carries the branch context, so they are held built.
+  explicit ExpandedEdges(std::vector<EdgeAccessor> edges) : branch_edges_(std::move(edges)), from_storage_(false) {}
+
+#endif
   class Iterator {
    public:
     using iterator_concept = std::forward_iterator_tag;
@@ -67,7 +75,15 @@ class ExpandedEdges {
 
   auto end() const -> Iterator { return Iterator{this, size()}; }
 
+#ifdef MG_ENTERPRISE
+  auto size() const -> std::size_t {
+    if (!from_storage_) [[unlikely]]
+      return branch_edges_.size();
+    return storage_edges_.size();
+  }
+#else
   auto size() const -> std::size_t { return storage_edges_.size(); }
+#endif
 
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
 
@@ -84,9 +100,21 @@ class ExpandedEdges {
   }
 
  private:
+#ifdef MG_ENTERPRISE
+  auto At(std::size_t index) const -> EdgeAccessor {
+    if (!from_storage_) [[unlikely]]
+      return branch_edges_[index];
+    return EdgeAccessor{storage_edges_.At(index)};
+  }
+#else
   auto At(std::size_t index) const -> EdgeAccessor { return EdgeAccessor{storage_edges_.At(index)}; }
+#endif
 
   storage::ExpandedEdges storage_edges_;
+#ifdef MG_ENTERPRISE
+  std::vector<EdgeAccessor> branch_edges_;
+  bool from_storage_{true};
+#endif
 };
 
 struct ExpandedEdgesResult {

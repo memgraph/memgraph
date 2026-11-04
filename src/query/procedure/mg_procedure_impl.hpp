@@ -731,7 +731,12 @@ struct mgp_vertex {
   mgp_graph *graph;
 };
 
+#ifdef MG_ENTERPRISE
+// Budget includes the extra `branch_ctx_` pointer in query::VertexAccessor.
+inline constexpr size_t kMaxMgpVertexSize = 80;
+#else
 inline constexpr size_t kMaxMgpVertexSize = 64;
+#endif
 static_assert(sizeof(mgp_vertex) <= kMaxMgpVertexSize, "mgp_vertex grew beyond the expected size budget");
 
 struct mgp_edge {
@@ -798,7 +803,12 @@ struct mgp_edge {
   mgp_vertex to;
 };
 
+#ifdef MG_ENTERPRISE
+// Budget includes the extra `branch_ctx_` pointer in query::VertexAccessor/EdgeAccessor (mgp_edge embeds two vertices).
+inline constexpr size_t kMaxMgpEdgeSize = 240;
+#else
 inline constexpr size_t kMaxMgpEdgeSize = 192;
+#endif
 static_assert(sizeof(mgp_edge) <= kMaxMgpEdgeSize, "mgp_edge grew beyond the expected size budget");
 
 struct mgp_path {

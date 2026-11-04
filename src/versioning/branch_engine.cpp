@@ -186,7 +186,35 @@ void BranchCore::RecordLabelTouched(storage::LabelId label, storage::Gid gid) {
   // Before the set insert and the commit: readers that see the commit see the bit.
   label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
   std::lock_guard lock(touched_mutex_);
-  if (label_touched_[label].insert(gid.AsUint()).second) ++touched_version_;
+  if (label_touched_[label].insert(gid.AsUint()).second) {
+    label_touched_log_[label].push_back(gid.AsUint());
+    ++touched_version_;
+    auto &slot = label_touched_versions_[label.AsUint() % kTouchedGateBits];
+    slot.store(slot.load(std::memory_order_relaxed) + 1, std::memory_order_release);
+  }
+}
+
+uint64_t BranchCore::LabelTouchedTail(storage::LabelId label, size_t from, std::vector<uint64_t> &out) {
+  std::lock_guard lock(touched_mutex_);
+  out.clear();
+  if (auto const it = label_touched_log_.find(label); it != label_touched_log_.end() && from < it->second.size()) {
+    out.assign(it->second.begin() + static_cast<std::ptrdiff_t>(from), it->second.end());
+  }
+  return label_touched_versions_[label.AsUint() % kTouchedGateBits].load(std::memory_order_relaxed);
+}
+
+bool BranchContext::LabelMayHaveChanged(storage::LabelId label, storage::Gid gid) {
+  if (!core_->MayHaveLabelTouched(label)) return false;
+  auto &entry = label_gid_cache_[label];
+  // Acquire pairs with the release bump after the log append, so a visible write is in the tail fetch. The slot is
+  // shared by labels mod 256 and is only a "bucket changed" hint; progress is tracked by this label's own log offset.
+  if (core_->LabelTouchedVersion(label) != entry.seen_slot) {
+    thread_local std::vector<uint64_t> tail;
+    entry.seen_slot = core_->LabelTouchedTail(label, entry.consumed, tail);
+    entry.consumed += tail.size();
+    entry.gids.insert(tail.begin(), tail.end());
+  }
+  return entry.gids.contains(gid.AsUint());
 }
 
 std::shared_ptr<const BranchCore::LabelTouchedSet> BranchCore::LabelTouchedSnapshot(storage::LabelId label) {
