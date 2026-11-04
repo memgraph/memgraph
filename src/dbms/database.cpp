@@ -267,13 +267,6 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
     return plan;
   }
 
-  if (config.experimental_commit_lock_narrowing) {
-    RefuseToStart(config.salient.name.str(),
-                  BranchNames(plan.ledger),
-                  "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing",
-                  fmt::format("start without --experimental-enabled=commit-lock-narrowing, or {}", kDropFirst));
-  }
-
   plan.bound = BranchRecoveryBound(plan.ledger);
   return plan;
 }
