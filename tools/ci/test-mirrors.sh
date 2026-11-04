@@ -15,7 +15,7 @@ BEST_URL=""
 if command -v curl &>/dev/null; then
   HTML=$(curl --proto "=https" --tlsv1.2 -fsSL "$LP_URL")
 else
-  HTML=$(wget --https-only -qO- "$LP_URL")
+  HTML=$(wget --https-only --max-redirect=0 -qO- "$LP_URL")
 fi
 
 # 2) Extract only http://*.archive.ubuntu.com URLs
