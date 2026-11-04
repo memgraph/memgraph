@@ -67,8 +67,7 @@ auto Connection::EnsureConnected() -> std::shared_ptr<communication::Client> {
 }
 
 Client::Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-               std::unordered_map<std::string_view, int> const &rpc_timeouts_ms,
-               std::chrono::milliseconds const connect_timeout_ms)
+               RpcTimeoutTable const rpc_timeouts_ms, std::chrono::milliseconds const connect_timeout_ms)
     : conn_(std::make_shared<Connection>(std::move(endpoint), context, connect_timeout_ms)),
       rpc_timeouts_ms_(rpc_timeouts_ms) {}
 

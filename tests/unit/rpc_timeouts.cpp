@@ -12,6 +12,7 @@
 #include "boost/dll/runtime_symbol_info.hpp"
 #include "gtest/gtest.h"
 
+#include <array>
 #include <atomic>
 #include <filesystem>
 
@@ -123,7 +124,7 @@ TYPED_TEST(RpcTimeoutTest, TimeoutNoFailure) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 2000)};
+  auto const rpc_timeouts = std::array{std::pair{"EchoMessage"sv, 2000}};
   auto client_context = TypeParam::MakeClientCtx();
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -159,7 +160,7 @@ TYPED_TEST(RpcTimeoutTest, TimeoutExecutionBlocks) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 200)};
+  auto const rpc_timeouts = std::array{std::pair{"EchoMessage"sv, 200}};
   auto client_context = TypeParam::MakeClientCtx();
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -208,7 +209,7 @@ TYPED_TEST(RpcTimeoutTest, TimeoutServerBusy) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 2000)};
+  auto const rpc_timeouts = std::array{std::pair{"EchoMessage"sv, 2000}};
   auto sum_client_context = TypeParam::MakeClientCtx();
   Client sum_client{endpoint, &sum_client_context};
 
@@ -253,7 +254,7 @@ TYPED_TEST(RpcTimeoutTest, SendingToWrongSocket) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 200)};
+  auto const rpc_timeouts = std::array{std::pair{"EchoMessage"sv, 200}};
   auto client_context = TypeParam::MakeClientCtx();
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -310,18 +311,18 @@ TYPED_TEST(RpcTimeoutTest, Timeouts) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{
-      std::make_pair("ShowInstancesReq"sv, 200),
-      std::make_pair("DemoteMainToReplicaReq"sv, 200),
-      std::make_pair("PromoteToMainReq"sv, 200),
-      std::make_pair("RegisterReplicaOnMainReq"sv, 200),
-      std::make_pair("UnregisterReplicaReq"sv, 200),
-      std::make_pair("GetDatabaseHistoriesReq"sv, 200),
-      std::make_pair("StateCheckReq"sv, 200),
-      std::make_pair("SwapMainUUIDReq"sv, 200),
-      std::make_pair("FrequentHeartbeatReq"sv, 200),
-      std::make_pair("HeartbeatReq"sv, 200),
-      std::make_pair("SystemRecoveryReq"sv, 200),
+  auto const rpc_timeouts = std::array{
+      std::pair{"ShowInstancesReq"sv, 200},
+      std::pair{"DemoteMainToReplicaReq"sv, 200},
+      std::pair{"PromoteToMainReq"sv, 200},
+      std::pair{"RegisterReplicaOnMainReq"sv, 200},
+      std::pair{"UnregisterReplicaReq"sv, 200},
+      std::pair{"GetDatabaseHistoriesReq"sv, 200},
+      std::pair{"StateCheckReq"sv, 200},
+      std::pair{"SwapMainUUIDReq"sv, 200},
+      std::pair{"FrequentHeartbeatReq"sv, 200},
+      std::pair{"HeartbeatReq"sv, 200},
+      std::pair{"SystemRecoveryReq"sv, 200},
 
   };
 

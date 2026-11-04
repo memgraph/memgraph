@@ -11,11 +11,15 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <storage/v2/replication/rpc.hpp>
+#include <string_view>
 #include <utility>
 
 #include "communication/client.hpp"
@@ -126,7 +130,15 @@ class Connection {
  */
 class Client {
  public:
-  inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
+  /// A request name to its timeout in milliseconds. Borrowed, so a caller
+  /// passing a table of its own must keep it alive for the client's lifetime;
+  /// the default has static storage duration.
+  using RpcTimeoutTable = std::span<std::pair<std::string_view, int> const>;
+
+  /// Read on every call and never copied: the table is constant, so it sits
+  /// in read-only data rather than being built into a hash map at startup and
+  /// then duplicated into each client.
+  static constexpr auto kDefaultRpcTimeoutsMs = std::to_array<std::pair<std::string_view, int>>({
       {"ShowInstancesReq"sv, 10'000},          // coordinator sending to coordinator
       {"YieldLeadershipReq"sv, 10'000},        // coordinator sending to coordinator
       {"ShowCoordSettingsReq"sv, 10'000},      // coordinator sending to coordinator
@@ -193,10 +205,10 @@ class Client {
       {"SetParameterReq"sv, 10'000},
       {"UnsetParameterReq"sv, 10'000},
       {"DeleteAllParametersReq"sv, 10'000},
-  };
+  });
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms,
+         RpcTimeoutTable rpc_timeouts_ms = Client::kDefaultRpcTimeoutsMs,
          std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000});
 
   // Holding the connection by shared_ptr would otherwise make Client copyable, where it used to be
@@ -534,7 +546,8 @@ class Client {
 
     std::optional<int> timeout_ms{std::nullopt};
 
-    auto const maybe_timeout = rpc_timeouts_ms_.find(req_type_name);
+    auto const maybe_timeout =
+        std::ranges::find(rpc_timeouts_ms_, req_type_name, &std::pair<std::string_view, int>::first);
     if (maybe_timeout != rpc_timeouts_ms_.end()) {
       timeout_ms.emplace(maybe_timeout->second);
     }
@@ -595,7 +608,7 @@ class Client {
   // it is never swapped -- that is what makes a plain shared_ptr here sufficient. Reconnecting replaces
   // the socket inside the Connection, not the Connection, so mutex_ stays a fixed serialization point.
   std::shared_ptr<Connection> const conn_;
-  std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
+  RpcTimeoutTable rpc_timeouts_ms_;
 };
 
 }  // namespace memgraph::rpc
