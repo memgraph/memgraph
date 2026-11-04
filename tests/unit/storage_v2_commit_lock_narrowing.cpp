@@ -1107,3 +1107,68 @@ TEST_F(LockFreeReadSnapshotRecovery, NoTransactionBeginsInsideADdlCommitWindow_O
 
   PublishAndEnd(*store, index_commit);
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+
+void PrepareDeleteWithoutPublish(InMemoryStorage &store, Gid gid, PreparedCommit &out) {
+  out.durable_ts = store.LastCommittedMvccTimestamp() + 1;
+  out.writer = store.Access(memgraph::storage::WRITE);
+  auto vertex = out.writer->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  ASSERT_TRUE(out.writer->DeleteVertex(&*vertex).has_value());
+  ASSERT_TRUE(out.writer
+                  ->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                      out.durable_ts, /*two_phase_commit=*/true, [] {}))
+                  .has_value());
+}
+
+}  // namespace
+
+// A fork taken while commit C is minted but unpublished is what a BEGIN now would see (watermark + 1 <= C),
+// so C stays undone for a reader at the fork and neither fast-discard nor GC may drop its deltas.
+TEST_F(LockFreeReadSnapshotRecovery, ForkPinInsideCommitWindow_ExcludesTheInFlightCommit_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto victim = CreateVertexWithProp(*store, 1);
+  const auto watermark = store->LastCommittedMvccTimestamp();
+
+  PreparedCommit commit;
+  PrepareDeleteWithoutPublish(*store, victim, commit);
+  const auto fork_ts = store->RegisterForkPin();
+  EXPECT_EQ(fork_ts, watermark + 1) << "the fork point passed a commit that was not yet published";
+  PublishAndEnd(*store, commit);
+  EXPECT_LE(fork_ts, store->LastCommittedMvccTimestamp());
+
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U) << "a vertex the fork still sees was reclaimed";
+
+  store->ReleaseForkPin(fork_ts);
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 0U);
+}
+
+TEST(LockFreeReadSnapshot, ForkPinAcrossAbortedMint_Unchanged_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto label = store->NameToLabel("L");
+  CreateUniquePConstraint(*store, label);
+  (void)CommitLabeledVertex(*store, label, 1);
+
+  const auto fork_before = store->RegisterForkPin();
+  {
+    auto w = store->Access(memgraph::storage::WRITE);
+    auto vertex = w->CreateVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(1)).has_value());
+    ASSERT_FALSE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  const auto fork_after = store->RegisterForkPin();
+  EXPECT_EQ(fork_before, fork_after) << "an aborted commit moved the fork point";
+  EXPECT_EQ(store->OldestForkPin(), fork_before);
+
+  store->ReleaseForkPin(fork_after);
+  store->ReleaseForkPin(fork_before);
+  EXPECT_FALSE(store->OldestForkPin().has_value());
+}
+#endif  // MG_ENTERPRISE
