@@ -990,8 +990,11 @@ class InMemoryStorage final : public Storage {
   Transaction CreateHistoricalTransaction(uint64_t fork_ts);
 
  public:
-#endif
+  // `under_unique_access` runs once the UNIQUE hold is taken, before anything changes; it may throw to refuse.
+  void SetStorageMode(StorageMode storage_mode, const std::function<void()> &under_unique_access = {});
+#else
   void SetStorageMode(StorageMode storage_mode);
+#endif
 
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
 
