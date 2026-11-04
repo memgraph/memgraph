@@ -43,14 +43,6 @@ void Buffer::WriteEnd::Resize(size_t len) { buffer_->Resize(len); }
 
 void Buffer::WriteEnd::Clear() { buffer_->Clear(); }
 
-Buffer::ReadEnd *Buffer::read_end() { return &read_end_; }
-
-const Buffer::ReadEnd *Buffer::read_end() const { return &read_end_; }
-
-Buffer::WriteEnd *Buffer::write_end() { return &write_end_; }
-
-const Buffer::WriteEnd *Buffer::write_end() const { return &write_end_; }
-
 uint8_t *Buffer::data() { return data_.data(); }
 
 size_t Buffer::size() const { return have_; }
