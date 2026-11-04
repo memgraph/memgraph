@@ -1032,7 +1032,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // A reader at fork pin P undoes deltas with commit_ts >= P, so the oldest pin must be strictly > commit_ts;
   // P == C is reachable because RegisterForkPin does not increment timestamp_.
   bool const no_fork_pin_needs_these_deltas = [&] {
-    auto guard = std::lock_guard{mem_storage->version_fork_pin_lock_};
+    auto guard = std::scoped_lock{mem_storage->version_fork_pin_lock_};
     return mem_storage->version_fork_pins_.empty() || *mem_storage->version_fork_pins_.begin() > *commit_timestamp_;
   }();
   if (no_older_transactions && no_newer_transactions && no_fork_pin_needs_these_deltas) [[unlikely]] {
@@ -3069,22 +3069,22 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 #ifdef MG_ENTERPRISE
 uint64_t InMemoryStorage::RegisterForkPin() {
   // Capture and pin under engine_lock_: GC reads OldestActive() without it and must not pass fork_ts in between.
-  auto engine_guard = std::lock_guard{engine_lock_};
+  auto engine_guard = std::scoped_lock{engine_lock_};
   const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
-  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
   version_fork_pins_.insert(fork_ts);
   return fork_ts;
 }
 
 void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
-  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
   auto it = version_fork_pins_.find(fork_ts);
   MG_ASSERT(it != version_fork_pins_.end(), "ReleaseForkPin called for an unregistered fork_ts");
   version_fork_pins_.erase(it);
 }
 
 std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
-  auto guard = std::lock_guard{version_fork_pin_lock_};
+  auto guard = std::scoped_lock{version_fork_pin_lock_};
   if (version_fork_pins_.empty()) return std::nullopt;
   return *version_fork_pins_.begin();
 }
@@ -3332,7 +3332,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 #ifdef MG_ENTERPRISE
   // Clamp the GC horizon (and so visibility_horizon below) to the oldest live fork pin.
   {
-    auto guard = std::lock_guard{version_fork_pin_lock_};
+    auto guard = std::scoped_lock{version_fork_pin_lock_};
     if (!version_fork_pins_.empty()) {
       oldest_active_start_timestamp = std::min(oldest_active_start_timestamp, *version_fork_pins_.begin());
     }
