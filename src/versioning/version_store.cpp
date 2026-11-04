@@ -46,7 +46,7 @@ void VersionStore::PublishRetentionFloor() const {
   if (!retention_floor_callback_) return;
   std::optional<uint64_t> oldest_fork_ts;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     const auto note = [&](const BranchInfo &info) {
       oldest_fork_ts = oldest_fork_ts ? std::min(*oldest_fork_ts, info.recorded_fork_ts) : info.recorded_fork_ts;
     };
@@ -61,7 +61,7 @@ void VersionStore::PublishRetentionFloor() const {
 }
 
 void VersionStore::AttachLedger(std::filesystem::path file) {
-  std::lock_guard guard{ledger_mutex_};
+  const std::scoped_lock guard{ledger_mutex_};
   branches_root_ = file.parent_path();
   ledger_.emplace(std::move(file));
 }
@@ -89,7 +89,7 @@ std::expected<void, std::string> VersionStore::WriteLedger(const LedgerContents 
 void VersionStore::Restore(const LedgerContents &contents, std::span<const uint64_t> pins) {
   MG_ASSERT(pins.size() == contents.branches.size(), "Restore needs one fork pin per branch");
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     next_number_ = contents.next_number;
     for (size_t i = 0; i < pins.size(); ++i) {
       const auto &recorded = contents.branches[i];
@@ -104,7 +104,7 @@ void VersionStore::Restore(const LedgerContents &contents, std::span<const uint6
 
 void VersionStore::RestoreHidden(const LedgerContents &contents) {
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     next_number_ = contents.next_number;
     hidden_ = contents.branches;
   }
@@ -112,11 +112,11 @@ void VersionStore::RestoreHidden(const LedgerContents &contents) {
 }
 
 std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent) {
-  std::lock_guard ledger_guard{ledger_mutex_};
+  const std::scoped_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     if (frozen_) return std::unexpected(std::string{kFrozenMessage});
     if (branches_.contains(name) || std::ranges::any_of(hidden_, [&](const auto &b) { return b.name == name; })) {
       return std::unexpected(fmt::format("Branch '{}' already exists.", name));
@@ -141,7 +141,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   };
 
   ++next.next_number;
-  next.branches.push_back({name, info});
+  next.branches.push_back({.name = name, .info = info});
   if (auto written = WriteLedger(next); !written) {
     release_pin_(info.fork_ts);
     PublishRetentionFloor();
@@ -149,7 +149,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   }
 
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     next_number_ = next.next_number;
     branches_.emplace(std::move(name), info);
 
@@ -168,11 +168,11 @@ std::expected<bool, std::string> VersionStore::ForceDropBranch(std::string_view 
 }
 
 std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view name, bool remove_files, bool force) {
-  std::lock_guard ledger_guard{ledger_mutex_};
+  const std::scoped_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     auto it = branches_.find(name);
     if (it == branches_.end()) return false;
     if (!force && checked_out_.contains(it->second.number)) return false;
@@ -182,14 +182,14 @@ std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view n
   }
 
   if (auto written = WriteLedger(next); !written) {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     dropping_.erase(dropping_.find(name));
     return std::unexpected(std::move(written.error()));
   }
 
   uint64_t number = 0;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     auto it = branches_.find(name);
     number = it->second.number;
     release_pin_(it->second.fork_ts);
@@ -206,12 +206,12 @@ std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view n
 }
 
 std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDropAll() {
-  std::lock_guard ledger_guard{ledger_mutex_};
+  const std::scoped_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   bool was_frozen = false;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     was_frozen = frozen_;
     frozen_ = true;
     // No ledger write: a REPLICA that never had branches must not gain a branches directory.
@@ -221,7 +221,7 @@ std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDrop
   }
 
   if (auto written = WriteLedger(next); !written) {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     frozen_ = was_frozen;
     return std::unexpected(std::move(written.error()));
   }
@@ -229,7 +229,7 @@ std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDrop
   std::vector<uint64_t> dropped_numbers;
   std::vector<std::string> dropped_names;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     dropped_numbers.reserve(branches_.size() + hidden_.size());
     dropped_names.reserve(branches_.size() + hidden_.size());
     for (auto &branch : hidden_) {
@@ -259,31 +259,31 @@ std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDrop
 }
 
 void VersionStore::Unfreeze() {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   frozen_ = false;
 }
 
 bool VersionStore::Frozen() const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   return frozen_;
 }
 
 std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, uint64_t vertex_gid_floor,
                                                                uint64_t edge_gid_floor) {
   const auto already_settled = [&] {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     auto it = std::ranges::find(branches_, number, [](const auto &kv) { return kv.second.number; });
     return it == branches_.end() || it->second.vertex_gid_floor.has_value();
   };
   // Fast path: skip ledger_mutex_, which CreateBranch holds across the slow ledger write.
   if (already_settled()) return {};
 
-  std::lock_guard ledger_guard{ledger_mutex_};
+  const std::scoped_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   std::string name;
   {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     auto it = std::ranges::find(branches_, number, [](const auto &kv) { return kv.second.number; });
     if (it == branches_.end() || it->second.vertex_gid_floor.has_value()) return {};
     name = it->first;
@@ -297,7 +297,7 @@ std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, 
   }
   if (auto written = WriteLedger(next); !written) return std::unexpected(std::move(written.error()));
 
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   if (auto it = branches_.find(name); it != branches_.end()) {
     it->second.vertex_gid_floor = vertex_gid_floor;
     it->second.edge_gid_floor = edge_gid_floor;
@@ -306,7 +306,7 @@ std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, 
 }
 
 std::optional<BranchInfo> VersionStore::Get(std::string_view name) const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   auto it = branches_.find(name);
   if (it == branches_.end()) {
     return std::nullopt;
@@ -315,7 +315,7 @@ std::optional<BranchInfo> VersionStore::Get(std::string_view name) const {
 }
 
 std::vector<std::pair<std::string, BranchInfo>> VersionStore::List() const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   std::vector<std::pair<std::string, BranchInfo>> result;
   result.reserve(branches_.size());
   for (const auto &[name, info] : branches_) {
@@ -326,28 +326,28 @@ std::vector<std::pair<std::string, BranchInfo>> VersionStore::List() const {
 }
 
 bool VersionStore::Exists(std::string_view name) const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   return branches_.contains(name);
 }
 
 bool VersionStore::IsLive(std::string_view name, uint64_t number) const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   auto it = branches_.find(name);
   return it != branches_.end() && it->second.number == number;
 }
 
 bool VersionStore::IsLiveNumber(uint64_t number) const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   return std::ranges::any_of(branches_, [&](const auto &entry) { return entry.second.number == number; });
 }
 
 bool VersionStore::Empty() const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   return branches_.empty() && hidden_.empty();
 }
 
 std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   if (frozen_) return std::unexpected(std::string{kFrozenMessage});
   auto it = branches_.find(name);
   if (it == branches_.end() || dropping_.contains(name)) {
@@ -372,7 +372,7 @@ void VersionStore::ReleaseCheckout(uint64_t number) {
 }
 
 size_t VersionStore::CheckoutCount(std::string_view name) const {
-  std::lock_guard guard{lock_};
+  const std::scoped_lock guard{lock_};
   const auto branch = branches_.find(name);
   if (branch == branches_.end()) return 0;
   const auto it = checked_out_.find(branch->second.number);
@@ -382,12 +382,12 @@ size_t VersionStore::CheckoutCount(std::string_view name) const {
 std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuildCore(uint64_t number,
                                                                                      const CoreBuilder &build) {
   {
-    std::lock_guard guard{cores_mutex_};
+    const std::scoped_lock guard{cores_mutex_};
     if (auto it = cores_.find(number); it != cores_.end()) return it->second;
   }
-  std::lock_guard build_guard{build_mutex_};
+  const std::scoped_lock build_guard{build_mutex_};
   {
-    std::lock_guard guard{cores_mutex_};
+    const std::scoped_lock guard{cores_mutex_};
     if (auto it = cores_.find(number); it != cores_.end()) return it->second;
   }
   if (!IsLiveNumber(number)) return std::unexpected(std::string{kBranchDroppedMessage});
@@ -395,7 +395,7 @@ std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuild
   if (!built) return std::unexpected(std::move(built.error()));
   std::shared_ptr<BranchCore> winner;
   {
-    std::lock_guard guard{cores_mutex_};
+    const std::scoped_lock guard{cores_mutex_};
     winner = cores_.try_emplace(number, *built).first->second;
   }
   // A drop erases the branch before RetireCore, so a branch still live here has its core retired by that drop; one
@@ -412,7 +412,7 @@ std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuild
 std::weak_ptr<BranchCore> VersionStore::RetireCore(uint64_t number) {
   std::shared_ptr<BranchCore> retired;
   {
-    std::lock_guard guard{cores_mutex_};
+    const std::scoped_lock guard{cores_mutex_};
     if (auto it = cores_.find(number); it != cores_.end()) {
       retired = std::move(it->second);
       cores_.erase(it);
@@ -426,13 +426,13 @@ std::weak_ptr<BranchCore> VersionStore::RetireCore(uint64_t number) {
 void VersionStore::RemoveOrDefer(uint64_t number, std::weak_ptr<BranchCore> remaining) {
   auto directory = branches_root_ / std::to_string(number);
   const auto attached = [&] {
-    std::lock_guard guard{lock_};
+    const std::scoped_lock guard{lock_};
     return checked_out_.contains(number);
   }();
   if (!remaining.expired() || attached) {
     spdlog::info("Graph Versioning: branch directory {} will be removed once its engine is released.",
                  directory.string());
-    std::lock_guard guard{pending_mutex_};
+    const std::scoped_lock guard{pending_mutex_};
     pending_removals_.push_back({.core = std::move(remaining), .number = number, .directory = std::move(directory)});
   } else {
     RemoveDirectory(directory);
@@ -442,13 +442,13 @@ void VersionStore::RemoveOrDefer(uint64_t number, std::weak_ptr<BranchCore> rema
 
 void VersionStore::SweepPendingRemovals() {
   {
-    std::lock_guard guard{pending_mutex_};
+    const std::scoped_lock guard{pending_mutex_};
     if (pending_removals_.empty()) return;
   }
   std::vector<std::filesystem::path> ready;
   {
-    std::lock_guard guard{lock_};
-    std::lock_guard pending_guard{pending_mutex_};
+    // One scoped_lock takes both: the two guards would be held together anyway.
+    const std::scoped_lock guard{lock_, pending_mutex_};
     // A holder's checkout stays counted while its core is destroyed, so a removable entry has no holder mid-teardown.
     for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {
       if (it->core.expired() && !checked_out_.contains(it->number)) {
