@@ -853,7 +853,7 @@ class InMemoryStorage final : public Storage {
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
 #ifdef MG_ENTERPRISE
-  // Captures the current timestamp as a branch fork point and pins GC at it; returns it.
+  // Pins GC at the fork point (what a BEGIN now would see: commits below it) and returns it.
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
