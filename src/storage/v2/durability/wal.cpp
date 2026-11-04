@@ -1373,12 +1373,12 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store
 #ifdef MG_ENTERPRISE
-    ,
-    const std::optional<uint64_t> max_delta_timestamp
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<uint64_t> const recovery_history_bound) {
+#else
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
 #endif
-) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -2231,16 +2231,11 @@ std::optional<RecoveryInfo> LoadWal(
 
   for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
-    const auto delta_ts = ReadWalDeltaHeader(&wal);
+    if (auto delta_ts = ReadWalDeltaHeader(&wal);
 #ifdef MG_ENTERPRISE
-    // Newer than what a snapshot already recovered, and (branch recovery) not above the recovery
-    // bound: bounded recovery applies only deltas at or below max_delta_timestamp.
-    const bool newer_than_snapshot = !last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp;
-    const bool within_recovery_bound = !max_delta_timestamp || delta_ts <= *max_delta_timestamp;
-    if (newer_than_snapshot && within_recovery_bound) {
-#else
-    if (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp) {
+        (!recovery_history_bound || delta_ts <= *recovery_history_bound) &&
 #endif
+        (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, version);
       // We should always check if the delta is WalTransactionStart to update should_commit
@@ -2276,12 +2271,7 @@ std::optional<RecoveryInfo> LoadWal(
   }
 
   spdlog::info(
-#ifdef MG_ENTERPRISE
-      "Applied {} deltas from WAL. Skipped {} deltas, because they were outside the requested timestamp range or "
-      "because 2PC protocol decided to "
-#else
       "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
-#endif
       "abort txn but deltas were already made durable.",
       deltas_applied,
       num_deltas - deltas_applied);
