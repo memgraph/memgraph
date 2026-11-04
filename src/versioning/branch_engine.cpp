@@ -13,10 +13,16 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
+#include <map>
+#include <optional>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "memory/db_arena.hpp"
+#include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
@@ -246,6 +252,82 @@ const OverlayVersion *BranchContext::ReadVersion(uint64_t key, storage::View vie
   return core_->overlay_store().Read(key, *overlay_txn_, view);
 }
 
+template <typename Mutator>
+storage::Result<bool> BranchContext::WriteOverlay(uint64_t key, Mutator &&mutate) {
+  MG_ASSERT(overlay_txn_ != nullptr, "BranchContext: no overlay transaction -- no branch transaction is open.");
+  SyncOverlayCommand();
+  auto written = core_->overlay_store().Write(key, *overlay_txn_, std::forward<Mutator>(mutate));
+  if (!written) {
+    if (written.error() == storage::Error::SERIALIZATION_ERROR) {
+      current_diff_txn_->GetTransaction()->has_serialization_error = true;
+    }
+    return std::unexpected{written.error()};
+  }
+  return *written;
+}
+
+std::vector<uint64_t> BranchContext::OverlayWrittenGids() const {
+  if (overlay_txn_ == nullptr) return {};
+  std::vector<uint64_t> gids;
+  for (auto const key : overlay_txn_->writes()) {
+    if (!IsEdgeKey(key)) gids.push_back(key);
+  }
+  return gids;
+}
+
+void BranchContext::MarkMainObjectBranched(storage::Vertex *main_vertex) {
+  auto guard = std::unique_lock{main_vertex->lock};
+  main_vertex->SetBranched(true);
+}
+
+std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {
+  // MG_ASSERT not DMG_ASSERT: null current_diff_txn_ is an invariant break, not a debug-only condition (applies to
+  // every such assert below).
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::CowVertex: no current diff transaction set -- "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
+            "runs against a checked-out branch.");
+
+  if (IsForkVertexGid(gid) && IsVertexDeleted(gid, storage::View::NEW)) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
+  }
+
+  if (auto existing = FindStub(gid, storage::View::NEW)) return *existing;
+
+  auto hist_vertex = FindForkVertex(gid);
+  if (!hist_vertex) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write vertex {}: not found in the branch's fork-state base either -- "
+                             "this should be unreachable (callers resolve a vertex before mutating it).",
+                             gid.AsUint())});
+  }
+
+  // Over-marking is safe: branched() is a hint, not a claim of divergence.
+  MarkMainObjectBranched(hist_vertex->vertex_);
+
+  auto *stub = core_->stub_index().GetOrCreateStub(gid.AsUint(), hist_vertex->vertex_);
+  return storage::VertexAccessor{stub, &core_->diff_engine(), current_diff_txn_->GetTransaction()};
+}
+
+std::expected<void, BranchContext::CowError> BranchContext::PrepareForkWrite(storage::Gid gid) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::PrepareForkWrite: no current diff transaction set.");
+  if (IsVertexDeleted(gid, storage::View::NEW)) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
+  }
+  auto fork = FindForkVertex(gid);
+  if (!fork) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write vertex {}: not found in the branch's fork-state base either -- "
+                             "this should be unreachable (callers resolve a vertex before mutating it).",
+                             gid.AsUint())});
+  }
+  // Over-marking is safe: branched() is a hint, not a claim of divergence.
+  if (!fork->vertex_->branched()) MarkMainObjectBranched(fork->vertex_);
+  return {};
+}
+
 std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid) {
   return historical().FindEdge(edge_gid, from_gid, storage::View::OLD);
 }
@@ -253,6 +335,16 @@ std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid ed
 bool BranchContext::IsForkVertexGid(storage::Gid gid) const { return gid.AsUint() < core_->vertex_gid_floor(); }
 
 bool BranchContext::IsForkEdgeGid(storage::Gid gid) const { return gid.AsUint() < core_->edge_gid_floor(); }
+
+storage::VertexAccessor BranchContext::CreateNativeVertex() {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::CreateNativeVertex: no current diff transaction set.");
+  const auto gid = storage::Gid::FromUint(core_->main().vertex_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto created = static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->CreateVertexEx(gid);
+  MG_ASSERT(created.has_value(),
+            "BranchContext::CreateNativeVertex: gid {} already exists in the diff engine.",
+            gid.AsUint());
+  return *created;
+}
 
 bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsVertexDeleted: no current diff transaction set.");
@@ -299,6 +391,257 @@ const OverlayVersion *BranchContext::ReadEdgeOverlayVersion(storage::Gid edge_gi
   MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadEdgeOverlayVersion: no current diff transaction set.");
   if (!IsForkEdgeGid(edge_gid)) return nullptr;
   return ReadVersion(EdgeKey(edge_gid.AsUint()), view);
+}
+
+namespace {
+
+// What a write mutator reports besides "changed": the error that made it refuse.
+using MutateError = std::optional<storage::Error>;
+
+using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
+
+std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> UpdateChanges(
+    const PropertyMap &existing, const PropertyMap &properties) {
+  std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
+  changes.reserve(properties.size());
+  for (const auto &[pid, new_value] : properties) {
+    auto it = existing.find(pid);
+    changes.emplace_back(pid, it != existing.end() ? it->second : storage::PropertyValue{}, new_value);
+  }
+  return changes;
+}
+
+// Storage's UpdateProperties leaves the untouched old properties merged into the caller's map; mirror that.
+void MergeOldBack(PropertyMap &existing, PropertyMap &properties) {
+  for (auto &[pid, old_value] : existing) properties.emplace(pid, std::move(old_value));
+}
+
+PropertyMap MergedFromState(const OverlayState &state, const PropertyMap &fork_props) {
+  auto merged = fork_props;
+  for (auto const pid : state.removed_pids) merged.erase(pid);
+  for (auto &[key, value] : state.properties.Properties()) merged.insert_or_assign(key, std::move(value));
+  return merged;
+}
+
+// Applies one change (Null = remove). A removal is recorded only for a property the fork vertex has.
+void ApplyChange(OverlayState &state, storage::PropertyId pid, const storage::PropertyValue &value, bool fork_has) {
+  if (!value.IsNull()) {
+    state.SetProperty(pid, value);
+  } else if (fork_has) {
+    state.RemoveProperty(pid);
+  } else {
+    state.properties.SetProperty(pid, storage::PropertyValue{});
+  }
+}
+
+bool ForkHasProperty(const PropertyMap &fork_props, storage::PropertyId pid) {
+  auto const it = fork_props.find(pid);
+  return it != fork_props.end() && !it->second.IsNull();
+}
+
+}  // namespace
+
+storage::Result<bool> BranchContext::OverlayToggleLabel(storage::Gid gid, storage::LabelId label, bool add) {
+  auto fork = FindForkVertex(gid);
+  if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto in_fork = fork->HasLabel(label, storage::View::OLD);
+  if (!in_fork) return std::unexpected{in_fork.error()};
+
+  MutateError error;
+  auto written = WriteOverlay(gid.AsUint(), [&](OverlayState &state) {
+    if (state.deleted) {
+      error = storage::Error::DELETED_OBJECT;
+      return false;
+    }
+    bool const has = *in_fork ? !std::ranges::contains(state.removed_labels, label)
+                              : std::ranges::contains(state.added_labels, label);
+    if (has == add) return false;
+    // Touching a label the fork vertex has only hides or un-hides it; otherwise the overlay adds or drops it.
+    if (add) {
+      *in_fork ? state.UnhideLabel(label) : state.AddLabel(label);
+    } else {
+      *in_fork ? state.RemoveLabel(label) : state.DropAddedLabel(label);
+    }
+    return true;
+  });
+  if (error) return std::unexpected{*error};
+  return written;
+}
+
+storage::Result<bool> BranchContext::OverlayAddLabel(storage::Gid gid, storage::LabelId label) {
+  return OverlayToggleLabel(gid, label, true);
+}
+
+storage::Result<bool> BranchContext::OverlayRemoveLabel(storage::Gid gid, storage::LabelId label) {
+  return OverlayToggleLabel(gid, label, false);
+}
+
+storage::Result<storage::PropertyValue> BranchContext::OverlaySetPropertyAt(uint64_t key, storage::PropertyId pid,
+                                                                            const storage::PropertyValue &value,
+                                                                            const storage::PropertyValue &fork_value) {
+  MutateError error;
+  storage::PropertyValue old_value;
+  auto written = WriteOverlay(key, [&](OverlayState &state) {
+    if (state.deleted) {
+      error = storage::Error::DELETED_OBJECT;
+      return false;
+    }
+    auto own = state.properties.GetProperty(pid);
+    if (!own.IsNull()) {
+      old_value = std::move(own);
+    } else if (!std::ranges::contains(state.removed_pids, pid)) {
+      old_value = fork_value;
+    }
+    ApplyChange(state, pid, value, !fork_value.IsNull());
+    return true;
+  });
+  if (error) return std::unexpected{*error};
+  if (!written) return std::unexpected{written.error()};
+  return old_value;
+}
+
+storage::Result<bool> BranchContext::OverlayInitPropertiesAt(
+    uint64_t key, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+    const std::map<storage::PropertyId, storage::PropertyValue> &fork_props) {
+  MutateError error;
+  auto written = WriteOverlay(key, [&](OverlayState &state) {
+    if (state.deleted) {
+      error = storage::Error::DELETED_OBJECT;
+      return false;
+    }
+    if (!MergedFromState(state, fork_props).empty()) return false;
+    for (auto const &[pid, value] : properties) ApplyChange(state, pid, value, ForkHasProperty(fork_props, pid));
+    return true;
+  });
+  if (error) return std::unexpected{*error};
+  return written;
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+BranchContext::OverlayUpdatePropertiesAt(uint64_t key,
+                                         std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                                         const std::map<storage::PropertyId, storage::PropertyValue> &fork_props) {
+  MutateError error;
+  std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>> changes;
+  auto written = WriteOverlay(key, [&](OverlayState &state) {
+    if (state.deleted) {
+      error = storage::Error::DELETED_OBJECT;
+      return false;
+    }
+    auto existing = MergedFromState(state, fork_props);
+    changes = UpdateChanges(existing, properties);
+    for (auto const &[pid, value] : properties) ApplyChange(state, pid, value, ForkHasProperty(fork_props, pid));
+    MergeOldBack(existing, properties);
+    return true;
+  });
+  if (error) return std::unexpected{*error};
+  if (!written) return std::unexpected{written.error()};
+  return changes;
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchContext::OverlayClearPropertiesAt(
+    uint64_t key, const std::map<storage::PropertyId, storage::PropertyValue> &fork_props) {
+  MutateError error;
+  PropertyMap existing;
+  auto written = WriteOverlay(key, [&](OverlayState &state) {
+    if (state.deleted) {
+      error = storage::Error::DELETED_OBJECT;
+      return false;
+    }
+    existing = MergedFromState(state, fork_props);
+    state.properties.ClearProperties();
+    state.removed_pids.clear();
+    for (auto const &[pid, _] : fork_props) state.removed_pids.push_back(pid);  // ascending
+    return true;
+  });
+  if (error) return std::unexpected{*error};
+  if (!written) return std::unexpected{written.error()};
+  return existing;
+}
+
+storage::Result<storage::PropertyValue> BranchContext::OverlaySetProperty(storage::Gid gid, storage::PropertyId key,
+                                                                          const storage::PropertyValue &value) {
+  auto fork = FindForkVertex(gid);
+  if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto fork_value = fork->GetProperty(key, storage::View::OLD);
+  if (!fork_value) return std::unexpected{fork_value.error()};
+  return OverlaySetPropertyAt(gid.AsUint(), key, value, *fork_value);
+}
+
+storage::Result<bool> BranchContext::OverlayInitProperties(
+    storage::Gid gid, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  auto fork = FindForkVertex(gid);
+  if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto fork_props = fork->Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  return OverlayInitPropertiesAt(gid.AsUint(), properties, *fork_props);
+}
+
+storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+BranchContext::OverlayUpdateProperties(storage::Gid gid,
+                                       std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  auto fork = FindForkVertex(gid);
+  if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto fork_props = fork->Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  return OverlayUpdatePropertiesAt(gid.AsUint(), properties, *fork_props);
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchContext::OverlayClearProperties(
+    storage::Gid gid) {
+  auto fork = FindForkVertex(gid);
+  if (!fork) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  auto fork_props = fork->Properties(storage::View::OLD);
+  if (!fork_props) return std::unexpected{fork_props.error()};
+  return OverlayClearPropertiesAt(gid.AsUint(), *fork_props);
+}
+
+storage::Result<bool> BranchContext::OverlayMarkDeleted(storage::Gid gid) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::OverlayMarkDeleted: no current diff transaction set.");
+  if (IsVertexDeleted(gid, storage::View::NEW)) return false;
+  if (auto prepared = PrepareForkWrite(gid); !prepared) return std::unexpected{storage::Error::NONEXISTENT_OBJECT};
+  RecordVertexDeleted(gid);
+  // The delete is a label and property change for the read gates, and flags the adjacency fast path.
+  RecordVertexChange(gid, BranchChangeKind::kLabel);
+  RecordVertexChange(gid, BranchChangeKind::kProperty);
+  RecordEdgeChange(gid);
+  auto written = WriteOverlay(gid.AsUint(), [](OverlayState &state) {
+    if (state.deleted) return false;
+    state.MarkDeleted();
+    return true;
+  });
+  // The flag is published; now look for a branch-created edge attached to the vertex (see CreateNativeEdge).
+  if (written && *written && !CanDeleteAnchor(gid)) return std::unexpected{storage::Error::SERIALIZATION_ERROR};
+  return written;
+}
+
+// Pairs with the overlay check in CreateNativeEdge: whichever of "edge attached to the anchor" and "delete flag
+// published" happens second sees the other. The lookup must take the stub shard's lock (a cursor could answer a miss
+// lock-free), which orders the flag before any later insert of the anchor; an anchor found is ordered by its own lock.
+bool BranchContext::CanDeleteAnchor(storage::Gid gid) {
+  storage::Vertex *const anchor = core_->stub_index().FindStub(gid.AsUint());
+  if (anchor == nullptr) return true;
+  std::shared_lock guard{anchor->lock};
+  auto *const txn = current_diff_txn_->GetTransaction();
+  if (!storage::PrepareForWrite(txn, anchor)) return false;
+  // Non-sequential edge deltas can leave a committed older head over a delta this snapshot cannot see, so the head
+  // alone is not enough. The chain is intact while this transaction is active.
+  for (const storage::Delta *delta = anchor->delta(); delta != nullptr;
+       delta = delta->next.load(std::memory_order_acquire)) {
+    const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+    if (ts != txn->transaction_id && ts >= txn->start_timestamp) {
+      txn->has_serialization_error = true;
+      return false;
+    }
+  }
+  return true;
+}
+
+storage::VertexAccessor BranchContext::ForkIdentity(const storage::VertexAccessor &v) {
+  if (!IsStub(v) || historical_ == nullptr) return v;
+  auto fork = FindForkVertex(v.Gid());
+  DMG_ASSERT(fork.has_value(), "Fork vertex missing for stub {}", v.Gid().AsUint());
+  return fork ? *fork : v;
 }
 
 std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gid gid) {
