@@ -689,6 +689,17 @@ TEST_F(VersioningHistoryReplayTest, EmptyTailPinsEveryForkAndBumpsTheClock) {
   EXPECT_FALSE(r.storage.OldestForkPin().has_value());
 }
 
+// A branch forked before main's first commit has fork_ts 0; an empty recovered state holds no commit it must not see.
+TEST_F(VersioningHistoryReplayTest, ForkAtZeroIsPastAnEmptyRecoveredState) {
+  Recovered r{kDirMain};
+  ASSERT_EQ(Ldt(r.storage), 0U);
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, {.wal_files = {}, .reached_timestamp = 0}, std::array{0UL});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  CommitVertex(r.db);
+  EXPECT_EQ(DumpAt(r.storage, pins->front()), "");
+  r.storage.ReleaseForkPin(pins->front());
+}
+
 // Bounded recovery + tail replay ends where an unbounded recovery of the same files does, and each fork (including
 // one past the end of the tail) sees exactly the commits below it.
 TEST_F(VersioningHistoryReplayTest, ReplayMatchesUnboundedRecovery) {
