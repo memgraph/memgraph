@@ -438,7 +438,7 @@ void ExpectRestartRefused(ms::Config restart_config, std::initializer_list<std::
       acc->CreateVertex();
       Commit(*acc);
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     {
       auto acc = db.Access(ms::WRITE);
       acc->CreateVertex();
@@ -487,7 +487,7 @@ TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledHidesTheBranc
       acc->CreateVertex();
       Commit(*acc);
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     auto acc = db.Access(ms::WRITE);
     acc->CreateVertex();
     Commit(*acc);
@@ -515,7 +515,7 @@ TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledHidesTheBranc
     EXPECT_TRUE(store->List().empty());
     EXPECT_FALSE(store->Exists("b"));
     EXPECT_FALSE(store->Empty());
-    EXPECT_FALSE(store->CreateBranch("b", "main").has_value()) << "a hidden branch still owns its name";
+    EXPECT_FALSE(store->CreateBranch("b").has_value()) << "a hidden branch still owns its name";
   }
 
   EXPECT_EQ(ReadWholeFile(ledger_file), ledger_before);
