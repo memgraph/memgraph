@@ -174,8 +174,23 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  // Independent of the multi-database privileges.
-  void Visit(VersioningQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::BRANCH_USE); }
+  // Independent of the multi-database privileges. FORCE also terminates other sessions' transactions, like DROP
+  // DATABASE ... FORCE.
+  void Visit(VersioningQuery &query) override {
+    switch (query.action_) {
+      case VersioningQuery::Action::CREATE_BRANCH:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_EDIT);
+        break;
+      case VersioningQuery::Action::DROP_BRANCH:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_EDIT);
+        if (query.force_) AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
+        break;
+      case VersioningQuery::Action::SHOW_BRANCH:
+      case VersioningQuery::Action::SHOW_BRANCHES:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_USE);
+        break;
+    }
+  }
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
