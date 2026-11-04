@@ -1168,4 +1168,33 @@ TEST_F(LockFreeReadSnapshotRecovery, ForkPinBlocksGcIdleShortcut_ON) {
   RunGc(*store);
   EXPECT_EQ(store->VertexStoreSize(), 0U);
 }
+
+// Historical readers keep commit_lock_narrowing off because the fork point excludes the in-flight commit.
+TEST_F(LockFreeReadSnapshotRecovery, HistoricalReadAtForkStableWhenInFlightCommitPublishes_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  PreparedCommit commit;
+  PrepareWithoutPublish(*store, gid, 2, commit);
+  const auto fork_ts = store->RegisterForkPin();
+  auto historical = store->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  EXPECT_FALSE((*historical)->GetTransaction()->commit_lock_narrowing);
+  EXPECT_EQ(ReadProp(**historical, gid), 1);
+
+  PublishAndEnd(*store, commit);
+  EXPECT_EQ(ReadProp(**historical, gid), 1) << "the in-flight commit turned visible at the fork once published";
+  {
+    auto fresh = store->HistoricalAccess(fork_ts);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_EQ(ReadProp(**fresh, gid), 1);
+  }
+  {
+    auto reader = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*reader, gid), 2);
+  }
+
+  historical->reset();
+  store->ReleaseForkPin(fork_ts);
+}
 #endif  // MG_ENTERPRISE

@@ -22,6 +22,9 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/bound.hpp"
+#ifdef MG_ENTERPRISE
+#include "utils/logging.hpp"
+#endif
 
 #include <array>
 #include <concepts>
@@ -428,8 +431,9 @@ struct LabelPropertyIndexActiveIndices {
   virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
 #ifdef MG_ENTERPRISE
-  virtual bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, uint64_t timestamp) const {
-    return IndexReady(label, properties);
+  virtual bool IndexVisibleAt(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
+                              uint64_t /*timestamp*/) const {
+    LOG_FATAL("IndexVisibleAt is implemented only for in-memory indices");
   }
 #endif
 

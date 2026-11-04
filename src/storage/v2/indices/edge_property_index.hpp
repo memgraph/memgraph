@@ -18,6 +18,9 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
+#ifdef MG_ENTERPRISE
+#include "utils/logging.hpp"
+#endif
 
 namespace memgraph::storage {
 
@@ -88,7 +91,9 @@ struct EdgePropertyIndexActiveIndices {
   virtual bool IndexReady(PropertyId property) const = 0;
 
 #ifdef MG_ENTERPRISE
-  virtual bool IndexVisibleAt(PropertyId property, uint64_t timestamp) const { return IndexReady(property); }
+  virtual bool IndexVisibleAt(PropertyId /*property*/, uint64_t /*timestamp*/) const {
+    LOG_FATAL("IndexVisibleAt is implemented only for in-memory indices");
+  }
 #endif
 
   virtual std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const = 0;
