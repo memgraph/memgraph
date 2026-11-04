@@ -4066,6 +4066,11 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
+#ifdef MG_ENTERPRISE
+  // The transaction being committed is already in an existing WAL file; the caller then only finalizes the commit.
+  if (suppress_wal_.load(std::memory_order_acquire)) return false;
+#endif
+
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
       storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;
@@ -5202,6 +5207,22 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
+
+#ifdef MG_ENTERPRISE
+void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
+  auto guard = std::scoped_lock{engine_lock_};
+  auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  auto const target = std::max(ldt + 1, min_next);
+  if (timestamp_ >= target) return;
+  // Ids in [timestamp_, target) were never handed out, so no transaction can hold them: mark them finished or the
+  // oldest-active id would stall at the gap and block GC.
+  auto const first_skipped = timestamp_;
+  timestamp_ = target;
+  commit_log_->MarkFinishedInRange(first_skipped, target - 1);
+}
+
+uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }
+#endif
 
 void InMemoryStorage::PrepareForNewEpoch() {
   // Committer lock order: keeps this WAL reset from racing a committer's WAL append.
