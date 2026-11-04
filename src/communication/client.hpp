@@ -94,16 +94,8 @@ class Client final {
   [[nodiscard]] auto Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt)
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  /**
-   * This function returns a pointer to the read data that is currently stored
-   * in the client.
-   */
   uint8_t *GetData() { return buffer_.read_end()->data(); }
 
-  /**
-   * This function returns the size of the read data that is currently stored in
-   * the client.
-   */
   size_t GetDataSize() const { return buffer_.read_end()->size(); }
 
   /**

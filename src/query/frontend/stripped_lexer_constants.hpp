@@ -93,12 +93,10 @@ constexpr int kBitsetSize = 65'536;
 
 namespace detail {
 
-/// A set of Unicode codepoints fixed at compile time, written as one character
-/// per codepoint, '1' for a member.
-///
-/// This stands in for `std::bitset`, whose constructor from a string of bits
-/// libstdc++ does not make `constexpr`. Bit `pos` is the character `pos` places
-/// from the end, which is the order `std::bitset` reads a string in.
+/// A set of Unicode codepoints fixed at compile time: one character per
+/// codepoint, '1' for a member, numbered from the end of the string as
+/// `std::bitset` numbers one. It stands in for `std::bitset`, whose constructor
+/// from a string of bits libstdc++ does not make `constexpr`.
 template <std::size_t N>
 class CodepointSet {
   static_assert(N % 64 == 0, "the bits must fill whole words");
@@ -107,9 +105,9 @@ class CodepointSet {
   static constexpr std::size_t kWordBits = 64;
 
  public:
-  /// Each word is accumulated in a local and stored once. Setting bits straight
-  /// into the array instead costs enough constant-evaluation steps for a table
-  /// this wide to exceed the compiler's limit.
+  /// Setting bits straight into the array, rather than accumulating a word and
+  /// storing it once, costs enough constant-evaluation steps for a table this
+  /// wide to exceed the compiler's limit.
   explicit constexpr CodepointSet(std::string_view bits) {
     auto const *const chars = bits.data();
     auto const count = bits.size() < N ? bits.size() : N;

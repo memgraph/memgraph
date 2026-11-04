@@ -103,18 +103,10 @@ class Buffer final {
     Buffer *buffer_;
   };
 
-  /**
-   * This function returns a pointer to the associated ReadEnd object for this
-   * buffer.
-   */
   ReadEnd *read_end() { return &read_end_; }
 
   const ReadEnd *read_end() const { return &read_end_; }
 
-  /**
-   * This function returns a pointer to the associated WriteEnd object for
-   * this buffer.
-   */
   WriteEnd *write_end() { return &write_end_; }
 
   const WriteEnd *write_end() const { return &write_end_; }

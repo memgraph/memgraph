@@ -98,8 +98,7 @@ class CoordinatorState {
 
   auto GetTelemetryJson() const -> nlohmann::json;
 
-  /// Which alternative `data_` holds is fixed by the constructor, so repeated
-  /// questions about the role can be answered once.
+  /// Which alternative `data_` holds is fixed by the constructor.
   [[nodiscard, gnu::pure]] auto IsCoordinator() const -> bool;
   [[nodiscard, gnu::pure]] auto IsDataInstance() const -> bool;
 
