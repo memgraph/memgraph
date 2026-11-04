@@ -570,3 +570,7 @@ TEST_F(BranchLedgerTest, ExistsErrorIsNotReadAsNoLedger) {
   fs::permissions(branches_dir, fs::perms::none, fs::perm_options::replace);
   auto res = BranchLedger{file_}.Read();
   fs::permissions(branches_dir, fs::perms::owner_all, fs::perm_options::replace);
+
+  EXPECT_FALSE(res.has_value() && !res->has_value())
+      << "an unreadable ledger location must be an error, not 'no ledger' (the next write would clobber the file)";
+}
