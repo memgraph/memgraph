@@ -347,10 +347,13 @@ uint64_t InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, 
           // When we update specific entries in the index, we don't delete the previous entry.
           // The way they are removed from the index is through this check. The entries should
           // be right next to each other(in terms of iterator semantics) and the older one
-          // should be removed here.
-          const bool redundant_duplicate = has_next && it->value == next_it->value &&
-                                           it->from_vertex == next_it->from_vertex &&
-                                           it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
+          // should be removed here. When recent entries are preserved, the replacement must be
+          // below the horizon too: until then an abort may remove it, or an older reader may be
+          // unable to see it.
+          const bool redundant_duplicate =
+              has_next && it->value == next_it->value && it->from_vertex == next_it->from_vertex &&
+              it->to_vertex == next_it->to_vertex && it->edge == next_it->edge &&
+              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
           if (redundant_duplicate ||
               !AnyVersionHasProperty(*it->edge, property, it->value, oldest_active_start_timestamp)) {
             edges_acc.remove(*it);

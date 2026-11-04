@@ -287,7 +287,10 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
             continue;
           }
 
-          if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
+          // When recent entries are preserved, the replacement must be below the horizon too: until
+          // then an abort may remove it, or an older reader may be unable to see it.
+          if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex &&
+               (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp)) ||
               !AnyVersionHasLabel(*it->vertex, label, oldest_active_start_timestamp)) {
             vertices_acc.remove(*it);
           }

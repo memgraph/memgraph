@@ -18,12 +18,14 @@
 #include <set>
 #include <string_view>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/gc_status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -319,6 +321,75 @@ TEST_F(StorageV2GcDurable, DestroyedPreparedAccessorReleasesItsCommitTimestamp) 
   EXPECT_EQ(storage->VertexStoreSize(), 0U)
       << "the deleted vertex never left storage, so the prepared accessor's commit timestamp is "
          "still holding the collection horizon down";
+}
+
+// A unique constraint gains its entry for a vertex when the commit prepares, and loses it again if
+// that commit is abandoned. A prepared two-phase commit is a window in which the sweep can see
+// the new entry while the writer may still abort; the entry it duplicates must outlive that.
+TEST_F(StorageV2GcDurable, AbortedPreparedRewritePreservesUniqueConstraintEntry) {
+  // A WAL is what sends the commit down the two-phase path. Without one the commit publishes
+  // inline, and the state this test is about never arises.
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.recover_on_startup = false;
+  config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.gc.type = memgraph::storage::Config::Gc::Type::PERIODIC;
+  config.gc.interval = std::chrono::hours(1);
+  // An identical write must produce an entry for this test to mean anything.
+  config.salient.items.delta_on_identical_property_update = true;
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(config);
+
+  auto const label = storage->NameToLabel("L");
+  auto const property = storage->NameToProperty("p");
+  {
+    auto acc = storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreateUniqueConstraint(label, {property}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  memgraph::storage::Gid gid{};
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  auto *constraints =
+      static_cast<memgraph::storage::InMemoryUniqueConstraints *>(storage->constraints_.unique_constraints_.get());
+  auto const entries = [&] { return constraints->EntryCount(label, {property}).value_or(0); };
+  ASSERT_EQ(entries(), 1U);
+
+  {
+    auto writer = storage->Access(memgraph::storage::WRITE);
+    auto vertex = writer->FindVertex(gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(property, memgraph::storage::PropertyValue{1}).has_value());
+    ASSERT_TRUE(writer
+                    ->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                        /*desired_commit_timestamp=*/1, /*two_phase_commit=*/true, [] {}))
+                    .has_value());
+    ASSERT_EQ(entries(), 2U);
+    auto arming = memgraph::storage::IndexArming{};
+    arming.arm_all_vertex_indexes();
+    constraints->RemoveObsoleteEntries(
+        storage.get(), writer->GetTransaction()->start_timestamp, std::stop_token{}, arming);
+    EXPECT_EQ(entries(), 2U) << "the sweep took the prepared transaction's entry as a replacement";
+  }  // destroying the prepared accessor aborts it
+  EXPECT_EQ(entries(), 1U);
+
+  // The constraint must still know about the committed value.
+  auto acc = storage->Access(memgraph::storage::WRITE);
+  auto other = acc->CreateVertex();
+  ASSERT_TRUE(other.AddLabel(label).has_value());
+  ASSERT_TRUE(other.SetProperty(property, memgraph::storage::PropertyValue{1}).has_value());
+  auto const result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  ASSERT_FALSE(result.has_value()) << "a duplicate of a committed value was accepted";
+  ASSERT_TRUE(std::holds_alternative<memgraph::storage::ConstraintViolation>(result.error()));
+  EXPECT_EQ(std::get<memgraph::storage::ConstraintViolation>(result.error()),
+            (memgraph::storage::ConstraintViolation{
+                memgraph::storage::ConstraintViolation::Type::UNIQUE, label, std::set{property}}));
 }
 
 // A commit that throws after it has published leaves its deltas linked into the version chains,
