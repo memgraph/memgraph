@@ -30,14 +30,18 @@ target_sources(mg-planner
     include/planner/pattern/vm/compiler.hpp
     include/planner/pattern/vm/executor.hpp
     include/planner/pattern/vm/instruction.hpp
+    include/planner/pattern/vm/root_restriction.hpp
     include/planner/pattern/vm/state.hpp
     include/planner/pattern/vm/tracer.hpp
     include/planner/pattern/vm/types.hpp
 
     # rewrite/ - Rewriting/saturation engine
+    include/planner/rewrite/arming_index.hpp
+    include/planner/rewrite/pass_driver.hpp
     include/planner/rewrite/rewriter.hpp
     include/planner/rewrite/rule.hpp
     include/planner/rewrite/rule_context.hpp
+    include/planner/rewrite/rule_latch.hpp
     include/planner/rewrite/rule_set.hpp
 
     # extract/ - Cost extraction
