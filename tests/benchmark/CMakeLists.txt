@@ -8,11 +8,10 @@ include_directories(${antlr4-runtime_INCLUDE_DIR})
 
 
 
-# Build a benchmark executable and attach it to the memgraph__benchmark target,
-# WITHOUT registering a ctest. CI's micro-benchmark job runs `ctest -R
-# memgraph__benchmark`, so a benchmark added this way is built (can't bit-rot, runs
-# locally) but never executed by any CI job. Use for benchmarks meant to be run
-# manually. add_benchmark() layers the ctest registration on top of this.
+# Build a benchmark executable and attach it to the memgraph__benchmark target
+# without registering a ctest. CI selects the benchmarks it runs by ctest name, so
+# one added this way is still built, and so cannot bit-rot, but no CI job runs it.
+# Use it for benchmarks meant to be run by hand.
 function(add_local_benchmark test_cpp)
   # get exec name (remove extension from the abs path)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
@@ -26,9 +25,8 @@ function(add_local_benchmark test_cpp)
   add_dependencies(memgraph__benchmark ${target_name})
 endfunction(add_local_benchmark)
 
-# Benchmark that CI runs: builds it (add_local_benchmark) and registers a ctest
-# labeled "benchmark" so the micro-benchmark job (ctest -R memgraph__benchmark)
-# picks it up.
+# Build a benchmark and register it as a ctest labeled "benchmark", which is what
+# makes a CI job run it.
 function(add_benchmark test_cpp)
   add_local_benchmark(${test_cpp} ${ARGN})
   get_filename_component(exec_name ${test_cpp} NAME_WE)
@@ -73,8 +71,6 @@ target_link_libraries(${test_prefix}planner mg-query)
 add_benchmark(query/plan_v2_extract.cpp)
 target_link_libraries(${test_prefix}plan_v2_extract mg-query)
 
-# add_local_benchmark (not add_benchmark): built and runnable locally, but not
-# registered as a ctest, so no CI job runs it. Keep it this way.
 add_local_benchmark(query/plan_v2_rewrite_saturation.cpp)
 target_link_libraries(${test_prefix}plan_v2_rewrite_saturation mg-query)
 

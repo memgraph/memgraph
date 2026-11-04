@@ -119,7 +119,7 @@ auto MakeUnaryFoldRule(std::string name) -> RewriteRule<typed_egraph> {
 
 }  // namespace
 
-/// Singleton for default plan_v2 rewrite rules. Declared in rewrites_internal.hpp.
+/// Singleton for default plan_v2 rewrite rules.
 auto DefaultRules() -> RuleSet<typed_egraph> const & {
   static auto const rules = [] {
     RuleSet<typed_egraph>::Builder builder;

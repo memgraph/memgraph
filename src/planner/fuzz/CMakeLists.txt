@@ -29,11 +29,9 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_definitions(fuzz_compiler_contracts PUBLIC ASSERT_FUZZ)
 
     # Differential fuzzer: incremental saturation must equal full saturation.
-    # Address sanitization only when the dependencies are instrumented too; mixing
-    # an instrumented translation unit with a plain abseil gives a SwissTable whose
-    # layout differs across the ODR boundary, and the matcher SEGVs on a valid set.
-    # Without ASAN the fuzzer still builds and its seed corpus still replays, so the
-    # regression target below works in an ordinary build.
+    # Address-sanitized only when its dependencies are, for the ODR reason in the
+    # file header. Without ASAN it still builds and still replays its seed corpus,
+    # so the regression target below works in an ordinary build.
     if(ASAN)
         set(fuzz_rewrite_incremental_sanitizers fuzzer,address)
     else()

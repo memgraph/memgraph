@@ -29,7 +29,7 @@ using namespace test;
 using namespace pattern;
 using namespace rewrite;
 
-// --- Arming index (Stage 2 of incremental arming) ---
+// --- Arming index ---
 
 TEST(ArmingIndex, RuleExposesEveryPatternRootSymbol) {
   // Single-pattern rule roots at one symbol.
