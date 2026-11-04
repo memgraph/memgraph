@@ -786,6 +786,26 @@ TEST(StrippedQuery, CodepointSetsMatchTheirBitStrings) {
   ExpectMatchesBitset(lexer_constants::kSpaceParts, lexer_constants::kSpacePartsBits);
 }
 
+// Agreeing with a std::bitset built from the same literal says nothing about
+// which end of the literal holds codepoint 0. These memberships do.
+TEST(StrippedQuery, CodepointTablesHoldTheCodepointsTheyName) {
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'A'));
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'z'));
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'_'));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'0'));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'-'));
+
+  // A digit cannot start a name but may continue one.
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'0'));
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'A'));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'('));
+
+  EXPECT_TRUE(lexer_constants::kSpaceParts.Contains(U' '));
+  EXPECT_TRUE(lexer_constants::kSpaceParts.Contains(U'\t'));
+  EXPECT_TRUE(lexer_constants::kSpaceParts.Contains(U'\n'));
+  EXPECT_FALSE(lexer_constants::kSpaceParts.Contains(U'A'));
+}
+
 // The lexer hands over whatever codepoint it decoded, including the four-byte
 // ones that sit above every table.
 TEST(StrippedQuery, CodepointSetExcludesCodepointsAboveIt) {

@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -117,9 +118,13 @@ constexpr word_t PackWord(std::span<char const, kWordBits> bits) {
 }
 
 /// A set of Unicode codepoints fixed at compile time: one character per
-/// codepoint, '1' for a member, numbered from the end of the string as
-/// `std::bitset` numbers one. It stands in for `std::bitset`, whose constructor
-/// from a string of bits libstdc++ does not make `constexpr`.
+/// codepoint, '1' for a member. It stands in for `std::bitset`, whose
+/// constructor from a string of bits libstdc++ does not make `constexpr`.
+///
+/// The leading character is the highest codepoint, because `std::bitset`
+/// numbers bits from the end of the string and the tables were written for it.
+/// Reading them the other way round would silently change which characters the
+/// lexer accepts, so a test pins a few codepoints whose membership is known.
 ///
 /// Anything other than exactly N characters of '0' and '1' is rejected, which
 /// during constant initialization makes it a build failure.
@@ -131,11 +136,15 @@ class CodepointSet {
     if (bits.size() != N) {
       throw std::invalid_argument{"a codepoint set needs one character per codepoint"};
     }
-    // The last word holds the lowest codepoints, so the string is consumed from
-    // its end backwards.
-    for (std::size_t word = 0; word != words_.size(); ++word) {
-      auto const *const first = bits.data() + N - ((word + 1) * kWordBits);
-      words_[word] = PackWord(std::span<char const, kWordBits>{first, kWordBits});
+    // The leading characters name the highest codepoints, which the last word
+    // holds, so the words fill in reverse as the string is read forwards.
+    //
+    // Chunking the string with a view would say this more directly and costs
+    // more constant-evaluation steps than the limit allows.
+    std::size_t read = 0;
+    for (word_t &word : words_ | std::views::reverse) {
+      word = PackWord(std::span<char const, kWordBits>{bits.data() + read, kWordBits});
+      read += kWordBits;
     }
   }
 
