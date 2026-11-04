@@ -559,7 +559,7 @@ TEST(IncrementalArmingAlternation, OnlyTheTwoChainRulesEverFire) {
   EXPECT_TRUE(folded->known_constant_value.has_value()) << "the chain folds to a single constant";
 }
 
-// Build a fresh e-graph, saturate DefaultRules under `mode` to a fixpoint, and
+// Build a fresh e-graph, saturate DefaultRules under `incremental` to a fixpoint, and
 // return its final shape. Asserts each run truly settles (the sharp oracle: a
 // final all-rules pass finds nothing).
 template <typename Build>
@@ -581,15 +581,15 @@ auto SaturateToShape(Build const &build, bool incremental) -> std::pair<std::siz
 // running every rule every pass. Without this the plan_v2 layer had no Full baseline
 // - correctness under the default (Incremental) rested on hand-authored counts.
 template <typename Build>
-void ExpectSameShapeUnderBothModes(Build const &build) {
+void ExpectSameShapeUnderBothDrivers(Build const &build) {
   EXPECT_EQ(SaturateToShape(build, /*incremental=*/true), SaturateToShape(build, /*incremental=*/false))
-      << "arming schedule changed the final e-graph shape over DefaultRules";
+      << "arming driver changed the final e-graph shape over DefaultRules";
 }
 
 // A constant-fold chain: alternating Add/Mul over literals folds to one constant,
 // the saturation-heavy case incremental arming is built for.
 TEST(PlanV2IncrementalDifferential, ConstantFoldChainMatchesFull) {
-  ExpectSameShapeUnderBothModes([](egraph &eg) {
+  ExpectSameShapeUnderBothDrivers([](egraph &eg) {
     auto const two = eg.MakeLiteral(ExternalPropertyValue{int64_t{2}});
     eclass cur = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});
     for (int level = 0; level < 6; ++level) {
@@ -602,7 +602,7 @@ TEST(PlanV2IncrementalDifferential, ConstantFoldChainMatchesFull) {
 // Add folds. The two rules compose across passes, so incremental re-arming must keep
 // pace with Full rather than stall after the inline.
 TEST(PlanV2IncrementalDifferential, InlineThenFoldMatchesFull) {
-  ExpectSameShapeUnderBothModes([](egraph &eg) {
+  ExpectSameShapeUnderBothDrivers([](egraph &eg) {
     auto const once = eg.MakeOnce();
     auto const sym = eg.MakeSymbol(0, "x");
     auto const one = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});

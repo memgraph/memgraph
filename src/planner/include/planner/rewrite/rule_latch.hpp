@@ -29,11 +29,11 @@ namespace memgraph::planner::core::rewrite {
 using pattern::vm::RootRestriction;
 
 /// The incremental-saturation arming engine (driven by IncrementalDriver):
-/// decides, each pass, which rules a pass could newly enable (the *armed* set)
-/// and - when the change is a sparse slice of the graph - which e-classes a
-/// rule's matcher may restrict its root
-/// iteration to (the *active* set). It never runs the matcher; arming is a
-/// symbol-to-hop lookup proportional to what changed.
+/// decides, each pass, which rules that pass could newly enable (the *armed*
+/// set) and, when the change is a sparse slice of the graph, which e-classes a
+/// rule's matcher may restrict its root iteration to (the *active* set). It
+/// never runs the matcher; arming is a symbol-to-hop lookup proportional to what
+/// changed.
 ///
 /// Seeded from a rule set's arming index and maximum pattern depth via reset(),
 /// then driven once per pass with arm(egraph). The first arm() after a reset
@@ -46,11 +46,9 @@ using pattern::vm::RootRestriction;
 ///   long-lived member (one per egraph), not reconstructed per arm().
 /// - It is scoped to a single egraph. active() holds that egraph's EClassIds, so
 ///   reuse across egraphs requires a reset() first.
-/// - active() returns a RootRestriction: MatchAll means "match every candidate";
-///   RestrictTo({}) means "restrict to nothing" (a settled, sparse graph), which
-///   is distinct. A rule whose pattern root is symbol-less ignores the restriction
-///   (the matcher consults it only while iterating a symbol root), so an
-///   always-armed rule still fires under an empty restriction.
+/// - active() can restrict to nothing, which RootRestriction keeps distinct from
+///   matching everything. An always-armed rule fires anyway, its symbol-less
+///   root being one the restriction does not apply to.
 template <typename Symbol, typename Analysis>
 class RuleLatch {
  public:

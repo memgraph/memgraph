@@ -23,15 +23,13 @@ namespace memgraph::planner::core::pattern::vm {
 /// How a matcher run iterates its root-symbol candidates: either MatchAll (every
 /// candidate of the root symbol) or RestrictTo a set of e-classes (only those).
 ///
-/// A RestrictTo over an *empty* set restricts to nothing - a distinct, meaningful
-/// state (a settled sparse graph), not "match all". That is the confusion this
-/// type removes: a raw `set const *` conflated "no restriction" (nullptr) with
-/// "restrict to nothing" (non-null empty). Here the two are named states and the
-/// empty case is simply `RestrictTo({})`, handled like any other set.
+/// A RestrictTo over an *empty* set restricts to nothing, which is a distinct and
+/// meaningful state (a settled sparse graph) rather than a synonym for MatchAll.
+/// The empty case is `RestrictTo({})`, handled like any other set.
 ///
 /// A pattern whose root has no symbol iterates every e-class regardless, so it
-/// ignores the restriction entirely - the executor consults it only while
-/// iterating a symbol root. Zero-overhead: one pointer, trivially copyable.
+/// ignores the restriction entirely: the executor consults it only while
+/// iterating a symbol root. One pointer, trivially copyable.
 class RootRestriction {
  public:
   using Set = boost::unordered_flat_set<EClassId>;

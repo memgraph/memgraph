@@ -10,35 +10,25 @@
 // licenses/APL.txt.
 
 // Differential fuzzer for incremental arming: two identical e-graphs are driven
-// through the same rounds, one saturated in Full mode (every rule every pass -
-// the reference) and one in Incremental mode (the optimisation). The two must
-// agree. A divergence means incremental arming skipped a rule that should have
-// run - the exact failure incremental arming must never cause.
+// through the same rounds, one saturated by the full driver (every rule every
+// pass, the reference) and one by the incremental driver. They must agree, and a
+// divergence means incremental arming skipped a rule that should have run.
 //
 // Multi-round: after the initial build, each round mutates both graphs
-// identically and re-saturates on a PERSISTENT rewriter. The incremental
-// rewriter folds a round's mutations into the next arm() through its surviving
-// latch - the re-saturation path a single saturate never reaches, and the
-// capability latched arming exists to provide.
+// identically and re-saturates on a PERSISTENT rewriter, so the incremental one
+// folds a round's mutations into the next arm() through its surviving latch.
+// That is the re-saturation path a single saturate never reaches.
 //
-// Oracles per round: equal e-class/live-node counts; merge-PARTITION equivalence
-// over the seeded probe set (which nodes ended up equal must match, a stronger
-// check than counts); the sharp fixpoint oracle (a full pass on the incremental
-// result finds nothing); and convergence within a finite cap (both runs must
-// reach a fixpoint, so hitting the cap is a non-termination or skip bug).
+// Each round checks several oracles, each documented where it runs: the counts,
+// the merge partition over a frozen probe set, the facts the analysis
+// propagated, and convergence within a finite cap.
 //
-// The rule pool includes a node-INSERTING rule (commutativity), so the
-// insert-during-rewrite path - touched-set insert + incremental matcher reindex -
-// is fuzzed, not just merges.
-//
-// The seeded leaves carry analysis facts, one bit each, unioned on merge, and a
-// round compares the facts the two runs propagated to the probe set. Arming keys
-// on symbol and parent-hop only, so analysis can make arming more conservative
-// but never cause a skip; carrying real facts is what lets the oracle observe
-// that, and lets the rewriter's debug-only audit that facts move only on merge
-// run over these graphs. A rule whose enabling depends on analysis propagating
-// beyond structural parent-adjacency would break the arming argument and need
-// its own differential; no such rule exists.
+// The seeded leaves carry analysis facts, so the differential covers a graph
+// whose analysis holds something rather than an empty one. Arming keys on symbol
+// and parent-hop only, so analysis can make arming more conservative but never
+// cause a skip. A rule whose enabling depended on analysis propagating beyond
+// structural parent-adjacency would break that argument and need its own
+// differential; no such rule exists.
 
 #include <cstdint>
 #include <cstdlib>
@@ -163,7 +153,7 @@ void seed_leaves(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<E
       // One analysis bit per seeded leaf, so a merge that unions two leaves is
       // observable as a fact that moved, and a merge incremental arming skipped
       // shows up as a fact that did not.
-      auto const seed = FuzzAnalysis{.leaves = bit};
+      auto const seed = FuzzAnalysis{.known_leaves = bit};
       bit = static_cast<std::uint16_t>(bit << 1U);
       auto const id = ref_eg.core().emplace(leaf, d, seed).eclass_id;
       inc_eg.core().emplace(leaf, d, seed);  // same id by construction
@@ -260,7 +250,7 @@ auto partition_labels(FuzzGraph const &eg, std::vector<EClassId> const &pool) ->
 auto probe_facts(FuzzGraph const &eg, std::vector<EClassId> const &pool) -> std::vector<std::uint16_t> {
   std::vector<std::uint16_t> facts;
   facts.reserve(pool.size());
-  for (auto const id : pool) facts.push_back(eg.analysis_of(id).leaves);
+  for (auto const id : pool) facts.push_back(eg.analysis_of(id).known_leaves);
   return facts;
 }
 

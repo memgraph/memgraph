@@ -21,9 +21,8 @@
 //
 // The hot loop is one no-op pass, so its cost is purely redundant. Scaling by
 // range(0) (the number of independent coverage units) grows the e-graph the
-// matcher must re-scan, exposing whether the waste is O(e-graph size) - the
-// signal that the fix is incremental / dirty-tracked matching rather than a
-// rule-body micro-optimisation.
+// matcher must re-scan, so the shape of the curve says whether the waste grows
+// with the graph or with the rule bodies.
 //
 // Profiling (run a SINGLE size so allocations/samples aren't mixed):
 //   perf record -g -- ./plan_v2_rewrite_saturation \
@@ -59,7 +58,7 @@ auto Lit(egraph &eg, int64_t v) -> eclass { return eg.MakeLiteral(ExternalProper
 auto ArgIsIncremental(int64_t arg) -> bool { return arg != 0; }
 
 // Time only the saturation loop: the O(width) build and matcher-index
-// construction are identical across modes and would otherwise dilute the
+// construction are identical across drivers and would otherwise dilute the
 // comparison. `driver_len` is the fixed chain length the builder adds on top of
 // `width`, used only for the items-processed count.
 template <typename BuildFn>
@@ -158,9 +157,9 @@ void BM_PlanV2_NoopSaturation(benchmark::State &state) {
 
 BENCHMARK(BM_PlanV2_NoopSaturation)->RangeMultiplier(2)->Range(1, 128)->Unit(benchmark::kMicrosecond);
 
-// Full saturate-to-fixpoint, comparing the arming modes. range(0) = units;
-// range(1) = mode (0 = Full reference, 1 = Incremental). The build cost is
-// identical across modes, so the delta between modes at a size is incremental arming's
+// Full saturate-to-fixpoint, comparing the two drivers. range(0) = units;
+// range(1) = driver (0 = Full reference, 1 = Incremental). The build cost is
+// identical across drivers, so the delta between them at a size is incremental arming's
 // saving on the later passes (settled and irrelevant rules no longer re-run).
 void BM_PlanV2_Saturate(benchmark::State &state) {
   auto const units = state.range(0);

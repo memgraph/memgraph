@@ -81,9 +81,11 @@ enum class FuzzSymbol : uint8_t {
 /// A harness that seeds no facts leaves every mask empty, and the union is then
 /// the no-op merge such a harness expects.
 struct FuzzAnalysis {
-  std::uint16_t leaves = 0;
+  std::uint16_t known_leaves = 0;
 
-  void merge(FuzzAnalysis const &other) { leaves = static_cast<std::uint16_t>(leaves | other.leaves); }
+  void merge(FuzzAnalysis const &other) {
+    known_leaves = static_cast<std::uint16_t>(known_leaves | other.known_leaves);
+  }
 
   auto operator==(FuzzAnalysis const &) const -> bool = default;
 };

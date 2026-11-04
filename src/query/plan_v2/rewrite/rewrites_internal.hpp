@@ -14,7 +14,7 @@
 // Internal: DefaultRules() is the production rewrite rule set - ApplyAllRewrites
 // (rewrites.hpp) builds a fresh Rewriter with it on every call. This header
 // additionally exposes it to benchmarks/tests that need to drive their own
-// persistent Rewriter (cross-call incrementality, mode switching, per-rule
+// persistent Rewriter (cross-call incrementality, driver switching, per-rule
 // stats). Production callers should use ApplyAllRewrites, not this.
 
 #include "planner/rewrite/rule_set.hpp"

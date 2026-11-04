@@ -23,7 +23,7 @@ import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {
 
-/// The per-pass driver the saturation loop drives, so the loop is mode-agnostic.
+/// The per-pass driver the saturation loop drives, so the loop is driver-agnostic.
 /// A driver owns the touched-set lifecycle and hands the loop its two per-rule
 /// inputs.
 ///

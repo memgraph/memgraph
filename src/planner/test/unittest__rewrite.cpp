@@ -121,7 +121,7 @@ TEST(RuleSet, MaxPatternDepthIsTheDeepestRulePattern) {
 // depth and no further) is exercised through the arming engine's observable arming
 // and restriction behaviour in unittest__rule_latch.cpp.
 
-// --- Incremental mode: equals Full, and reaches a true fixpoint ---
+// --- Incremental driver: equals Full, and reaches a true fixpoint ---
 
 namespace {
 // Build Neg^depth(Var) into `eg` and return the chain top. double_neg composes
@@ -137,7 +137,7 @@ auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
 // live-node counts) to match: incremental arming only skips rules or prunes
 // candidates, so it reaches the same fixpoint as full.
 template <typename BuildAndSaturate>
-void ExpectSameShapeUnderBothModes(BuildAndSaturate build_and_saturate) {
+void ExpectSameShapeUnderBothDrivers(BuildAndSaturate build_and_saturate) {
   auto run_incremental = [](TestRewriter &r, RewriteConfig const &cfg) { return r.saturate_incremental(cfg); };
   auto run_full = [](TestRewriter &r, RewriteConfig const &cfg) { return r.saturate_full(cfg); };
   EXPECT_EQ(build_and_saturate(run_incremental), build_and_saturate(run_full))
@@ -149,7 +149,7 @@ TEST(IncrementalArming, IncrementalEqualsFull) {
   // Same fixpoint = same final shape (rewrite counts can differ by driver).
   // Incremental only ever skips rules/prunes candidates, so its merges are a subset
   // of Full's; equal shape plus a true fixpoint (sharp oracle) pin them equal.
-  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothDrivers([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
     BuildNegChain(eg, 8);
@@ -167,7 +167,7 @@ TEST(IncrementalArming, IncrementalEqualsFullForMultiPatternRule) {
   // it must not apply here - Incremental must still find every pair Full does. The
   // Op::A padding keeps the post-pass change a sparse slice of the graph, so the
   // per-candidate active-set path is exercised rather than the whole-graph fallback.
-  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothDrivers([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
     for (int i = 0; i < 6; ++i) eg.emplace(Op::Var, static_cast<uint64_t>(i));
@@ -187,7 +187,7 @@ TEST(IncrementalArming, IncrementalEqualsFullForAlwaysArmedRule) {
   // F(x) into x for any x with an F parent. (Being multi-pattern, it never uses
   // the per-candidate active-set restriction; this pins arming and merge parity,
   // not that path.) The Op::A padding just enlarges the graph.
-  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothDrivers([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
@@ -220,7 +220,7 @@ TEST(IncrementalArming, ReSaturatingASettledGraphDoesNoWork) {
   EXPECT_EQ(again.rewrites_applied, 0U);
 }
 
-// --- Incremental mode: soundness of the per-candidate active-set restriction ---
+// --- Incremental driver: soundness of the per-candidate active-set restriction ---
 
 TEST(IncrementalArming, ActiveRootRestrictionOnlyForRootEntryPatterns) {
   // The per-candidate active-set restriction is sound only when a rule's single
@@ -239,7 +239,7 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
   // enters at the inner Neg (deepest symbol), not the root. Growing an outer Neg over
   // an untouched inner chain leaves the inner Neg (the entry) outside the active set,
   // so the rule matches all candidates instead of active-restricted ones.
-  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothDrivers([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed_eg;
     auto &eg = typed_eg.core();
     // Padding keeps the post-growth change a sparse slice, so the per-candidate
@@ -264,7 +264,7 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
   // arms from the touched-set that survived the first. idempotent_f = F(?x,?x) is
   // root-entry, so it uses the per-candidate restriction - the grown match must
   // still be found, and Incremental must equal Full.
-  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothDrivers([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed_eg;
     auto &eg = typed_eg.core();
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
@@ -286,7 +286,7 @@ TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
   // saturate on the SAME rewriter arms from what Full changed. Checks that a
   // `middle` pass (Full or Incremental) between two growths reaches the same
   // fixpoint either way.
-  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothDrivers([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed_eg;
     auto &eg = typed_eg.core();
     auto top = BuildNegChain(eg, 6);

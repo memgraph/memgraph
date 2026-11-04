@@ -236,7 +236,7 @@ class Rewriter {
 #endif
       auto const rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, driver.armed(), driver.active());
 #ifndef NDEBUG
-      audit_moved_analysis_was_touched(analysis_before);
+      audit_moved_facts_were_touched(analysis_before);
 #endif
 
       result.rewrites_applied += rewrites_this_iter;
@@ -295,27 +295,27 @@ class Rewriter {
 #ifndef NDEBUG
   /// An analysis the audit below can compare across a pass. One that cannot be
   /// copied or compared is not audited, rather than refusing to compile.
-  static constexpr bool kAuditsAnalysis = std::copy_constructible<Analysis> && std::equality_comparable<Analysis>;
+  static constexpr bool kSupportsAnalysisAudit =
+      std::copy_constructible<Analysis> && std::equality_comparable<Analysis>;
 
   using AnalysisSnapshot = std::vector<std::pair<EClassId, Analysis>>;
 
   /// The analysis of every canonical e-class, to compare after the pass.
   auto snapshot_analysis_for_audit() const -> AnalysisSnapshot {
     AnalysisSnapshot snapshot;
-    if constexpr (kAuditsAnalysis) {
+    if constexpr (kSupportsAnalysisAudit) {
       snapshot.reserve(egraph_->num_classes());
       for (auto const id : egraph_->canonical_eclass_ids()) snapshot.emplace_back(id, egraph_->analysis_of(id));
     }
     return snapshot;
   }
 
-  /// Incremental arming learns that a fact moved only from the touch the merge
-  /// recorded, so a fact that moves without one leaves a newly matching rewrite
-  /// unarmed, and the skip is silent. Checked per pass, where the touched-set
+  /// Checks the requirement EClass states of a conforming analysis: that facts
+  /// move only when a merge moves them. Checked per pass, where the touched-set
   /// holds this pass's touches. A merged-away id canonicalises to its survivor,
   /// which the merge touched, so a legitimate merge cannot trip this.
-  void audit_moved_analysis_was_touched(AnalysisSnapshot const &before) const {
-    if constexpr (kAuditsAnalysis) {
+  void audit_moved_facts_were_touched(AnalysisSnapshot const &before) const {
+    if constexpr (kSupportsAnalysisAudit) {
       boost::unordered_flat_set<EClassId> touched;
       egraph_->touched_eclasses_into(touched);
       for (auto const &[id, was] : before) {
