@@ -56,9 +56,23 @@ class VertexAccessor final {
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 #endif
 
+#ifdef MG_ENTERPRISE
+  storage::Result<bool> AddLabel(storage::LabelId label) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchAddLabel(label);
+    return impl_.AddLabel(label);
+  }
+
+  storage::Result<bool> RemoveLabel(storage::LabelId label) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchRemoveLabel(label);
+    return impl_.RemoveLabel(label);
+  }
+#else
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
 
   storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+#endif
 
 #ifdef MG_ENTERPRISE
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
@@ -113,6 +127,27 @@ class VertexAccessor final {
   }
 #endif
 
+#ifdef MG_ENTERPRISE
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchSetProperty(key, value);
+    return impl_.SetProperty(key, value);
+  }
+
+  storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchInitProperties(properties);
+    return impl_.InitProperties(properties);
+  }
+
+  // Non-const, unlike storage's: a branch write of a branch-native vertex re-points impl_ at the transaction's vertex.
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchUpdateProperties(properties);
+    return impl_.UpdateProperties(properties);
+  }
+#else
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
@@ -125,12 +160,17 @@ class VertexAccessor final {
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
     return impl_.UpdateProperties(properties);
   }
+#endif
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchClearProperties();
+#endif
     return impl_.ClearProperties();
   }
 
@@ -203,6 +243,17 @@ class VertexAccessor final {
   storage::Result<storage::PropertyValue> BranchGetProperty(storage::View view, storage::PropertyId key) const;
   storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
   storage::Result<size_t> BranchDegree(storage::EdgeDirection direction, storage::View view) const;
+
+  // Branch writes: a fork vertex is written in the overlay by gid (impl_ stays the fork accessor), a branch-native one
+  // in the diff engine. A write to a vertex this branch deleted throws QueryRuntimeException.
+  storage::Result<bool> BranchAddLabel(storage::LabelId label);
+  storage::Result<bool> BranchRemoveLabel(storage::LabelId label);
+  storage::Result<storage::PropertyValue> BranchSetProperty(storage::PropertyId key,
+                                                            const storage::PropertyValue &value);
+  storage::Result<bool> BranchInitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchClearProperties();
 
   // True when impl_'s own adjacency is the branch's (a fork vertex the branch gave no edge change).
   bool BranchEdgesUnchanged() const;

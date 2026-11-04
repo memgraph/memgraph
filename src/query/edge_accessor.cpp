@@ -80,11 +80,27 @@ VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVert
 
 /// When edge is deleted and you are accessing To vertex
 /// for_deleted_ flag will in this case be updated properly
+#ifdef MG_ENTERPRISE
+VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  if (branch_ctx_ != nullptr) [[unlikely]]
+    return Endpoint(impl_.DeletedEdgeToVertex(), branch_ctx_);
+  return VertexAccessor(impl_.DeletedEdgeToVertex());
+}
+#else
 VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
+#endif
 
 /// When edge is deleted and you are accessing From vertex
 /// for_deleted_ flag will in this case be updated properly
+#ifdef MG_ENTERPRISE
+VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  if (branch_ctx_ != nullptr) [[unlikely]]
+    return Endpoint(impl_.DeletedEdgeFromVertex(), branch_ctx_);
+  return VertexAccessor(impl_.DeletedEdgeFromVertex());
+}
+#else
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const { return VertexAccessor(impl_.DeletedEdgeFromVertex()); }
+#endif
 
 bool EdgeAccessor::IsCycle() const { return To() == From(); }
 

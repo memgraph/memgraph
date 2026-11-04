@@ -13,6 +13,7 @@
 // a branch dropped under the session, and the per-checkout plan cache.
 
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -26,6 +27,7 @@ using memgraph::tests::versioning_fixture::ExplainText;
 using memgraph::tests::versioning_fixture::IntRows;
 using memgraph::tests::versioning_fixture::PlanHasOperator;
 using memgraph::tests::versioning_fixture::Rows;
+using memgraph::tests::versioning_fixture::SortedNames;
 using memgraph::tests::versioning_fixture::ThrownMessage;
 
 TEST_F(VersioningGatedTest, SetCurrentDBOnlyResetsCurrentVersionOnADifferentDatabase) {
@@ -90,18 +92,33 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
   EXPECT_FALSE(current_db.OnBranch(number + 1));
 }
 
-// Branch-native writes live in the branch's shared core, so they survive the session detaching and attaching again,
-// and never reach main. Both commit paths run: the plain commit and the periodic commit's batches.
+// Branch writes live in the branch's shared core, so they survive the session detaching and attaching again, and
+// never reach main. Both commit paths run: the plain commit and the periodic commit's batches.
 TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
+  faker.Interpret("CREATE (:Person:Employee {id: 1})");
+  faker.Interpret("CREATE (:User {id: 1})-[:E]->(:User {id: 2, age: 40, keep: 7})");
+  faker.Interpret("CREATE (:RP {id: 1, p: 7, q: 8})");
   Fork();
 
   faker.Interpret("CREATE (:M1 {v:1})");
   faker.Interpret("USING PERIODIC COMMIT 1 UNWIND [1, 2] AS i CREATE (:M2 {v: i})");
   faker.Interpret("MATCH (n:M1) SET n.v = 2");
+  faker.Interpret("MATCH (n:Person {id: 1}) REMOVE n:Employee");
+  faker.Interpret("MATCH (v:User {id: 2}) SET v.age = 99");
+  faker.Interpret("MATCH (n:RP) REMOVE n.p");
+  faker.Interpret("MATCH (n:RP) SET n.q = null");
 
   auto const check_branch = [&] {
     EXPECT_EQ(IntRows(faker, "MATCH (n:M1) RETURN n.v"), (Rows{{2}})) << "the create and the later SET must be visible";
     EXPECT_EQ(IntRows(faker, "MATCH (n:M2) RETURN n.v ORDER BY n.v"), (Rows{{1}, {2}}));
+    auto labels = faker.Interpret("MATCH (n:Person {id: 1}) RETURN labels(n)");
+    ASSERT_EQ(labels.GetResults().size(), 1U);
+    EXPECT_EQ(SortedNames(labels.GetResults()[0][0]), (std::vector<std::string>{"Person"}));
+    EXPECT_EQ(IntRows(faker, "MATCH (:User {id: 1})-[:E]->(v) RETURN v.age, v.keep"), (Rows{{99, 7}}));
+    auto removed = faker.Interpret("MATCH (n:RP) RETURN keys(n), n.id");
+    ASSERT_EQ(removed.GetResults().size(), 1U);
+    EXPECT_EQ(SortedNames(removed.GetResults()[0][0]), (std::vector<std::string>{"id"}));
+    EXPECT_EQ(removed.GetResults()[0][1].ValueInt(), 1);
   };
 
   check_branch();
@@ -115,6 +132,9 @@ TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
   faker.interpreter.current_db_.LeaveBranch();
   EXPECT_EQ(IntRows(faker, "MATCH (n:M1) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:M2) RETURN count(n)"), (Rows{{0}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:Person:Employee) RETURN count(n)"), (Rows{{1}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (v:User {id: 2}) RETURN v.age"), (Rows{{40}}));
+  EXPECT_EQ(IntRows(faker, "MATCH (n:RP) RETURN n.p, n.q"), (Rows{{7, 8}}));
 }
 
 // A parked branch comes back when the transaction ends, releasing what was attached meanwhile; a discarded one is
@@ -224,4 +244,11 @@ TEST_F(VersioningGatedTest, BranchQueryPlanCacheServesCorrectResultsAcrossRepeat
     ASSERT_EQ(stream.GetResults().size(), 1U) << "fork-state row " << id << " must be visible on the branch";
     EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
   }
+
+  // ...and a fresh branch-native row.
+  faker.Interpret("CREATE (:User {id: 1, tag: 'branch'})");
+  auto stream = faker.Interpret("MATCH (n:User {id: 1}) RETURN n.tag ORDER BY n.tag");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "branch");
+  EXPECT_EQ(stream.GetResults()[1][0].ValueString(), "main");
 }
