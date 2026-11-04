@@ -25,7 +25,7 @@ enum class GidKind : uint8_t { kVertex, kEdge };
 // Makes every native gid of the given kind below `through` durably the branch's and returns the ceiling now in force.
 using GidReserver = std::function<std::expected<uint64_t, std::string>(GidKind, uint64_t through)>;
 
-// Approximate vertex and edge counts, as Storage::Accessor::ApproximateVertexCount/ApproximateEdgeCount report them.
+// Approximate counts, as Storage::Accessor::ApproximateVertexCount/ApproximateEdgeCount report them.
 struct ObjectCounts {
   uint64_t vertices{0};
   uint64_t edges{0};
@@ -59,6 +59,9 @@ struct BranchInfo {
   std::optional<uint64_t> created_at_us;
   // Main's counts at the fork, the base of the branch's counts. Absent in ledgers written before they were recorded.
   std::optional<ObjectCounts> fork_counts;
+  // Runtime only, never persisted: why the branch's files could not be recovered at startup. A branch with a reason is
+  // kept as it is (pin, retention, ledger entry) but cannot be used; DROP BRANCH removes it.
+  std::optional<std::string> unavailable_reason;
 };
 
 // The gid at or above which the ledger knows no object of the branch: its ceiling, or its floor while it has taken no

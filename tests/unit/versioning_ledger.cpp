@@ -34,9 +34,10 @@
 
 namespace fs = std::filesystem;
 using memgraph::versioning::BranchLedger;
+using memgraph::versioning::DropResult;
+using memgraph::versioning::ForkPoint;
 using memgraph::versioning::GidKind;
 using memgraph::versioning::GidsHeldBelow;
-using memgraph::versioning::ForkPoint;
 using memgraph::versioning::LedgerContents;
 using memgraph::versioning::ObjectCounts;
 using memgraph::versioning::VersionStore;
@@ -494,9 +495,9 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   auto store = MakeStore();
   BranchLedger reader{file_};
 
-  auto a = store->CreateBranch("a", "main");
+  auto a = store->CreateBranch("a");
   ASSERT_TRUE(a.has_value());
-  auto b = store->CreateBranch("b", "a");
+  auto b = store->CreateBranch("b");
   ASSERT_TRUE(b.has_value());
 
   auto loaded = reader.Read();
@@ -505,7 +506,7 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   EXPECT_EQ((*loaded)->next_number, 4);
   EXPECT_EQ((*loaded)->branches[0].name, "a");
   EXPECT_EQ((*loaded)->branches[0].info.fork_ts, a->fork_ts);
-  EXPECT_EQ((*loaded)->branches[1].info.parent, "a");
+  EXPECT_EQ((*loaded)->branches[1].info.parent, "main");
   ASSERT_TRUE(a->created_at_us.has_value());
   EXPECT_GT(*a->created_at_us, 0U);
   EXPECT_EQ((*loaded)->branches[0].info.created_at_us, a->created_at_us);
@@ -521,8 +522,7 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
   EXPECT_EQ((*loaded)->branches[0].info.edge_gid_floor, 9);
 
   auto dropped = store->DropBranch("a");
-  ASSERT_TRUE(dropped.has_value());
-  EXPECT_TRUE(*dropped);
+  EXPECT_EQ(dropped, DropResult::kDropped);
   loaded = reader.Read();
   ASSERT_TRUE(loaded.has_value() && loaded->has_value());
   ASSERT_EQ((*loaded)->branches.size(), 1);
@@ -532,14 +532,14 @@ TEST_F(BranchLedgerTest, StoreCreateAndDropUpdateLedger) {
 
 TEST_F(BranchLedgerTest, LedgerWriteFailureLeavesNoPinOrBranch) {
   auto store = MakeStore();
-  ASSERT_TRUE(store->CreateBranch("a", "main").has_value());
+  ASSERT_TRUE(store->CreateBranch("a").has_value());
   const auto live_before = live_.size();
 
   auto tmp = file_;
   tmp += ".tmp";
   fs::create_directory(tmp);
 
-  EXPECT_FALSE(store->CreateBranch("b", "main").has_value());
+  EXPECT_FALSE(store->CreateBranch("b").has_value());
   EXPECT_FALSE(store->Exists("b"));
   EXPECT_EQ(live_.size(), live_before);
 
@@ -552,10 +552,10 @@ TEST_F(BranchLedgerTest, LedgerWriteFailureLeavesNoPinOrBranch) {
   store->ReleaseCheckout(attach->number);
 
   fs::remove(tmp);
-  auto b = store->CreateBranch("b", "main");
+  auto b = store->CreateBranch("b");
   ASSERT_TRUE(b.has_value());
   EXPECT_EQ(b->number, 3) << "a failed create must not consume a number";
-  EXPECT_TRUE(store->DropBranch("a").value_or(false)) << "a failed drop must leave the branch droppable";
+  EXPECT_EQ(store->DropBranch("a"), DropResult::kDropped) << "a failed drop must leave the branch droppable";
 }
 
 TEST_F(BranchLedgerTest, ExistsErrorIsNotReadAsNoLedger) {
@@ -573,4 +573,14 @@ TEST_F(BranchLedgerTest, ExistsErrorIsNotReadAsNoLedger) {
 
   EXPECT_FALSE(res.has_value() && !res->has_value())
       << "an unreadable ledger location must be an error, not 'no ledger' (the next write would clobber the file)";
+}
+
+TEST(BranchInfo, RecoverableBelowIsOneBelowTheRecordedForkClampedAtZero) {
+  using memgraph::versioning::BranchInfo;
+  using memgraph::versioning::RecoverableBelow;
+  EXPECT_EQ(RecoverableBelow(BranchInfo{.number = 2, .parent = "main", .fork_ts = 0}), 0);
+  EXPECT_EQ(RecoverableBelow(BranchInfo{.number = 2, .parent = "main", .fork_ts = 1}), 0);
+  EXPECT_EQ(RecoverableBelow(BranchInfo{.number = 2, .parent = "main", .fork_ts = 42}), 41);
+  EXPECT_EQ(RecoverableBelow(BranchInfo{.number = 2, .parent = "main", .fork_ts = 7, .recorded_fork_ts = 42}), 41)
+      << "the recorded fork, not the runtime pin";
 }
