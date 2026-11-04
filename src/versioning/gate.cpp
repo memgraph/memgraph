@@ -38,8 +38,7 @@ std::string_view GateErrorMessage(GateError err) {
     case kNoLicense:
       return "Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required."sv;
     case kUnsupportedStorageMode:
-      return "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in "
-             "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL."sv;
+      return "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode."sv;
     case kNotDurable:
       return "Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true."sv;
     case kCommitLockNarrowing:

@@ -9838,6 +9838,93 @@ TEST_P(CypherMainVisitorTest, SuspendResumeDatabaseInvalidSyntax) {
   TestInvalidQuery("RESUME DATABASE", ast_generator);
 }
 
+namespace {
+// A quoted name is a StringLiteral: a ParameterLookup under a cached AST, else a PrimitiveLiteral.
+std::string QuotedBranchName(Base &ast_generator, Expression *expr) {
+  return std::string{ast_generator.GetLiteral(expr, ast_generator.context_.is_query_cached).ValueString()};
+}
+
+// A bare name is a symbolicName: always a PrimitiveLiteral.
+std::string BareBranchName(Base &ast_generator, Expression *expr) {
+  return std::string{ast_generator.GetLiteral(expr, /*use_parameter_lookup=*/false).ValueString()};
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, ShowBranch) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+    EXPECT_EQ(query->name_, nullptr);
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(QuotedBranchName(ast_generator, query->name_), "feature");
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH feature"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(BareBranchName(ast_generator, query->name_), "feature");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ShowBranches) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCHES"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
+    EXPECT_FALSE(query->for_database_.has_value());
+  }
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCHES FOR DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
+    EXPECT_EQ(query->for_database_, "testdb");
+  }
+}
+
+// BRANCH and BRANCHES are non-reserved keywords.
+TEST_P(CypherMainVisitorTest, BranchIsAnOrdinaryIdentifier) {
+  auto &ast_generator = *GetParam();
+
+  EXPECT_NE(dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (branch:branches) RETURN branch.branches")),
+            nullptr);
+  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH branches"));
+  ASSERT_NE(query, nullptr);
+  EXPECT_EQ(BareBranchName(ast_generator, query->name_), "branches");
+}
+
+TEST_P(CypherMainVisitorTest, GrantBranchPrivileges) {
+  auto &ast_generator = *GetParam();
+  check_auth_query(&ast_generator,
+                   "GRANT BRANCH_USE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::BRANCH_USE},
+                   {},
+                   {});
+}
+
+TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW BRANCHES 'feature'", ast_generator);
+  TestInvalidQuery("SHOW BRANCHES FOR 'testdb'", ast_generator);
+  TestInvalidQuery("SHOW BRANCH 1", ast_generator);
+  TestInvalidQuery("SHOW BRANCH 'a' 'b'", ast_generator);
+}
+
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {
   auto &ast_generator = *GetParam();
   auto *query =
