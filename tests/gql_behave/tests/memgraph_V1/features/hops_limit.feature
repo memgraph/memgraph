@@ -301,3 +301,47 @@ Feature: Hops Limit
         Then the result should be:
             | path      |
             | [0, 1, 7] |
+
+    # S->T costs 10 and S->B->T costs 2. The limit cuts the search short after it has queued the
+    # expensive route, so serving that route first would be wrong.
+    Scenario: Weighted KSHORTEST under a hops limit serves only paths it can prove are the cheapest
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 'S'}), (b:N {id: 'B'}), (t:N {id: 'T'}),
+                   (s)-[:R {w: 10}]->(t), (s)-[:R {w: 1}]->(b), (b)-[:R {w: 1}]->(t)
+            """
+        And having executed:
+            """
+            SET DATABASE SETTING 'hops_limit_partial_results' TO 'true'
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 4 MATCH (s:N {id: 'S'}), (t:N {id: 'T'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN total
+            """
+        Then the result should be empty
+
+    # Four paths cost 2, 4, 6 and 10. A limit of 12 runs out after the search proves the cheapest one,
+    # so the row serves that path and stops, rather than nothing or a path it has not proven.
+    Scenario: Weighted KSHORTEST under a hops limit serves a proven prefix and stops
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 'S'}), (a:N {id: 'A'}), (b:N {id: 'B'}), (c:N {id: 'C'}), (t:N {id: 'T'}),
+                   (s)-[:R {w: 1, i: 1}]->(a), (a)-[:R {w: 1, i: 2}]->(t), (s)-[:R {w: 2, i: 3}]->(b),
+                   (b)-[:R {w: 2, i: 4}]->(t), (s)-[:R {w: 3, i: 5}]->(c), (c)-[:R {w: 3, i: 6}]->(t),
+                   (s)-[:R {w: 10, i: 7}]->(t)
+            """
+        And having executed:
+            """
+            SET DATABASE SETTING 'hops_limit_partial_results' TO 'true'
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 12 MATCH (s:N {id: 'S'}), (t:N {id: 'T'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN [r IN relationships(p) | r.i] AS path, total
+            """
+        Then the result should be, in order:
+            | path   | total |
+            | [1, 2] | 2     |
