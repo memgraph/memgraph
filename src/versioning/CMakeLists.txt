@@ -15,6 +15,7 @@ target_sources(mg-versioning
         reserve_for_append.hpp
         stub_index.hpp
         version_store.hpp
+        vertex_overlay.hpp
         vertex_overlay_store.hpp
 
         PRIVATE

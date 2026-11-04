@@ -14,6 +14,7 @@
 #include <fmt/format.h>
 
 #include <utility>
+#include <vector>
 
 #include "memory/db_arena.hpp"
 #include "utils/logging.hpp"
@@ -192,6 +193,283 @@ std::shared_ptr<const BranchCore::EdgeTouchedMap> BranchCore::EdgePropertyTouche
   if (auto const it = edge_property_touched_.find(pid); it != edge_property_touched_.end()) *copy = it->second;
   cached = CachedEdgeSnapshot{touched_version_, std::move(copy)};
   return cached.map;
+}
+
+std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
+    storage::InMemoryStorage &main, uint64_t fork_ts) {
+  auto core = BranchCore::Build(main, fork_ts);
+  if (!core) return std::unexpected(std::move(core.error()));
+  return std::make_unique<BranchContext>(std::move(*core));
+}
+
+std::expected<void, BranchContext::BuildError> BranchContext::OpenHistorical() {
+  EndTransaction();
+  auto hist_exp = core_->main().HistoricalAccess(core_->fork_ts());
+  if (!hist_exp.has_value()) {
+    return std::unexpected(
+        BuildError{.message = fmt::format(
+                       "The branch is no longer available: its fork point (timestamp {}) is no longer retained.",
+                       core_->fork_ts())});
+  }
+  historical_ = std::move(*hist_exp);
+  return {};
+}
+
+void BranchContext::SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) {
+  current_diff_txn_ = diff_txn;
+  if (diff_txn != nullptr) StartOverlayTransaction();
+}
+
+void BranchContext::StartOverlayTransaction() {
+  auto const *txn = current_diff_txn_->GetTransaction();
+  overlay_txn_ = std::make_unique<OverlayTransaction>(txn->start_timestamp, txn->transaction_id, txn->isolation_level);
+}
+
+void BranchContext::EndTransaction() noexcept {
+  if (overlay_txn_ != nullptr) {
+    if (!overlay_txn_->finished()) core_->overlay_store().Abort(*overlay_txn_);
+    overlay_txn_.reset();
+  }
+  current_diff_txn_ = nullptr;
+  historical_.reset();
+  stub_cursor_.Reset();
+}
+
+void BranchContext::SyncOverlayCommand() noexcept {
+  auto const command_id = current_diff_txn_->GetTransaction()->command_id;
+  while (overlay_txn_->command_id() < command_id) overlay_txn_->AdvanceCommand();
+}
+
+const OverlayVersion *BranchContext::ReadVersion(uint64_t key, storage::View view) {
+  MG_ASSERT(overlay_txn_ != nullptr, "BranchContext: no overlay transaction -- no branch transaction is open.");
+  SyncOverlayCommand();
+  return core_->overlay_store().Read(key, *overlay_txn_, view);
+}
+
+std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid) {
+  return historical().FindEdge(edge_gid, from_gid, storage::View::OLD);
+}
+
+bool BranchContext::IsForkVertexGid(storage::Gid gid) const { return gid.AsUint() < core_->vertex_gid_floor(); }
+
+bool BranchContext::IsForkEdgeGid(storage::Gid gid) const { return gid.AsUint() < core_->edge_gid_floor(); }
+
+bool BranchContext::IsVertexDeleted(storage::Gid gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsVertexDeleted: no current diff transaction set.");
+  if (!IsForkVertexGid(gid)) return false;
+  if (!MayHaveVertexDeleted(gid)) return false;  // the delete is only written after RecordVertexDeleted
+  auto const *version = ReadVersion(gid.AsUint(), view);
+  return version != nullptr && version->deleted();
+}
+
+bool BranchContext::IsForkVertexDeleted(const storage::VertexAccessor &fork_vertex, storage::View view) {
+  if (!core_->MayHaveAnyVertexDeleted() || !fork_vertex.vertex_->branched()) return false;
+  return IsVertexDeleted(fork_vertex.Gid(), view);
+}
+
+bool BranchContext::IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::IsForkEdgeHidden: no current diff transaction set.");
+  auto const edge_gid = fork_edge.Gid();
+  if (!IsForkEdgeGid(edge_gid)) return false;
+  if (IsForkEdgeDeleted(edge_gid, view)) return true;
+  if (!core_->MayHaveAnyVertexDeleted()) return false;
+  auto const from = fork_edge.FromVertex();
+  if (IsForkVertexDeleted(from, view)) return true;
+  auto const to = fork_edge.ToVertex();
+  return to.Gid() != from.Gid() && IsForkVertexDeleted(to, view);
+}
+
+bool BranchContext::IsForkEdgeDeleted(storage::Gid edge_gid, storage::View view) {
+  if (!MayHaveForkEdgeDeleted(edge_gid)) return false;
+  auto const *version = ReadVersion(EdgeKey(edge_gid.AsUint()), view);
+  return version != nullptr && version->deleted();
+}
+
+const OverlayVersion *BranchContext::ReadOverlayVersion(storage::Gid gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadOverlayVersion: no current diff transaction set.");
+  if (!IsForkVertexGid(gid)) return nullptr;
+  return ReadVersion(gid.AsUint(), view);
+}
+
+bool BranchContext::HasVertexOverlay(storage::Gid gid) {
+  return ReadVersion(gid.AsUint(), storage::View::NEW) != nullptr;
+}
+
+const OverlayVersion *BranchContext::ReadEdgeOverlayVersion(storage::Gid edge_gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr, "BranchContext::ReadEdgeOverlayVersion: no current diff transaction set.");
+  if (!IsForkEdgeGid(edge_gid)) return nullptr;
+  return ReadVersion(EdgeKey(edge_gid.AsUint()), view);
+}
+
+std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gid gid) {
+  auto &hist = historical();
+  if (auto *fork = core_->stub_index().FindFork(gid.AsUint(), stub_cursor_)) {
+    // Same construction as InMemoryAccessor::FindVertex on hist (storage_ is main, see HistoricalAccess).
+    return storage::VertexAccessor::Create(fork, &core_->main(), hist.GetTransaction(), storage::View::OLD);
+  }
+  return hist.FindVertex(gid, storage::View::OLD);
+}
+
+std::optional<storage::VertexAccessor> BranchContext::FindStub(storage::Gid gid, storage::View view) {
+  if (auto *stub = core_->stub_index().FindStub(gid.AsUint(), stub_cursor_)) {
+    // Same construction as InMemoryAccessor::FindVertex on the diff txn (storage_ is the diff engine).
+    return storage::VertexAccessor::Create(stub, &core_->diff_engine(), current_diff_txn_->GetTransaction(), view);
+  }
+  if (IsForkVertexGid(gid)) return std::nullopt;  // fork anchors live in the stub index only
+  return current_diff_txn_->FindVertex(gid, view);
+}
+
+std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::ResolveVertex: no current diff transaction set -- "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
+            "runs against a checked-out branch.");
+  if (IsForkVertexGid(gid)) {
+    if (IsVertexDeleted(gid, view)) return std::nullopt;
+    return FindForkVertex(gid);
+  }
+  return FindStub(gid, view);
+}
+
+std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::FindDiffEdge: no current diff transaction set -- "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
+            "runs against a checked-out branch.");
+  if (auto found = current_diff_txn_->FindEdge(edge_gid, view)) return found;
+  // The engine's scan covers vertices_ only; an edge whose FROM vertex is a stub is found through the stubs.
+  std::optional<storage::EdgeAccessor> found;
+  auto *diff_txn = static_cast<storage::ReplicationAccessor *>(current_diff_txn_);
+  core_->stub_index().ForEachStub([&](storage::Vertex *stub) {
+    if (!found) found = diff_txn->FindEdgeFrom(edge_gid, stub, view);
+  });
+  return found;
+}
+
+std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid,
+                                                                 storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::FindDiffEdge: no current diff transaction set -- "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
+            "runs against a checked-out branch.");
+  if (auto *from_stub = core_->stub_index().FindStub(from_gid.AsUint(), stub_cursor_)) {
+    return static_cast<storage::ReplicationAccessor *>(current_diff_txn_)->FindEdgeFrom(edge_gid, from_stub, view);
+  }
+  return current_diff_txn_->FindEdge(edge_gid, from_gid, view);
+}
+
+// historical_ is a frozen snapshot, so it is read with View::OLD throughout.
+std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
+                                                               storage::EdgeDirection direction, storage::View view,
+                                                               bool *vertex_deleted) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::ResolveEdges: no current diff transaction set -- "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
+            "runs against a checked-out branch.");
+
+  if (vertex_deleted != nullptr) *vertex_deleted = false;
+  const std::vector<storage::EdgeTypeId> edge_types;  // unfiltered: callers filter after charging hops
+  const bool out = direction == storage::EdgeDirection::OUT;
+  std::vector<storage::EdgeAccessor> result;
+
+  // Diff side first: it holds only branch-native edges. Fork edges come from the historical pass below, in fork
+  // identity (readers overlay the branch's changes on them by gid).
+  if (IsForkVertexGid(vertex_gid) && MayHaveVertexDeleted(vertex_gid)) {
+    if (auto const *version = ReadVersion(vertex_gid.AsUint(), view); version != nullptr && version->deleted()) {
+      if (vertex_deleted != nullptr) *vertex_deleted = true;
+      return result;
+    }
+  }
+  if (auto diff_vertex = FindStub(vertex_gid, view)) {
+    auto maybe_result =
+        out ? diff_vertex->OutEdges(view, edge_types, nullptr) : diff_vertex->InEdges(view, edge_types, nullptr);
+    if (maybe_result.has_value()) {
+      result.reserve(maybe_result->edges.size());
+      for (auto edge : maybe_result->edges) {
+        // A branch-created edge on a fork vertex whose other end the branch deleted is gone with it.
+        if (IsVertexDeleted((out ? edge.ToVertex() : edge.FromVertex()).Gid(), view)) continue;
+        result.push_back(edge);
+      }
+    }
+  }
+
+  if (auto hist_vertex = FindForkVertex(vertex_gid)) {
+    auto maybe_result = out ? hist_vertex->OutEdges(storage::View::OLD, edge_types, nullptr)
+                            : hist_vertex->InEdges(storage::View::OLD, edge_types, nullptr);
+    if (maybe_result.has_value()) {
+      // A deleted fork edge flags both endpoints' adjacency, so a clear flag skips the per-edge probes.
+      bool const edges_may_be_deleted = MayHaveEdgeChange(vertex_gid);
+      result.reserve(result.size() + maybe_result->edges.size());
+      for (auto edge : maybe_result->edges) {
+        if (edges_may_be_deleted && IsForkEdgeDeleted(edge.Gid(), view)) continue;
+        if (IsForkVertexDeleted(out ? edge.ToVertex() : edge.FromVertex(), view)) continue;
+        result.push_back(edge);
+      }
+    }
+  }
+
+  return result;
+}
+
+BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::Vertices: no current diff transaction set -- "
+            "CurrentDB must call OpenHistorical() and SetCurrentDiffTxn() before any query "
+            "runs against a checked-out branch.");
+  return UnionVerticesIterable(
+      historical().Vertices(storage::View::OLD), current_diff_txn_->Vertices(view), this, view);
+}
+
+BranchContext::UnionVerticesIterable::UnionVerticesIterable(storage::VerticesIterable hist_vertices,
+                                                            storage::VerticesIterable diff_vertices, BranchContext *ctx,
+                                                            storage::View view)
+    : hist_vertices_(std::move(hist_vertices)), diff_vertices_(std::move(diff_vertices)), ctx_(ctx), view_(view) {}
+
+BranchContext::UnionVerticesIterable::Iterator BranchContext::UnionVerticesIterable::begin() {
+  return Iterator(
+      hist_vertices_.begin(), hist_vertices_.end(), diff_vertices_.begin(), diff_vertices_.end(), ctx_, view_);
+}
+
+BranchContext::UnionVerticesIterable::Iterator::Iterator(storage::VerticesIterable::Iterator hist_it,
+                                                         storage::VerticesIterable::Iterator hist_end,
+                                                         storage::VerticesIterable::Iterator diff_it,
+                                                         storage::VerticesIterable::Iterator diff_end,
+                                                         BranchContext *ctx, storage::View view)
+    : hist_it_(std::move(hist_it)),
+      hist_end_(std::move(hist_end)),
+      diff_it_(std::move(diff_it)),
+      diff_end_(std::move(diff_end)),
+      ctx_(ctx),
+      view_(view) {
+  SeekNext();
+}
+
+BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIterable::Iterator::operator++() {
+  SeekNext();
+  return *this;
+}
+
+// Fork vertices are emitted as the fork accessor (readers overlay branch changes by gid) unless deleted on the branch;
+// fork gids are all below the diff engine's, so the diff side follows once the fork side is exhausted.
+void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
+  while (hist_it_.has_value() && !(*hist_it_ == *hist_end_)) {
+    const storage::VertexAccessor fork_vertex = **hist_it_;
+    ++(*hist_it_);
+    if (ctx_->IsForkVertexDeleted(fork_vertex, view_)) continue;
+    current_ = fork_vertex;
+    done_ = false;
+    return;
+  }
+
+  if (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
+    current_ = **diff_it_;
+    ++(*diff_it_);
+    done_ = false;
+    return;
+  }
+
+  current_.reset();
+  done_ = true;
 }
 
 }  // namespace memgraph::versioning

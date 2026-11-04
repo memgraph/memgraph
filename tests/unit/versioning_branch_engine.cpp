@@ -12,9 +12,13 @@
 // BranchCore tests against a real InMemoryStorage main plus RegisterForkPin; no interpreter wiring (this file does
 // not link mg-query). The diff engine shares main's NameIdMapper, so one label/property id is valid on both sides.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,6 +31,7 @@
 #include "storage/v2/property_value.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/vertex_overlay.hpp"
 
 namespace ms = memgraph::storage;
 namespace mv = memgraph::versioning;
@@ -227,6 +232,233 @@ TEST_F(VersioningBranchCoreTest, BuildRejectsAnUnpinnedForkTimestamp) {
   ASSERT_FALSE(result.has_value());
   EXPECT_NE(result.error().message.find(std::to_string(never_pinned_ts)), std::string::npos) << result.error().message;
   EXPECT_EQ(storage_->OldestForkPin(), std::optional<uint64_t>{fork_ts_}) << "a failed build must leak no pin";
+}
+
+class VersioningBranchEngineTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    ms::Config config;
+    config.gc = {.type = ms::Config::Gc::Type::NONE};
+    storage_ = std::make_unique<ms::InMemoryStorage>(config);
+    mem_storage_ = static_cast<ms::InMemoryStorage *>(storage_.get());
+  }
+
+  void TearDown() override {
+    branch_context_.reset();
+    if (fork_ts_.has_value()) mem_storage_->ReleaseForkPin(*fork_ts_);
+    storage_.reset();
+  }
+
+  uint64_t ForkNow() {
+    fork_ts_ = mem_storage_->RegisterForkPin();
+    return *fork_ts_;
+  }
+
+  void Fork() {
+    auto result = mv::BranchContext::BuildFromFork(*mem_storage_, ForkNow());
+    ASSERT_TRUE(result.has_value());
+    branch_context_ = std::move(*result);
+  }
+
+  void Begin(ms::Storage::Accessor *diff_acc) { ASSERT_TRUE(branch_context_->BeginTransaction(diff_acc).has_value()); }
+
+  mv::BranchCore &Core() { return *branch_context_->core(); }
+
+  // Commits one overlay version of `key` in its own transaction, before any later diff transaction starts.
+  template <typename Mutator>
+  void SeedOverlay(uint64_t key, Mutator &&mutate) {
+    auto &diff = branch_context_->diff_engine();
+    auto seed = diff.Access(ms::WRITE);
+    auto const *txn = seed->GetTransaction();
+    mv::OverlayTransaction overlay_txn(txn->start_timestamp, txn->transaction_id, txn->isolation_level);
+    auto written = Core().overlay_store().Write(key, overlay_txn, [&](mv::OverlayState &state) {
+      mutate(state);
+      return true;
+    });
+    ASSERT_TRUE(written.value_or(false));
+    uint64_t commit_ts = 0;
+    {
+      std::lock_guard guard{diff.engine_lock_};
+      commit_ts = diff.timestamp_++;
+    }
+    Core().overlay_store().Commit(overlay_txn, commit_ts);
+  }
+
+  // Seeds a committed branch delete of fork vertex `gid`, as the write path records it.
+  void SeedVertexDelete(ms::Gid gid) {
+    Core().RecordVertexDeleted(gid);
+    {
+      auto acc = storage_->Access(ms::READ);
+      auto *main_vertex = acc->FindVertex(gid, ms::View::OLD)->vertex_;
+      auto guard = std::unique_lock{main_vertex->lock};
+      main_vertex->SetBranched(true);
+    }
+    SeedOverlay(gid.AsUint(), [](mv::OverlayState &state) { state.MarkDeleted(); });
+  }
+
+  // A branch-native vertex at a gid from main's counter, as the write path allocates it.
+  ms::VertexAccessor CreateNative(ms::Storage::Accessor *diff_acc) {
+    auto const gid = ms::Gid::FromUint(mem_storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel));
+    return *static_cast<ms::ReplicationAccessor *>(diff_acc)->CreateVertexEx(gid);
+  }
+
+  ms::EdgeAccessor CreateNativeEdge(ms::Storage::Accessor *diff_acc, ms::VertexAccessor *from, ms::VertexAccessor *to) {
+    auto const gid = ms::Gid::FromUint(mem_storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+    return *static_cast<ms::ReplicationAccessor *>(diff_acc)->CreateEdgeEx(
+        from, to, storage_->NameToEdgeType("N"), gid);
+  }
+
+  std::unique_ptr<ms::Storage> storage_;
+  ms::InMemoryStorage *mem_storage_{};
+  std::optional<uint64_t> fork_ts_;
+  std::unique_ptr<mv::BranchContext> branch_context_;
+};
+
+TEST_F(VersioningBranchEngineTest, ResolveAndUnionScanMergeOverlayAndIncludeNatives) {
+  const auto prop_x = storage_->NameToProperty("x");
+  ms::Gid a_gid, b_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto a = acc->CreateVertex();
+    a_gid = a.Gid();
+    ASSERT_TRUE(a.SetProperty(prop_x, ms::PropertyValue(1)).has_value());
+    auto b = acc->CreateVertex();
+    b_gid = b.Gid();
+    ASSERT_TRUE(b.SetProperty(prop_x, ms::PropertyValue(9)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  Fork();
+  SeedOverlay(a_gid.AsUint(), [&](mv::OverlayState &state) { state.SetProperty(prop_x, ms::PropertyValue(2)); });
+
+  auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
+  Begin(diff_acc.get());
+
+  auto c = CreateNative(diff_acc.get());
+  auto d = CreateNative(diff_acc.get());
+  const auto c_gid = c.Gid();
+  ASSERT_TRUE(c.SetProperty(prop_x, ms::PropertyValue(7)).has_value());
+  const auto native_edge = CreateNativeEdge(diff_acc.get(), &c, &d);
+  EXPECT_FALSE(branch_context_->IsForkVertexGid(c_gid)) << "a native vertex must not reuse a fork-range gid";
+  EXPECT_FALSE(branch_context_->IsForkEdgeGid(native_edge.Gid())) << "a native edge must not reuse a fork-range gid";
+
+  auto branch_value = [&](const ms::VertexAccessor &fork) {
+    auto const *overlay = branch_context_->ReadOverlayVersion(fork.Gid(), ms::View::NEW);
+    EXPECT_NE(overlay, nullptr);
+    return mv::MergeGetProperty(*overlay, fork, prop_x);
+  };
+  auto resolved_a = branch_context_->ResolveVertex(a_gid, ms::View::NEW);
+  ASSERT_TRUE(resolved_a.has_value());
+  auto a_val = branch_value(*resolved_a);
+  ASSERT_TRUE(a_val.has_value());
+  EXPECT_EQ(*a_val, ms::PropertyValue(2));
+  EXPECT_EQ(branch_context_->ReadOverlayVersion(b_gid, ms::View::NEW), nullptr) << "B was never changed";
+  auto resolved_b = branch_context_->ResolveVertex(b_gid, ms::View::NEW);
+  ASSERT_TRUE(resolved_b.has_value());
+  auto b_val = resolved_b->GetProperty(prop_x, ms::View::OLD);
+  ASSERT_TRUE(b_val.has_value());
+  EXPECT_EQ(*b_val, ms::PropertyValue(9));
+
+  std::map<uint64_t, int64_t> seen;
+  size_t yielded = 0;
+  std::vector<uint64_t> order;
+  for (auto v : branch_context_->Vertices(ms::View::NEW)) {
+    ++yielded;
+    order.push_back(v.Gid().AsUint());
+    auto val = v.Gid() == a_gid ? branch_value(v) : v.GetProperty(prop_x, ms::View::NEW);
+    ASSERT_TRUE(val.has_value());
+    seen.emplace(v.Gid().AsUint(), val->IsNull() ? -1 : val->ValueInt());
+  }
+  EXPECT_EQ(yielded, 4u) << "A, B, C, D must each be yielded exactly once";
+  ASSERT_EQ(seen.size(), 4u);
+  EXPECT_TRUE(std::ranges::is_sorted(order)) << "the union merge must be gid-ordered";
+  EXPECT_EQ(seen.at(a_gid.AsUint()), 2) << "A must yield the overlay value, not the fork's stale 1";
+  EXPECT_EQ(seen.at(b_gid.AsUint()), 9) << "B must yield the fork's untouched value";
+  EXPECT_EQ(seen.at(c_gid.AsUint()), 7) << "C (branch-native) must be yielded too";
+}
+
+// Fork state with committed branch deletes (vertex B, fork edge V->A) and a native edge on V's anchor stub.
+TEST_F(VersioningBranchEngineTest, ForkStateReadsHideBranchDeletesAndUnionNativeEdges) {
+  const auto edge_type = storage_->NameToEdgeType("E");
+  ms::Gid v_gid, a_gid, b_gid, va_gid, vb_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto v = acc->CreateVertex();
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    v_gid = v.Gid();
+    a_gid = a.Gid();
+    b_gid = b.Gid();
+    va_gid = acc->CreateEdge(&v, &a, edge_type)->Gid();
+    vb_gid = acc->CreateEdge(&v, &b, edge_type)->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  Fork();
+  SeedVertexDelete(b_gid);
+  Core().RecordForkEdgeDeleted(va_gid);
+  Core().RecordEdgeChange(v_gid);
+  Core().RecordEdgeChange(a_gid);
+  SeedOverlay(mv::EdgeKey(va_gid.AsUint()), [](mv::OverlayState &state) { state.MarkDeleted(); });
+  Core().stub_index().GetOrCreateStub(v_gid.AsUint(), nullptr);
+
+  auto diff_acc = branch_context_->diff_engine().Access(ms::WRITE);
+  Begin(diff_acc.get());
+
+  EXPECT_FALSE(branch_context_->IsVertexDeleted(a_gid, ms::View::NEW));
+  EXPECT_TRUE(branch_context_->IsVertexDeleted(b_gid, ms::View::NEW));
+  EXPECT_TRUE(branch_context_->HasVertexOverlay(b_gid));
+  EXPECT_FALSE(branch_context_->HasVertexOverlay(a_gid));
+  EXPECT_FALSE(branch_context_->ResolveVertex(b_gid, ms::View::NEW).has_value());
+  EXPECT_TRUE(branch_context_->FindForkVertex(b_gid).has_value()) << "the fork state itself is unchanged";
+
+  auto stub = branch_context_->FindStub(v_gid, ms::View::NEW);
+  ASSERT_TRUE(stub.has_value());
+  EXPECT_FALSE(branch_context_->FindStub(a_gid, ms::View::NEW).has_value()) << "a fork gid without an anchor";
+  auto native = CreateNative(diff_acc.get());
+  const auto native_edge = CreateNativeEdge(diff_acc.get(), &*stub, &native);
+  EXPECT_TRUE(branch_context_->FindDiffEdge(native_edge.Gid(), ms::View::NEW).has_value())
+      << "an edge out of a stub is found through the stub index";
+  EXPECT_TRUE(branch_context_->FindDiffEdge(native_edge.Gid(), v_gid, ms::View::NEW).has_value());
+  EXPECT_FALSE(branch_context_->FindDiffEdge(va_gid, ms::View::NEW).has_value()) << "fork edges are not diff edges";
+
+  auto va = branch_context_->FindForkEdge(va_gid, v_gid);
+  auto vb = branch_context_->FindForkEdge(vb_gid, v_gid);
+  ASSERT_TRUE(va.has_value());
+  ASSERT_TRUE(vb.has_value());
+  EXPECT_TRUE(branch_context_->IsForkEdgeHidden(*va, ms::View::NEW)) << "deleted on the branch";
+  EXPECT_TRUE(branch_context_->IsForkEdgeHidden(*vb, ms::View::NEW)) << "its endpoint B is deleted";
+  EXPECT_FALSE(branch_context_->IsForkEdgeHidden(native_edge, ms::View::NEW)) << "a native edge is never fork-hidden";
+  auto const *va_version = branch_context_->ReadEdgeOverlayVersion(va_gid, ms::View::NEW);
+  ASSERT_NE(va_version, nullptr);
+  EXPECT_TRUE(va_version->deleted());
+
+  auto out = branch_context_->ResolveEdges(v_gid, ms::EdgeDirection::OUT, ms::View::NEW);
+  ASSERT_EQ(out.size(), 1u) << "only the native edge survives V's out-adjacency";
+  EXPECT_EQ(out[0].Gid(), native_edge.Gid());
+  EXPECT_TRUE(branch_context_->ResolveEdges(a_gid, ms::EdgeDirection::IN, ms::View::NEW).empty());
+  bool b_deleted = false;
+  EXPECT_TRUE(branch_context_->ResolveEdges(b_gid, ms::EdgeDirection::IN, ms::View::NEW, &b_deleted).empty());
+  EXPECT_TRUE(b_deleted);
+
+  std::vector<uint64_t> scanned;
+  for (auto v : branch_context_->Vertices(ms::View::NEW)) scanned.push_back(v.Gid().AsUint());
+  EXPECT_EQ(scanned, (std::vector<uint64_t>{v_gid.AsUint(), a_gid.AsUint(), native.Gid().AsUint()}))
+      << "the deleted fork vertex is skipped; the stub is not a second V";
+}
+
+// A branch transaction opens only while main still pins the fork.
+TEST_F(VersioningBranchEngineTest, OpenHistoricalFailsOnceTheForkIsNoLongerPinned) {
+  Fork();
+  ASSERT_TRUE(branch_context_->OpenHistorical().has_value());
+  branch_context_->EndTransaction();
+  EXPECT_EQ(branch_context_->current_diff_txn(), nullptr);
+
+  mem_storage_->ReleaseForkPin(*fork_ts_);
+  fork_ts_.reset();
+  auto reopened = branch_context_->OpenHistorical();
+  ASSERT_FALSE(reopened.has_value());
+  EXPECT_NE(reopened.error().message.find("no longer retained"), std::string::npos) << reopened.error().message;
 }
 
 }  // namespace
