@@ -340,8 +340,8 @@ struct delta_container {
   auto size() const -> std::size_t { return size_; }
 
  private:
-  // Delta is trivially destructible and the slab only frees arena pages, so a VectorIndexId before-image's
-  // small_vectors (std::allocator, spilled to the heap) would leak without an explicit destroy.
+  // Delta is trivially destructible and the slab only frees arena pages; a VectorIndexId before-image's coordinates
+  // (DB arena) and spilled ids (heap) live outside the slab and need an explicit destroy.
   template <typename... Args>
   static bool HoldsVectorIndexId(Args const &...args) {
     return (... || [](auto const &arg) {

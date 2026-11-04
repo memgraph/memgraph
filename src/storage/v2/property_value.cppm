@@ -29,6 +29,7 @@ module;
 #include "storage/v2/point.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
 #include "value_order/numbers.hpp"
@@ -287,9 +288,14 @@ class PropertyValueImpl {
 
   using vector_index_id_t = utils::small_vector<VectorIndexIdType>;
 
+  // pmr instantiation: a stateful pmr resource cannot go into small_vector, so charge coordinates via the TLS arena.
+  using vector_index_list_t =
+      utils::small_vector<float, std::conditional_t<std::same_as<Alloc, std::pmr::polymorphic_allocator<std::byte>>,
+                                                    memory::DbAwareAllocator<float>, std::allocator<float>>>;
+
   struct VectorIndexIdData {
     vector_index_id_t ids;
-    utils::small_vector<float> vector;
+    vector_index_list_t vector;
   };
 
   /// Make a Null value
@@ -779,7 +785,7 @@ class PropertyValueImpl {
     return vector_index_id_v.val_.ids;
   }
 
-  auto ValueVectorIndexList() const -> utils::small_vector<float> const & {
+  auto ValueVectorIndexList() const -> vector_index_list_t const & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }
@@ -850,7 +856,7 @@ class PropertyValueImpl {
 
   auto ValueNumericListUnchecked() const noexcept -> numeric_list_t const & { return numeric_list_v.val_; }
 
-  auto ValueVectorIndexListUnchecked() const noexcept -> utils::small_vector<float> const & {
+  auto ValueVectorIndexListUnchecked() const noexcept -> vector_index_list_t const & {
     return vector_index_id_v.val_.vector;
   }
 
@@ -910,7 +916,7 @@ class PropertyValueImpl {
     return vector_index_id_v.val_.ids;
   }
 
-  auto ValueVectorIndexList() -> utils::small_vector<float> & {
+  auto ValueVectorIndexList() -> vector_index_list_t & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }

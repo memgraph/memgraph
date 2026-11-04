@@ -97,7 +97,7 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key, VectorIndexId
   std::vector<TPropertyValue> double_list{TPropertyValue(1.5), TPropertyValue(2.5), TPropertyValue(3.5)};
   std::vector<TPropertyValue> numeric_list{TPropertyValue(1), TPropertyValue(2.5), TPropertyValue(3.5)};
   typename TPropertyValue::vector_index_id_t vector_index_ids{vector_index_key};
-  memgraph::utils::small_vector<float> vector_data{1.0f, 2.0f, 3.0f};
+  typename TPropertyValue::vector_index_list_t vector_data{1.0f, 2.0f, 3.0f};
 
   return {
       TPropertyValue(),

@@ -16,6 +16,7 @@
 #include <chrono>
 #include <filesystem>
 #include <limits>
+#include <map>
 #include <thread>
 
 #include "disk_test_utils.hpp"
@@ -3345,4 +3346,36 @@ TEST(StorageV2Analytical, ExpansionSeesWhatThisAccessorJustWrote) {
   EXPECT_EQ(edges->edges.At(0).EdgeType(), type);
   EXPECT_EQ(edges->edges.At(0).ToVertex(), to);
   EXPECT_EQ(edges->edges.At(0).FromVertex(), from);
+}
+
+TEST(StorageV2, UpdatePropertiesHonoursDeltaOnIdenticalPropertyUpdate) {
+  using namespace memgraph::storage;
+
+  for (bool const delta_on_identical : {true, false}) {
+    SCOPED_TRACE(delta_on_identical);
+    Config config{};
+    config.salient.items.delta_on_identical_property_update = delta_on_identical;
+    InMemoryStorage store{config};
+
+    Gid gid;
+    PropertyId prop;
+    {
+      auto acc = store.Access(WRITE);
+      auto vertex = acc->CreateVertex();
+      gid = vertex.Gid();
+      prop = acc->NameToProperty("p");
+      ASSERT_TRUE(vertex.SetProperty(prop, PropertyValue(1)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    auto acc = store.Access(WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    auto *transaction = acc->GetTransaction();
+    auto const before = transaction->deltas.size();
+    std::map<PropertyId, PropertyValue> update{{prop, PropertyValue(1)}};
+    ASSERT_TRUE(vertex->UpdateProperties(update).has_value());
+    EXPECT_EQ(transaction->deltas.size() - before, delta_on_identical ? 1U : 0U);
+    acc->Abort();
+  }
 }
