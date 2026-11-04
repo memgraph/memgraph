@@ -64,7 +64,12 @@ inline constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24
                                              TestLocalTimeParameters{{.millisecond = -1}, true},
                                              TestLocalTimeParameters{{.millisecond = 1000}, true},
                                              TestLocalTimeParameters{{.microsecond = -1}, true},
-                                             TestLocalTimeParameters{{.microsecond = 1000}, true},
+                                             TestLocalTimeParameters{{.microsecond = 1'000'000}, true},
+                                             TestLocalTimeParameters{{.millisecond = 999, .microsecond = 1000}, true},
+                                             TestLocalTimeParameters{{.microsecond = 1000}, false},
+                                             TestLocalTimeParameters{{.microsecond = 1500}, false},
+                                             TestLocalTimeParameters{{.microsecond = 999'999}, false},
+                                             TestLocalTimeParameters{{.millisecond = 4, .microsecond = 1500}, false},
                                              TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
                                              TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
 
@@ -174,6 +179,35 @@ TEST(TemporalTest, LocalTimeConstruction) {
       ASSERT_NO_THROW(test_local_time.emplace(local_time_parameters));
     }
   }
+}
+
+TEST(TemporalTest, LocalTimeSubSecondFieldsCarry) {
+  using memgraph::utils::LocalTime;
+  using memgraph::utils::LocalTimeParameters;
+
+  // A value finer than its own scale carries into the coarser field, so 1500
+  // microseconds is a millisecond and a half however it is written.
+  EXPECT_EQ(LocalTime(LocalTimeParameters{.microsecond = 1500}),
+            LocalTime(LocalTimeParameters{.millisecond = 1, .microsecond = 500}));
+  EXPECT_EQ(LocalTime(LocalTimeParameters{.millisecond = 4, .microsecond = 1500}),
+            LocalTime(LocalTimeParameters{.millisecond = 5, .microsecond = 500}));
+  EXPECT_EQ(LocalTime(LocalTimeParameters{.microsecond = 999'999}),
+            LocalTime(LocalTimeParameters{.millisecond = 999, .microsecond = 999}));
+
+  // Equal instants must be one value, which the field-wise comparison and the
+  // hash both depend on.
+  const LocalTime written_as_micro{LocalTimeParameters{.microsecond = 1500}};
+  const LocalTime written_as_milli{LocalTimeParameters{.millisecond = 1, .microsecond = 500}};
+  EXPECT_EQ(written_as_micro, written_as_milli);
+  EXPECT_EQ(memgraph::utils::LocalTimeHash{}(written_as_micro), memgraph::utils::LocalTimeHash{}(written_as_milli));
+  EXPECT_EQ(written_as_micro.MicrosecondsSinceEpoch(), 1500);
+  EXPECT_EQ(written_as_micro.ToString(), "00:00:00.001500");
+
+  // The fraction stops short of a whole second, which would otherwise carry
+  // into the second the caller gave.
+  EXPECT_THROW(LocalTime(LocalTimeParameters{.microsecond = 1'000'000}), memgraph::utils::BasicException);
+  EXPECT_THROW(LocalTime(LocalTimeParameters{.millisecond = 999, .microsecond = 1000}),
+               memgraph::utils::BasicException);
 }
 
 TEST(TemporalTest, LocalTimeMicrosecondsSinceEpochConversion) {
