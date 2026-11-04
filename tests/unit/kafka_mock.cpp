@@ -79,6 +79,15 @@ void KafkaClusterMock::CreateTopic(const std::string &topic_name) {
   }
 }
 
+void KafkaClusterMock::AnswerSlowly(std::chrono::milliseconds rtt) {
+  // The cluster is created with a single broker, which librdkafka numbers from one.
+  static constexpr auto kOnlyBrokerId = 1;
+  if (const auto err = rd_kafka_mock_broker_set_rtt(cluster_.get(), kOnlyBrokerId, rtt.count());
+      err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+    throw std::runtime_error(std::string("Failed to slow the mock broker down: ") + rd_kafka_err2str(err));
+  }
+}
+
 void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::span<const char> message) {
   char errstr[256] = {'\0'};
   std::string bootstraps_servers = Bootstraps();

@@ -173,6 +173,10 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
+  /// Serves the pending assignment and commits \p offset for it, so the group keeps the requested
+  /// position even if this consumer is never started again.
+  void CommitRequestedOffset(int64_t offset);
+
   class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
    public:
     explicit ConsumerRebalanceCb(std::string consumer_name);
@@ -182,8 +186,15 @@ class Consumer final : public RdKafka::EventCb {
 
     void set_offset(int64_t offset);
 
+    /// Returns true once a requested offset has been applied to an assignment.
+    ///
+    /// The caller that requested the offset commits it. Committing from inside the callback can run
+    /// the commit while librdkafka is terminating the group, which ends the process.
+    bool HasAppliedOffset() const;
+
    private:
     std::optional<int64_t> offset_;
+    std::atomic<bool> offset_applied_{false};
     std::string consumer_name_;
   };
 
