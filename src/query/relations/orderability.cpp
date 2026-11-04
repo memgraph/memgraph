@@ -117,10 +117,19 @@ std::partial_ordering CompareFloatsWithList(std::span<const float> floats, Typed
   auto const common = std::min(floats.size(), list.size());
   for (auto i = 0UZ; i != common; ++i) {
     TypedValue const as_double{static_cast<double>(floats[i])};
-    auto const order = ListFirst ? Compare(list[i], as_double) : Compare(as_double, list[i]);
+    auto const order = [&]() -> std::partial_ordering {
+      if constexpr (ListFirst) {
+        return Compare(list[i], as_double);
+      } else {
+        return Compare(as_double, list[i]);
+      }
+    }();
     if (!std::is_eq(order)) return order;
   }
-  return ListFirst ? list.size() <=> floats.size() : floats.size() <=> list.size();
+  if constexpr (ListFirst) {
+    return list.size() <=> floats.size();
+  }
+  return floats.size() <=> list.size();
 }
 
 }  // namespace
