@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <string_view>
 #include <tuple>
 #include <unordered_map>
 
@@ -302,6 +303,58 @@ class DeltaGenerator final {
     transaction_id_ = memgraph::storage::kTransactionInitialId;
     timestamp_ = memgraph::storage::kTimestampInitialId;
   }
+
+  // Writes the bytes of an overlay record with no labels or properties, as a branch WAL holds it. Every build reads
+  // the record but only enterprise builds can write one, so the bytes are encoded here.
+  void AppendEmptyOverlayPutBytes(uint64_t key) {
+    using memgraph::storage::durability::Marker;
+    auto const timestamp = timestamp_;
+    auto &encoder = wal_file_.encoder();
+    encoder.WriteMarker(Marker::SECTION_DELTA);
+    encoder.WriteUint(timestamp);
+    encoder.WriteMarker(Marker::DELTA_OVERLAY_PUT);
+    encoder.WriteUint(key);
+    encoder.WriteBool(false);
+    // Added labels, removed labels, removed properties, properties, from gid, to gid.
+    for (int i = 0; i < 6; ++i) encoder.WriteUint(0);
+    wal_file_.UpdateStats(timestamp);
+    UpdateStats(timestamp, 1);
+    data_.emplace_back(timestamp,
+                       memgraph::storage::durability::WalDeltaData{
+                           memgraph::storage::durability::WalOverlayPut{.key = key,
+                                                                        .deleted = false,
+                                                                        .added_labels = {},
+                                                                        .removed_labels = {},
+                                                                        .removed_properties = {},
+                                                                        .properties = {},
+                                                                        .from_gid = 0,
+                                                                        .to_gid = 0}});
+  }
+
+#ifdef MG_ENTERPRISE
+  // Writes an overlay record at the current timestamp; call between StartTx() and FinalizeOperationTx().
+  void AppendOverlayPut(memgraph::storage::durability::OverlayPutData const &put) {
+    auto const timestamp = timestamp_;
+    wal_file_.AppendOverlayPut(put, timestamp);
+    UpdateStats(timestamp, 1);
+    auto name = [&](auto id) { return mapper().IdToName(id.AsUint()); };
+    memgraph::storage::durability::WalOverlayPut expected{.key = put.key,
+                                                          .deleted = put.deleted,
+                                                          .added_labels = {},
+                                                          .removed_labels = {},
+                                                          .removed_properties = {},
+                                                          .properties = {},
+                                                          .from_gid = put.from_gid,
+                                                          .to_gid = put.to_gid};
+    for (auto id : put.added_labels) expected.added_labels.push_back(name(id));
+    for (auto id : put.removed_labels) expected.removed_labels.push_back(name(id));
+    for (auto id : put.removed_properties) expected.removed_properties.push_back(name(id));
+    for (auto const &[id, value] : put.properties) {
+      expected.properties.emplace_back(name(id), memgraph::storage::ToExternalPropertyValue(value, &mapper()));
+    }
+    data_.emplace_back(timestamp, memgraph::storage::durability::WalDeltaData{std::move(expected)});
+  }
+#endif
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
                        const std::vector<std::vector<std::string>> property_paths_as_str = {},
@@ -716,8 +769,10 @@ class DeltaGenerator final {
 
   memgraph::storage::durability::WalFile wal_file_;
 
+ public:
   memgraph::storage::NameIdMapper &mapper() { return *storage_->name_id_mapper_; }
 
+ private:
   DataT data_;
 
   std::vector<uint64_t> txn_end_marker_positions_;
@@ -1402,6 +1457,115 @@ GENERATE_SIMPLE_TEST(InvalidTransactionOrdering, {
   TRANSACTION(true, { tx.CreateVertex(); });
 });
 
+#ifdef MG_ENTERPRISE
+namespace {
+using memgraph::storage::LabelId;
+using memgraph::storage::PropertyId;
+using memgraph::storage::PropertyValue;
+using memgraph::storage::durability::OverlayPutData;
+
+LabelId OverlayLabel(DeltaGenerator &gen, std::string const &name) {
+  return LabelId::FromUint(gen.mapper().NameToId(name));
+}
+
+PropertyId OverlayProp(DeltaGenerator &gen, std::string const &name) {
+  return PropertyId::FromUint(gen.mapper().NameToId(name));
+}
+
+constexpr uint64_t kOverlayEdgeBit = uint64_t{1} << 63;
+}  // namespace
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, OverlayPutRoundTrip) {
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    auto tx = gen.CreateTransaction();
+    tx.StartTx();
+
+    // Vertex record: labels in both directions, removed pids, nested / temporal / enum / list values.
+    OverlayPutData vertex;
+    vertex.key = 42;
+    vertex.added_labels = {OverlayLabel(gen, "Person"), OverlayLabel(gen, "Admin")};
+    vertex.removed_labels = {OverlayLabel(gen, "Guest")};
+    vertex.removed_properties = {OverlayProp(gen, "stale"), OverlayProp(gen, "older")};
+    vertex.properties.emplace_back(OverlayProp(gen, "age"), PropertyValue(int64_t{30}));
+    vertex.properties.emplace_back(
+        OverlayProp(gen, "nested"),
+        PropertyValue(
+            PropertyValue::map_t{{OverlayProp(gen, "inner"),
+                                  PropertyValue(std::vector<PropertyValue>{PropertyValue(1.5), PropertyValue("x")})}}));
+    vertex.properties.emplace_back(
+        OverlayProp(gen, "born"),
+        PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 1234)));
+    vertex.properties.emplace_back(
+        OverlayProp(gen, "kind"),
+        PropertyValue(memgraph::storage::Enum{memgraph::storage::EnumTypeId{1}, memgraph::storage::EnumValueId{2}}));
+    gen.AppendOverlayPut(vertex);
+
+    // Edge record: key keeps the edge bit, endpoints carried.
+    OverlayPutData edge;
+    edge.key = kOverlayEdgeBit | 7;
+    edge.from_gid = 3;
+    edge.to_gid = 4;
+    edge.properties.emplace_back(OverlayProp(gen, "weight"), PropertyValue(2.5));
+    gen.AppendOverlayPut(edge);
+
+    // Deleted record and an entirely empty record.
+    OverlayPutData deleted;
+    deleted.key = 9;
+    deleted.deleted = true;
+    gen.AppendOverlayPut(deleted);
+    gen.AppendOverlayPut(OverlayPutData{});
+
+    tx.FinalizeOperationTx();
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  // ReadWalInfo skips every delta (and verifies the transaction CRC), AssertWalDataEqual decodes them.
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, OverlayPutTruncatedFailsRecovery) {
+  std::vector<uint64_t> end_positions;
+
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    auto tx = gen.CreateTransaction();
+    tx.StartTx();
+    OverlayPutData put;
+    put.key = 1;
+    put.added_labels = {OverlayLabel(gen, "Person")};
+    gen.AppendOverlayPut(put);
+    tx.FinalizeOperationTx();
+    end_positions = gen.GetTxnEndMarkerPositions();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  // Turning the transaction-end marker into another overlay marker makes the following bytes an invalid overlay
+  // payload; the scan must fail rather than accept it.
+  {
+    memgraph::utils::OutputFile corrupted;
+    corrupted.Open(wal_files.front(), memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, end_positions.front());
+    auto const marker = static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_OVERLAY_PUT);
+    corrupted.Write(&marker, 1);
+    corrupted.Sync();
+    corrupted.Close();
+  }
+  EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_files.front())),
+               memgraph::storage::durability::RecoveryFailure);
+}
+#endif  // MG_ENTERPRISE
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, InvalidMarker) {
   memgraph::storage::durability::WalInfo info;
@@ -1691,6 +1855,33 @@ TEST_P(WalFileTest, FinalizedFileEndingMidTransactionFailsRecovery) {
   // the phantom vertex the flipped marker decodes into.
   ASSERT_TRUE(memgraph::storage::durability::ReadWalHeader(wal_file).summary.has_value());
   EXPECT_THROW(ReplayWal(wal_file, GetParam()), memgraph::storage::durability::RecoveryFailure);
+}
+
+// Overlay records belong to branch WALs. Every build decodes one, but replaying it as part of main's WAL must fail.
+TEST_P(WalFileTest, OverlayPutInAMainWalFailsRecovery) {
+  memgraph::storage::durability::WalInfo info;
+  DeltaGenerator::DataT data;
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    auto tx = gen.CreateTransaction();
+    tx.StartTx();
+    gen.AppendEmptyOverlayPutBytes(42);
+    tx.FinalizeOperationTx();
+    info = gen.GetInfo();
+    data = gen.GetData();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front()));
+  AssertWalDataEqual(data, wal_files.front());
+  try {
+    ReplayWal(wal_files.front(), GetParam());
+    FAIL() << "Replaying an overlay record into main must fail";
+  } catch (memgraph::storage::durability::RecoveryFailure const &e) {
+    EXPECT_NE(std::string_view{e.what()}.find("Overlay record found in a main WAL"), std::string_view::npos)
+        << e.what();
+  }
 }
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {

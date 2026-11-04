@@ -13265,7 +13265,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    description_store,
                                    on_progress);
     }
-    case 37U: {
+    case 37U:
+      [[fallthrough]];
+    case 38U: {
       return LoadCurrentVersionSnapshot(snapshot,
                                         path,
                                         vertices,
