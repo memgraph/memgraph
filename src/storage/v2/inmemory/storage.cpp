@@ -612,6 +612,13 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
                                                     utils::ResourceLockGuard guard)
     : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
+#ifdef MG_ENTERPRISE
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+                                                    std::function<Transaction()> build_transaction,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
+#endif
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1081,7 +1088,17 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
+#ifdef MG_ENTERPRISE
+    if (!transaction_.is_historical_) [[likely]] {
+      mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    } else {
+      mem_storage->ReleaseForkPin(transaction_.start_timestamp);
+      // Terminal here: ReleaseForkPin is not idempotent and the destructor would otherwise Abort() and release again.
+      is_transaction_active_ = false;
+    }
+#else
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
     return {};
   }
 
@@ -1399,7 +1416,13 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
   // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
   // requires that nothing at or above that boundary is unlinked while it waits.
+#ifdef MG_ENTERPRISE
+  if (!transaction_.is_historical_) [[likely]] {
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  }
+#else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
 
   if (config_.enable_schema_info) {
     mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
@@ -1897,7 +1920,16 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
 
   transaction_.abort_callbacks_.RunAll();
 
+#ifdef MG_ENTERPRISE
+  if (!transaction_.is_historical_) [[likely]] {
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  } else {
+    // Releases the self-pin; the empty-delta commit path clears is_transaction_active_, so this runs once.
+    mem_storage->ReleaseForkPin(transaction_.start_timestamp);
+  }
+#else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
   is_transaction_active_ = false;
 }
 
@@ -3085,6 +3117,71 @@ std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
   auto guard = std::scoped_lock{version_fork_pin_lock_};
   if (version_fork_pins_.empty()) return std::nullopt;
   return *version_fork_pins_.begin();
+}
+
+Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
+  // start_timestamp is the supplied past fork_ts; timestamp_ is never advanced.
+  uint64_t transaction_id = 0;
+  uint64_t last_durable_ts = 0;
+  uint64_t last_durable_num_committed_txns = 0;
+  std::optional<PointIndexContext> point_index_context;
+  ActiveIndicesPtr active_indices;
+  ActiveConstraintsPtr active_constraints;
+  {
+    auto guard = std::scoped_lock{engine_lock_};
+    transaction_id = transaction_id_++;
+    // Current (not fork-era) index snapshot: scans re-check MVCC visibility at fork_ts, so results stay correct.
+    point_index_context = indices_.point_index_.CreatePointIndexContext();
+    auto commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+    last_durable_ts = commit_ts_info.ldt_;
+    last_durable_num_committed_txns = commit_ts_info.num_committed_txns_;
+    active_indices = GetActiveIndices();
+    active_constraints = GetActiveConstraints();
+  }
+
+  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, fork_ts};
+
+  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
+  // Always SNAPSHOT_ISOLATION, ignoring the configured level, so the read sees exactly the fork_ts snapshot.
+  Transaction transaction{transaction_id,
+                          fork_ts,
+                          IsolationLevel::SNAPSHOT_ISOLATION,
+                          storage_mode_,
+                          false,
+                          *std::move(point_index_context),
+                          std::move(active_indices),
+                          std::move(active_constraints),
+                          std::move(async_index_helper),
+                          last_durable_ts,
+                          last_durable_num_committed_txns,
+                          metric_handles_.unreleased_delta_objects};
+  transaction.is_historical_ = true;
+  return transaction;
+}
+
+std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
+InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
+  {
+    // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
+    auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
+    if (!version_fork_pins_.contains(fork_ts)) {
+      return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
+    }
+    // Self-pin lives as long as this accessor; released in Abort / the empty-delta commit path.
+    version_fork_pins_.insert(fork_ts);
+  }
+  // Undo the self-pin if no accessor is returned: no Abort() will run to release it.
+  bool self_pin_transferred = false;
+  const utils::OnScopeExit release_self_pin_on_failure{[&] {
+    if (!self_pin_transferred) ReleaseForkPin(fork_ts);
+  }};
+  auto accessor = std::unique_ptr<Storage::Accessor>(
+      new InMemoryAccessor{Storage::Accessor::historical_access,
+                           this,
+                           [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
+                           std::nullopt});
+  self_pin_transferred = true;
+  return accessor;
 }
 #endif
 
