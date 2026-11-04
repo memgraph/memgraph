@@ -151,6 +151,10 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/branch_engine.hpp"
+#include "versioning/version_store.hpp"
+#endif
 
 import memgraph.utils.aws;
 
@@ -213,6 +217,12 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   auto &db_acc = *db_acc_;
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
+#ifdef MG_ENTERPRISE
+  if (current_version_) [[unlikely]] {
+    SetupBranchTransaction(override_isolation_level, acc_type, timeout);
+    return;
+  }
+#endif
   switch (acc_type) {
     case storage::StorageAccessType::READ:
       [[fallthrough]];
@@ -242,6 +252,12 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
 }
 
 void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
+#ifdef MG_ENTERPRISE
+  // Release the historical accessor (and main's READ guard) before db_transactional_accessor_ is destroyed.
+  if (branch_context_) [[unlikely]] {
+    branch_context_->EndTransaction();
+  }
+#endif
   if (abort && db_transactional_accessor_) {
     db_transactional_accessor_->Abort();
   }
@@ -250,8 +266,136 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+#ifdef MG_ENTERPRISE
+  if (parked_branch_) [[unlikely]] {
+    RestoreSessionBranch();
+  }
+#endif
 }
 
+#ifdef MG_ENTERPRISE
+void memgraph::query::CurrentDB::SetupBranchTransaction(std::optional<storage::IsolationLevel> override_isolation_level,
+                                                        storage::StorageAccessType acc_type,
+                                                        std::chrono::seconds timeout) {
+  ThrowIfBranchGone();
+  // Opened before the diff-engine accessor: lock order is main READ -> diff engine.
+  if (auto opened = branch_context_->OpenHistorical(); !opened) {
+    throw QueryRuntimeException(opened.error().message);
+  }
+  auto &diff_engine = branch_context_->diff_engine();
+  switch (acc_type) {
+    case storage::StorageAccessType::READ:
+      [[fallthrough]];
+    case storage::StorageAccessType::WRITE:
+      db_transactional_accessor_ = diff_engine.Access(acc_type, override_isolation_level, timeout);
+      break;
+    case storage::StorageAccessType::UNIQUE:
+      db_transactional_accessor_ = diff_engine.UniqueAccess(override_isolation_level, timeout);
+      break;
+    case storage::StorageAccessType::READ_ONLY:
+      db_transactional_accessor_ = diff_engine.ReadOnlyAccess(override_isolation_level, timeout);
+      break;
+    default:
+      spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
+      throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
+  }
+  // Published before DbAccessor is constructed so branch object resolution can use it immediately.
+  branch_context_->SetCurrentDiffTxn(db_transactional_accessor_.get());
+  execution_db_accessor_.emplace(db_transactional_accessor_.get(), branch_context_.get());
+
+  transaction_gauge_ = metrics::ScopedGauge{(*db_acc_)->metric_handles()->active_transactions.gauge};
+  // No trigger collection for branch writes: AFTER-commit triggers would adapt branch-native gids onto main's gid
+  // space.
+}
+
+void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *version_store,
+                                                versioning::BranchContext const &outer) {
+  MG_ASSERT(!branch_context_, "AttachBranchOf: session is already attached to a branch.");
+  auto const &name = outer.name();
+  auto info = version_store->TryAcquireCheckout(name);
+  if (!info) {
+    throw QueryRuntimeException(info.error());
+  }
+  try {
+    SetBranchContext(
+        std::make_unique<versioning::BranchContext>(outer.core(), name), version_store, name, info->number);
+  } catch (...) {
+    // Fields may or may not be installed yet: ClearBranchContext releases iff they are.
+    if (branch_context_) {
+      ClearBranchContext();
+    } else {
+      version_store->ReleaseCheckout(info->number);
+    }
+    throw;
+  }
+}
+
+void memgraph::query::CurrentDB::ClearBranchContext() {
+  if (!branch_context_) {
+    return;
+  }
+  // Drop the context before detaching so this session no longer touches the shared core once the attach count drops.
+  branch_context_.reset();
+  branch_plan_cache_.reset();
+  foreign_branch_number_.store(0, std::memory_order_release);
+  branch_context_version_store_->ReleaseCheckout(branch_context_number_);
+  branch_context_version_store_ = nullptr;
+  branch_context_name_.clear();
+  branch_context_number_ = 0;
+}
+
+void memgraph::query::CurrentDB::ThrowIfBranchGone() {
+  if (!current_version_) return;
+  if (branch_context_ && branch_context_version_store_->IsLive(branch_context_name_, branch_context_number_)) return;
+  // Open transaction: it still reads through the context, which is released once the transaction ends.
+  if (branch_context_ && !db_transactional_accessor_) {
+    ClearBranchContext();
+  }
+  // A db-pinned session cannot USE BRANCH or USE DATABASE; only the client changing `db` gets it out.
+  if (in_explicit_db_) {
+    throw QueryRuntimeException("Branch '{}' no longer exists.", *current_version_);
+  }
+  throw QueryRuntimeException("Branch '{}' no longer exists. Run USE BRANCH or USE DATABASE to continue.",
+                              *current_version_);
+}
+
+void memgraph::query::CurrentDB::ParkSessionBranch() {
+  RestoreSessionBranch();
+  parked_branch_.emplace(ParkedBranch{.version = std::move(current_version_),
+                                      .context = std::move(branch_context_),
+                                      .plan_cache = std::move(branch_plan_cache_),
+                                      .version_store = std::exchange(branch_context_version_store_, nullptr),
+                                      .name = std::move(branch_context_name_),
+                                      .number = std::exchange(branch_context_number_, 0)});
+  current_version_.reset();
+  branch_context_name_.clear();
+  foreign_branch_number_.store(0, std::memory_order_release);
+}
+
+void memgraph::query::CurrentDB::RestoreSessionBranch() {
+  if (!parked_branch_) return;
+  LeaveBranch();
+  auto parked = std::move(*parked_branch_);
+  parked_branch_.reset();
+  current_version_ = std::move(parked.version);
+  branch_context_ = std::move(parked.context);
+  branch_plan_cache_ = std::move(parked.plan_cache);
+  branch_context_version_store_ = parked.version_store;
+  branch_context_name_ = std::move(parked.name);
+  branch_context_number_ = parked.number;
+  foreign_branch_number_.store(parked.number, std::memory_order_release);
+}
+
+void memgraph::query::CurrentDB::DiscardParkedBranch() {
+  if (!parked_branch_) return;
+  auto parked = std::move(*parked_branch_);
+  parked_branch_.reset();
+  parked.context.reset();
+  parked.plan_cache.reset();
+  if (parked.version_store != nullptr) parked.version_store->ReleaseCheckout(parked.number);
+}
+
+#endif
 struct QueryLogWrapper {
   std::string_view query;
   const memgraph::storage::ExternalPropertyValue::map_t *metadata;
@@ -4105,6 +4249,19 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 }
 #endif
 
+#ifdef MG_ENTERPRISE
+// Plans are shaped by the accessor they were built against: branch transactions use the session's branch-local cache.
+// Keyed on current_diff_txn() (per transaction), so a query without an open branch transaction uses main's cache.
+query::PlanCacheLRU *SelectPlanCache(CurrentDB &current_db, bool is_cacheable) {
+  if (!is_cacheable) return nullptr;
+  auto *bctx = current_db.branch_context();
+  if (bctx != nullptr && bctx->current_diff_txn() != nullptr) [[unlikely]] {
+    return current_db.branch_plan_cache();
+  }
+  return current_db.db_acc_->get()->plan_cache();
+}
+
+#endif
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory,
@@ -4158,8 +4315,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto *const dba = current_db.execution_db_accessor_ ? &*current_db.execution_db_accessor_ : nullptr;
   bool const skipped_transaction = dba == nullptr;
 
+#ifdef MG_ENTERPRISE
+  auto *plan_cache = SelectPlanCache(current_db, parsed_query.is_cacheable);
+#else
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
+#endif
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query,
                                 std::move(parsed_query.ast_storage),
@@ -4314,7 +4475,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
+#ifdef MG_ENTERPRISE
+  auto *plan_cache = SelectPlanCache(current_db, parsed_inner_query.is_cacheable);
+#else
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
+#endif
 
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
@@ -4432,7 +4597,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
+#ifdef MG_ENTERPRISE
+  auto *plan_cache = SelectPlanCache(current_db, parsed_inner_query.is_cacheable);
+#else
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
+#endif
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
                                              cypher_query,
@@ -10787,6 +10956,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
     query_execution->query_string = parse_info.parsed_query.query_string;
+#ifdef MG_ENTERPRISE
+    // USE DATABASE is how a session leaves a branch that is gone.
+    if (current_db_.CurrentVersion() && !utils::Downcast<UseDatabaseQuery>(parsed_query.query)) [[unlikely]] {
+      current_db_.ThrowIfBranchGone();
+    }
+#endif
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
     // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
@@ -11949,8 +12124,17 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
+#ifdef MG_ENTERPRISE
+  auto *const branch =
+      current_db_.execution_db_accessor_ ? current_db_.execution_db_accessor_->branch_context() : nullptr;
+  auto maybe_commit_error = branch != nullptr
+                                ? branch->CommitTransaction(make_commit_arg(is_main, *current_db_.db_acc_))
+                                : current_db_.db_transactional_accessor_->PrepareForCommitPhase(
+                                      make_commit_arg(is_main, *current_db_.db_acc_));
+#else
   auto maybe_commit_error =
       current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
+#endif
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
