@@ -2201,4 +2201,93 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_OldestForkPinTracksMinimumAndClearsWhenUn
   mem_storage->ReleaseForkPin(fork_ts_older);
   EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
 }
+
+// Readers opened before a write keep their snapshot across GC; once they end, the pin alone retains the write.
+TEST_F(StorageV2GcMetricsTest, ForkPin_ReadersThenWriteThenGc) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+  const auto p = storage->NameToProperty("p");
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  const auto read_p = [&](memgraph::storage::Storage::Accessor &acc) {
+    auto v = acc.FindVertex(v_gid, memgraph::storage::View::OLD);
+    return v->GetProperty(p, memgraph::storage::View::OLD)->ValueInt();
+  };
+
+  auto r1 = storage->Access(memgraph::storage::READ);
+  auto r2 = storage->Access(memgraph::storage::READ);
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v->SetProperty(p, memgraph::storage::PropertyValue(2)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  storage->FreeMemory({}, false);
+  EXPECT_EQ(1, read_p(*r1));
+  EXPECT_EQ(1, read_p(*r2));
+  EXPECT_EQ(1, handles().unreleased_delta_objects.Value());
+
+  r1.reset();
+  r2.reset();
+  for (int i = 0; i < 4; ++i) storage->FreeMemory({}, false);
+  EXPECT_EQ(1, handles().unreleased_delta_objects.Value());
+  EXPECT_EQ(2, read_p(*storage->Access(memgraph::storage::READ)));
+
+  mem_storage->ReleaseForkPin(fork_ts);
+  for (int i = 0; i < 4; ++i) storage->FreeMemory({}, false);
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+}
+
+// Pin churn, a committing writer and GC run concurrently: an older long-lived pin stays the oldest throughout
+// and retains every delta committed after it.
+TEST_F(StorageV2GcMetricsTest, ForkPin_ConcurrentPinChurnWriterAndGc) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+  const auto p = storage->NameToProperty("p");
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    v_gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  const uint64_t floor_ts = mem_storage->RegisterForkPin();
+
+  constexpr int kCommits = 200;
+  std::atomic<bool> done{false};
+  std::jthread writer{[&] {
+    for (int i = 0; i < kCommits; ++i) {
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+      EXPECT_TRUE(v->SetProperty(p, memgraph::storage::PropertyValue(i)).has_value());
+      EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    done.store(true);
+  }};
+  std::jthread gc{[&] {
+    while (!done.load()) storage->FreeMemory({}, false);
+  }};
+  while (!done.load()) {
+    const uint64_t pin = mem_storage->RegisterForkPin();
+    EXPECT_GE(pin, floor_ts);
+    EXPECT_EQ(mem_storage->OldestForkPin(), floor_ts);
+    mem_storage->ReleaseForkPin(pin);
+  }
+  writer.join();
+  gc.join();
+
+  storage->FreeMemory({}, false);
+  EXPECT_EQ(mem_storage->OldestForkPin(), floor_ts);
+  EXPECT_EQ(kCommits, handles().unreleased_delta_objects.Value());
+
+  mem_storage->ReleaseForkPin(floor_ts);
+  for (int i = 0; i < 4; ++i) storage->FreeMemory({}, false);
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+}
 #endif  // MG_ENTERPRISE
