@@ -99,7 +99,9 @@ class EdgeAccessor final {
 
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
 
-  Gid Gid() const noexcept;
+  /// Reads the storage config, so it cannot be defined here, but an edge's Gid
+  /// does not change once the edge exists.
+  [[gnu::pure]] Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
