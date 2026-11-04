@@ -9,13 +9,16 @@ target_sources(mg-versioning
         branch_ledger.hpp
         gate.hpp
         name.hpp
+        reserve_for_append.hpp
         version_store.hpp
+        vertex_overlay_store.hpp
 
         PRIVATE
         branch_ledger.cpp
         gate.cpp
         name.cpp
         version_store.cpp
+        vertex_overlay_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics)
+target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics mg-memory-utils)
