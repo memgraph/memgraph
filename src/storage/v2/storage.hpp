@@ -560,9 +560,8 @@ class Accessor {
   static constexpr struct HistoricalAccess {
   } historical_access;
 
-  // Takes a SHARED (READ-type) guard, not READ_ONLY, so branch/historical reads coexist with main writers and GC
-  // while still excluding UNIQUE ops (DDL, Clear, RecoverSnapshot, SetStorageMode).
-  // `build_transaction` runs after `guard_` is held (member order), so its snapshot cannot race those UNIQUE ops.
+  // SHARED (READ) guard, not READ_ONLY: coexists with writers and GC, excludes UNIQUE ops (DDL, Clear, SetStorageMode).
+  // `build_transaction` runs after `guard_` is held (member order), so its snapshot cannot race UNIQUE ops.
   Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
@@ -784,22 +783,42 @@ class Accessor {
 
   std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                                 text_search_mode search_mode, const TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, config, transaction_);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_->Aggregate(index_name, search_query, aggregation_query);
   }
 
   std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                      const std::string &aggregation_query) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
   }
 
   std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode,
                                                         const TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_edge_->Search(
         index_name, search_query, search_mode, config, transaction_);
   }

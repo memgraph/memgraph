@@ -185,8 +185,6 @@ class InMemoryStorage final : public Storage {
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                               utils::ResourceLockGuard guard);
 #ifdef MG_ENTERPRISE
-    // Read-only via the `Transaction::is_historical_` write assert, not lock mode (plain SHARED guard).
-    // `build_transaction` runs from the base ctor, after storage_guard_ is already held.
     explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
                               std::function<Transaction()> build_transaction,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
@@ -200,6 +198,11 @@ class InMemoryStorage final : public Storage {
 
     // Hands this transaction's noted arming to the next collection cycle; see the definition.
     void PublishIndexArming();
+
+#ifdef MG_ENTERPRISE
+    // Releases the HistoricalAccess self-pin on the first call (commit, Abort or destruction); later calls are no-ops.
+    void ReleaseHistoricalPin();
+#endif
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
                                                    DeltaChainState from_state, DeltaChainState to_state,
@@ -911,12 +914,15 @@ class InMemoryStorage final : public Storage {
 
   enum class HistoricalAccessError : uint8_t {
     // `fork_ts` is not a live pin: never registered, or already released.
-    ForkTimestampNotPinned
+    ForkTimestampNotPinned,
+    // Only IN_MEMORY_TRANSACTIONAL keeps the MVCC history a past snapshot is rebuilt from.
+    StorageModeNotTransactional,
   };
 
-  // Opens a read-only accessor snapshotted at `fork_ts`, which must be a live pin (else ForkTimestampNotPinned);
-  // self-pins it until finalize. Always SNAPSHOT_ISOLATION and a plain SHARED lock (main stays writable); writes
-  // are refused by `Transaction::is_historical_`. Uses the CURRENT active indices, not fork-era ones.
+  // Read-only accessor at `fork_ts` (must be a live pin, else ForkTimestampNotPinned); self-pins it until finalize.
+  // SNAPSHOT_ISOLATION only; writes throw WriteInHistoricalAccessorException. Label/edge/property indexes are used only
+  // if committed by fork_ts; point/text/vector indexes are not used.
+  // Blocks on main_lock_ without timeout: a caller already holding an accessor here deadlocks behind a pending UNIQUE.
   std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
 #endif
 
@@ -961,8 +967,7 @@ class InMemoryStorage final : public Storage {
 
 #ifdef MG_ENTERPRISE
  private:
-  // Like CreateTransaction but with `start_timestamp = fork_ts`, `timestamp_` untouched, SNAPSHOT_ISOLATION and
-  // `is_historical_` set. Only called via `build_transaction`, i.e. after storage_guard_ is already held.
+  // Only called via `build_transaction`, i.e. with the accessor's `guard_` already held.
   Transaction CreateHistoricalTransaction(uint64_t fork_ts);
 
  public:
@@ -1316,8 +1321,7 @@ class InMemoryStorage final : public Storage {
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
 
 #ifdef MG_ENTERPRISE
-  // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: branches and historical readers
-  // may share a fork_ts.
+  // Live fork pins (branches, historical readers) as a multiset: they may share a fork_ts. GC clamps to the oldest.
   // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
   utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
