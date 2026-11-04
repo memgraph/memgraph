@@ -82,6 +82,10 @@ std::string Serialize(const LedgerContents &contents) {
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
     if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
     if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
+    if (info.fork_counts) {
+      b["fork_vertex_count"] = info.fork_counts->vertices;
+      b["fork_edge_count"] = info.fork_counts->edges;
+    }
     branches.push_back(std::move(b));
   }
   const nlohmann::json root{{"next_number", contents.next_number}, {"branches", std::move(branches)}};
@@ -103,6 +107,10 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
       if (auto it = b.find("vertex_gid_floor"); it != b.end()) lb.info.vertex_gid_floor = it->get<uint64_t>();
       if (auto it = b.find("edge_gid_floor"); it != b.end()) lb.info.edge_gid_floor = it->get<uint64_t>();
       if (auto it = b.find("created_at_us"); it != b.end()) lb.info.created_at_us = it->get<uint64_t>();
+      if (b.contains("fork_vertex_count") && b.contains("fork_edge_count")) {
+        lb.info.fork_counts = ObjectCounts{.vertices = b.at("fork_vertex_count").get<uint64_t>(),
+                                           .edges = b.at("fork_edge_count").get<uint64_t>()};
+      }
       if (lb.info.number >= out.next_number) {
         return std::unexpected(
             fmt::format("branch '{}' has number {} >= next_number {}", lb.name, lb.info.number, out.next_number));

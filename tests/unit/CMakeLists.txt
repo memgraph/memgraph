@@ -998,6 +998,11 @@ add_unit_test(versioning_ledger
     SOURCES versioning_ledger.cpp
     LINK_TARGETS mg::versioning
 )
+
+add_unit_test(versioning_version_store
+    SOURCES versioning_version_store.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
