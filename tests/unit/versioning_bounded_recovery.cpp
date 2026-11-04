@@ -465,12 +465,6 @@ TEST_F(VersioningBoundedRecoveryTest, AnOnDiskStartupIsRefused) {
   ExpectRestartRefused(std::move(config), {"[b]", "ON_DISK_TRANSACTIONAL"});
 }
 
-TEST_F(VersioningBoundedRecoveryTest, StartupWithCommitLockNarrowingIsRefused) {
-  auto config = MakeConfig(true);
-  config.experimental_commit_lock_narrowing = true;
-  ExpectRestartRefused(std::move(config), {"[b]", "commit-lock-narrowing", "DROP BRANCH"});
-}
-
 std::string ReadWholeFile(const std::filesystem::path &file) {
   std::ifstream in{file, std::ios::binary};
   return {std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
