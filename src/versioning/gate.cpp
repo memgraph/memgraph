@@ -19,7 +19,6 @@ std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &
   if (creating && !state.enterprise_valid) return GateError::kNoLicense;
   if (!state.is_in_memory_transactional) return GateError::kUnsupportedStorageMode;
   if (creating && !state.durable) return GateError::kNotDurable;
-  if (state.commit_lock_narrowing) return GateError::kCommitLockNarrowing;
   return std::nullopt;
 }
 
@@ -42,8 +41,6 @@ std::string_view GateErrorMessage(GateError err) {
              "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL."sv;
     case kNotDurable:
       return "Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true."sv;
-    case kCommitLockNarrowing:
-      return "Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing."sv;
   }
   return "unknown"sv;
 }
