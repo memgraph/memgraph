@@ -25,15 +25,13 @@ struct BranchInfo {
   // GC fork-pin timestamp, held until the branch is dropped; drives visibility.
   uint64_t fork_ts;
   // fork_ts as persisted in the ledger. Differs from fork_ts only after startup restore, where fork_ts is the pin
-  // taken on the rebuilt history. Ledger writes and the retention floor use this one.
-  uint64_t recorded_fork_ts;
+  // taken on the rebuilt history. Ledger writes and the retention floor use this one. Defaults to fork_ts, so leaving
+  // it out cannot persist 0.
+  uint64_t recorded_fork_ts{fork_ts};
   std::optional<uint64_t> vertex_gid_floor;
   std::optional<uint64_t> edge_gid_floor;
   // Wall-clock creation time, microseconds since the Unix epoch. Absent in ledgers written before it was recorded.
   std::optional<uint64_t> created_at_us;
 };
-
-// The durable timestamp a branch forked at `fork_ts` still needs recoverable: one below it, clamped at 0.
-inline uint64_t RecoverableBelow(uint64_t fork_ts) { return fork_ts == 0 ? 0 : fork_ts - 1; }
 
 }  // namespace memgraph::versioning

@@ -21,8 +21,12 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <ranges>
+#include <set>
+#include <stdexcept>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -30,6 +34,7 @@
 
 #include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
+#include "versioning/name.hpp"
 
 namespace memgraph::versioning {
 
@@ -70,6 +75,40 @@ class Fd {
   int fd_;
 };
 
+// What Read accepts and Write persists. A parent may be unknown: dropping a branch leaves its children in place.
+std::optional<std::string> Validate(const LedgerContents &contents) {
+  if (contents.next_number < 2) return fmt::format("next_number {} is below 2", contents.next_number);
+  std::set<std::string_view> names;
+  std::set<uint64_t> numbers;
+  for (const auto &[name, info] : contents.branches) {
+    if (auto invalid = ValidateBranchName(name)) return fmt::format("branch '{}': {}", name, *invalid);
+    if (info.parent != "main") {
+      if (auto invalid = ValidateBranchName(info.parent)) {
+        return fmt::format("branch '{}' has parent '{}': {}", name, info.parent, *invalid);
+      }
+    }
+    if (info.number < 2 || info.number >= contents.next_number) {
+      return fmt::format(
+          "branch '{}' has number {} outside [2, next_number {})", name, info.number, contents.next_number);
+    }
+    if (!names.insert(name).second) return fmt::format("branch '{}' is listed twice", name);
+    if (!numbers.insert(info.number).second) return fmt::format("branch number {} is used twice", info.number);
+  }
+  return std::nullopt;
+}
+
+// get<uint64_t>() would silently convert a negative or fractional number.
+uint64_t Unsigned(const nlohmann::json &value, const char *key) {
+  if (!value.is_number_unsigned()) throw std::invalid_argument(fmt::format("'{}' is not an unsigned integer", key));
+  return value.get<uint64_t>();
+}
+
+std::optional<uint64_t> OptionalUnsigned(const nlohmann::json &object, const char *key) {
+  const auto it = object.find(key);
+  if (it == object.end()) return std::nullopt;
+  return Unsigned(*it, key);
+}
+
 std::string Serialize(const LedgerContents &contents) {
   nlohmann::json branches = nlohmann::json::array();
   for (const auto &[name, info] : contents.branches) {
@@ -89,30 +128,38 @@ std::string Serialize(const LedgerContents &contents) {
 }
 
 std::expected<LedgerContents, std::string> Deserialize(std::string_view payload) {
+  LedgerContents out;
   try {
     const auto root = nlohmann::json::parse(payload);
-    LedgerContents out;
-    out.next_number = root.at("next_number").get<uint64_t>();
-    for (const auto &b : root.at("branches")) {
-      LedgerBranch lb;
-      lb.name = b.at("name").get<std::string>();
-      lb.info.number = b.at("number").get<uint64_t>();
-      lb.info.parent = b.at("parent").get<std::string>();
-      lb.info.fork_ts = b.at("fork_ts").get<uint64_t>();
-      lb.info.recorded_fork_ts = lb.info.fork_ts;
-      if (auto it = b.find("vertex_gid_floor"); it != b.end()) lb.info.vertex_gid_floor = it->get<uint64_t>();
-      if (auto it = b.find("edge_gid_floor"); it != b.end()) lb.info.edge_gid_floor = it->get<uint64_t>();
-      if (auto it = b.find("created_at_us"); it != b.end()) lb.info.created_at_us = it->get<uint64_t>();
-      if (lb.info.number >= out.next_number) {
-        return std::unexpected(
-            fmt::format("branch '{}' has number {} >= next_number {}", lb.name, lb.info.number, out.next_number));
-      }
-      out.branches.push_back(std::move(lb));
+    out.next_number = Unsigned(root.at("next_number"), "next_number");
+    const auto &branches = root.at("branches");
+    if (!branches.is_array()) throw std::invalid_argument("'branches' is not an array");
+    for (const auto &b : branches) {
+      out.branches.push_back({.name = b.at("name").get<std::string>(),
+                              .info = {.number = Unsigned(b.at("number"), "number"),
+                                       .parent = b.at("parent").get<std::string>(),
+                                       .fork_ts = Unsigned(b.at("fork_ts"), "fork_ts"),
+                                       .vertex_gid_floor = OptionalUnsigned(b, "vertex_gid_floor"),
+                                       .edge_gid_floor = OptionalUnsigned(b, "edge_gid_floor"),
+                                       .created_at_us = OptionalUnsigned(b, "created_at_us")}});
     }
-    return out;
   } catch (const nlohmann::json::exception &e) {
     return std::unexpected(fmt::format("malformed payload: {}", e.what()));
+  } catch (const std::invalid_argument &e) {
+    return std::unexpected(fmt::format("malformed payload: {}", e.what()));
   }
+  if (auto invalid = Validate(out)) return std::unexpected(std::move(*invalid));
+  return out;
+}
+
+// Parses all of `token`.
+template <typename T>
+std::optional<T> ParseUnsigned(std::string_view token, int base = 10) {
+  T value{};
+  const auto *const end = token.data() + token.size();
+  const auto [ptr, ec] = std::from_chars(token.data(), end, value, base);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
 }
 
 }  // namespace
@@ -120,9 +167,21 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
 BranchLedger::BranchLedger(std::filesystem::path file) : file_(std::move(file)) {}
 
 std::expected<void, std::string> BranchLedger::Write(const LedgerContents &contents) const {
+  // Also keeps dump() from throwing: valid names are ASCII.
+  if (auto invalid = Validate(contents)) {
+    return std::unexpected(fmt::format("Branch ledger: refusing to write an invalid registry: {}.", *invalid));
+  }
+
   const auto dir = file_.parent_path();
-  if (!dir.empty() && !utils::EnsureDir(dir)) {
-    return std::unexpected(fmt::format("Branch ledger: cannot create directory '{}'.", dir.string()));
+  if (!dir.empty()) {
+    if (!utils::EnsureDir(dir)) {
+      return std::unexpected(fmt::format("Branch ledger: cannot create directory '{}'.", dir.string()));
+    }
+    // The directory may have just been created; its own entry must be durable before the ledger is renamed into it.
+    const auto parent = dir.parent_path();
+    if (auto synced = utils::SyncDirectory(parent.empty() ? std::filesystem::path{"."} : parent); !synced) {
+      return std::unexpected("Branch ledger: " + synced.error());
+    }
   }
 
   const std::string payload = Serialize(contents);
@@ -154,7 +213,11 @@ std::expected<void, std::string> BranchLedger::Write(const LedgerContents &conte
     }
     written += static_cast<size_t>(n);
   }
-  if (::fsync(fd.get()) != 0) return fail("Branch ledger: " + Errno("cannot fsync", tmp));
+  int synced = 0;
+  do {
+    synced = ::fsync(fd.get());
+  } while (synced != 0 && errno == EINTR);
+  if (synced != 0) return fail("Branch ledger: " + Errno("cannot fsync", tmp));
   if (fd.Close() != 0) return fail("Branch ledger: " + Errno("cannot close", tmp));
 
   if (::rename(tmp.c_str(), file_.c_str()) != 0)
@@ -188,38 +251,19 @@ std::expected<std::optional<LedgerContents>, std::string> BranchLedger::Read() c
   const std::string header = data.substr(0, nl);
   const std::string_view payload = std::string_view{data}.substr(nl + 1);
 
-  // Token parse instead of sscanf: from_chars checks numeric conversion failures, and no fixed-size char buffer.
-  uint64_t version = 0;
-  uint64_t size = 0;
-  uint32_t crc = 0;
-  {
-    size_t pos = 0;
-    const auto next_token = [&]() -> std::optional<std::string_view> {
-      pos = header.find_first_not_of(' ', pos);
-      if (pos == std::string::npos) return std::nullopt;
-      const size_t end = header.find(' ', pos);
-      const std::string_view token =
-          std::string_view{header}.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
-      pos = end == std::string::npos ? header.size() : end + 1;
-      return token;
-    };
-    const auto magic_token = next_token();
-    const auto version_token = next_token();
-    const auto size_token = next_token();
-    const auto crc_token = next_token();
-    if (!magic_token || *magic_token != kMagic || !version_token || !size_token || !crc_token ||
-        std::from_chars(version_token->data(), version_token->data() + version_token->size(), version).ec !=
-            std::errc{} ||
-        std::from_chars(size_token->data(), size_token->data() + size_token->size(), size).ec != std::errc{} ||
-        std::from_chars(crc_token->data(), crc_token->data() + crc_token->size(), crc, 16).ec != std::errc{}) {
-      return corrupt("bad header");
-    }
+  // Exactly the four single-space-separated tokens Write emits.
+  std::vector<std::string_view> tokens;
+  for (const auto token : std::views::split(std::string_view{header}, ' ')) tokens.emplace_back(token);
+  if (tokens.size() != 4 || tokens[0] != kMagic) return corrupt("bad header");
+  const auto version = ParseUnsigned<uint32_t>(tokens[1]);
+  const auto size = ParseUnsigned<uint64_t>(tokens[2]);
+  const auto crc = ParseUnsigned<uint32_t>(tokens[3], 16);
+  if (!version || !size || !crc) return corrupt("bad header");
+  if (*version != kVersion) return corrupt(fmt::format("unsupported version {}", *version));
+  if (*size != payload.size()) {
+    return corrupt(fmt::format("payload size {} does not match header size {}", payload.size(), *size));
   }
-  if (version != kVersion) return corrupt(fmt::format("unsupported version {}", version));
-  if (size != payload.size()) {
-    return corrupt(fmt::format("payload size {} does not match header size {}", payload.size(), size));
-  }
-  if (Crc32(payload) != crc) return corrupt("checksum mismatch");
+  if (Crc32(payload) != *crc) return corrupt("checksum mismatch");
 
   auto parsed = Deserialize(payload);
   if (!parsed) return corrupt(parsed.error());
