@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <optional>
@@ -317,7 +316,7 @@ class Storage {
 
   /// Lowers the floor to `floor` if it is not lower already. Caller must hold `retention_floor_mutex_`.
   void LowerRetentionFloorLocked(uint64_t floor) {
-    retention_floor_ = retention_floor_ ? std::min(*retention_floor_, floor) : floor;
+    if (!retention_floor_ || floor < *retention_floor_) retention_floor_ = floor;
   }
 
   mutable std::mutex retention_floor_mutex_;
