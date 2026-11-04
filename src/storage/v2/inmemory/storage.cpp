@@ -3122,7 +3122,8 @@ uint64_t InMemoryStorage::RegisterForkPin() {
 uint64_t InMemoryStorage::RegisterBranchForkPin() {
   auto const floor_guard = std::lock_guard{retention_floor_mutex_};
   auto const fork_ts = RegisterForkPin();
-  LowerRetentionFloorLocked(fork_ts == 0 ? 0 : fork_ts - 1);
+  auto const floor = fork_ts == 0 ? 0 : fork_ts - 1;
+  if (!retention_floor_ || floor < *retention_floor_) retention_floor_ = floor;
   return fork_ts;
 }
 
