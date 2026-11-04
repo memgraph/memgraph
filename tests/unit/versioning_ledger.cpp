@@ -558,7 +558,7 @@ TEST(BranchLedgerRestartTest, AnUnreadableLedgerRefusesStartup) {
       acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
   }
 
   const auto ledger_file = kRestartDirectory / "branches" / "ledger";
