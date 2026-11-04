@@ -4111,6 +4111,21 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
 
   return true;
 }
+#ifdef MG_ENTERPRISE
+
+void InMemoryStorage::AppendWalOnlyTransaction(uint64_t commit_ts,
+                                               std::function<void(durability::WalFile &, uint64_t)> const &writer) {
+  if (InitializeWalFile(repl_storage_state_.epoch_.id())) {
+    wal_file_->AppendTransactionStart(commit_ts, true, StorageAccessType::WRITE);
+    writer(*wal_file_, commit_ts);
+    wal_file_->AppendTransactionEnd(commit_ts);
+    FinalizeWalFile();
+  }
+  atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, [commit_ts](CommitTsInfo const &old_info) {
+    return CommitTsInfo{.ldt_ = commit_ts, .num_committed_txns_ = old_info.num_committed_txns_ + 1};
+  });
+}
+#endif
 
 void InMemoryStorage::FinalizeWalFile() {
   ++wal_unsynced_transactions_;
@@ -4776,6 +4791,11 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       commit_args.apply_cb_if_replica_write();
     }
+#ifdef MG_ENTERPRISE
+    if (transaction_.extra_wal_writer_) {
+      transaction_.extra_wal_writer_(*mem_storage->wal_file_, durability_commit_timestamp);
+    }
+#endif
     // Add a delta that indicates that the transaction is fully written to the WAL
     auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
     positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
