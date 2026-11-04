@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 #include "storage/v2/config.hpp"
@@ -21,8 +22,7 @@ namespace memgraph::versioning {
 
 enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable };
 
-// Unlicensed branches are read and drop only, so only kCreate needs the license (and durable branches); branch writes
-// are checked in AccessorCompliance. SHOW, USE, USING and DROP are kObserve.
+// Only kCreate needs the license and durable branches; kObserve needs neither.
 enum class GateOperation : uint8_t { kObserve, kCreate };
 
 struct GateState {
@@ -33,13 +33,17 @@ struct GateState {
 };
 
 // Returns std::nullopt when `op` is allowed. First failure wins: flag, license (kCreate only), storage mode,
-// durability (kCreate only). The replica refusal is checked by the caller afterwards.
-// Takes primitives so it is callable without Storage or license machinery.
+// durability (kCreate only). The caller refuses replicas afterwards. Takes primitives to stay free of Storage/license.
 std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state);
 
 std::string_view GateErrorMessage(GateError err);
 
 // Branches survive a restart: WAL on (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.
 bool BranchesDurable(const storage::Config &config);
+
+// With versioning on, why the startup settings cannot host branches (storage mode, then WAL and recovery on startup),
+// naming the setting; nullopt when they can. Uses the CREATE BRANCH gate's reasons. Checked once at startup, before any
+// database is built: nothing is read from disk, so it is the same with or without branch files.
+std::optional<std::string> StartupConfigError(storage::StorageMode mode, const storage::Config &config);
 
 }  // namespace memgraph::versioning
