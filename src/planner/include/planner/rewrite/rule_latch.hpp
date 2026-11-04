@@ -104,7 +104,10 @@ class RuleLatch {
   /// restriction applies solely to root-entry patterns, which are depth <= 1, so
   /// a new match's root is always the change or a direct parent of it, never a
   /// deeper closure class. The active set is captured as a by-product of the same
-  /// walk. Keep it only when it is a small slice of the graph; otherwise drop it
+  /// walk, which is why the bound has to be the deepest pattern in the whole rule
+  /// set and not the deepest a given rule needs: a bound of zero collects no
+  /// parents, and only a global bound is guaranteed to reach one whenever some
+  /// eligible pattern has depth one. Keep it only when it is a small slice of the graph; otherwise drop it
   /// (keep capacity) and match via symbol-granularity arming alone, since holding
   /// a large active set live only adds cache pressure for little pruning.
   void arm_from_touched(EGraph<Symbol, Analysis> const &egraph) {
