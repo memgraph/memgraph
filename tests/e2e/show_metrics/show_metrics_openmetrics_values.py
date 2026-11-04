@@ -95,6 +95,8 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "active_existence_constraints",
     "active_unique_constraints",
     "active_type_constraints",
+    "existence_constraint_violations_total",
+    "unique_constraint_violations_total",
     # Stream
     "streams_created_total",
     "messages_consumed_total",

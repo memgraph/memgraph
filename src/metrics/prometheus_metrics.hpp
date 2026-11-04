@@ -408,6 +408,8 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &active_existence_constraints_family_;
   prometheus::Family<prometheus::Gauge> &active_unique_constraints_family_;
   prometheus::Family<prometheus::Gauge> &active_type_constraints_family_;
+  prometheus::Family<prometheus::Counter> &existence_constraint_violations_family_;
+  prometheus::Family<prometheus::Counter> &unique_constraint_violations_family_;
 
   // Per-database metric families — stream
   prometheus::Family<prometheus::Counter> &streams_created_family_;

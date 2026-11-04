@@ -434,6 +434,16 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Name("memgraph_active_type_constraints")
                                           .Help("Number of active type constraints")
                                           .Register(registry_)},
+      existence_constraint_violations_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_existence_constraint_violations_total")
+              .Help("Number of transactions that failed to commit due to existence constraint violations")
+              .Register(registry_)},
+      unique_constraint_violations_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_unique_constraint_violations_total")
+              .Help("Number of transactions that failed to commit due to unique constraint violations")
+              .Register(registry_)},
       // Stream
       streams_created_family_{prometheus::BuildCounter()
                                   .Name("memgraph_streams_created_total")
@@ -1019,6 +1029,8 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .active_existence_constraints = {&active_existence_constraints_family_.Add(labels)},
       .active_unique_constraints = {&active_unique_constraints_family_.Add(labels)},
       .active_type_constraints = {&active_type_constraints_family_.Add(labels)},
+      .existence_constraint_violations = {&existence_constraint_violations_family_.Add(labels)},
+      .unique_constraint_violations = {&unique_constraint_violations_family_.Add(labels)},
       .streams_created = {&streams_created_family_.Add(labels)},
       .messages_consumed = {&messages_consumed_family_.Add(labels)},
       .triggers_created = {&triggers_created_family_.Add(labels)},
@@ -1195,6 +1207,8 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   active_existence_constraints_family_.Remove(h.active_existence_constraints.get());
   active_unique_constraints_family_.Remove(h.active_unique_constraints.get());
   active_type_constraints_family_.Remove(h.active_type_constraints.get());
+  existence_constraint_violations_family_.Remove(h.existence_constraint_violations.get());
+  unique_constraint_violations_family_.Remove(h.unique_constraint_violations.get());
   streams_created_family_.Remove(h.streams_created.get());
   messages_consumed_family_.Remove(h.messages_consumed.get());
   triggers_created_family_.Remove(h.triggers_created.get());
@@ -1656,6 +1670,14 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
       {"ActiveUniqueConstraints", "Constraint", "Gauge", static_cast<int64_t>(h.active_unique_constraints.Value())});
   out.push_back(
       {"ActiveTypeConstraints", "Constraint", "Gauge", static_cast<int64_t>(h.active_type_constraints.Value())});
+  out.push_back({"ExistenceConstraintViolations",
+                 "Constraint",
+                 "Counter",
+                 static_cast<int64_t>(h.existence_constraint_violations.Value())});
+  out.push_back({"UniqueConstraintViolations",
+                 "Constraint",
+                 "Counter",
+                 static_cast<int64_t>(h.unique_constraint_violations.Value())});
 
   // Stream
   out.push_back({"StreamsCreated", "Stream", "Counter", static_cast<int64_t>(h.streams_created.Value())});
@@ -1791,6 +1813,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_active_existence_constraints = 0;
   int64_t total_active_unique_constraints = 0;
   int64_t total_active_type_constraints = 0;
+  int64_t total_existence_constraint_violations = 0;
+  int64_t total_unique_constraint_violations = 0;
   int64_t total_streams_created = 0;
   int64_t total_messages_consumed = 0;
   int64_t total_triggers_created = 0;
@@ -1888,6 +1912,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_active_existence_constraints += static_cast<int64_t>(h.active_existence_constraints.Value());
       total_active_unique_constraints += static_cast<int64_t>(h.active_unique_constraints.Value());
       total_active_type_constraints += static_cast<int64_t>(h.active_type_constraints.Value());
+      total_existence_constraint_violations += static_cast<int64_t>(h.existence_constraint_violations.Value());
+      total_unique_constraint_violations += static_cast<int64_t>(h.unique_constraint_violations.Value());
       total_streams_created += static_cast<int64_t>(h.streams_created.Value());
       total_messages_consumed += static_cast<int64_t>(h.messages_consumed.Value());
       total_triggers_created += static_cast<int64_t>(h.triggers_created.Value());
@@ -1995,6 +2021,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"ActiveExistenceConstraints", "Constraint", "Gauge", total_active_existence_constraints});
   out.push_back({"ActiveUniqueConstraints", "Constraint", "Gauge", total_active_unique_constraints});
   out.push_back({"ActiveTypeConstraints", "Constraint", "Gauge", total_active_type_constraints});
+  out.push_back({"ExistenceConstraintViolations", "Constraint", "Counter", total_existence_constraint_violations});
+  out.push_back({"UniqueConstraintViolations", "Constraint", "Counter", total_unique_constraint_violations});
 
   // Stream
   out.push_back({"StreamsCreated", "Stream", "Counter", total_streams_created});

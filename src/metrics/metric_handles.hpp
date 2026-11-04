@@ -158,6 +158,8 @@ struct DatabaseMetricHandles {
   GaugeHandle active_existence_constraints;
   GaugeHandle active_unique_constraints;
   GaugeHandle active_type_constraints;
+  CounterHandle existence_constraint_violations;
+  CounterHandle unique_constraint_violations;
 
   // Stream
   CounterHandle streams_created;
