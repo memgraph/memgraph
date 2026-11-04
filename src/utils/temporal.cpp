@@ -55,16 +55,18 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
   return value;
 }
 
-auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
-  auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
-                                                        LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
-  if (const auto *tz = utils::GetTimezone(); tz) {
-    // APPLY TIMEZONE (local to UTC)
-    return tz->to_sys(
-        std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
+// Daylight saving leaves a calendar time naming no instant, or two; the earliest match keeps this conversion total.
+auto LocalToSys(std::chrono::microseconds us_since_epoch_local) -> std::chrono::sys_time<std::chrono::microseconds> {
+  const auto *tz = utils::GetTimezone();
+  if (!tz) {
+    return std::chrono::sys_time<std::chrono::microseconds>(us_since_epoch_local);
   }
-  // Fallback to UTC
-  return std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
+  return Timezone{tz}.to_sys(std::chrono::local_time<std::chrono::microseconds>(us_since_epoch_local));
+}
+
+auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
+  return LocalToSys(std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
+                                              LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()});
 }
 
 }  // namespace
@@ -524,30 +526,17 @@ LocalDateTime::LocalDateTime(std::tm tm)
     : us_since_epoch_{Params2Time(DateParameters{.year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday},
                                   LocalTimeParameters{.hour = tm.tm_hour, .minute = tm.tm_min, .second = tm.tm_sec})} {}
 
-LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) {
-  auto us_since_epoch_local =
-      std::chrono::microseconds{date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch()};
-  const auto *tz = utils::GetTimezone();
-  if (tz) {
-    // APPLY TIMEZONE (local to UTC)
-    us_since_epoch_ =
-        tz->to_sys(std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
-  } else {
-    // Fallback to UTC
-    us_since_epoch_ = std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
-  }
-}
+LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time)
+    : us_since_epoch_{
+          LocalToSys(std::chrono::microseconds{date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch()})} {}
 
-// return microseconds normalized with regard to epoch time point
 int64_t LocalDateTime::SysMicrosecondsSinceEpoch() const { return us_since_epoch_.time_since_epoch().count(); }
 
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
   const auto *tz = utils::GetTimezone();
   if (tz) {
-    // APPLY TIMEZONE (UTC to local)
     return tz->to_local(us_since_epoch_).time_since_epoch().count();
   }
-  // Fallback to UTC
   return us_since_epoch_.time_since_epoch().count();
 }
 
@@ -584,10 +573,9 @@ LocalTime LocalDateTime::local_time() const {
 std::chrono::zoned_time<std::chrono::microseconds> LocalDateTime::zoned_time() const {
   const auto *tz = utils::GetTimezone();
   if (tz) {
-    // APPLY TIMEZONE (UTC to local)
     return {tz, us_since_epoch_};
   }
-  return {"UTC", us_since_epoch_};  // Default to UTC
+  return {"UTC", us_since_epoch_};
 }
 
 std::tm LocalDateTime::tm() const {
@@ -883,18 +871,27 @@ std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseco
   return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
 }
 
+namespace {
+
+// Reading the fields through the configured timezone would let the server's shifts move a value naming another.
+auto ParamsToLocalTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
+  return AsLocalTime(Date{date_parameters}.MicrosecondsSinceEpoch() +
+                     LocalTime{local_time_parameters}.MicrosecondsSinceEpoch());
+}
+
+}  // namespace
+
 ZonedDateTime::ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
                              Timezone timezone) {
-  const std::chrono::local_time<std::chrono::microseconds> duration{
-      std::chrono::microseconds(LocalDateTime(date_parameters, local_time_parameters).MicrosecondsSinceEpoch())};
-  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+  zoned_time = std::chrono::zoned_time(
+      timezone, ParamsToLocalTime(date_parameters, local_time_parameters), std::chrono::choose::earliest);
 }
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
-  auto timezone = zoned_date_time_parameters.timezone;
-  const std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
-      LocalDateTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time).MicrosecondsSinceEpoch())};
-  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+  zoned_time =
+      std::chrono::zoned_time(zoned_date_time_parameters.timezone,
+                              ParamsToLocalTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time),
+                              std::chrono::choose::earliest);
 }
 
 ZonedDateTime::ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone) {

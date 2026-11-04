@@ -454,6 +454,81 @@ TEST(TemporalTest, LocalDateTimeToLocalTimeTZ) {
   test_LocalDateTimeToLocalTime();
 }
 
+// Rome advances 02:00 to 03:00 on this date, so 02:30 names no instant, and both sides meet at 01:00 UTC.
+//
+// The instant asserted is the transition itself, which is what the standard library here returns for
+// a calendar time inside the gap whichever side is chosen. Another implementation may instead return
+// the named time shifted by the offset in force before the change, so a port that fails this is
+// reporting a different resolution rather than a conversion that stopped working.
+TEST(TemporalTest, LocalDateTimeInDaylightSavingGap) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{2026, 3, 29},
+                                                 memgraph::utils::LocalTimeParameters{2, 30}};
+
+  const auto expected = sys_days{2026y / March / 29} + 1h;
+  EXPECT_EQ(local_date_time.SysMicrosecondsSinceEpoch(),
+            duration_cast<microseconds>(expected.time_since_epoch()).count());
+}
+
+// Rome returns 03:00 to 02:00 on this date, so 02:30 names two instants, the earlier at 00:30 UTC.
+TEST(TemporalTest, LocalDateTimeInDaylightSavingOverlap) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  memgraph::utils::LocalDateTime local_date_time{
+      memgraph::utils::Date{memgraph::utils::DateParameters{2026, 10, 25}},
+      memgraph::utils::LocalTime{memgraph::utils::LocalTimeParameters{2, 30}}};
+
+  const auto expected = sys_days{2026y / October / 25} + 30min;
+  EXPECT_EQ(local_date_time.SysMicrosecondsSinceEpoch(),
+            duration_cast<microseconds>(expected.time_since_epoch()).count());
+}
+
+// The sweep names no shift date, so a revision to the timezone database cannot turn it red on its own.
+TEST(TemporalTest, EveryCalendarTimeOfTheYearIsConstructible) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+
+  for (const auto *zone : {"Europe/Rome", "America/Los_Angeles", "Australia/Lord_Howe"}) {
+    htz.Set(zone);
+    for (auto day = sys_days{2026y / January / 1}; day < sys_days{2027y / January / 1}; day += days{1}) {
+      const year_month_day date{day};
+      for (int hour = 0; hour < 24; ++hour) {
+        for (const int minute : {0, 30}) {
+          ASSERT_NO_THROW(
+              memgraph::utils::LocalDateTime(memgraph::utils::DateParameters{static_cast<int>(date.year()),
+                                                                             static_cast<unsigned>(date.month()),
+                                                                             static_cast<unsigned>(date.day())},
+                                             memgraph::utils::LocalTimeParameters{hour, minute}))
+              << zone << " " << static_cast<unsigned>(date.month()) << "/" << static_cast<unsigned>(date.day()) << " "
+              << hour << ":" << minute;
+        }
+      }
+    }
+  }
+}
+
+// Rome skipping 02:30 on this date says nothing about 02:30 in UTC, where it is an ordinary time.
+TEST(TemporalTest, ZonedDateTimeIgnoresTheServerTimezone) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  const memgraph::utils::ZonedDateTime from_parameters{memgraph::utils::DateParameters{2026, 3, 29},
+                                                       memgraph::utils::LocalTimeParameters{2, 30},
+                                                       memgraph::utils::Timezone{"Etc/UTC"}};
+  EXPECT_EQ(from_parameters.ToString(), "2026-03-29T02:30:00.000000+00:00[Etc/UTC]");
+
+  const memgraph::utils::ZonedDateTime from_members{
+      memgraph::utils::ZonedDateTimeParameters{memgraph::utils::DateParameters{2026, 3, 29},
+                                               memgraph::utils::LocalTimeParameters{2, 30},
+                                               memgraph::utils::Timezone{"Etc/UTC"}}};
+  EXPECT_EQ(from_members.ToString(), "2026-03-29T02:30:00.000000+00:00[Etc/UTC]");
+}
+
 namespace {
 using namespace std::literals;
 inline constexpr std::array parsing_test_dates_extended{

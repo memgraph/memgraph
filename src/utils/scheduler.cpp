@@ -85,15 +85,36 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
 }
 
 void Scheduler::SetInterval_(std::string_view cron_expr) {
-  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) {
-    auto tm_now = LocalDateTime{now}.tm();
+  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) -> time_point {
     // Hack to force the mktime to reinterpret the time as is in the system tz
-    tm_now.tm_gmtoff = 0;
-    tm_now.tm_isdst = -1;
-    tm_now.tm_zone = nullptr;
-    const auto tm_next = cron::cron_next(cron, tm_now);
-    // LocalDateTime reads only the date and time values, ignoring the system tz
-    return LocalDateTime{tm_next}.us_since_epoch_;
+    const auto in_system_tz = [](std::tm value) {
+      value.tm_gmtoff = 0;
+      value.tm_isdst = -1;
+      value.tm_zone = nullptr;
+      return value;
+    };
+
+    auto tm_cursor = in_system_tz(LocalDateTime{now}.tm());
+
+    // A repeated hour can map the calendar time a cron names to an instant already gone, which the
+    // worker would not wait for. Each match is later in calendar terms, so the search ends.
+    while (true) {
+      const auto tm_next = cron::cron_next(cron, tm_cursor);
+      if (tm_next.tm_mday == 0) {
+        // croncpp reports no match by returning a zeroed tm, and no calendar time has a zeroth
+        // day. Every other field being zero too is what makes the one field safe to test on, so a
+        // release that reported no match some other way stops here rather than passing it off as a
+        // date.
+        DMG_ASSERT(tm_next.tm_mon == 0 && tm_next.tm_year == 0 && tm_next.tm_hour == 0 && tm_next.tm_min == 0 &&
+                       tm_next.tm_sec == 0,
+                   "croncpp reported no next match for a cron expression in an unrecognised shape");
+        return time_point::max();
+      }
+      const auto next = LocalDateTime{tm_next}.us_since_epoch_;
+      if (next > now) return next;
+      // cron_next normalises its answer through mktime, which fills in the fields cleared above.
+      tm_cursor = in_system_tz(tm_next);
+    }
   };
 }
 
@@ -180,7 +201,15 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       }
     }
 
-    f();
+    // An exception leaving the task would terminate the process, and the schedule outlives any one
+    // execution. Computing the next time, above, is not covered.
+    try {
+      f();
+    } catch (const std::exception &e) {
+      spdlog::error("Scheduled task '{}' failed: {}", service_name, e.what());
+    } catch (...) {
+      spdlog::error("Scheduled task '{}' failed with an unrecognised exception", service_name);
+    }
   }
 }
 
