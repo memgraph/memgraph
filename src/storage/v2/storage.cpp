@@ -108,7 +108,9 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
 #ifdef MG_ENTERPRISE
-  // At most one of the two is set.
+  MG_ASSERT(!config_.durability.recovery_history_bound || !config_.durability.retention_floor,
+            "recovery_history_bound and retention_floor are mutually exclusive");
+  // The bound seeds the floor: what was just recovered must stay recoverable.
   retention_floor_ = config_.durability.recovery_history_bound ? config_.durability.recovery_history_bound
                                                                : config_.durability.retention_floor;
 #endif
