@@ -608,31 +608,19 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
              : std::nullopt;
 }
 
-void RecordWalEpoch(ReplicationStorageState &repl_storage_state, std::string const &epoch_id, uint64_t ldt,
-                    std::string const &db_name) {
-  auto &epoch_history = repl_storage_state.history;
-  if (!epoch_history.empty() && epoch_history.back().first == epoch_id) {
-    epoch_history.back().second = ldt;
-    spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.", epoch_id, ldt);
-  } else {
-    epoch_history.emplace_back(epoch_id, ldt);
-    repl_storage_state.epoch_.SetEpoch(epoch_id);
-    spdlog::trace("Set epoch to {} for db {} with ldt {}", epoch_id, db_name, ldt);
-  }
-}
-
 std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
     utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    std::string const &db_name, memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store
+    std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
 #ifdef MG_ENTERPRISE
-    ,
-    const std::optional<uint64_t> max_delta_timestamp, RecoveryTail *const tail
+    memgraph::storage::DescriptionStore *description_store, std::optional<uint64_t> const recovery_history_bound,
+    RecoveryTail *const tail) {
+#else
+    memgraph::storage::DescriptionStore *description_store) {
 #endif
-) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
@@ -648,7 +636,15 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   if (!maybe_snapshot_files.has_value()) {
     throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
   }
+#ifdef MG_ENTERPRISE
+  // An eligible snapshot that fails to load stays fatal; with none eligible, recovery runs from the WAL chain alone.
+  auto snapshot_files = *maybe_snapshot_files;
+  if (recovery_history_bound) {
+    std::erase_if(snapshot_files, [&](auto const &file) { return file.durable_timestamp > *recovery_history_bound; });
+  }
+#else
   auto const &snapshot_files = *maybe_snapshot_files;
+#endif
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
@@ -663,11 +659,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
     std::optional<RecoveredSnapshot> recovered_snapshot;
-#ifdef MG_ENTERPRISE
-    // An ELIGIBLE snapshot was tried and failed: that is fatal even with a bound (the bound only
-    // permits skipping snapshots that are newer than it, never corrupt ones).
-    bool eligible_snapshot_attempted{false};
-#endif
 
     for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
       auto const &path = snapshot_file.path;
@@ -676,19 +667,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
       }
-#ifdef MG_ENTERPRISE
-      // Snapshots above the bound are skipped, not failed: recovery up to the bound may continue
-      // from the WAL alone.
-      const bool snapshot_is_eligible = !max_delta_timestamp || snapshot_file.durable_timestamp <= *max_delta_timestamp;
-      if (!snapshot_is_eligible) {
-        spdlog::info("Snapshot {} is past the recovery bound ({} > {}).",
-                     path,
-                     snapshot_file.durable_timestamp,
-                     *max_delta_timestamp);
-        continue;
-      }
-      eligible_snapshot_attempted = true;
-#endif
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path,
@@ -709,24 +687,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
       }
     }
-#ifdef MG_ENTERPRISE
-    if (!recovered_snapshot && eligible_snapshot_attempted) {
-      throw RecoveryFailure(
-          "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
-          "database is now in the broken state.");
-    }
-    if (recovered_snapshot) {
-      recovery_info = recovered_snapshot->recovery_info;
-      indices_constraints = std::move(recovered_snapshot->indices_constraints);
-      snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
-      spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
-      repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-      recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
-    } else {
-      // Only reachable with a bound: every snapshot is newer than it, so the state is rebuilt from the WAL alone.
-      spdlog::info("No snapshot at or below the recovery bound, recovering from WAL files only.");
-    }
-#else
     if (!recovered_snapshot) {
       throw RecoveryFailure(
           "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
@@ -738,21 +698,23 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
-#endif
 
     auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
     if (!maybe_wal_files.has_value()) {
       throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
     }
     wal_files = std::move(*maybe_wal_files);
-#ifdef MG_ENTERPRISE
-    if (!snapshot_durable_timestamp && wal_files.empty()) {
-      throw RecoveryFailure("No snapshot at or below the recovery bound and no WAL files to recover from!");
-    }
-#endif
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
+#ifdef MG_ENTERPRISE
+    if (!maybe_snapshot_files->empty()) {
+      if (auto const bounded_wal_files = GetWalFiles(wal_directory_);
+          !bounded_wal_files || bounded_wal_files->empty()) {
+        throw RecoveryFailure("No snapshot at or below the recovery bound and no WAL files to recover from!");
+      }
+    }
+#endif
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
     // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
@@ -819,16 +781,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         throw RecoveryFailure("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
-
 #ifdef MG_ENTERPRISE
-      // A file reaching past the bound is BOTH partially consumed below (deltas above the bound are
-      // skipped, framing/CRC still verified) and recorded in the tail: the first tail file may
-      // contain deltas already applied here, so tail replay must resume from the recovered durable
-      // timestamp. Files starting past the bound belong to the tail only.
-      if (max_delta_timestamp && wal_file.to_timestamp > *max_delta_timestamp && tail) {
-        tail->wal_files.push_back(wal_file.path);
+      // A file straddling the bound is both tailed and loaded up to it, so tail replay resumes from the recovered
+      // durable timestamp; a file wholly past the bound is tail-only.
+      if (recovery_history_bound && wal_file.to_timestamp > *recovery_history_bound) {
+        if (tail) tail->wal_files.push_back(wal_file.path);
+        if (wal_file.from_timestamp > *recovery_history_bound) continue;
       }
-      if (max_delta_timestamp && wal_file.from_timestamp > *max_delta_timestamp) continue;
 #endif
 
       try {
@@ -846,7 +805,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             ttl,
 #ifdef MG_ENTERPRISE
                             description_store,
-                            max_delta_timestamp);
+                            recovery_history_bound);
 #else
                             description_store);
 #endif
@@ -865,8 +824,18 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.num_committed_txns += info->num_committed_txns;
         }
 
-        if (wal_contains_changes)
-          RecordWalEpoch(repl_storage_state, wal_file.epoch_id, *last_loaded_timestamp, db_name);
+        if (wal_contains_changes) {
+          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
+            epoch_history->back().second = *last_loaded_timestamp;
+            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
+                          wal_file.epoch_id,
+                          *last_loaded_timestamp);
+          } else {  // Update history with new epoch that contains new timestamp
+            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+          }
+        }
 
       } catch (const RecoveryFailure &e) {
         throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
