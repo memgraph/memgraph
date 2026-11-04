@@ -27,6 +27,7 @@
 #include <format>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <set>
 #include <string>
@@ -73,17 +74,33 @@ enum class FuzzSymbol : uint8_t {
   Ternary = 15,
 };
 
-/// Dummy analysis for fuzz testing: no facts, no-op merge.
+/// Analysis facts for fuzz testing: which seeded leaves an e-class is known to
+/// contain, one bit each, joined by union when two e-classes merge. A union is
+/// the shape an e-class analysis needs, being associative, commutative and
+/// idempotent, so re-seeding a leaf cannot contradict the fact already kept.
+/// A harness that seeds no facts leaves every mask empty, and the union is then
+/// the no-op merge such a harness expects.
 struct FuzzAnalysis {
-  void merge(FuzzAnalysis const & /*other*/) {}
+  std::uint16_t known_leaves = 0;
+
+  void merge(FuzzAnalysis const &other) {
+    known_leaves = static_cast<std::uint16_t>(known_leaves | other.known_leaves);
+  }
+
+  auto operator==(FuzzAnalysis const &) const -> bool = default;
 };
 
-/// Trait per fuzz symbol. The harness builds e-nodes directly through the core
-/// e-graph, so no symbol mints nodes via `Make<S>`; the trait exists only to
-/// give `FuzzTypedEGraph` the per-symbol storage the wrapper is defined over.
+/// Trait per fuzz symbol. The harness seeds the graph directly through the core
+/// e-graph, but a rule may still mint a node via `Make<S>` (e.g. the
+/// incremental-arming fuzzer's commutativity rule), so the trait supplies a
+/// binary `make`; fuzz symbols carry no storage.
 template <FuzzSymbol S>
 struct fuzz_traits {
   struct storage_type {};
+
+  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<FuzzAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
+  }
 };
 
 using FuzzSeq =
