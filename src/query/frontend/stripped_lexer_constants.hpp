@@ -11,17 +11,13 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
-#include <cstdint>
 #include <initializer_list>
-#include <limits>
-#include <ranges>
-#include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "utils/codepoint_set.hpp"
 
 namespace memgraph::query::lexer_constants {
 
@@ -93,75 +89,9 @@ class Trie {
 
 // All word constants should be lowercase in this file.
 
-constexpr std::size_t kBitsetSize = 65'536;
-
-namespace detail {
-
-using word_t = std::uint64_t;
-constexpr std::size_t kWordBits = std::numeric_limits<word_t>::digits;
-
-/// Packs one word from the characters naming its codepoints, most significant
-/// bit first, which is the order a bit string is written in.
-///
-/// The word is built in a local and stored once by the caller. Setting bits
-/// straight into the array instead costs enough constant-evaluation steps for a
-/// table as wide as these to exceed the compiler's limit.
-constexpr word_t PackWord(std::span<char const, kWordBits> bits) {
-  word_t word = 0;
-  for (char const bit : bits) {
-    if (bit != '0' && bit != '1') {
-      throw std::invalid_argument{"a codepoint set takes only '0' and '1'"};
-    }
-    word = (word << 1U) | static_cast<word_t>(bit == '1');
-  }
-  return word;
-}
-
-/// A set of Unicode codepoints fixed at compile time: one character per
-/// codepoint, '1' for a member. It stands in for `std::bitset`, whose
-/// constructor from a string of bits libstdc++ does not make `constexpr`.
-///
-/// The leading character is the highest codepoint, because `std::bitset`
-/// numbers bits from the end of the string and the tables were written for it.
-/// Reading them the other way round would silently change which characters the
-/// lexer accepts, so a test pins a few codepoints whose membership is known.
-///
-/// Anything other than exactly N characters of '0' and '1' is rejected, which
-/// during constant initialization makes it a build failure.
-template <std::size_t N>
-  requires(N % kWordBits == 0)
-class CodepointSet {
- public:
-  explicit constexpr CodepointSet(std::string_view bits) {
-    if (bits.size() != N) {
-      throw std::invalid_argument{"a codepoint set needs one character per codepoint"};
-    }
-    // The leading characters name the highest codepoints, which the last word
-    // holds, so the words fill in reverse as the string is read forwards.
-    //
-    // Chunking the string with a view would say this more directly and costs
-    // more constant-evaluation steps than the limit allows.
-    std::size_t read = 0;
-    for (word_t &word : words_ | std::views::reverse) {
-      word = PackWord(std::span<char const, kWordBits>{bits.data() + read, kWordBits});
-      read += kWordBits;
-    }
-  }
-
-  bool operator==(CodepointSet const &) const = default;
-
-  /// A codepoint at or above N is not a member, so a caller may ask about any
-  /// codepoint rather than bounding it first.
-  [[nodiscard]] constexpr bool Contains(char32_t codepoint) const {
-    auto const pos = static_cast<std::size_t>(codepoint);
-    return pos < N && ((words_[pos / kWordBits] >> (pos % kWordBits)) & word_t{1}) != 0;
-  }
-
- private:
-  std::array<word_t, N / kWordBits> words_{};
-};
-
-}  // namespace detail
+/// The tables cover the codepoints below this, which is the Basic Multilingual
+/// Plane; anything above it is not a member of any of them.
+constexpr std::size_t kCodepointTableSize = 65'536;
 
 const trie::Trie kKeywords = {"aborting",
                               "active",
@@ -1357,7 +1287,7 @@ inline constexpr std::string_view kUnescapedNameAllowedStartsBits =
                 "0000000000000000000000000000000000000000000000";
 // clang-format on
 
-inline constexpr detail::CodepointSet<kBitsetSize> kUnescapedNameAllowedStarts{kUnescapedNameAllowedStartsBits};
+inline constexpr utils::CodepointSet<kCodepointTableSize> kUnescapedNameAllowedStarts{kUnescapedNameAllowedStartsBits};
 
 // Unicode codepoints that are allowed at the middle of the unescaped name.
 // clang-format off
@@ -2250,7 +2180,7 @@ inline constexpr std::string_view kUnescapedNameAllowedPartsBits =
                 "0000000001000000000000000000000000000000000000";
 // clang-format on
 
-inline constexpr detail::CodepointSet<kBitsetSize> kUnescapedNameAllowedParts{kUnescapedNameAllowedPartsBits};
+inline constexpr utils::CodepointSet<kCodepointTableSize> kUnescapedNameAllowedParts{kUnescapedNameAllowedPartsBits};
 
 // clang-format off
 inline constexpr std::string_view kSpacePartsBits =
@@ -3142,7 +3072,7 @@ inline constexpr std::string_view kSpacePartsBits =
                 "0000000000000111110000000000000011111000000000";
 // clang-format on
 
-inline constexpr detail::CodepointSet<kBitsetSize> kSpaceParts{kSpacePartsBits};
+inline constexpr utils::CodepointSet<kCodepointTableSize> kSpaceParts{kSpacePartsBits};
 
 const trie::Trie kSpecialTokens = {";",
                                    ",",

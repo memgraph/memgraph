@@ -773,9 +773,9 @@ TEST(HashedString, DisambiguatesOnHashCollision) {
 // lexer accepts, and would do it silently.
 template <typename TSet>
 void ExpectMatchesBitset(const TSet &set, std::string_view bits) {
-  ASSERT_EQ(bits.size(), lexer_constants::kBitsetSize);
-  const std::bitset<lexer_constants::kBitsetSize> reference{std::string{bits}};
-  for (size_t pos = 0; pos != lexer_constants::kBitsetSize; ++pos) {
+  ASSERT_EQ(bits.size(), lexer_constants::kCodepointTableSize);
+  const std::bitset<lexer_constants::kCodepointTableSize> reference{std::string{bits}};
+  for (size_t pos = 0; pos != lexer_constants::kCodepointTableSize; ++pos) {
     ASSERT_EQ(set.Contains(static_cast<char32_t>(pos)), reference[pos]) << "codepoint " << pos;
   }
 }
@@ -809,8 +809,8 @@ TEST(StrippedQuery, CodepointTablesHoldTheCodepointsTheyName) {
 // The lexer hands over whatever codepoint it decoded, including the four-byte
 // ones that sit above every table.
 TEST(StrippedQuery, CodepointSetExcludesCodepointsAboveIt) {
-  EXPECT_FALSE(
-      lexer_constants::kUnescapedNameAllowedStarts.Contains(static_cast<char32_t>(lexer_constants::kBitsetSize)));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedStarts.Contains(
+      static_cast<char32_t>(lexer_constants::kCodepointTableSize)));
   EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'\U0001F600'));
   EXPECT_FALSE(lexer_constants::kSpaceParts.Contains(U'\U0010FFFF'));
 }
