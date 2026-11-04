@@ -139,8 +139,7 @@ struct Config {
   bool experimental_commit_lock_narrowing{false};
 #ifdef MG_ENTERPRISE
 
-  // Graph versioning (branches), --experimental-enabled=versioning. Startup-only and per-instance; kept out of
-  // SalientConfig for the same reason as experimental_commit_lock_narrowing.
+  // --experimental-enabled=versioning. Startup-only and per-instance, so deliberately not in SalientConfig.
   bool experimental_versioning{false};
 #endif
 

@@ -11,6 +11,7 @@
 
 #include "gtest/gtest.h"
 
+#include <optional>
 #include <utility>
 
 #include "flags/experimental.hpp"
@@ -23,8 +24,6 @@ using memgraph::versioning::GateErrorMessage;
 using memgraph::versioning::GateOperation;
 using memgraph::versioning::GateState;
 
-// Precedence follows the spec's prerequisites: flag, license, storage mode, durability (first failure wins). Only
-// kCreate needs the license and durability; kObserve (SHOW, USE, DROP) needs neither.
 TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
   for (const auto op : {GateOperation::kObserve, GateOperation::kCreate}) {
     const bool creating = op == GateOperation::kCreate;
@@ -46,13 +45,6 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
       EXPECT_EQ(CheckVersioningGate(op, state), expected) << "creating=" << creating << " bits=" << bits;
     }
   }
-}
-
-TEST(VersioningGate, UnlicensedObserveIsAllowedButCreateIsNot) {
-  const GateState state{
-      .flag_enabled = true, .enterprise_valid = false, .is_in_memory_transactional = true, .durable = true};
-  EXPECT_EQ(CheckVersioningGate(GateOperation::kObserve, state), std::nullopt);
-  EXPECT_EQ(CheckVersioningGate(GateOperation::kCreate, state), GateError::kNoLicense);
 }
 
 TEST(VersioningGate, ErrorMessagesAreExact) {
@@ -92,7 +84,11 @@ TEST(VersioningExperimentalFlag, VersioningIsItsOwnExperimentsBit) {
 
   memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("planner-v2"));
   EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("commit-lock-narrowing"));
+  EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  EXPECT_TRUE(memgraph::flags::AreExperimentsEnabled(Experiments::COMMIT_LOCK_NARROWING));
   memgraph::flags::SetExperimental(memgraph::flags::ReadExperimental("versioning"));
   EXPECT_TRUE(memgraph::flags::AreExperimentsEnabled(Experiments::VERSIONING));
+  EXPECT_FALSE(memgraph::flags::AreExperimentsEnabled(Experiments::COMMIT_LOCK_NARROWING));
   memgraph::flags::SetExperimental(Experiments::NONE);
 }
