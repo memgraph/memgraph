@@ -400,8 +400,8 @@ class Handler {
     }
   }
 
-  // Must be noexcept: utils::Scheduler invokes the job without catching exceptions,
-  // so an uncaught exception would call std::terminate on the jthread.
+  // noexcept even though the scheduler logs and continues past a task that throws: a drain failure
+  // is then contained here rather than resting on what the caller happens to catch.
   void Tick_() noexcept {
     try {
       // Snapshot iterators under the lock; heavy per-node work runs lock-free.
