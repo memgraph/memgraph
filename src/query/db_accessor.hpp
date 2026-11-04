@@ -1214,11 +1214,11 @@ class SubgraphDbAccessor final {
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
 
-  Graph *getGraph();
+  Graph *getGraph() { return graph_; }
 
-  storage::StorageMode GetStorageMode() const noexcept;
+  storage::StorageMode GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
 
-  DbAccessor *GetAccessor();
+  DbAccessor *GetAccessor() { return &db_accessor_; }
 };
 
 class VirtualGraphDbAccessor final {
@@ -1246,11 +1246,11 @@ class VirtualGraphDbAccessor final {
 
   [[nodiscard]] std::shared_ptr<const VirtualNode> FindNode(storage::Gid synthetic_gid) const;
 
-  [[nodiscard]] VirtualGraph *getGraph() const;
+  [[nodiscard]] VirtualGraph *getGraph() const { return graph_; }
 
-  storage::StorageMode GetStorageMode() const noexcept;
+  storage::StorageMode GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
 
-  DbAccessor *GetAccessor();
+  DbAccessor *GetAccessor() { return &db_accessor_; }
 };
 
 }  // namespace memgraph::query
