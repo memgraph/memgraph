@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "dbms/inmemory/history_replay.hpp"
 
 #include <algorithm>
@@ -80,3 +82,4 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
 }
 
 }  // namespace memgraph::dbms
+#endif
