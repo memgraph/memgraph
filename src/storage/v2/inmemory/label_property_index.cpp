@@ -524,7 +524,7 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
               "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
               "passes none. The trailing callback reports progress and cannot stop the build.");
   }
-  return PublishIndex(label, properties, 0, order);
+  return PublishIndex(label, properties, kInitialCommitTimestamp, order);
 }
 
 namespace {
@@ -660,7 +660,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 }
 
 bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,
-                                              uint64_t commit_timestamp, IndexOrder order) {
+                                              CommitTimestamp commit_timestamp, IndexOrder order) {
   auto publish = [&](auto const &index) {
     if (!index) return false;
     index->Publish(commit_timestamp, gauge_);
@@ -671,9 +671,9 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 }
 
 template <typename EntryT>
-void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(uint64_t commit_timestamp,
+void InMemoryLabelPropertyIndex::IndividualIndex<EntryT>::Publish(CommitTimestamp commit_timestamp,
                                                                   metrics::GaugeHandle gauge) {
-  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
+  status.Commit(commit_timestamp);
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 

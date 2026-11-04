@@ -173,7 +173,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+    void Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
@@ -238,7 +238,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
 
-  bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
+  bool PublishIndex(EdgeTypeId edge_type, CommitTimestamp commit_timestamp);
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
   [[nodiscard]] auto DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater)

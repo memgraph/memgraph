@@ -1985,8 +1985,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
 
   // Wrapper will make sure plan cache is cleared
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
+    return mem_label_index->PublishIndex(label, CommitTimestamp::FromUint(commit_timestamp));
+  });
 
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.abort_callbacks_.Add(
@@ -2026,7 +2027,8 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
-    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp, order);
+    return mem_label_property_index->PublishIndex(
+        label, properties, CommitTimestamp::FromUint(commit_timestamp), order);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.abort_callbacks_.Add([mem_label_property_index, label, properties, updater, order]() {
@@ -2069,8 +2071,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
+    return mem_edge_type_index->PublishIndex(edge_type, CommitTimestamp::FromUint(commit_timestamp));
+  });
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.abort_callbacks_.Add(
       [mem_edge_type_index, edge_type, updater]() { (void)mem_edge_type_index->DropIndex(edge_type, updater); });
@@ -2105,7 +2108,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
-    return mem_edge_type_property_index->PublishIndex(edge_type, property, commit_timestamp);
+    return mem_edge_type_property_index->PublishIndex(edge_type, property, CommitTimestamp::FromUint(commit_timestamp));
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.abort_callbacks_.Add([mem_edge_type_property_index, edge_type, property, updater]() {
@@ -2139,8 +2142,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
+    return mem_edge_property_index->PublishIndex(property, CommitTimestamp::FromUint(commit_timestamp));
+  });
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.abort_callbacks_.Add(
       [mem_edge_property_index, property, updater]() { (void)mem_edge_property_index->DropIndex(property, updater); });
@@ -2172,8 +2176,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
-  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
-      [=](uint64_t commit_timestamp) { return mem_vertex_property_index->PublishIndex(property, commit_timestamp); });
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
+    return mem_vertex_property_index->PublishIndex(property, CommitTimestamp::FromUint(commit_timestamp));
+  });
   transaction_.commit_callbacks_.Add(std::move(publisher));
   transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater]() {
     (void)mem_vertex_property_index->DropIndex(property, updater);
@@ -2554,7 +2559,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
   auto publisher = [existence_constraints, label, property, updater](uint64_t commit_ts) {
-    existence_constraints->PublishConstraint(label, property, commit_ts);
+    existence_constraints->PublishConstraint(label, property, CommitTimestamp::FromUint(commit_ts));
     updater(existence_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
@@ -2621,7 +2626,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
   auto publisher = [mem_unique_constraints, label, properties, updater](uint64_t commit_ts) {
-    mem_unique_constraints->PublishConstraint(label, properties, commit_ts);
+    mem_unique_constraints->PublishConstraint(label, properties, CommitTimestamp::FromUint(commit_ts));
     updater(mem_unique_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
@@ -2691,7 +2696,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
   // Defer publication to commit time for MVCC correctness
   auto updater = in_memory->constraints_.MakeUpdater();
   auto publisher = [type_constraints, label, property, kind, updater](uint64_t commit_ts) {
-    type_constraints->PublishConstraint(label, property, kind, commit_ts);
+    type_constraints->PublishConstraint(label, property, kind, CommitTimestamp::FromUint(commit_ts));
     updater(type_constraints->GetActiveConstraints());
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));

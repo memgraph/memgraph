@@ -114,7 +114,7 @@ class ExistenceConstraints {
 
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
   /// Returns true on success, false if constraint not found.
-  bool PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const;
+  bool PublishConstraint(LabelId label, PropertyId property, CommitTimestamp commit_timestamp) const;
 
   /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
   /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint

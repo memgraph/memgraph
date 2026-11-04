@@ -2412,7 +2412,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
   // Disk storage uses UNIQUE access so no MVCC needed
   // We already verified !ConstraintRegistered above, so RegisterConstraint will succeed
   [[maybe_unused]] const bool registered = existence_constraints->RegisterConstraint(label, property);
-  existence_constraints->PublishConstraint(label, property, kTimestampInitialId);
+  existence_constraints->PublishConstraint(label, property, kInitialCommitTimestamp);
   auto updater = on_disk->constraints_.MakeUpdater();
   updater(existence_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);

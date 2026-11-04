@@ -24,5 +24,8 @@ constexpr uint64_t kTransactionInitialId = 1ULL << 63U;
 /// IsVisible(commit_ts) returns true for every committed entry and false for
 /// the kPopulating sentinel (which equals kTransactionInitialId).
 constexpr CommitTimestamp kLargestCommittedTimestamp = CommitTimestamp::FromUint(kTransactionInitialId - 1);
+/// Where the commit-timestamp space begins. Recovery publishes a schema object at it so that every
+/// transaction sees it, there being no earlier boundary to read at.
+constexpr CommitTimestamp kInitialCommitTimestamp = CommitTimestamp::FromUint(kTimestampInitialId);
 
 }  // namespace memgraph::storage

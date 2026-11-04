@@ -839,7 +839,8 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
 
   TypeConstraints type_constraints;
   ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
-  type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
+  type_constraints.PublishConstraint(
+      label, prop, TypeConstraintKind::INTEGER, memgraph::storage::CommitTimestamp::FromUint(1));
   ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), on_progress).has_value());
 }
 
@@ -869,6 +870,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
 
   TypeConstraints type_constraints;
   ASSERT_TRUE(type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER));
-  type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
+  type_constraints.PublishConstraint(
+      label, prop, TypeConstraintKind::INTEGER, memgraph::storage::CommitTimestamp::FromUint(1));
   ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), on_progress).has_value());
 }

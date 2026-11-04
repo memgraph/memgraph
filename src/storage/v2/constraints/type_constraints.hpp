@@ -91,7 +91,7 @@ class TypeConstraints {
       -> std::expected<void, ConstraintViolation>;
 
   [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
-  void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type, uint64_t commit_timestamp);
+  void PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type, CommitTimestamp commit_timestamp);
 
   /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
   /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint

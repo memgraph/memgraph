@@ -81,7 +81,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     explicit IndividualConstraint() : skiplist{} {}
 
     ~IndividualConstraint();
-    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+    void Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
@@ -150,7 +150,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
       -> std::expected<CreationStatus, ConstraintViolation>;
 
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
-  bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
+  bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, CommitTimestamp commit_timestamp);
 
   /// Drops a constraint. Returns the evicted IndividualConstraint so the caller
   /// can reinstall it via RestoreConstraint on abort, alongside the deletion

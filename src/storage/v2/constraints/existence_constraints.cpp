@@ -111,13 +111,14 @@ bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property
   return InstallConstraint_(label, property, std::make_shared<IndividualConstraint>());
 }
 
-bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const {
+bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
+                                             CommitTimestamp commit_timestamp) const {
   auto constraint = GetIndividualConstraint(label, property);
   if (!constraint) [[unlikely]] {
     DMG_ASSERT(false, "Existence constraint not found during publish");
     return false;
   }
-  constraint->status.Commit(CommitTimestamp::FromUint(commit_timestamp));
+  constraint->status.Commit(commit_timestamp);
   constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
   return true;
 }
@@ -193,7 +194,7 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
       auto [it, inserted] = new_constraints->emplace(constraint_key, std::make_shared<IndividualConstraint>());
       if (inserted) {
         // Immediately commit with timestamp 0 so constraint is visible to all transactions
-        it->second->status.Commit(CommitTimestamp::FromUint(kTimestampInitialId));
+        it->second->status.Commit(kInitialCommitTimestamp);
       }
     }
     constraints = std::move(new_constraints);

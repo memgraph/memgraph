@@ -125,8 +125,9 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, Vertex *&current_vertex,
 
 InMemoryVertexPropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
-void InMemoryVertexPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status_.Commit(CommitTimestamp::FromUint(commit_timestamp));
+void InMemoryVertexPropertyIndex::IndividualIndex::Publish(CommitTimestamp commit_timestamp,
+                                                           metrics::GaugeHandle gauge) {
+  status_.Commit(commit_timestamp);
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -150,7 +151,7 @@ bool InMemoryVertexPropertyIndex::RegisterIndex(PropertyId property, ActiveIndic
   });
 }
 
-bool InMemoryVertexPropertyIndex::PublishIndex(PropertyId property, uint64_t commit_timestamp) {
+bool InMemoryVertexPropertyIndex::PublishIndex(PropertyId property, CommitTimestamp commit_timestamp) {
   auto index = GetIndividualIndex(property);
   if (!index) return false;
   index->Publish(commit_timestamp, gauge_);
@@ -169,7 +170,7 @@ bool InMemoryVertexPropertyIndex::CreateIndexOnePass(
               "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
               "passes none. The trailing callback reports progress and cannot stop the build.");
   }
-  return PublishIndex(property, 0);
+  return PublishIndex(property, kInitialCommitTimestamp);
 }
 
 auto InMemoryVertexPropertyIndex::PopulateIndex(

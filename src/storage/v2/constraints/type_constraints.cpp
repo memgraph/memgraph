@@ -192,7 +192,7 @@ bool TypeConstraints::RegisterConstraint(LabelId label, PropertyId property, Typ
 }
 
 void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type,
-                                        uint64_t commit_timestamp) {
+                                        CommitTimestamp commit_timestamp) {
   // Get the individual constraint for in-place status modification
   auto constraint = GetIndividualConstraint(label, property);
   if (!constraint) [[unlikely]] {
@@ -217,7 +217,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
   });
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
-  constraint->status.Commit(CommitTimestamp::FromUint(commit_timestamp));
+  constraint->status.Commit(commit_timestamp);
   constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
 }
 

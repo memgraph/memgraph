@@ -207,7 +207,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     explicit IndividualIndex() : skiplist{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+    void Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
@@ -299,7 +299,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                      ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
-  bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);
+  bool PublishIndex(EdgeTypeId edge_type, PropertyId property, CommitTimestamp commit_timestamp);
 
   void RunGC();
 

@@ -70,7 +70,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     explicit IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
-    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+    void Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge);
 
     utils::SkipListDb<Entry> skip_list_;
     IndexStatus status_{};
@@ -285,7 +285,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                      ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
-  bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
+  bool PublishIndex(PropertyId property, CommitTimestamp commit_timestamp);
 
   /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
   [[nodiscard]] auto DropIndex(PropertyId property, ActiveIndicesUpdater const &updater)

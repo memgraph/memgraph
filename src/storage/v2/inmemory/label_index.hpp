@@ -53,7 +53,7 @@ class InMemoryLabelIndex : public LabelIndex {
     explicit IndividualIndex() : skiplist{} {}
 
     ~IndividualIndex() = default;
-    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+    void Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge);
     utils::SkipListDb<Entry> skiplist;
     IndexStatus status{};
     metrics::ScopedGauge gauge_{};
@@ -230,7 +230,7 @@ class InMemoryLabelIndex : public LabelIndex {
                      ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> std::expected<void, IndexPopulateError>;
-  bool PublishIndex(LabelId label, uint64_t commit_timestamp);
+  bool PublishIndex(LabelId label, CommitTimestamp commit_timestamp);
 
   void RunGC();
 

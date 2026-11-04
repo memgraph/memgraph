@@ -201,15 +201,17 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
   });
 }
 
-bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
+bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property,
+                                                 CommitTimestamp commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
   index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
+void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(CommitTimestamp commit_timestamp,
+                                                             metrics::GaugeHandle gauge) {
+  status.Commit(commit_timestamp);
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -225,7 +227,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
               "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
               "passes none. The trailing callback reports progress and cannot stop the build.");
   }
-  return PublishIndex(edge_type, property, 0);
+  return PublishIndex(edge_type, property, kInitialCommitTimestamp);
 }
 
 auto InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property,

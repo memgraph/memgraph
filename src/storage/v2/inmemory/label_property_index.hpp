@@ -98,7 +98,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         : permutations_helper(std::move(permutations_helper)), skiplist{} {}
 
     ~IndividualIndex() = default;
-    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+    void Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge);
 
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipListDb<EntryT> skiplist{};
@@ -280,7 +280,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                      IndexOrder order = IndexOrder::ASC, Transaction const *tx = nullptr,
                      CheckCancelFunction cancel_check = neverCancel) -> std::expected<void, IndexPopulateError>;
 
-  bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp,
+  bool PublishIndex(LabelId label, PropertiesPaths const &properties, CommitTimestamp commit_timestamp,
                     IndexOrder order = IndexOrder::ASC);
 
   template <typename EntryT = Entry<>>

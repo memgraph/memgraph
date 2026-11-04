@@ -319,8 +319,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 
 // --- IndividualConstraint implementation ---
 
-void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
+void InMemoryUniqueConstraints::IndividualConstraint::Publish(CommitTimestamp commit_timestamp,
+                                                              metrics::GaugeHandle gauge) {
+  status.Commit(commit_timestamp);
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -602,7 +603,7 @@ auto InMemoryUniqueConstraints::CreateConstraint(
 }
 
 bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                                  uint64_t commit_timestamp) {
+                                                  CommitTimestamp commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
   constraint->Publish(commit_timestamp, gauge_);

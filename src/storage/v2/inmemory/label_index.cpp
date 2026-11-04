@@ -85,15 +85,15 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
       });
 }
 
-auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
+auto InMemoryLabelIndex::PublishIndex(LabelId label, CommitTimestamp commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
   index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
-  status.Commit(CommitTimestamp::FromUint(commit_timestamp));
+void InMemoryLabelIndex::IndividualIndex::Publish(CommitTimestamp commit_timestamp, metrics::GaugeHandle gauge) {
+  status.Commit(commit_timestamp);
   gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
@@ -208,7 +208,7 @@ bool InMemoryLabelIndex::CreateIndexOnePass(
               "CreateIndexOnePass never cancels: population only fails via a cancel check, and this entry point "
               "passes none. The trailing callback reports progress and cannot stop the build.");
   }
-  return PublishIndex(label, 0);
+  return PublishIndex(label, kInitialCommitTimestamp);
 }
 
 void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
