@@ -3174,6 +3174,7 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
     }
     // Self-pin lives as long as this accessor; released in Abort / the empty-delta commit path.
     version_fork_pins_.insert(fork_ts);
+    oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
   }
   // Undo the self-pin if no accessor is returned: no Abort() will run to release it.
   bool self_pin_transferred = false;
