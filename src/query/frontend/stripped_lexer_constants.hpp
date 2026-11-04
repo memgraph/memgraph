@@ -17,7 +17,7 @@
 #include <string_view>
 #include <vector>
 
-#include "utils/codepoint_set.hpp"
+#include "utils/constexpr_bitset.hpp"
 
 namespace memgraph::query::lexer_constants {
 
@@ -1287,7 +1287,8 @@ inline constexpr std::string_view kUnescapedNameAllowedStartsBits =
                 "0000000000000000000000000000000000000000000000";
 // clang-format on
 
-inline constexpr utils::CodepointSet<kCodepointTableSize> kUnescapedNameAllowedStarts{kUnescapedNameAllowedStartsBits};
+inline constexpr utils::ConstexprBitset<kCodepointTableSize> kUnescapedNameAllowedStarts{
+    kUnescapedNameAllowedStartsBits};
 
 // Unicode codepoints that are allowed at the middle of the unescaped name.
 // clang-format off
@@ -2180,7 +2181,7 @@ inline constexpr std::string_view kUnescapedNameAllowedPartsBits =
                 "0000000001000000000000000000000000000000000000";
 // clang-format on
 
-inline constexpr utils::CodepointSet<kCodepointTableSize> kUnescapedNameAllowedParts{kUnescapedNameAllowedPartsBits};
+inline constexpr utils::ConstexprBitset<kCodepointTableSize> kUnescapedNameAllowedParts{kUnescapedNameAllowedPartsBits};
 
 // clang-format off
 inline constexpr std::string_view kSpacePartsBits =
@@ -3072,7 +3073,7 @@ inline constexpr std::string_view kSpacePartsBits =
                 "0000000000000111110000000000000011111000000000";
 // clang-format on
 
-inline constexpr utils::CodepointSet<kCodepointTableSize> kSpaceParts{kSpacePartsBits};
+inline constexpr utils::ConstexprBitset<kCodepointTableSize> kSpaceParts{kSpacePartsBits};
 
 const trie::Trie kSpecialTokens = {";",
                                    ",",

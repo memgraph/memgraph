@@ -510,8 +510,8 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(utils_codepoint_set
-    SOURCES utils_codepoint_set.cpp
+add_unit_test(utils_constexpr_bitset
+    SOURCES utils_constexpr_bitset.cpp
     LINK_TARGETS mg-utils
 )
 
