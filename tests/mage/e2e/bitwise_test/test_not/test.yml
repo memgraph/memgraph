@@ -1,0 +1,5 @@
+query: >
+  RETURN bitwise.op(60, '~', 0) AS symbol, bitwise.op(60, 'NOT', 12345) AS word;
+output:
+  - symbol: -61
+    word: -61

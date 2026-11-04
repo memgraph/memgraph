@@ -1,0 +1,6 @@
+query: >
+  RETURN bitwise.op(60, 'and', 13) AS lower, bitwise.op(60, 'And', 13) AS mixed, bitwise.op(-1, 'Right Shift Unsigned', 60) AS words;
+output:
+  - lower: 12
+    mixed: 12
+    words: 15

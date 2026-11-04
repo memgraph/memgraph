@@ -1,0 +1,5 @@
+query: >
+  RETURN bitwise.op(60, '<<', 2) AS symbol, bitwise.op(60, 'LEFT SHIFT', 2) AS word;
+output:
+  - symbol: 240
+    word: 240
