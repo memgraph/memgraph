@@ -19,7 +19,7 @@
 
 namespace memgraph::versioning {
 
-enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable, kCommitLockNarrowing };
+enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable };
 
 // Unlicensed branches are read and drop only, so only kCreate needs the license (and durable branches); branch writes
 // are checked in AccessorCompliance. SHOW, USE, USING and DROP are kObserve.
@@ -30,11 +30,10 @@ struct GateState {
   bool enterprise_valid;
   bool is_in_memory_transactional;
   bool durable;
-  bool commit_lock_narrowing;
 };
 
 // Returns std::nullopt when `op` is allowed. First failure wins: flag, license (kCreate only), storage mode,
-// durability (kCreate only), commit-lock narrowing. The replica refusal is checked by the caller afterwards.
+// durability (kCreate only). The replica refusal is checked by the caller afterwards.
 // Takes primitives so it is callable without Storage or license machinery.
 std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state);
 
