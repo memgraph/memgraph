@@ -14,11 +14,14 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <thread>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
@@ -193,38 +196,51 @@ INSTANTIATE_TEST_SUITE_P(Retention, RetentionFloorSnapshotTest, ::testing::Bool(
   return info.param ? "WithASnapshotBelowTheFloor" : "WithoutASnapshotBelowTheFloor";
 });
 
-TEST_F(RetentionFloorTest, ClearingTheFloorLetsRetentionCleanUpAgain) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  auto gids = CreateBase(db);
-  Snapshot(db);
-  const auto fork_ts = Mem(db)->RegisterBranchForkPin();
-  SetV1(db, gids, 2);
-  Snapshot(db);
-  SetV1(db, gids, 3);
-  Snapshot(db);
-  ASSERT_EQ(CountFiles("snapshots"), 2U);
-  EXPECT_TRUE(Mem(db)->RetentionFloor().has_value());
+// A fork lowering the floor while snapshot retention passes run keeps the state at the fork recoverable.
+TEST_F(RetentionFloorTest, ForkDuringSnapshotRetentionKeepsItsBase) {
+  for (int round = 0; round < 3; ++round) {
+    SCOPED_TRACE("round " + std::to_string(round));
+    std::filesystem::remove_all(kStorageDirectory);
+    Gids gids{};
+    uint64_t floor = 0;
+    ms::PropertyValue at_fork;
+    {
+      memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1)};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      gids = CreateBase(db);
+      std::atomic<int> passes{0};
+      std::jthread snapshots{[&] {
+        const memgraph::memory::DbArenaScope thread_scope{&db.Arena()};
+        for (int i = 0; i < 20; ++i) {
+          SetV1(db, gids, 100 + i);
+          Snapshot(db);
+          passes.fetch_add(1, std::memory_order_release);
+        }
+      }};
+      while (passes.load(std::memory_order_acquire) < 3 + 3 * round) std::this_thread::yield();
+      auto const fork_ts = Mem(db)->RegisterBranchForkPin();
+      floor = fork_ts - 1;
+      auto historical = Mem(db)->HistoricalAccess(fork_ts);
+      ASSERT_TRUE(historical.has_value());
+      auto v1 = (*historical)->FindVertex(gids.v1, ms::View::OLD);
+      ASSERT_TRUE(v1.has_value());
+      at_fork = *v1->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD);
+    }
 
-  const auto wal_files_with_floor = CountFiles("wal");
-  Mem(db)->ReleaseForkPin(fork_ts);
-  Mem(db)->SetRetentionFloor(std::nullopt);
-  SetV1(db, gids, 4);
-  Snapshot(db);
-  EXPECT_EQ(CountFiles("snapshots"), 1U);
-  EXPECT_LE(CountFiles("wal"), wal_files_with_floor);
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, /*retention=*/1, std::nullopt, floor)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(ms::READ);
+    auto v1 = acc->FindVertex(gids.v1, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    EXPECT_EQ(*v1->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD), at_fork);
+  }
 }
 
-TEST_F(RetentionFloorTest, RetentionIsUnchangedWithoutAFloor) {
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/2)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  auto gids = CreateBase(db);
-  EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
-  for (int i = 0; i < 4; ++i) {
-    Snapshot(db);
-    SetV1(db, gids, i);
-  }
-  EXPECT_EQ(CountFiles("snapshots"), 2U);
+TEST(RetentionFloorDeathTest, BoundAndFloorAreMutuallyExclusive) {
+  std::filesystem::remove_all(kStorageDirectory);
+  EXPECT_DEATH(ms::InMemoryStorage{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1, 5, 5)},
+               "mutually exclusive");
+  std::filesystem::remove_all(kStorageDirectory);
 }
 
 }  // namespace

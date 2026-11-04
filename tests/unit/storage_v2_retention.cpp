@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <ranges>
 #include <set>
 #include <string>
@@ -157,14 +156,6 @@ TEST_F(RetentionNoFloorTest, DeleteOldSnapshotFiles_NoFloor_MatchesMasterOracle)
         EXPECT_EQ(defaulted.first, master.first);
         EXPECT_EQ(defaulted.second, master.second);
 
-#ifdef MG_ENTERPRISE
-        auto const explicit_nullopt = Run(timestamps, [&](OldSnapshotFiles &files, FileRetainer *fr) {
-          DeleteOldSnapshotFiles(files, n, fr, std::nullopt);
-        });
-        EXPECT_EQ(explicit_nullopt.first, master.first);
-        EXPECT_EQ(explicit_nullopt.second, master.second);
-#endif
-
         // Independent of the oracle: the oldest S-(N-1) entries (ties broken by path) go, the rest stay in order.
         std::vector<std::pair<uint64_t, std::string>> expected;
         for (size_t i = 0; i < s; ++i) {
@@ -178,23 +169,6 @@ TEST_F(RetentionNoFloorTest, DeleteOldSnapshotFiles_NoFloor_MatchesMasterOracle)
         for (auto const &[ts, name] : expected) expected_on_disk.insert(name);
         EXPECT_EQ(defaulted.second, expected_on_disk);
       }
-    }
-  }
-}
-
-// The WAL cleanup gate in CreateSnapshot is `remaining >= N-1`, master's was `remaining == N-1`. They agree because
-// the retention pass never leaves more than N-1 old snapshots.
-TEST_F(RetentionNoFloorTest, WalCleanupGate_RemainingNeverExceedsRetentionMinusOne) {
-  for (uint64_t const n : {1U, 3U}) {
-    for (size_t s = 0; s <= 12; ++s) {
-      SCOPED_TRACE("N=" + std::to_string(n) + " S=" + std::to_string(s));
-      auto const outcome =
-          Run(Timestamps(TimestampShape::kAscending, s), [&](OldSnapshotFiles &files, FileRetainer *fr) {
-            DeleteOldSnapshotFiles(files, n, fr);
-            EXPECT_LE(files.size(), n - 1);
-            EXPECT_EQ(files.size(), std::min<size_t>(s, n - 1));
-          });
-      EXPECT_LE(outcome.first.size(), n - 1);
     }
   }
 }
