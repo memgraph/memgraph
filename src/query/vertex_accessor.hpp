@@ -105,8 +105,10 @@ class VertexAccessor final {
     return impl_.GetPropertySize(key, view);
   }
 
-  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
+  // The Bolt encoder omits these properties when asked to.
   std::vector<storage::PropertyId> VectorIndexedProperties(std::span<storage::LabelId const> labels) const {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVectorIndexedProperties(labels);
     return impl_.VectorIndexedProperties(labels);
   }
 #else
@@ -243,6 +245,8 @@ class VertexAccessor final {
   storage::Result<storage::PropertyValue> BranchGetProperty(storage::View view, storage::PropertyId key) const;
   storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
   storage::Result<size_t> BranchDegree(storage::EdgeDirection direction, storage::View view) const;
+  // A vertex in the diff engine (branch-native or a stub) reads main's vector indexes: the diff engine mirrors none.
+  std::vector<storage::PropertyId> BranchVectorIndexedProperties(std::span<storage::LabelId const> labels) const;
 
   // Branch writes: a fork vertex is written in the overlay by gid (impl_ stays the fork accessor), a branch-native one
   // in the diff engine. A write to a vertex this branch deleted throws QueryRuntimeException.

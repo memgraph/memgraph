@@ -64,8 +64,12 @@ class EdgeAccessor final {
     return impl_.GetPropertySize(key, view);
   }
 
-  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
-  std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
+  // The Bolt encoder omits these properties when asked to.
+  std::vector<storage::PropertyId> VectorIndexedProperties() const {
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVectorIndexedProperties();
+    return impl_.VectorIndexedProperties();
+  }
 #else
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
@@ -162,6 +166,8 @@ class EdgeAccessor final {
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchProperties(storage::View view) const;
   storage::Result<storage::PropertyValue> BranchGetProperty(storage::View view, storage::PropertyId key) const;
   storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
+  // A branch-native edge reads main's vector edge indexes: the diff engine mirrors none.
+  std::vector<storage::PropertyId> BranchVectorIndexedProperties() const;
 
   // Branch writes: a fork edge is written in its overlay version by gid (impl_ stays the fork accessor), a
   // branch-native one in the diff engine. A write to a fork edge hidden on the branch throws QueryRuntimeException.

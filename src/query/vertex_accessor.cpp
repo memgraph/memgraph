@@ -23,6 +23,8 @@
 #include <vector>
 
 #include "query/exceptions.hpp"
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "versioning/branch_change_kind.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/vertex_overlay.hpp"
@@ -206,6 +208,12 @@ storage::Result<size_t> VertexAccessor::BranchDegree(storage::EdgeDirection dire
   auto const count = branch_ctx_->ResolveEdges(Gid(), direction, view, &vertex_deleted).size();
   if (vertex_deleted) return std::unexpected{storage::Error::DELETED_OBJECT};
   return count;
+}
+
+std::vector<storage::PropertyId> VertexAccessor::BranchVectorIndexedProperties(
+    std::span<storage::LabelId const> labels) const {
+  if (impl_.storage_ != &branch_ctx_->diff_engine()) return impl_.VectorIndexedProperties(labels);
+  return branch_ctx_->historical().GetTransaction()->active_indices_->vector_->IndexedProperties(labels);
 }
 
 // A delete flags the deleted vertex, so it takes ResolveEdges; its neighbours are not flagged, so the fast path filters
