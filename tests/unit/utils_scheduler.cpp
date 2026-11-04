@@ -10,13 +10,23 @@
 // licenses/APL.txt.
 
 #include <fmt/format.h>
+#include <spdlog/sinks/base_sink.h>
 #include "gtest/gtest.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 #include "tests/unit/timezone_handler.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/temporal.hpp"
 
@@ -427,12 +437,58 @@ TEST(Scheduler, CronNextExecutionIsNeverDueAcrossAFallback) {
   scheduler.SetInterval("0 30 2 * * *");
 
   const auto day = sys_days{2026y / October / 25};
-  for (const auto offset : {0min, 45min, 65min, 75min, 89min, 95min, 125min}) {
+  const auto first_pass = time_point_cast<system_clock::duration>(day + 30min);
+  const auto next_day = time_point_cast<system_clock::duration>(sys_days{2026y / October / 26} + 90min);
+
+  // Naming the instant is what distinguishes the two ways of never being due. Before the repeated
+  // hour the schedule is still ahead, at its earlier reading; from inside it the answer is the
+  // following day, so the hour's second 02:30 is skipped rather than run late. That skip is a
+  // known limitation: recovering it needs a search over both readings, which choosing the later
+  // one does not give.
+  const auto expected = {std::pair{0min, first_pass},
+                         std::pair{45min, next_day},
+                         std::pair{65min, next_day},
+                         std::pair{75min, next_day},
+                         std::pair{89min, next_day},
+                         std::pair{95min, next_day},
+                         std::pair{125min, next_day}};
+
+  for (const auto &[offset, want] : expected) {
     const auto now = time_point_cast<system_clock::duration>(day + offset);
     const auto next = scheduler.NextExecution(now);
     ASSERT_TRUE(next.has_value()) << "no next execution at UTC midnight +" << offset.count() << " min";
     EXPECT_GT(*next, now) << "at UTC midnight +" << offset.count() << " min";
+    EXPECT_EQ(*next, want) << "at UTC midnight +" << offset.count() << " min";
   }
+}
+
+// Rome advances 02:00 to 03:00 local on this date, so the 02:30 this expression names does not
+// occur. The counterpart of the fallback case: there the named time happens twice, here not at all.
+TEST(Scheduler, CronNextExecutionIsNeverDueAcrossASpringForward) {
+  using namespace std::chrono;
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval("0 30 2 * * *");
+
+  const auto day = sys_days{2026y / March / 29};
+  const auto transition = time_point_cast<system_clock::duration>(day + 1h);
+
+  for (const auto offset : {0min, 30min, 55min, 65min, 95min, 125min}) {
+    const auto now = time_point_cast<system_clock::duration>(day + offset);
+    const auto next = scheduler.NextExecution(now);
+    ASSERT_TRUE(next.has_value()) << "no next execution at UTC midnight +" << offset.count() << " min";
+    EXPECT_GT(*next, now) << "at UTC midnight +" << offset.count() << " min";
+    // A day the expression cannot name costs at most that day. Which of the two answers comes back
+    // depends on how far into the skipped hour the search starts, because croncpp normalises each
+    // candidate through mktime, so only the bound is asserted per offset.
+    EXPECT_LE(*next, now + 25h) << "at UTC midnight +" << offset.count() << " min";
+  }
+
+  // Asked before the hour goes missing, the schedule answers with the instant the clocks move,
+  // which is where a calendar time inside the gap resolves to.
+  EXPECT_EQ(scheduler.NextExecution(time_point_cast<system_clock::duration>(day)), transition);
 }
 
 // The 30th of February passes validation, since each field is in range on its own, and matches nothing.
@@ -511,14 +567,48 @@ TEST(Scheduler, TimeDrift) {
   scheduler.Stop();
 }
 
-// A regression aborts this binary. A death test instead forks a process with threads and cannot join them.
-TEST(Scheduler, ThrowingTaskKeepsSchedulerRunning) {
+namespace {
+// Keeps the payload of every message logged while it is installed. The scheduler logs from its own
+// thread, so reading what it wrote needs its own lock rather than the sink's.
+class CapturingSink : public spdlog::sinks::base_sink<std::mutex> {
+ public:
+  std::vector<std::string> Messages() const {
+    auto guard = std::lock_guard{messages_mutex_};
+    return messages_;
+  }
+
+ protected:
+  void sink_it_(const spdlog::details::log_msg &msg) override {
+    auto guard = std::lock_guard{messages_mutex_};
+    messages_.emplace_back(msg.payload.data(), msg.payload.size());
+  }
+
+  void flush_() override {}
+
+ private:
+  mutable std::mutex messages_mutex_;
+  std::vector<std::string> messages_;
+};
+
+// Runs a task that always throws until it has been seen to run more than once, and returns what the
+// scheduler logged meanwhile. A regression aborts this binary: a death test would instead fork a
+// process that has threads and cannot join them.
+std::vector<std::string> LogsWhileATaskKeepsFailing(const std::string &service_name,
+                                                    const std::function<void()> &throw_something) {
+  auto sink = std::make_shared<CapturingSink>();
+  auto previous_logger = spdlog::default_logger();
+  auto logger = std::make_shared<spdlog::logger>("scheduler_test", sink);
+  logger->set_level(spdlog::level::trace);
+  spdlog::set_default_logger(logger);
+  const memgraph::utils::OnScopeExit restore_logger(
+      [&previous_logger] { spdlog::set_default_logger(previous_logger); });
+
   std::atomic<int> runs{0};
   memgraph::utils::Scheduler scheduler;
   scheduler.SetInterval(std::chrono::milliseconds(50));
-  scheduler.Run("Throwing", [&runs] {
+  scheduler.Run(service_name, [&runs, &throw_something] {
     ++runs;
-    throw memgraph::utils::BasicException("scheduled task failed");
+    throw_something();
   });
 
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -528,5 +618,32 @@ TEST(Scheduler, ThrowingTaskKeepsSchedulerRunning) {
   scheduler.Stop();
 
   // A scheduler that gave up after the first failure would also have survived.
-  EXPECT_GT(runs.load(), 1);
+  EXPECT_GT(runs.load(), 1) << "the task ran once, so surviving says nothing about the schedule";
+  return sink->Messages();
+}
+
+bool AnyMessageContains(const std::vector<std::string> &messages, std::string_view fragment) {
+  return std::ranges::any_of(messages,
+                             [fragment](const auto &message) { return message.find(fragment) != std::string::npos; });
+}
+}  // namespace
+
+TEST(Scheduler, ThrowingTaskKeepsSchedulerRunning) {
+  const auto messages =
+      LogsWhileATaskKeepsFailing("Throwing", [] { throw memgraph::utils::BasicException("the task gave up"); });
+
+  // Naming the service is the whole value of the log line: one failing schedule among several is
+  // otherwise unattributable.
+  EXPECT_TRUE(AnyMessageContains(messages, "Throwing")) << "nothing logged named the failing schedule";
+  EXPECT_TRUE(AnyMessageContains(messages, "the task gave up")) << "nothing logged carried the reason";
+}
+
+// A task throwing something that does not derive from std::exception reaches the second handler,
+// which cannot report a reason and so has to name the schedule.
+TEST(Scheduler, TaskThrowingANonExceptionKeepsSchedulerRunning) {
+  const auto messages =
+      LogsWhileATaskKeepsFailing("Unrecognised", [] { throw 42; });  // NOLINT(hicpp-exception-baseclass)
+
+  EXPECT_TRUE(AnyMessageContains(messages, "Unrecognised")) << "nothing logged named the failing schedule";
+  EXPECT_TRUE(AnyMessageContains(messages, "unrecognised exception")) << "nothing logged reported an unknown throw";
 }

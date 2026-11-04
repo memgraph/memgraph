@@ -455,6 +455,11 @@ TEST(TemporalTest, LocalDateTimeToLocalTimeTZ) {
 }
 
 // Rome advances 02:00 to 03:00 on this date, so 02:30 names no instant, and both sides meet at 01:00 UTC.
+//
+// The instant asserted is the transition itself, which is what the standard library here returns for
+// a calendar time inside the gap whichever side is chosen. Another implementation may instead return
+// the named time shifted by the offset in force before the change, so a port that fails this is
+// reporting a different resolution rather than a conversion that stopped working.
 TEST(TemporalTest, LocalDateTimeInDaylightSavingGap) {
   using namespace std::chrono;
   HandleTimezone htz;
