@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
 #include <sys/types.h>
@@ -26,7 +25,6 @@
 #include <utility>
 
 #include "utils/db_aware_allocator.hpp"
-#include "utils/enum.hpp"
 
 namespace memgraph::utils {
 enum class CompressionLevel : uint8_t { LOW, MID, HIGH };
@@ -43,9 +41,10 @@ inline constexpr std::array compression_level_mappings{std::pair{"low"sv, utils:
                                                        std::pair{"mid"sv, utils::CompressionLevel::MID},
                                                        std::pair{"high"sv, utils::CompressionLevel::HIGH}};
 
-inline const std::string storage_property_store_compression_level_help_string =
-    fmt::format("Compression level for storing properties. Allowed values: {}.",
-                memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings));
+/// Built on first use. As a variable it was an initializer and an exit-time
+/// destructor in every translation unit including this header, for a string one
+/// flag declaration reads once.
+std::string const &StoragePropertyStoreCompressionLevelHelpString();
 
 bool ValidStoragePropertyStoreCompressionLevel(std::string_view value);
 utils::CompressionLevel ParseCompressionLevel();
