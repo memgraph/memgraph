@@ -9,28 +9,33 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// History at a fork pin survives WAL-tail replay (ReplayWalFile, ReplayHistoryTail) and GC; releasing the pin
-// reclaims it.
+// WAL-tail replay (ReplayHistoryTail): the history at each fork pin survives replay and GC, the replayed storage
+// matches an unbounded recovery, and bad input is refused without holding a pin.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include "dbms/database.hpp"
 #include "dbms/inmemory/history_replay.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/general.hpp"
 #include "memory/db_arena.hpp"
-#include "rpc/progress_heartbeat.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -77,7 +82,7 @@ const std::filesystem::path kDirMain{kRoot / "main"};
 const std::filesystem::path kDirUnbounded{kRoot / "unbounded"};
 
 ms::Config MakeDurableConfig(const std::filesystem::path &dir, bool recover_on_startup,
-                             std::optional<uint64_t> recovery_history_bound = std::nullopt) {
+                             std::optional<uint64_t> recovery_history_bound = std::nullopt, bool narrowing = false) {
   ms::Config config;
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = dir,
@@ -86,7 +91,69 @@ ms::Config MakeDurableConfig(const std::filesystem::path &dir, bool recover_on_s
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)},
                        .wal_file_flush_every_n_tx = 1,
                        .recovery_history_bound = recovery_history_bound};
+  config.experimental_commit_lock_narrowing = narrowing;
   return config;
+}
+
+uint64_t Ldt(ms::InMemoryStorage const &storage) {
+  return storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+}
+
+// A recovered database, with the tail bounded recovery left out (if bounded).
+struct Recovered {
+  explicit Recovered(const std::filesystem::path &dir, std::optional<uint64_t> bound = std::nullopt,
+                     bool narrowing = false)
+      : db{MakeDurableConfig(dir, /*recover_on_startup=*/true, bound, narrowing)},
+        scope{&db.Arena()},
+        storage{*static_cast<ms::InMemoryStorage *>(db.storage())},
+        tail{storage.TakeRecoveryTail()} {}
+
+  memgraph::dbms::Database db;
+  memgraph::memory::DbArenaScope scope;
+  ms::InMemoryStorage &storage;
+  std::optional<ms::durability::RecoveryTail> tail;
+};
+
+// The graph by names, so storages whose name ids differ compare equal.
+std::string DumpGraph(ms::Storage::Accessor &acc) {
+  constexpr auto kView = ms::View::OLD;
+  auto const props = [&](auto const &object) {
+    std::vector<std::string> out;
+    for (auto const &[key, value] : *object.Properties(kView)) {
+      out.push_back(fmt::format("{}={}", acc.PropertyToName(key), value));
+    }
+    std::ranges::sort(out);
+    return fmt::format("{{{}}}", fmt::join(out, ","));
+  };
+  std::string dump;
+  for (auto vertex : acc.Vertices(kView)) {
+    std::vector<std::string> labels;
+    for (auto const label : *vertex.Labels(kView)) labels.push_back(acc.LabelToName(label));
+    std::ranges::sort(labels);
+    std::vector<std::string> edges;
+    for (auto const &edge : vertex.OutEdges(kView)->edges) {
+      edges.push_back(fmt::format("-[{}:{}{}]->{}",
+                                  edge.Gid().AsUint(),
+                                  acc.EdgeTypeToName(edge.EdgeType()),
+                                  props(edge),
+                                  edge.ToVertex().Gid().AsUint()));
+    }
+    std::ranges::sort(edges);
+    dump += fmt::format(
+        "{}:{}{} {}\n", vertex.Gid().AsUint(), fmt::join(labels, ":"), props(vertex), fmt::join(edges, " "));
+  }
+  return dump;
+}
+
+std::string DumpAt(ms::InMemoryStorage &storage, uint64_t pin) {
+  auto historical = storage.HistoricalAccess(pin);
+  if (!historical) return "<no access>";
+  return DumpGraph(**historical);
+}
+
+std::string DumpLatest(memgraph::dbms::Database &db) {
+  auto acc = db.Access(ms::READ);
+  return DumpGraph(*acc);
 }
 
 struct EpochState {
@@ -115,6 +182,39 @@ void CommitVertex(memgraph::dbms::Database &db) {
   auto acc = db.Access(ms::WRITE);
   acc->CreateVertex();
   Commit(*acc);
+}
+
+// Main history in `dir`: write i adds vertex {p: i} with an edge from the previous vertex and updates that vertex; a
+// read-only commit after each write makes the durable timestamps sparse. Returns each write's durable timestamp.
+std::vector<uint64_t> WriteMainHistory(const std::filesystem::path &dir, int writes) {
+  memgraph::dbms::Database db{MakeDurableConfig(dir, /*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto &storage = *static_cast<ms::InMemoryStorage *>(db.storage());
+  auto const label = storage.NameToLabel("L");
+  auto const p = storage.NameToProperty("p");
+  auto const type = storage.NameToEdgeType("T");
+  std::vector<uint64_t> durable;
+  std::optional<ms::Gid> prev;
+  for (int i = 0; i < writes; ++i) {
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto v = acc->CreateVertex();
+      EXPECT_TRUE(v.AddLabel(label).has_value());
+      EXPECT_TRUE(v.SetProperty(p, ms::PropertyValue(i)).has_value());
+      if (prev) {
+        auto from = acc->FindVertex(*prev, ms::View::NEW);
+        EXPECT_TRUE(from->SetProperty(p, ms::PropertyValue(10 * i)).has_value());
+        auto edge = acc->CreateEdge(&*from, &v, type);
+        EXPECT_TRUE(edge->SetProperty(p, ms::PropertyValue(i)).has_value());
+      }
+      prev = v.Gid();
+      Commit(*acc);
+    }
+    durable.push_back(Ldt(storage));
+    auto acc = db.Access(ms::READ);
+    Commit(*acc);
+  }
+  return durable;
 }
 
 // Same MVCC checks for both reads, parameterised on which of the two states is expected.
@@ -322,20 +422,18 @@ TEST_F(VersioningHistoryReplayTest, HistoryAtForkPinSurvivesWalTailReplayAndGc) 
     ExpectStateAtT(*acc, names, g, t);
   }
 
-  // ---- Step 3: pin T before replaying anything. ----
-  uint64_t const pin = b->RegisterForkPin();
-
-  // ---- Step 4: replay main's WAL files in sequence-number order through ReplayWalFile. ----
-  memgraph::rpc::ProgressHeartbeat heartbeat;
-  for (auto const &info : *wal_files) {  // GetWalFiles is ordered by sequence number
-    ASSERT_TRUE(memgraph::dbms::InMemoryReplicationHandlers::ReplayWalFile(info.path, b, heartbeat))
-        << "ReplayWalFile failed for " << info.path;
-  }
+  // ---- Step 3: replay main's WAL files over T, pinning a fork right after T. ----
+  std::vector<std::filesystem::path> paths;
+  for (auto const &info : *wal_files) paths.push_back(info.path);  // GetWalFiles is ordered by sequence number
+  ms::durability::RecoveryTail const tail{.wal_files = std::move(paths), .reached_timestamp = Ldt(*b)};
+  auto pins = memgraph::dbms::ReplayHistoryTail(*b, tail, std::array{tail.reached_timestamp + 1});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  uint64_t const pin = pins->front();
 
   // Names added by the replay (e.g. M after recovery of a snapshot that only had L) must be resolved afterwards.
   names = ResolveNames(*b);
 
-  // ---- Step 5: latest = full state, historical(pin) = state at T, before and after GC. ----
+  // ---- Step 4: latest = full state, historical(pin) = state at T, before and after GC. ----
   auto const check_reads = [&] {
     {
       auto acc = db_b.Access(ms::READ);
@@ -550,12 +648,277 @@ TEST_F(VersioningHistoryReplayTest, PinAtForkTimestampEqualsFirstReplayedCommit)
   ASSERT_FALSE(released.has_value());
 }
 
-// The pins are registered positionally as replay crosses each fork timestamp: unsorted input would silently
-// register a later fork's pin late, leaking pre-fork state into it, so it is rejected outright.
-TEST_F(VersioningHistoryReplayTest, RejectsUnsortedForkTimestamps) {
+// Replay registers pins positionally as it crosses each fork timestamp, and a fork at or before the recovered state
+// cannot be pinned without leaking later commits into it: both are refused, holding no pin.
+TEST_F(VersioningHistoryReplayTest, RefusesUnsortedOrEarlyForkTimestamps) {
+  auto const durable = WriteMainHistory(kDirMain, 3);
+  Recovered r{kDirMain, durable[0]};
+  ASSERT_TRUE(r.tail.has_value());
+  ASSERT_EQ(r.tail->reached_timestamp, durable[0]);
+
+  for (auto const &forks : {std::vector<uint64_t>{durable[2], durable[1]}, std::vector<uint64_t>{durable[0]}}) {
+    auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, forks);
+    EXPECT_FALSE(pins.has_value());
+    EXPECT_FALSE(r.storage.OldestForkPin().has_value());
+  }
+  EXPECT_EQ(Ldt(r.storage), durable[0]) << "nothing replayed";
+}
+
+// Duplicates each get their own pin; with no WAL to replay every pin is taken at the recovered state, and the clock
+// moves to the newest fork so later commits cannot fall below any of them.
+TEST_F(VersioningHistoryReplayTest, EmptyTailPinsEveryForkAndBumpsTheClock) {
+  auto const durable = WriteMainHistory(kDirMain, 2);
+  Recovered r{kDirMain};
+  auto const reached = Ldt(r.storage);
+  ASSERT_EQ(reached, durable.back());
+  auto const expected = DumpLatest(r.db);
+
+  ms::durability::RecoveryTail const tail{.wal_files = {}, .reached_timestamp = reached};
+  auto const far = reached + 100;
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, tail, std::array{reached + 1, reached + 1, far});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  ASSERT_EQ(pins->size(), 3U);
+  EXPECT_EQ((*pins)[0], (*pins)[1]);
+
+  CommitVertex(r.db);
+  EXPECT_GE(Ldt(r.storage), far);
+  r.storage.ReleaseForkPin((*pins)[0]);
+  for (auto const pin : {(*pins)[1], (*pins)[2]}) EXPECT_EQ(DumpAt(r.storage, pin), expected);
+  r.storage.ReleaseForkPin((*pins)[1]);
+  r.storage.ReleaseForkPin((*pins)[2]);
+  EXPECT_FALSE(r.storage.OldestForkPin().has_value());
+}
+
+// Bounded recovery + tail replay ends where an unbounded recovery of the same files does, and each fork (including
+// one past the end of the tail) sees exactly the commits below it.
+TEST_F(VersioningHistoryReplayTest, ReplayMatchesUnboundedRecovery) {
+  auto const durable = WriteMainHistory(kDirMain, 6);
+  std::filesystem::copy(kDirMain, kDirUnbounded, std::filesystem::copy_options::recursive);
+
+  std::vector<std::string> at_fork;  // at_fork[i]: the graph after writes [0, i]
+  uint64_t unbounded_ldt{0};
+  uint64_t unbounded_committed{0};
+  uint64_t unbounded_next{0};
+  for (auto const ts : durable) {
+    std::filesystem::remove_all(kDirB);
+    std::filesystem::copy(kDirMain, kDirB, std::filesystem::copy_options::recursive);
+    Recovered bounded{kDirB, ts};
+    at_fork.push_back(DumpLatest(bounded.db));
+  }
+  std::string unbounded_graph;
+  {
+    Recovered unbounded{kDirUnbounded};
+    unbounded_graph = DumpLatest(unbounded.db);
+    auto const info = unbounded.storage.repl_storage_state_.commit_ts_info_.load();
+    unbounded_ldt = info.ldt_;
+    unbounded_committed = info.num_committed_txns_;
+    CommitVertex(unbounded.db);
+    unbounded_next = Ldt(unbounded.storage);
+  }
+  ASSERT_EQ(unbounded_graph, at_fork.back());
+
+  Recovered r{kDirMain, durable[0]};
+  ASSERT_TRUE(r.tail.has_value());
+  // Forks right after writes 0, 2 and 5 (the last one past the end of the tail).
+  auto pins =
+      memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[0] + 1, durable[2] + 1, durable[5] + 1});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  ASSERT_EQ(pins->size(), 3U);
+
+  EXPECT_EQ(DumpLatest(r.db), unbounded_graph);
+  auto const info = r.storage.repl_storage_state_.commit_ts_info_.load();
+  EXPECT_EQ(info.ldt_, unbounded_ldt);
+  EXPECT_EQ(info.num_committed_txns_, unbounded_committed);
+  EXPECT_EQ(DumpAt(r.storage, (*pins)[0]), at_fork[0]);
+  EXPECT_EQ(DumpAt(r.storage, (*pins)[1]), at_fork[2]);
+  EXPECT_EQ(DumpAt(r.storage, (*pins)[2]), at_fork[5]);
+
+  CommitVertex(r.db);
+  EXPECT_EQ(Ldt(r.storage), unbounded_next) << "the next commit lands where it would after an unbounded recovery";
+  for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
+}
+
+// The newest WAL was never finalized (main still running); replay reads it like recovery does.
+TEST_F(VersioningHistoryReplayTest, ReplaysUnfinalizedCurrentWal) {
+  std::string expected;
+  uint64_t first{0};
+  {
+    memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto &storage = *static_cast<ms::InMemoryStorage *>(db.storage());
+    CommitVertex(db);
+    first = Ldt(storage);
+    CommitVertex(db);
+    CommitVertex(db);
+    expected = DumpLatest(db);
+    std::filesystem::copy(kDirMain, kDirB, std::filesystem::copy_options::recursive);
+  }
+
+  Recovered r{kDirB, first};
+  ASSERT_TRUE(r.tail.has_value());
+  ASSERT_FALSE(r.tail->wal_files.empty());
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{first + 1});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  EXPECT_EQ(DumpLatest(r.db), expected);
+  {
+    auto historical = r.storage.HistoricalAccess(pins->front());
+    ASSERT_TRUE(historical.has_value());
+    EXPECT_EQ(CountVertices(**historical, ms::View::OLD), 1U);
+  }
+  r.storage.ReleaseForkPin(pins->front());
+}
+
+// A transaction main aborted after writing it to the WAL (2PC, commit flag false) is skipped. The pin of a fork at
+// its timestamp is still taken before the next applied transaction.
+TEST_F(VersioningHistoryReplayTest, AbortedWalTransactionIsSkipped) {
+  uint64_t first{0};
+  uint64_t aborted{0};
+  uint64_t last{0};
+  {
+    memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto &storage = *static_cast<ms::InMemoryStorage *>(db.storage());
+    CommitVertex(db);
+    first = Ldt(storage);
+    aborted = first + 1;
+    {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(
+          acc->PrepareForCommitPhase(ms::CommitArgs::make_replica_write(aborted, /*two_phase_commit=*/true, [] {}))
+              .has_value());
+      static_cast<ms::InMemoryStorage::InMemoryAccessor *>(acc.get())->AbortAndResetCommitTs();
+    }
+    CommitVertex(db);
+    last = Ldt(storage);
+    ASSERT_GT(last, aborted);
+  }
+
+  Recovered r{kDirMain, first};
+  ASSERT_TRUE(r.tail.has_value());
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{aborted, aborted + 1, last});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  {
+    auto acc = r.db.Access(ms::READ);
+    EXPECT_EQ(CountVertices(*acc, ms::View::OLD), 2U) << "the aborted transaction is not applied";
+  }
+  for (auto const pin : *pins) {
+    auto historical = r.storage.HistoricalAccess(pin);
+    ASSERT_TRUE(historical.has_value());
+    EXPECT_EQ(CountVertices(**historical, ms::View::OLD), 1U) << "every fork is before the last commit";
+  }
+  for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
+}
+
+// A tail WAL that cannot be replayed fails the call and releases every pin it took, including those taken before the
+// failing file.
+TEST_F(VersioningHistoryReplayTest, CorruptTailWalFailsWithoutPins) {
+  auto const durable = WriteMainHistory(kDirMain, 3);
+  Recovered r{kDirMain, durable[0]};
+  ASSERT_TRUE(r.tail.has_value());
+  ASSERT_FALSE(r.tail->wal_files.empty());
+  auto const &wal = r.tail->wal_files.back();
+  std::filesystem::resize_file(wal, std::filesystem::file_size(wal) / 2);
+
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[0] + 1, durable[2] + 1});
+  EXPECT_FALSE(pins.has_value());
+  EXPECT_FALSE(r.storage.OldestForkPin().has_value());
+}
+
+// The narrowed commit path publishes commits differently; replay must produce the same state and pins either way.
+TEST_F(VersioningHistoryReplayTest, ReplayIsTheSameWithCommitLockNarrowing) {
+  auto const durable = WriteMainHistory(kDirMain, 5);
+  std::filesystem::copy(kDirMain, kDirB, std::filesystem::copy_options::recursive);
+  const std::array forks{durable[0] + 1, durable[1], durable[3] + 1, durable[4] + 2};
+
+  struct Result {
+    std::vector<uint64_t> pins;
+    std::vector<std::string> at_pin;
+    std::string latest;
+    uint64_t ldt;
+  };
+
+  auto const replay = [&](const std::filesystem::path &dir, bool narrowing) {
+    Recovered r{dir, durable[0], narrowing};
+    EXPECT_TRUE(r.tail.has_value());
+    auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, forks);
+    EXPECT_TRUE(pins.has_value());
+    Result result{.pins = *pins, .at_pin = {}, .latest = DumpLatest(r.db), .ldt = Ldt(r.storage)};
+    for (auto const pin : *pins) result.at_pin.push_back(DumpAt(r.storage, pin));
+    for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
+    return result;
+  };
+  auto const off = replay(kDirMain, false);
+  auto const on = replay(kDirB, true);
+  EXPECT_EQ(on.pins, off.pins);
+  EXPECT_EQ(on.at_pin, off.at_pin);
+  EXPECT_EQ(on.latest, off.latest);
+  EXPECT_EQ(on.ldt, off.ldt);
+}
+
+// After replay, readers at each pin keep seeing their fork's state while main writes and GC runs.
+TEST_F(VersioningHistoryReplayTest, ForkReadersStayStableUnderMainWrites) {
+  auto const durable = WriteMainHistory(kDirMain, 4);
+  Recovered r{kDirMain, durable[0]};
+  ASSERT_TRUE(r.tail.has_value());
+  auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[1] + 1, durable[3] + 1});
+  ASSERT_TRUE(pins.has_value()) << pins.error();
+  std::vector<std::string> expected;
+  for (auto const pin : *pins) expected.push_back(DumpAt(r.storage, pin));
+  ASSERT_NE(expected[0], expected[1]);
+
+  constexpr int kReadersPerPin = 2;
+  constexpr int kReads = 100;
+  constexpr int kWrites = 200;
+  std::atomic<int> mismatches{0};
+  std::vector<std::jthread> threads;
+  for (size_t i = 0; i < pins->size(); ++i) {
+    for (int t = 0; t < kReadersPerPin; ++t) {
+      threads.emplace_back([&, i] {
+        const memgraph::memory::DbArenaScope arena_scope{&r.db.Arena()};
+        for (int n = 0; n < kReads; ++n) {
+          if (DumpAt(r.storage, (*pins)[i]) != expected[i]) ++mismatches;
+        }
+      });
+    }
+  }
+  threads.emplace_back([&] {
+    const memgraph::memory::DbArenaScope arena_scope{&r.db.Arena()};
+    for (int n = 0; n < kWrites; ++n) {
+      CommitVertex(r.db);
+      if (n % 20 == 0) r.storage.FreeMemory({}, false);
+    }
+  });
+  threads.clear();
+
+  EXPECT_EQ(mismatches.load(), 0);
+  {
+    auto acc = r.db.Access(ms::READ);
+    EXPECT_EQ(CountVertices(*acc, ms::View::OLD), durable.size() + kWrites);
+  }
+  for (auto const pin : *pins) r.storage.ReleaseForkPin(pin);
+}
+
+// The clock bump marks every skipped id finished, so GC is not held back by ids no transaction ever had.
+TEST_F(VersioningHistoryReplayTest, ClockBumpMarksSkippedIdsFinished) {
   memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  auto *main_storage = static_cast<ms::InMemoryStorage *>(db.storage());
-  ms::durability::RecoveryTail tail{};
-  ASSERT_DEATH((void)memgraph::dbms::ReplayHistoryTail(*main_storage, tail, std::array<uint64_t, 2>{5, 3}), "");
+  auto &storage = *static_cast<ms::InMemoryStorage *>(db.storage());
+  constexpr uint64_t kTarget = 1'000;
+  storage.BumpClockPastDurable(kTarget);
+  EXPECT_EQ(storage.OldestActiveTimestamp(), kTarget);
+  storage.BumpClockPastDurable(kTarget);
+  EXPECT_EQ(storage.OldestActiveTimestamp(), kTarget) << "idempotent once ahead";
+  CommitVertex(db);
+  EXPECT_GT(Ldt(storage), kTarget);
+  storage.FreeMemory({}, false);
+  EXPECT_GT(storage.OldestActiveTimestamp(), kTarget);
+}
+
+TEST_F(VersioningHistoryReplayTest, WalSuppressionIsNotNestable) {
+  memgraph::dbms::Database db{MakeDurableConfig(kDirMain, /*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto &storage = *static_cast<ms::InMemoryStorage *>(db.storage());
+  const ms::InMemoryStorage::SuppressWalScope outer{storage};
+  ASSERT_DEATH({ const ms::InMemoryStorage::SuppressWalScope inner{storage}; }, "not nestable");
 }

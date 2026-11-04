@@ -1036,9 +1036,9 @@ class InMemoryStorage final : public Storage {
     InMemoryStorage &storage_;
   };
 
-  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`) when it trails it (commits
-  /// that carry a durable timestamp, e.g. a replay, do not advance the clock). Skipped ids are marked finished in the
-  /// commit log.
+  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`). Replayed commits record
+  /// main's durable timestamps but take local MVCC ids, so the clock can trail them. Skipped ids are marked finished
+  /// in the commit log.
   void BumpClockPastDurable(uint64_t min_next = 0);
 
   /// Smallest transaction id that may still be active.
