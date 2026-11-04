@@ -9095,12 +9095,18 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
   auto *db_handler = interpreter_context->dbms_handler;
 
   const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
+  const auto throw_if_reserved = [](std::string_view name) {
+    if (dbms::IsReservedDatabaseName(name)) {
+      throw QueryException("Database name '{}' is invalid: '@' is reserved for <database>@<branch> addressing.", name);
+    }
+  };
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
+      throw_if_reserved(query->db_name_);
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
@@ -9232,6 +9238,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       if (!query->new_db_name_) {
         throw QueryException("New database name is required for RENAME DATABASE query.");
       }
+      throw_if_reserved(*query->new_db_name_);
 
       return PreparedQuery{
           .header = {"STATUS"},
@@ -11252,6 +11259,17 @@ void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_ex
     AbortCommand(nullptr);
   }
   current_db_.SetCurrentDB(std::move(db_acc), in_explicit_db);
+}
+
+void Interpreter::SelectPinnedBranch(std::optional<std::string> const &branch) {
+  DMG_ASSERT(current_db_.db_acc_, "A branch pin needs the session's database.");
+  if (!branch) {
+    current_db_.LeaveBranch();
+    return;
+  }
+  auto &db_acc = *current_db_.db_acc_;
+  auto *version_store = CheckBranchPrerequisites(interpreter_context_, db_acc, versioning::GateOperation::kObserve);
+  EnterSessionBranch(current_db_, version_store, db_acc->storage(), *branch);
 }
 #else
 // Default database only
