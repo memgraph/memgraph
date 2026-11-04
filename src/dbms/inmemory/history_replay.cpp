@@ -23,11 +23,11 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/transaction_constants.hpp"
 
 namespace memgraph::dbms {
 
 namespace {
-// RecoverData's per-WAL-file epoch bookkeeping.
 void RecordWalEpoch(storage::ReplicationStorageState &state, std::string const &epoch_id, uint64_t ldt) {
   if (!state.history.empty() && state.history.back().first == epoch_id) {
     state.history.back().second = ldt;
@@ -47,8 +47,10 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
                                                                     std::span<const uint64_t> fork_ts) {
   // Pins are taken positionally as replay crosses each fork: unsorted input would pin a later fork too late.
   if (!std::ranges::is_sorted(fork_ts)) return std::unexpected("fork timestamps must be ascending");
-  // The recovered state already holds the commit at reached_timestamp, which such a fork must not see.
-  if (!fork_ts.empty() && fork_ts.front() <= tail.reached_timestamp) {
+  // The recovered state already holds the commit at reached_timestamp, which such a fork must not see. Commit
+  // timestamps start at 1, so 0 means no commit and a fork at 0 is past it.
+  if (!fork_ts.empty() && tail.reached_timestamp != storage::kTimestampInitialId &&
+      fork_ts.front() <= tail.reached_timestamp) {
     return std::unexpected(
         fmt::format("fork at {} is not past the recovered state at {}", fork_ts.front(), tail.reached_timestamp));
   }
