@@ -278,6 +278,14 @@ TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeighte
 
 TEST_F(WeightedKShortestCasesInMemory, IntOverflow) { db_->KShortestWeightedTestIntOverflow(db_.get()); }
 
+TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedAtFirstSearchedRow) {
+  db_->KShortestConstantWeightValidatedAtFirstSearchedRow(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantTotals) { db_->KShortestConstantTotals(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantTotalOverflow) { db_->KShortestConstantTotalOverflow(db_.get()); }
+
 TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
 
 TEST_F(WeightedKShortestCasesInMemory, UnusedArcWeightValidated) {
