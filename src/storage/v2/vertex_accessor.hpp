@@ -105,13 +105,11 @@ class VertexAccessor final {
 
  private:
   /// For kCompact, a non-null `on_locked(const PropertyValue &)` sees the raw value under the vertex lock.
-  // Inlined so the eager GetProperty/Properties wrappers compile to the hot read they replaced.
   template <bool kCompact, typename OnLocked>
-  [[gnu::always_inline]] Result<PropertyValue> GetPropertyImpl(PropertyId property, View view,
-                                                               OnLocked &&on_locked) const;
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, OnLocked &&on_locked) const;
 
   template <bool kCompact>
-  [[gnu::always_inline]] Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
+  Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
 
  public:
   /// Returns the size of the encoded vertex property in bytes.
