@@ -15,6 +15,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <limits>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -89,43 +92,60 @@ class Trie {
 
 // All word constants should be lowercase in this file.
 
-constexpr int kBitsetSize = 65'536;
+constexpr std::size_t kBitsetSize = 65'536;
 
 namespace detail {
+
+using word_t = std::uint64_t;
+constexpr std::size_t kWordBits = std::numeric_limits<word_t>::digits;
+
+/// Packs one word from the characters naming its codepoints, most significant
+/// bit first, which is the order a bit string is written in.
+///
+/// The word is built in a local and stored once by the caller. Setting bits
+/// straight into the array instead costs enough constant-evaluation steps for a
+/// table as wide as these to exceed the compiler's limit.
+constexpr word_t PackWord(std::span<char const, kWordBits> bits) {
+  word_t word = 0;
+  for (char const bit : bits) {
+    if (bit != '0' && bit != '1') {
+      throw std::invalid_argument{"a codepoint set takes only '0' and '1'"};
+    }
+    word = (word << 1U) | static_cast<word_t>(bit == '1');
+  }
+  return word;
+}
 
 /// A set of Unicode codepoints fixed at compile time: one character per
 /// codepoint, '1' for a member, numbered from the end of the string as
 /// `std::bitset` numbers one. It stands in for `std::bitset`, whose constructor
 /// from a string of bits libstdc++ does not make `constexpr`.
+///
+/// Anything other than exactly N characters of '0' and '1' is rejected, which
+/// during constant initialization makes it a build failure.
 template <std::size_t N>
+  requires(N % kWordBits == 0)
 class CodepointSet {
-  static_assert(N % 64 == 0, "the bits must fill whole words");
-
-  using word_t = std::uint64_t;
-  static constexpr std::size_t kWordBits = 64;
-
  public:
-  /// Setting bits straight into the array, rather than accumulating a word and
-  /// storing it once, costs enough constant-evaluation steps for a table this
-  /// wide to exceed the compiler's limit.
   explicit constexpr CodepointSet(std::string_view bits) {
-    auto const *const chars = bits.data();
-    auto const count = bits.size() < N ? bits.size() : N;
-    for (std::size_t word = 0; word != N / kWordBits; ++word) {
-      word_t bit_mask = 0;
-      auto const first = word * kWordBits;
-      auto const last = first + kWordBits < count ? first + kWordBits : count;
-      for (std::size_t pos = first; pos < last; ++pos) {
-        if (chars[count - 1 - pos] == '1') {
-          bit_mask |= word_t{1} << (pos - first);
-        }
-      }
-      words_[word] = bit_mask;
+    if (bits.size() != N) {
+      throw std::invalid_argument{"a codepoint set needs one character per codepoint"};
+    }
+    // The last word holds the lowest codepoints, so the string is consumed from
+    // its end backwards.
+    for (std::size_t word = 0; word != words_.size(); ++word) {
+      auto const *const first = bits.data() + N - ((word + 1) * kWordBits);
+      words_[word] = PackWord(std::span<char const, kWordBits>{first, kWordBits});
     }
   }
 
-  constexpr bool operator[](std::size_t pos) const {
-    return ((words_[pos / kWordBits] >> (pos % kWordBits)) & word_t{1}) != 0;
+  bool operator==(CodepointSet const &) const = default;
+
+  /// A codepoint at or above N is not a member, so a caller may ask about any
+  /// codepoint rather than bounding it first.
+  [[nodiscard]] constexpr bool Contains(char32_t codepoint) const {
+    auto const pos = static_cast<std::size_t>(codepoint);
+    return pos < N && ((words_[pos / kWordBits] >> (pos % kWordBits)) & word_t{1}) != 0;
   }
 
  private:

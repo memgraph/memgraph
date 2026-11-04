@@ -526,13 +526,13 @@ int StrippedQuery::MatchEscapedName(int start) const {
 int StrippedQuery::MatchUnescapedName(int start) const {
   auto i = start;
   auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-  if (got.first >= lexer_constants::kBitsetSize || !kUnescapedNameAllowedStarts[got.first]) {
+  if (!kUnescapedNameAllowedStarts.Contains(static_cast<char32_t>(got.first))) {
     return 0;
   }
   i += got.second;
   while (i < static_cast<int>(original_.size())) {
     got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-    if (got.first >= lexer_constants::kBitsetSize || !kUnescapedNameAllowedParts[got.first]) {
+    if (!kUnescapedNameAllowedParts.Contains(static_cast<char32_t>(got.first))) {
       break;
     }
     i += got.second;
@@ -551,7 +551,7 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
   while (i < len) {
     if (state == State::OUT) {
       auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-      if (got.first < lexer_constants::kBitsetSize && kSpaceParts[got.first]) {
+      if (kSpaceParts.Contains(static_cast<char32_t>(got.first))) {
         i += got.second;
       } else if (i + 1 < len && original_[i] == '/' && original_[i + 1] == '*') {
         comment_position = i;
