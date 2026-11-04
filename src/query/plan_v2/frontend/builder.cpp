@@ -285,10 +285,9 @@ struct symbol_build_traits<symbol::Unwind> {
   // is never evaluated at runtime (any built Expression for it is discarded).
   static auto build_dead(BuildState &state, ENodeRef node, LogicalOperatorPtr const &input) -> result_type {
     auto const list_eclass = node.children()[child::unwind::list];
-    auto const *expr = state.egraph.analysis_of(list_eclass).expression();
-    DMG_ASSERT(expr != nullptr && expr->known_list_length.has_value(),
-               "dead Unwind requires a statically known list length");
-    auto const scale = *expr->known_list_length;
+    auto const length = state.egraph.analysis_of(list_eclass).known_list_length();
+    DMG_ASSERT(length.has_value(), "dead Unwind requires a statically known list length");
+    auto const scale = *length;
     // n=1 scales each input row to one row: the operator is identity, so drop it.
     if (scale == 1) return input;
     // n=0 scales every input row to zero rows: the result is empty.

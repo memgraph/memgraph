@@ -377,8 +377,7 @@ struct symbol_cost_traits<Unwind> {
     auto const sym_eclass = n.children()[sym];
     auto const &[_, sym_cost] = children[sym]->resolve();
     auto const list_eclass = n.children()[list];
-    auto const *list_expr = ctx.syms.egraph.analysis_of(list_eclass).expression();
-    auto const known_length = list_expr != nullptr ? list_expr->known_list_length : std::nullopt;
+    auto const known_length = ctx.syms.egraph.analysis_of(list_eclass).known_list_length();
     return UnwindFlatMap(*children[input],
                          *children[list],
                          sym_eclass,
@@ -457,10 +456,9 @@ struct symbol_cost_traits<Function> {
   // size is the statically-known `known_list_length` fact when present (e.g.
   // a constant-bound range), else the estimator's guess for the unknown case.
   static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
-    auto const *facts = ctx.syms.egraph.analysis_of(ctx.syms.egraph.find(id)).expression();
-    double const cardinality = (facts != nullptr && facts->known_list_length)
-                                   ? static_cast<double>(*facts->known_list_length)
-                                   : ctx.estimator.Estimate(n, n.children());
+    auto const known_length = ctx.syms.egraph.analysis_of(ctx.syms.egraph.find(id)).known_list_length();
+    double const cardinality =
+        known_length ? static_cast<double>(*known_length) : ctx.estimator.Estimate(n, n.children());
     return FunctionCombine(children, cardinality, id);
   }
 };

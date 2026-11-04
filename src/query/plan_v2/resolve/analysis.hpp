@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <variant>
 
@@ -56,9 +57,37 @@ struct analysis : analysis_variant {
   void merge(analysis const &other);
 
   /// The ExpressionAnalysis arm, or nullptr if this e-class is not an
-  /// Expression. The one place a fact-gated read recovers expression facts, so
-  /// callers ask for the arm instead of open-coding `std::get_if`.
+  /// Expression, so callers take the arm instead of open-coding `std::get_if`.
+  /// Reading one fact goes through the readers below, which fold the arm check
+  /// and the fact's own absence into a single answer.
   [[nodiscard]] auto expression() const -> ExpressionAnalysis const * { return std::get_if<ExpressionAnalysis>(this); }
+
+  /// The constant value this e-class is statically known to hold, or nullptr
+  /// when that is unknown or the e-class is not an Expression. Borrows from the
+  /// analysis, so the pointer dangles once the e-class is merged away.
+  [[nodiscard]] auto known_constant() const -> storage::ExternalPropertyValue const * {
+    auto const *expr = expression();
+    if (expr == nullptr || !expr->known_constant_value) return nullptr;
+    return &*expr->known_constant_value;
+  }
+
+  /// The known constant as an integer, or nullopt when it is unknown or of
+  /// another type. An integral double such as `5.0` reads as unknown, so a
+  /// caller whose operation is integer-only cannot silently accept one.
+  [[nodiscard]] auto known_int() const -> std::optional<std::int64_t> {
+    auto const *value = known_constant();
+    if (value == nullptr || !value->IsInt()) return std::nullopt;
+    return value->ValueInt();
+  }
+
+  /// The provably exact length of the list this e-class holds, or nullopt when
+  /// that is unknown. Carried only for lists, so a length here also proves the
+  /// e-class holds one.
+  [[nodiscard]] auto known_list_length() const -> std::optional<std::size_t> {
+    auto const *expr = expression();
+    if (expr == nullptr) return std::nullopt;
+    return expr->known_list_length;
+  }
 };
 
 }  // namespace memgraph::query::plan::v2

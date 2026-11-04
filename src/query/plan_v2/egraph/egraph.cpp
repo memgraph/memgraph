@@ -73,31 +73,22 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return from_core(pimpl_->graph.Make<NamedOutput>(name, to_core(sym), to_core(expr)).eclass_id);
 }
 
-// If `eclass_id` is statically known to hold an int constant, return it.  Reads
-// `known_constant_value`, so it fires for any constant-valued e-class (a
-// literal, or a folded expression), not just one still carrying a `Literal`.
-// Integers only: the sole consumer proves `range()`'s length, and `range()`
-// rejects non-integer bounds at runtime, so an integral double (e.g. 5.0) must
-// NOT seed a length - it has to fall back to the real, throwing evaluation.
-auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> std::optional<int64_t> {
-  auto const *expr = eg.analysis_of(eclass_id).expression();
-  if (expr == nullptr || !expr->known_constant_value) return std::nullopt;
-
-  auto const &val = *expr->known_constant_value;
-  if (val.IsInt()) return val.ValueInt();
-  return std::nullopt;
-}
+namespace {
 
 // The provably-exact length of `range(start, end)` when both bounds are
 // statically-known integers (`nullopt` otherwise).  Cypher range is inclusive
 // on both ends; reversed bounds give an empty list.  Computed once here, at the
 // make-time seed; the search plane reads the resulting fact rather than
 // recomputing.
+//
+// Integer bounds only, which `known_int` already enforces: `range()` rejects a
+// non-integer bound at runtime, so seeding a length off an integral double
+// (e.g. 5.0) would elide an evaluation that is supposed to throw.
 auto ProvableRangeLength(EGraph const &eg, std::span<planner::core::EClassId const> args)
     -> std::optional<std::size_t> {
   if (args.size() != 2) return std::nullopt;
-  auto const a = TryReadIntLiteral(eg, args[0]);
-  auto const b = TryReadIntLiteral(eg, args[1]);
+  auto const a = eg.analysis_of(args[0]).known_int();
+  auto const b = eg.analysis_of(args[1]).known_int();
   if (!a || !b) return std::nullopt;
   if (*b < *a) return std::size_t{0};
   // Difference in unsigned to avoid signed-overflow UB for extreme bounds; +1
@@ -120,10 +111,8 @@ auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner:
       return {.known_list_length = ProvableRangeLength(eg, args)};
     case BuiltinKind::Size:
       if (args.size() == 1) {
-        auto const *arg = eg.analysis_of(args[0]).expression();
-        if (arg != nullptr && arg->known_list_length) {
-          return {.known_constant_value =
-                      storage::ExternalPropertyValue{static_cast<int64_t>(*arg->known_list_length)}};
+        if (auto const length = eg.analysis_of(args[0]).known_list_length()) {
+          return {.known_constant_value = storage::ExternalPropertyValue{static_cast<int64_t>(*length)}};
         }
       }
       return {};
@@ -132,6 +121,8 @@ auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner:
   }
   return {};
 }
+
+}  // namespace
 
 auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass {
   auto core_args = to_core(args);
@@ -174,14 +165,10 @@ auto BinaryKnownListLength(EGraph const & /*eg*/, planner::core::EClassId /*lhs*
 template <>
 auto BinaryKnownListLength<symbol::Add>(EGraph const &eg, planner::core::EClassId lhs, planner::core::EClassId rhs)
     -> std::optional<std::size_t> {
-  auto length_of = [&](planner::core::EClassId c) -> std::optional<std::size_t> {
-    auto const *expr = eg.analysis_of(c).expression();
-    return expr != nullptr ? expr->known_list_length : std::nullopt;
-  };
-  auto const l = length_of(lhs);
-  auto const r = length_of(rhs);
-  if (l && r) return *l + *r;
-  return std::nullopt;
+  return eg.analysis_of(lhs).known_list_length().and_then([&](std::size_t lhs_length) {
+    return eg.analysis_of(rhs).known_list_length().transform(
+        [lhs_length](std::size_t rhs_length) { return lhs_length + rhs_length; });
+  });
 }
 }  // namespace
 
