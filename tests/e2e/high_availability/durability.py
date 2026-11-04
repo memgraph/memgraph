@@ -23,6 +23,7 @@ from common import (
     execute_and_fetch_all,
     get_data_path,
     get_logs_path,
+    get_replica_vertex_count,
     get_vertex_count,
     list_directory_contents,
     show_instances,
@@ -359,7 +360,7 @@ def test_branching_point_snapshot_recovery(test_name):
 
     # 6.
     instance1_cursor = connect(host="localhost", port=7687).cursor()
-    mg_sleep_and_assert(5, partial(get_vertex_count, instance1_cursor))
+    mg_sleep_and_assert(5, partial(get_replica_vertex_count, instance1_cursor))
     mg_sleep_and_assert(5, partial(get_vertex_count, instance2_cursor))
 
     assert count_files(snapshot_dir_instance_1) == 1
@@ -447,7 +448,7 @@ def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
     ]
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
     instance1_cursor = connect(host="localhost", port=7687).cursor()
-    mg_sleep_and_assert(1, partial(get_vertex_count, instance1_cursor))
+    mg_sleep_and_assert(1, partial(get_replica_vertex_count, instance1_cursor))
 
     mg_sleep_and_assert(1, partial(count_files, wal_dir_instance_1))
 
