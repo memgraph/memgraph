@@ -1229,48 +1229,6 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     spdlog::trace("WAL file {} finalized successfully", wal_path);
   }
 
-  // Delta application is shared with branch tail replay (enterprise): ReplayWalFile passes a replay hook.
-  return ApplyWalDeltas(wal_path,
-                        wal_info,
-                        storage,
-                        heartbeat
-#ifdef MG_ENTERPRISE
-                        ,
-                        /*on_txn_begin*/ nullptr
-#endif
-  );
-}
-
-#ifdef MG_ENTERPRISE
-bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
-                                                storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
-                                                std::function<void(uint64_t)> const *on_txn_begin) {
-  storage::durability::WalInfo wal_info{};
-  try {
-    wal_info = storage::durability::ReadWalContents(wal_path);
-  } catch (const utils::BasicException &e) {
-    spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
-    return false;
-  }
-
-  if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
-    spdlog::trace("WAL file {} holds nothing newer than the recovered state.", wal_path);
-    return true;
-  }
-  return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, on_txn_begin).success;
-}
-#endif
-
-// Decodes and applies the transactions of one WAL file. Enterprise shares it between the replica's
-// LoadWal and the branch-tail ReplayWalFile; community calls it from LoadWal with no hook.
-InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::ApplyWalDeltas(
-    std::filesystem::path const &wal_path, storage::durability::WalInfo const &wal_info,
-    storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat
-#ifdef MG_ENTERPRISE
-    ,
-    std::function<void(uint64_t)> const *on_txn_begin
-#endif
-) {
   spdlog::trace("Loading WAL deltas from {}", wal_path);
   storage::durability::Decoder wal_decoder;
   const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
@@ -1301,12 +1259,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::ApplyWal
                                                *version,
                                                heartbeat,
                                                /*two_phase_commit*/ false,
-#ifdef MG_ENTERPRISE
-                                               /*loading_wal*/ true,
-                                               on_txn_begin);
-#else
                                                /*loading_wal*/ true);
-#endif
     } catch (const utils::BasicException &e) {
       spdlog::error("Aborting WAL file {} at delta {} and skipping the rest of the chain because of: {}",
                     wal_path,
@@ -1338,6 +1291,31 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::ApplyWal
   spdlog::trace("Replication from WAL file {} successful!", wal_path);
   return LoadWalStatus{.success = true, .num_txns_committed = num_txns_committed};
 }
+
+#ifdef MG_ENTERPRISE
+bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
+                                                storage::durability::WalInfo const &wal_info,
+                                                storage::InMemoryStorage *storage,
+                                                std::function<void(uint64_t)> const &on_txn_begin) {
+  storage::durability::Decoder wal_decoder;
+  const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
+  if (!version || !storage::durability::IsVersionSupported(*version)) {
+    spdlog::error("WAL file {} has no valid magic and version", wal_path);
+    return false;
+  }
+  wal_decoder.SetPosition(wal_info.offset_deltas);
+  rpc::ProgressHeartbeat heartbeat;  // never started: nobody to report progress to
+  uint64_t delta_idx{0};
+  while (delta_idx < wal_info.num_deltas) {
+    auto const res = ReadAndApplyDeltasSingleTxn(
+        storage, &wal_decoder, *version, heartbeat, /*two_phase_commit*/ false, /*loading_wal*/ true, &on_txn_begin);
+    if (!res) return false;
+    delta_idx += res->current_delta_idx;
+  }
+  // Same check as LoadWal: overrunning the stated count means a transaction-end marker was lost.
+  return delta_idx == wal_info.num_deltas;
+}
+#endif
 
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
