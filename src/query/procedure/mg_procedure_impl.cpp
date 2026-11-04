@@ -3319,6 +3319,19 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       result);
 }
 
+namespace {
+// Reported as MGP_ERROR_INVALID_ARGUMENT; the reason is logged.
+void ThrowOnVectorPropertyConflict(
+    memgraph::query::DbAccessor &dba, memgraph::storage::IndicesInfo proposed,
+    std::vector<std::pair<memgraph::storage::LabelId, std::set<memgraph::storage::PropertyId>>> proposed_unique = {}) {
+  try {
+    dba.ThrowOnVectorPropertyConflict(std::move(proposed), std::move(proposed_unique));
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    throw std::invalid_argument(e.what());
+  }
+}
+}  // namespace
+
 mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *result) {
   return WrapExceptions(
       [graph, label]() {
@@ -3407,16 +3420,23 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
                      ranges::to<std::vector<memgraph::storage::PropertyId>>();
             },
             graph->CheckedImpl());
+        const memgraph::storage::IndicesInfo label_property_conflict{
+            .label_properties = {
+                memgraph::storage::LabelPropertyIndexEntry{.label = label_id, .properties = {property_path}}}};
         const auto index_res = std::visit(
-            memgraph::utils::Overloaded{
-                [&](memgraph::query::DbAccessor *impl) { return impl->CreateIndex(label_id, {property_path}); },
-                [&](memgraph::query::SubgraphDbAccessor *impl) {
-                  return impl->GetAccessor()->CreateIndex(label_id, {property_path});
-                },
-                [](memgraph::query::VirtualGraphDbAccessor *)
-                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
-                  throw ImmutableObjectException{"mgp_create_label_property_index is not supported on a virtual graph"};
-                }},
+            memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *impl) {
+                                          ThrowOnVectorPropertyConflict(*impl, label_property_conflict);
+                                          return impl->CreateIndex(label_id, {property_path});
+                                        },
+                                        [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                          ThrowOnVectorPropertyConflict(*impl->GetAccessor(), label_property_conflict);
+                                          return impl->GetAccessor()->CreateIndex(label_id, {property_path});
+                                        },
+                                        [](memgraph::query::VirtualGraphDbAccessor *)
+                                            -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                                          throw ImmutableObjectException{
+                                              "mgp_create_label_property_index is not supported on a virtual graph"};
+                                        }},
             graph->CheckedImpl());
         return index_res.has_value() ? 1 : 0;
       },
@@ -3530,16 +3550,20 @@ mgp_error mgp_create_vertex_property_index(mgp_graph *graph, const char *propert
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->CheckedImpl());
         const auto index_res = std::visit(
-            memgraph::utils::Overloaded{
-                [property_id](memgraph::query::DbAccessor *impl) { return impl->CreateGlobalVertexIndex(property_id); },
-                [property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                  return impl->GetAccessor()->CreateGlobalVertexIndex(property_id);
-                },
-                [](memgraph::query::VirtualGraphDbAccessor *)
-                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
-                  throw ImmutableObjectException{
-                      "mgp_create_vertex_property_index is not supported on a virtual graph"};
-                }},
+            memgraph::utils::Overloaded{[property_id](memgraph::query::DbAccessor *impl) {
+                                          ThrowOnVectorPropertyConflict(*impl, {.vertex_property = {property_id}});
+                                          return impl->CreateGlobalVertexIndex(property_id);
+                                        },
+                                        [property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          ThrowOnVectorPropertyConflict(*impl->GetAccessor(),
+                                                                        {.vertex_property = {property_id}});
+                                          return impl->GetAccessor()->CreateGlobalVertexIndex(property_id);
+                                        },
+                                        [](memgraph::query::VirtualGraphDbAccessor *)
+                                            -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                                          throw ImmutableObjectException{
+                                              "mgp_create_vertex_property_index is not supported on a virtual graph"};
+                                        }},
             graph->CheckedImpl());
         return index_res.has_value() ? 1 : 0;
       },
@@ -3703,8 +3727,12 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
 
         const auto unique_res = std::visit(
             memgraph::utils::Overloaded{
-                [&](memgraph::query::DbAccessor *impl) { return impl->CreateUniqueConstraint(label_id, property_ids); },
+                [&](memgraph::query::DbAccessor *impl) {
+                  ThrowOnVectorPropertyConflict(*impl, {}, {{label_id, property_ids}});
+                  return impl->CreateUniqueConstraint(label_id, property_ids);
+                },
                 [&](memgraph::query::SubgraphDbAccessor *impl) {
+                  ThrowOnVectorPropertyConflict(*impl->GetAccessor(), {}, {{label_id, property_ids}});
                   return impl->GetAccessor()->CreateUniqueConstraint(label_id, property_ids);
                 },
                 [](memgraph::query::VirtualGraphDbAccessor *)
