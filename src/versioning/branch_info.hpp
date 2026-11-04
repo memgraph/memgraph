@@ -11,29 +11,41 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
 
 namespace memgraph::versioning {
 
-// Gid floors are unset until the branch's core is first built.
+enum class GidKind : uint8_t { kVertex, kEdge };
+
 struct BranchInfo {
   // Never reused, even across drops; main is implicit version 1, the first branch is 2.
   uint64_t number;
   std::string parent;
   // GC fork-pin timestamp, held until the branch is dropped; drives visibility.
   uint64_t fork_ts;
-  // fork_ts as persisted in the ledger. Differs from fork_ts only after startup restore, where fork_ts is the pin
-  // taken on the rebuilt history. Ledger writes and the retention floor use this one.
-  uint64_t recorded_fork_ts;
+  // fork_ts as persisted in the ledger; differs from fork_ts only after startup restore, where fork_ts is the pin
+  // taken on the rebuilt history. Defaults to fork_ts so an omitted initializer cannot persist 0.
+  uint64_t recorded_fork_ts{fork_ts};
+  // Unset until the branch's core is first built.
   std::optional<uint64_t> vertex_gid_floor;
   std::optional<uint64_t> edge_gid_floor;
-  // Wall-clock creation time, microseconds since the Unix epoch. Absent in ledgers written before it was recorded.
+  // Every native gid the branch has taken is below these, and they are durable before the gid is used. Absent (the
+  // floor stands in) until the branch takes its first native gid.
+  std::optional<uint64_t> vertex_gid_ceiling;
+  std::optional<uint64_t> edge_gid_ceiling;
+  // Wall-clock creation time, microseconds since the Unix epoch.
   std::optional<uint64_t> created_at_us;
 };
 
-// The durable timestamp a branch forked at `fork_ts` still needs recoverable: one below it, clamped at 0.
-inline uint64_t RecoverableBelow(uint64_t fork_ts) { return fork_ts == 0 ? 0 : fork_ts - 1; }
+// The gid at or above which the ledger knows no object of the branch: its ceiling, or its floor while it has taken no
+// native gid, or 0 while its floors are unset.
+inline uint64_t GidsHeldBelow(const BranchInfo &info, GidKind kind) {
+  const auto &floor = kind == GidKind::kVertex ? info.vertex_gid_floor : info.edge_gid_floor;
+  const auto &ceiling = kind == GidKind::kVertex ? info.vertex_gid_ceiling : info.edge_gid_ceiling;
+  return std::max(floor.value_or(0), ceiling.value_or(0));
+}
 
 }  // namespace memgraph::versioning

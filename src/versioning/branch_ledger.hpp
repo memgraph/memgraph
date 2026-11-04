@@ -32,22 +32,17 @@ struct LedgerContents {
   std::vector<LedgerBranch> branches;
 };
 
-// Durable registry of a database's branches. One file, replaced atomically on every write (temp file, fsync, rename,
-// fsync of the directory), so a reader sees either the previous or the new contents, never a partial file.
-//
-// File layout: a header line "MGBL <version> <payload_size> <crc32 hex>\n" followed by a JSON payload of exactly
-// `payload_size` bytes. Read rejects a wrong magic/version, a size mismatch (truncation/extension) and a CRC mismatch.
-//
-// Not thread-safe: the owner serializes Write/Read.
+// Durable registry of a database's branches: one file replaced atomically per write (temp file, fsync, rename,
+// directory fsync). Layout: "MGBL <version> <payload_size> <crc32 hex>\n" then a JSON payload; Read rejects a bad
+// header, size, CRC or registry. Not thread-safe: the owner serializes Write/Read.
 class BranchLedger {
  public:
   static constexpr uint32_t kVersion = 1;
 
-  // The parent directory of `file` is created by Write if missing.
   explicit BranchLedger(std::filesystem::path file);
 
-  // Failures before the rename leave the previous ledger untouched and are returned; once renamed the write counts as
-  // done, and a directory-fsync failure is only logged.
+  // Refuses an invalid registry; creates the parent directory if missing. Failures before the rename leave the previous
+  // ledger untouched; after it the write counts as done and a directory-fsync failure is only logged.
   std::expected<void, std::string> Write(const LedgerContents &contents) const;
 
   // nullopt if the file does not exist; an error message if it exists but is unreadable or corrupt.

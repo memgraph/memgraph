@@ -62,6 +62,11 @@ done
 
 cd $PROJECT_ROOT
 
+# Enterprise-only sources (src/versioning) have no compile commands in a community configure.
+if grep -q '^MG_ENTERPRISE:BOOL=OFF' build/CMakeCache.txt 2>/dev/null; then
+  EXCLUSIONS="$EXCLUSIONS :!src/versioning"
+fi
+
 if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
   echo "Error: Virtual environment not found at $VENV_DIR/bin/activate"
   echo "Please create a virtual environment first with: python3 -m venv $VENV_DIR"
