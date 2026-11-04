@@ -26,7 +26,7 @@
 #include "storage/v2/property_write_targets.hpp"
 #include "storage/v2/schema_info.hpp"
 #ifdef MG_ENTERPRISE
-#include "utils/logging.hpp"
+#include "storage/v2/exceptions.hpp"
 #endif
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
@@ -192,11 +192,14 @@ struct Transaction {
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
-#ifdef MG_ENTERPRISE
-    // Chokepoint for every MVCC delta creation (mvcc.hpp); metadata deltas (md_deltas) bypass it.
-    DMG_ASSERT(!is_historical_, "Attempted a write through a historical (read-only) accessor");
-#endif
     if (commit_info != nullptr) return;
+#ifdef MG_ENTERPRISE
+    // Chokepoint for every MVCC delta (mvcc.hpp); a historical transaction never gets a commit_info, so every
+    // write hits this. Metadata deltas bypass it and are refused at commit.
+    if (is_historical_) [[unlikely]] {
+      throw WriteInHistoricalAccessorException();
+    }
+#endif
     commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
 
@@ -287,8 +290,10 @@ struct Transaction {
 #ifdef MG_ENTERPRISE
   // Read-only accessor at a past, pinned fork_ts (InMemoryStorage::HistoricalAccess). That tick is later
   // dispensed to a real transaction, so finalization must not MarkFinished it; the accessor's self-pin
-  // is released instead (ReleaseForkPin, once, in Abort or the empty-delta commit path).
+  // is released instead.
   bool is_historical_{false};
+  // The HistoricalAccess self-pin is still held; cleared by its single release.
+  bool holds_fork_pin_{false};
 #endif
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that

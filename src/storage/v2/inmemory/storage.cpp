@@ -617,6 +617,12 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemo
                                                     std::function<Transaction()> build_transaction,
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
+
+void InMemoryStorage::InMemoryAccessor::ReleaseHistoricalPin() {
+  if (std::exchange(transaction_.holds_fork_pin_, false)) {
+    static_cast<InMemoryStorage *>(storage_)->ReleaseForkPin(transaction_.start_timestamp);
+  }
+}
 #endif
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
@@ -1081,21 +1087,20 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   PublishIndexArming();
 
+#ifdef MG_ENTERPRISE
+  if (transaction_.is_historical_) [[unlikely]] {
+    // MVCC writes already threw (EnsureCommitInfoExists); refuse metadata-only ones before they take effect.
+    if (!transaction_.md_deltas.empty()) throw WriteInHistoricalAccessorException();
+    ReleaseHistoricalPin();
+    return {};
+  }
+#endif
+
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
-#ifdef MG_ENTERPRISE
-    if (!transaction_.is_historical_) [[likely]] {
-      mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-    } else {
-      mem_storage->ReleaseForkPin(transaction_.start_timestamp);
-      // Terminal here: ReleaseForkPin is not idempotent and the destructor would otherwise Abort() and release again.
-      is_transaction_active_ = false;
-    }
-#else
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-#endif
     return {};
   }
 
@@ -1413,13 +1418,7 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
   // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
   // requires that nothing at or above that boundary is unlinked while it waits.
-#ifdef MG_ENTERPRISE
-  if (!transaction_.is_historical_) [[likely]] {
-    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-  }
-#else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-#endif
 
   if (config_.enable_schema_info) {
     mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
@@ -1921,8 +1920,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
   if (!transaction_.is_historical_) [[likely]] {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
-    // Releases the self-pin; the empty-delta commit path clears is_transaction_active_, so this runs once.
-    mem_storage->ReleaseForkPin(transaction_.start_timestamp);
+    ReleaseHistoricalPin();
   }
 #else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -3160,7 +3158,10 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
                           last_durable_ts,
                           last_durable_num_committed_txns,
                           metric_handles_.unreleased_delta_objects};
+  // commit_lock_narrowing stays false: fork_ts is a clean cut (RegisterForkPin: every commit below it was published,
+  // every in-flight one minted >= it), so plain `ts < start_timestamp` visibility is exact.
   transaction.is_historical_ = true;
+  transaction.holds_fork_pin_ = true;
   return transaction;
 }
 
@@ -3172,21 +3173,24 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
     if (!version_fork_pins_.contains(fork_ts)) {
       return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
     }
-    // Self-pin lives as long as this accessor; released in Abort / the empty-delta commit path.
+    // Self-pin owned by the accessor until it finalizes (ReleaseHistoricalPin).
     version_fork_pins_.insert(fork_ts);
     oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
   }
-  // Undo the self-pin if no accessor is returned: no Abort() will run to release it.
-  bool self_pin_transferred = false;
-  const utils::OnScopeExit release_self_pin_on_failure{[&] {
-    if (!self_pin_transferred) ReleaseForkPin(fork_ts);
-  }};
-  auto accessor = std::unique_ptr<Storage::Accessor>(
-      new InMemoryAccessor{Storage::Accessor::historical_access,
-                           this,
-                           [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
-                           std::nullopt});
-  self_pin_transferred = true;
+  std::unique_ptr<Storage::Accessor> accessor;
+  try {
+    accessor.reset(new InMemoryAccessor{Storage::Accessor::historical_access,
+                                        this,
+                                        [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
+                                        std::nullopt});
+  } catch (...) {
+    ReleaseForkPin(fork_ts);  // No accessor took ownership of the self-pin.
+    throw;
+  }
+  // Read under the accessor's guard, so SetStorageMode (UNIQUE) cannot change it while the accessor lives.
+  if (accessor->GetTransaction()->storage_mode != StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return std::unexpected{HistoricalAccessError::StorageModeNotTransactional};  // ~accessor releases the self-pin
+  }
   return accessor;
 }
 #endif
@@ -5735,6 +5739,12 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
+#ifdef MG_ENTERPRISE
+  // The point index holds only current values; reporting it absent makes a historical read scan instead.
+  if (transaction_.is_historical_) [[unlikely]] {
+    return false;
+  }
+#endif
   return transaction_.active_indices_->point_->PointIndexExists(label, property);
 }
 
@@ -5899,6 +5909,12 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
 
 std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  // The vector index holds only current values and returns hits without an MVCC check.
+  if (transaction_.is_historical_) [[unlikely]] {
+    throw VectorSearchException(kVectorSearchOnHistorical);
+  }
+#endif
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<VertexAccessor, double, double>> result;
 
@@ -5916,6 +5932,12 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
 
 std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  // The vector index holds only current values and returns hits without an MVCC check.
+  if (transaction_.is_historical_) [[unlikely]] {
+    throw VectorSearchException(kVectorSearchOnHistorical);
+  }
+#endif
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<EdgeAccessor, double, double>> result;
 
