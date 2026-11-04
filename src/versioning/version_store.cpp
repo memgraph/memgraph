@@ -13,10 +13,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <mutex>
 
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
 #include "metrics/prometheus_metrics.hpp"
@@ -27,15 +27,28 @@ namespace memgraph::versioning {
 namespace {
 constexpr std::string_view kFrozenMessage = "Graph Versioning branches are not available on a REPLICA.";
 constexpr std::string_view kBranchDroppedMessage = "Branch was dropped.";
+
+std::string DescribeUnavailableBranch(std::string_view name, std::string_view reason,
+                                      const std::filesystem::path &directory) {
+  while (reason.ends_with('.')) reason.remove_suffix(1);
+  return fmt::format(
+      "Branch '{0}' is unavailable: {1}. Its files were left as they are in '{2}'. To bring it back, restore them from "
+      "a backup and restart Memgraph; to remove the branch and its files, run DROP BRANCH '{0}'.",
+      name,
+      reason,
+      directory.string());
+}
 }  // namespace
 
 VersionStore::VersionStore(std::function<ForkPoint()> acquire_pin, std::function<void(uint64_t)> release_pin)
     : acquire_pin_{std::move(acquire_pin)}, release_pin_{std::move(release_pin)} {}
 
 VersionStore::~VersionStore() {
+  size_t total_checkouts = 0;
+  for (const auto &[number, count] : checked_out_) total_checkouts += count;
   auto &global = memgraph::metrics::Metrics().global;
   global.versioning_active_branches->Decrement(static_cast<double>(branches_.size()));
-  global.versioning_active_sessions->Decrement(static_cast<double>(total_checkouts_));
+  global.versioning_active_sessions->Decrement(static_cast<double>(total_checkouts));
 }
 
 void VersionStore::SetRetentionFloorCallback(std::function<void(std::optional<uint64_t>)> callback) {
@@ -58,8 +71,11 @@ void VersionStore::PublishRetentionFloor() const {
 
 void VersionStore::AttachLedger(std::filesystem::path file) {
   const std::scoped_lock guard{ledger_mutex_};
-  branches_root_ = file.parent_path();
+  auto root = file.parent_path();
   ledger_.emplace(std::move(file));
+  // TryAcquireCheckout reads the root under lock_ alone.
+  const std::scoped_lock registry{lock_};
+  branches_root_ = std::move(root);
 }
 
 LedgerContents VersionStore::SnapshotLocked() const {
@@ -82,18 +98,13 @@ std::expected<void, std::string> VersionStore::WriteLedger(const LedgerContents 
   return {};
 }
 
-void VersionStore::Restore(const LedgerContents &contents, std::span<const uint64_t> pins) {
-  MG_ASSERT(pins.size() == contents.branches.size(), "Restore needs one fork pin per branch");
+void VersionStore::Restore(const LedgerContents &contents) {
   {
     const std::scoped_lock guard{lock_};
     next_number_ = contents.next_number;
-    for (size_t i = 0; i < pins.size(); ++i) {
-      const auto &recorded = contents.branches[i];
-      BranchInfo info = recorded.info;
-      info.fork_ts = pins[i];
-      branches_.emplace(recorded.name, std::move(info));
-    }
-    memgraph::metrics::Metrics().global.versioning_active_branches->Increment(static_cast<double>(pins.size()));
+    for (const auto &[name, info] : contents.branches) branches_.emplace(name, info);
+    memgraph::metrics::Metrics().global.versioning_active_branches->Increment(
+        static_cast<double>(contents.branches.size()));
   }
   PublishRetentionFloor();
 }
@@ -107,18 +118,32 @@ void VersionStore::RestoreHidden(const LedgerContents &contents) {
   PublishRetentionFloor();
 }
 
-std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name, std::string parent) {
+void VersionStore::MarkUnavailable(uint64_t number, std::string reason) {
+  const std::scoped_lock guard{lock_};
+  const auto branch = std::ranges::find(branches_, number, [](const auto &entry) { return entry.second.number; });
+  if (branch != branches_.end()) branch->second.unavailable_reason = std::move(reason);
+}
+
+void VersionStore::RestoreLedgerUnreadable(std::string message) {
+  const std::scoped_lock guard{lock_};
+  ledger_unreadable_ = std::move(message);
+}
+
+std::optional<std::string> VersionStore::LedgerUnreadable() const {
+  const std::scoped_lock guard{lock_};
+  return ledger_unreadable_;
+}
+
+std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string name) {
   const std::scoped_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   {
     const std::scoped_lock guard{lock_};
+    if (ledger_unreadable_) return std::unexpected(*ledger_unreadable_);
     if (frozen_) return std::unexpected(std::string{kFrozenMessage});
     if (branches_.contains(name) || std::ranges::any_of(hidden_, [&](const auto &b) { return b.name == name; })) {
       return std::unexpected(fmt::format("Branch '{}' already exists.", name));
-    }
-    if (parent != "main" && !branches_.contains(parent)) {
-      return std::unexpected(fmt::format("Parent branch '{}' does not exist.", parent));
     }
     next = SnapshotLocked();
   }
@@ -127,7 +152,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   const auto fork = acquire_pin_();
   BranchInfo info{
       .number = next.next_number,
-      .parent = std::move(parent),
+      .parent = "main",
       .fork_ts = fork.fork_ts,
       .recorded_fork_ts = fork.fork_ts,
       .created_at_us = static_cast<uint64_t>(
@@ -136,18 +161,30 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
       .fork_counts = fork.counts,
   };
 
-  ++next.next_number;
-  next.branches.push_back({.name = name, .info = info});
-  if (auto written = WriteLedger(next); !written) {
+  const auto release_fork = [&] {
     release_pin_(info.fork_ts);
     PublishRetentionFloor();
-    return std::unexpected(std::move(written.error()));
+  };
+
+  // The pin is unowned until the commit below; staging the node keeps that commit allocation-free.
+  decltype(branches_) staged;
+  try {
+    ++next.next_number;
+    next.branches.push_back({.name = name, .info = info});
+    staged.emplace(std::move(name), info);
+    if (auto written = WriteLedger(next); !written) {
+      release_fork();
+      return std::unexpected(std::move(written.error()));
+    }
+  } catch (...) {
+    release_fork();
+    throw;
   }
 
   {
     const std::scoped_lock guard{lock_};
     next_number_ = next.next_number;
-    branches_.emplace(std::move(name), info);
+    branches_.insert(staged.extract(staged.begin()));
 
     memgraph::metrics::Metrics().global.versioning_branches_created->Increment();
     memgraph::metrics::Metrics().global.versioning_active_branches->Increment();
@@ -155,23 +192,31 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   return info;
 }
 
-std::expected<bool, std::string> VersionStore::DropBranch(std::string_view name, bool remove_files) {
-  return DropBranchImpl(name, remove_files, /*force=*/false);
+std::expected<DropResult, std::string> VersionStore::DropBranch(std::string_view name,
+                                                                std::optional<uint64_t> own_checkout) {
+  return DropBranchImpl(name, /*force=*/false, own_checkout);
 }
 
-std::expected<bool, std::string> VersionStore::ForceDropBranch(std::string_view name) {
-  return DropBranchImpl(name, /*remove_files=*/true, /*force=*/true);
+std::expected<DropResult, std::string> VersionStore::ForceDropBranch(std::string_view name) {
+  return DropBranchImpl(name, /*force=*/true, std::nullopt);
 }
 
-std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view name, bool remove_files, bool force) {
-  const std::scoped_lock ledger_guard{ledger_mutex_};
+std::expected<DropResult, std::string> VersionStore::DropBranchImpl(std::string_view name, bool force,
+                                                                    std::optional<uint64_t> own_checkout) {
+  std::unique_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   {
     const std::scoped_lock guard{lock_};
+    if (ledger_unreadable_) return std::unexpected(*ledger_unreadable_);
     auto it = branches_.find(name);
-    if (it == branches_.end()) return false;
-    if (!force && checked_out_.contains(it->second.number)) return false;
+    if (it == branches_.end()) return DropResult::kNotFound;
+    if (!force) {
+      const auto number = it->second.number;
+      const auto attached = checked_out_.find(number);
+      const size_t own = own_checkout == number ? 1 : 0;
+      if (attached != checked_out_.end() && attached->second > own) return DropResult::kInUse;
+    }
     next = SnapshotLocked();
     std::erase_if(next.branches, [&](const LedgerBranch &b) { return b.name == name; });
     dropping_.emplace(name);
@@ -183,26 +228,28 @@ std::expected<bool, std::string> VersionStore::DropBranchImpl(std::string_view n
     return std::unexpected(std::move(written.error()));
   }
 
-  uint64_t number = 0;
+  Retired retired{.branches_root = branches_root_};
+  uint64_t fork_ts = 0;
   {
     const std::scoped_lock guard{lock_};
     auto it = branches_.find(name);
-    number = it->second.number;
-    release_pin_(it->second.fork_ts);
+    fork_ts = it->second.fork_ts;
+    RetireCoreLocked(it->second.number, retired);
     branches_.erase(it);
     dropping_.erase(dropping_.find(name));
 
     memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
     memgraph::metrics::Metrics().global.versioning_active_branches->Decrement();
   }
+  release_pin_(fork_ts);
   PublishRetentionFloor();
-  auto remaining = RetireCore(number);
-  if (remove_files && !branches_root_.empty()) RemoveOrDefer(number, std::move(remaining));
-  return true;
+  ledger_guard.unlock();
+  Finish(std::move(retired));
+  return DropResult::kDropped;
 }
 
 std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDropAll() {
-  const std::scoped_lock ledger_guard{ledger_mutex_};
+  std::unique_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
   bool was_frozen = false;
@@ -222,20 +269,22 @@ std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDrop
     return std::unexpected(std::move(written.error()));
   }
 
-  std::vector<uint64_t> dropped_numbers;
+  // Cores are retired with or without a ledger: a cached core of a dropped number would otherwise outlive the drop.
+  Retired retired{.branches_root = branches_root_};
+  std::vector<uint64_t> pins;
   std::vector<std::string> dropped_names;
   {
     const std::scoped_lock guard{lock_};
-    dropped_numbers.reserve(branches_.size() + hidden_.size());
+    pins.reserve(branches_.size());
     dropped_names.reserve(branches_.size() + hidden_.size());
     for (auto &branch : hidden_) {
-      dropped_numbers.push_back(branch.info.number);
+      retired.cores.emplace_back(branch.info.number, CoreSlot{});
       dropped_names.push_back(std::move(branch.name));
     }
     hidden_.clear();
     for (const auto &[branch_name, info] : branches_) {
-      release_pin_(info.fork_ts);
-      dropped_numbers.push_back(info.number);
+      pins.push_back(info.fork_ts);
+      RetireCoreLocked(info.number, retired);
       dropped_names.push_back(branch_name);
     }
     const auto dropped = static_cast<double>(branches_.size());
@@ -245,12 +294,10 @@ std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDrop
     global.versioning_branches_dropped->Increment(dropped);
     global.versioning_active_branches->Decrement(dropped);
   }
+  for (const auto fork_ts : pins) release_pin_(fork_ts);
   PublishRetentionFloor();
-  // Cores are retired with or without a ledger: a cached core of a dropped number would otherwise outlive the drop.
-  for (const auto number : dropped_numbers) {
-    auto remaining = RetireCore(number);
-    if (!branches_root_.empty()) RemoveOrDefer(number, std::move(remaining));
-  }
+  ledger_guard.unlock();
+  Finish(std::move(retired));
   return dropped_names;
 }
 
@@ -301,6 +348,37 @@ std::expected<void, std::string> VersionStore::RecordGidFloors(uint64_t number, 
   return {};
 }
 
+std::expected<uint64_t, std::string> VersionStore::ReserveGids(uint64_t number, GidKind kind, uint64_t through) {
+  // Under ledger_mutex_ like every ledger write: a racing reserver waits for the write and then finds it covers it.
+  const std::scoped_lock ledger_guard{ledger_mutex_};
+
+  LedgerContents next;
+  std::string name;
+  {
+    const std::scoped_lock guard{lock_};
+    auto it = std::ranges::find(branches_, number, [](const auto &kv) { return kv.second.number; });
+    if (it == branches_.end()) return through;
+    if (const auto held = GidsHeldBelow(it->second, kind); through <= held) return held;
+    name = it->first;
+    next = SnapshotLocked();
+  }
+  const uint64_t ceiling = through + kGidReserveChunk;
+  for (auto &b : next.branches) {
+    if (b.name == name) (kind == GidKind::kVertex ? b.info.vertex_gid_ceiling : b.info.edge_gid_ceiling) = ceiling;
+  }
+  if (auto written = WriteLedger(next); !written) return std::unexpected(std::move(written.error()));
+
+  const std::scoped_lock guard{lock_};
+  if (auto it = branches_.find(name); it != branches_.end()) {
+    (kind == GidKind::kVertex ? it->second.vertex_gid_ceiling : it->second.edge_gid_ceiling) = ceiling;
+  }
+  return ceiling;
+}
+
+GidReserver VersionStore::GidReserverOf(uint64_t number) {
+  return [this, number](GidKind kind, uint64_t through) { return ReserveGids(number, kind, through); };
+}
+
 std::optional<BranchInfo> VersionStore::Get(std::string_view name) const {
   const std::scoped_lock guard{lock_};
   auto it = branches_.find(name);
@@ -311,11 +389,10 @@ std::optional<BranchInfo> VersionStore::Get(std::string_view name) const {
 }
 
 std::vector<std::pair<std::string, BranchInfo>> VersionStore::List() const {
-  const std::scoped_lock guard{lock_};
   std::vector<std::pair<std::string, BranchInfo>> result;
-  result.reserve(branches_.size());
-  for (const auto &[name, info] : branches_) {
-    result.emplace_back(name, info);
+  {
+    const std::scoped_lock guard{lock_};
+    result.assign(branches_.begin(), branches_.end());
   }
   std::ranges::sort(result, std::less{}, [](const auto &kv) { return kv.second.number; });
   return result;
@@ -332,39 +409,44 @@ bool VersionStore::IsLive(std::string_view name, uint64_t number) const {
   return it != branches_.end() && it->second.number == number;
 }
 
-bool VersionStore::IsLiveNumber(uint64_t number) const {
-  const std::scoped_lock guard{lock_};
+bool VersionStore::IsLiveNumberLocked(uint64_t number) const {
   return std::ranges::any_of(branches_, [&](const auto &entry) { return entry.second.number == number; });
 }
 
 bool VersionStore::Empty() const {
   const std::scoped_lock guard{lock_};
-  return branches_.empty() && hidden_.empty();
+  return branches_.empty() && hidden_.empty() && !ledger_unreadable_;
 }
 
 std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
   const std::scoped_lock guard{lock_};
+  if (ledger_unreadable_) return std::unexpected(*ledger_unreadable_);
   if (frozen_) return std::unexpected(std::string{kFrozenMessage});
   auto it = branches_.find(name);
   if (it == branches_.end() || dropping_.contains(name)) {
     return std::unexpected(fmt::format("Branch '{}' does not exist.", name));
   }
+  if (it->second.unavailable_reason) {
+    return std::unexpected(DescribeUnavailableBranch(
+        name, *it->second.unavailable_reason, branches_root_ / std::to_string(it->second.number)));
+  }
   ++checked_out_[it->second.number];
-  ++total_checkouts_;
 
   memgraph::metrics::Metrics().global.versioning_active_sessions->Increment();
   return it->second;
 }
 
 void VersionStore::ReleaseCheckout(uint64_t number) {
-  std::unique_lock guard{lock_};
-  if (auto it = checked_out_.find(number); it != checked_out_.end()) {
-    --total_checkouts_;
-    if (--it->second == 0) checked_out_.erase(it);
-    memgraph::metrics::Metrics().global.versioning_active_sessions->Decrement();
+  std::vector<std::filesystem::path> removable;
+  {
+    const std::scoped_lock guard{lock_};
+    if (auto it = checked_out_.find(number); it != checked_out_.end()) {
+      if (--it->second == 0) checked_out_.erase(it);
+      memgraph::metrics::Metrics().global.versioning_active_sessions->Decrement();
+    }
+    removable = TakeRemovableLocked();
   }
-  guard.unlock();
-  SweepPendingRemovals();
+  for (const auto &directory : removable) RemoveDirectory(directory);
 }
 
 size_t VersionStore::CheckoutCount(std::string_view name) const {
@@ -375,87 +457,101 @@ size_t VersionStore::CheckoutCount(std::string_view name) const {
   return it == checked_out_.end() ? 0 : it->second;
 }
 
-std::expected<std::shared_ptr<BranchCore>, std::string> VersionStore::GetOrBuildCore(uint64_t number,
-                                                                                     const CoreBuilder &build) {
+VersionStore::CoreResult VersionStore::GetOrBuildCore(uint64_t number, const CoreBuilder &build) {
+  CoreSlot slot;
+  std::optional<std::promise<CoreResult>> building;
   {
-    const std::scoped_lock guard{cores_mutex_};
-    if (auto it = cores_.find(number); it != cores_.end()) return it->second;
+    const std::scoped_lock guard{lock_};
+    if (!IsLiveNumberLocked(number)) return std::unexpected(std::string{kBranchDroppedMessage});
+    auto [it, inserted] = cores_.try_emplace(number);
+    if (inserted) it->second = building.emplace().get_future().share();
+    slot = it->second;
   }
-  const std::scoped_lock build_guard{build_mutex_};
-  {
-    const std::scoped_lock guard{cores_mutex_};
-    if (auto it = cores_.find(number); it != cores_.end()) return it->second;
-  }
-  if (!IsLiveNumber(number)) return std::unexpected(std::string{kBranchDroppedMessage});
-  auto built = build();
-  if (!built) return std::unexpected(std::move(built.error()));
-  std::shared_ptr<BranchCore> winner;
-  {
-    const std::scoped_lock guard{cores_mutex_};
-    winner = cores_.try_emplace(number, *built).first->second;
-  }
-  // A drop erases the branch before RetireCore, so a branch still live here has its core retired by that drop; one
-  // already gone must not keep the core just inserted.
-  if (!IsLiveNumber(number)) {
-    winner.reset();
-    built->reset();
-    RetireCore(number);
-    return std::unexpected(std::string{kBranchDroppedMessage});
-  }
-  return winner;
-}
-
-std::weak_ptr<BranchCore> VersionStore::RetireCore(uint64_t number) {
-  std::shared_ptr<BranchCore> retired;
-  {
-    const std::scoped_lock guard{cores_mutex_};
-    if (auto it = cores_.find(number); it != cores_.end()) {
-      retired = std::move(it->second);
-      cores_.erase(it);
+  if (building) {
+    // A failed build leaves no slot, so the next checkout retries; a drop may have taken the slot already.
+    const auto forget = [&] {
+      CoreSlot failed;
+      const std::scoped_lock guard{lock_};
+      if (auto it = cores_.find(number); it != cores_.end()) {
+        failed = std::move(it->second);
+        cores_.erase(it);
+      }
+    };
+    try {
+      auto built = build();
+      if (!built) forget();
+      building->set_value(std::move(built));
+    } catch (...) {
+      forget();
+      building->set_exception(std::current_exception());
     }
   }
-  std::weak_ptr<BranchCore> remaining = retired;
-  retired.reset();
-  return remaining;
-}
-
-void VersionStore::RemoveOrDefer(uint64_t number, std::weak_ptr<BranchCore> remaining) {
-  auto directory = branches_root_ / std::to_string(number);
-  const auto attached = [&] {
+  const auto &result = slot.get();
+  if (!result) return std::unexpected(result.error());
+  // A drop that retired the slot before this caller got here must not hand out the core of a dropped number.
+  {
     const std::scoped_lock guard{lock_};
-    return checked_out_.contains(number);
-  }();
-  if (!remaining.expired() || attached) {
-    spdlog::info("Graph Versioning: branch directory {} will be removed once its engine is released.",
-                 directory.string());
-    const std::scoped_lock guard{pending_mutex_};
-    pending_removals_.push_back({.core = std::move(remaining), .number = number, .directory = std::move(directory)});
-  } else {
-    RemoveDirectory(directory);
+    if (!IsLiveNumberLocked(number)) return std::unexpected(std::string{kBranchDroppedMessage});
   }
-  SweepPendingRemovals();
+  return *result;
 }
 
-void VersionStore::SweepPendingRemovals() {
-  {
-    const std::scoped_lock guard{pending_mutex_};
-    if (pending_removals_.empty()) return;
+void VersionStore::RetireCoreLocked(uint64_t number, Retired &retired) {
+  CoreSlot slot;
+  if (auto it = cores_.find(number); it != cores_.end()) {
+    slot = std::move(it->second);
+    cores_.erase(it);
   }
-  std::vector<std::filesystem::path> ready;
+  retired.cores.emplace_back(number, std::move(slot));
+}
+
+std::vector<std::filesystem::path> VersionStore::TakeRemovableLocked() {
+  std::vector<std::filesystem::path> removable;
+  // A holder's checkout stays counted while its core is destroyed, so a removable entry has no holder mid-teardown.
+  for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {
+    if (it->core.expired() && !checked_out_.contains(it->number)) {
+      removable.push_back(std::move(it->directory));
+      it = pending_removals_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return removable;
+}
+
+void VersionStore::Finish(Retired retired) {
+  std::vector<std::pair<uint64_t, std::weak_ptr<BranchCore>>> remaining;
+  remaining.reserve(retired.cores.size());
+  for (auto &[number, slot] : retired.cores) {
+    std::weak_ptr<BranchCore> core;
+    if (slot.valid() && slot.wait_for(std::chrono::seconds{0}) == std::future_status::ready && slot.get()) {
+      core = *slot.get();
+    }
+    slot = {};
+    remaining.emplace_back(number, std::move(core));
+  }
+  if (retired.branches_root.empty()) return;
+
+  std::vector<std::filesystem::path> deferred;
+  std::vector<std::filesystem::path> removable;
   {
-    // One scoped_lock takes both: the two guards would be held together anyway.
-    const std::scoped_lock guard{lock_, pending_mutex_};
-    // A holder's checkout stays counted while its core is destroyed, so a removable entry has no holder mid-teardown.
-    for (auto it = pending_removals_.begin(); it != pending_removals_.end();) {
-      if (it->core.expired() && !checked_out_.contains(it->number)) {
-        ready.push_back(std::move(it->directory));
-        it = pending_removals_.erase(it);
+    const std::scoped_lock guard{lock_};
+    for (auto &[number, core] : remaining) {
+      auto directory = retired.branches_root / std::to_string(number);
+      if (core.expired() && !checked_out_.contains(number)) {
+        removable.push_back(std::move(directory));
       } else {
-        ++it;
+        deferred.push_back(directory);
+        pending_removals_.push_back({.core = std::move(core), .number = number, .directory = std::move(directory)});
       }
     }
+    std::ranges::move(TakeRemovableLocked(), std::back_inserter(removable));
   }
-  for (const auto &directory : ready) RemoveDirectory(directory);
+  for (const auto &directory : deferred) {
+    spdlog::info("Graph Versioning: branch directory {} will be removed once its engine is released.",
+                 directory.string());
+  }
+  for (const auto &directory : removable) RemoveDirectory(directory);
 }
 
 void VersionStore::RemoveDirectory(const std::filesystem::path &directory) {
@@ -464,21 +560,6 @@ void VersionStore::RemoveDirectory(const std::filesystem::path &directory) {
   if (ec) {
     spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
   }
-}
-
-bool DropBranchesOnReplica(VersionStore &store, std::string_view database, std::string_view occasion) {
-  auto const dropped = store.FreezeAndDropAll();
-  if (!dropped) {
-    spdlog::error("Failed to drop the branches of database {} {}: {}", database, occasion, dropped.error());
-    return false;
-  }
-  if (!dropped->empty()) {
-    spdlog::warn("Graph Versioning: dropped branches [{}] of database {} {}; a REPLICA has no branches.",
-                 fmt::join(*dropped, ", "),
-                 database,
-                 occasion);
-  }
-  return true;
 }
 
 }  // namespace memgraph::versioning
