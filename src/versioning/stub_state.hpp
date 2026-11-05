@@ -49,7 +49,7 @@ namespace memgraph::versioning::stub {
 inline constexpr uint32_t kLastRealId = storage::kReservedIdBit - 3;
 
 // Labels and properties share one name mapper, so the one delete id serves both.
-inline constexpr uint32_t kDeleteId = 0xFFFFFFFEU;
+using storage::kDeleteId;
 inline constexpr storage::LabelId kDeleteLabel = storage::LabelId::FromUint(kDeleteId);
 inline constexpr storage::PropertyId kEdgeDeletePid = storage::PropertyId::FromUint(kDeleteId);
 
