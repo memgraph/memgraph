@@ -28,7 +28,6 @@
 
 namespace {
 
-// Membership is keyed by the lowercase spelling, including for raw spellings from an older binary.
 std::string FoldUsername(std::string_view username) { return memgraph::utils::ToLowerCase(username); }
 
 }  // namespace
@@ -115,9 +114,13 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
         winner = &entry;
       }
     }
-    if (names.size() < 2) continue;
+    if (names.size() < 2) {
+      continue;
+    }
     for (const auto &name : names) {
-      if (name != winner->second) profiles_.find(name)->usernames.erase(user);
+      if (name != winner->second) {
+        profiles_.find(name)->usernames.erase(user);
+      }
     }
     ambiguous_.insert(user);
     spdlog::error(
@@ -138,7 +141,9 @@ bool UserProfiles::Persist(const Profile &profile) {
       const auto stored_json = nlohmann::json::parse(*stored, nullptr, false);
       if (stored_json.is_object() && stored_json.contains("usernames") && stored_json["usernames"].is_array()) {
         for (const auto &raw : stored_json["usernames"]) {
-          if (!raw.is_string()) continue;
+          if (!raw.is_string()) {
+            continue;
+          }
           const auto folded = FoldUsername(raw.get<std::string>());
           if (ambiguous_.contains(folded) && !profile.usernames.contains(folded)) {
             json["usernames"].push_back(raw);
@@ -151,7 +156,9 @@ bool UserProfiles::Persist(const Profile &profile) {
 }
 
 bool UserProfiles::ResolveAmbiguity(const std::string &folded) {
-  if (!ambiguous_.contains(folded)) return true;
+  if (!ambiguous_.contains(folded)) {
+    return true;
+  }
   // Erase first so Persist stops carrying this user's stale spellings.
   ambiguous_.erase(folded);
   for (const auto &profile : profiles_) {
