@@ -9,12 +9,15 @@ target_sources(mg-versioning
         branch_ledger.hpp
         gate.hpp
         name.hpp
+        reserved_guard_mapper.hpp
+        stub_state.hpp
         version_store.hpp
 
         PRIVATE
         branch_ledger.cpp
         gate.cpp
         name.cpp
+        reserved_guard_mapper.cpp
         version_store.cpp
 )
 

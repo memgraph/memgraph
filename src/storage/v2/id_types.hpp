@@ -65,6 +65,19 @@ constexpr EdgeTypeId kInvalidEdgeTypeId = EdgeTypeId::FromUint(-1);
 
 #undef STORAGE_DEFINE_ID_TYPE
 
+#ifdef MG_ENTERPRISE
+/// Branch diff engines keep per-object change markers as labels and properties whose id has this bit set. Name id
+/// mappers hand out ids from a counter that starts at 0, so no user label or property ever has it; structures that
+/// are indexed densely by id must skip reserved ids.
+inline constexpr uint32_t kReservedIdBit = uint32_t{1} << 31U;
+
+constexpr bool IsReservedId(uint32_t id) noexcept { return (id & kReservedIdBit) != 0; }
+
+constexpr bool IsReservedId(LabelId id) noexcept { return IsReservedId(id.AsUint()); }
+
+constexpr bool IsReservedId(PropertyId id) noexcept { return IsReservedId(id.AsUint()); }
+#endif
+
 struct LabelPropKey {
   LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
 

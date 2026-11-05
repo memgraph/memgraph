@@ -138,11 +138,30 @@ class IndexArming {
   /// The edge counterpart; see above.
   void arm_all_edge_indexes() { edge_.armed_all = true; }
 
+#ifdef MG_ENTERPRISE
+  // The three note_* feed dense bitmaps, which grow to the largest id noted. A reserved id (a stub marker of a branch
+  // diff engine, see id_types.hpp) is covered by no index and would cost hundreds of MiB, so it is skipped.
+  void note_label(LabelId label) {
+    if (IsReservedId(label)) return;
+    vertex_.labels.set(label);
+  }
+
+  void note_vertex_property(PropertyId property) {
+    if (IsReservedId(property)) return;
+    vertex_.properties.set(property);
+  }
+
+  void note_edge_property(PropertyId property) {
+    if (IsReservedId(property)) return;
+    edge_.properties.set(property);
+  }
+#else
   void note_label(LabelId label) { vertex_.labels.set(label); }
 
   void note_vertex_property(PropertyId property) { vertex_.properties.set(property); }
 
   void note_edge_property(PropertyId property) { edge_.properties.set(property); }
+#endif
 
   /// An edge was created or removed. Unlike a write to a vertex, this cannot say which index is
   /// affected, so every edge index has to be swept.
