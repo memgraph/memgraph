@@ -1323,7 +1323,8 @@ TYPED_TEST(DumpTest, FloatSpelling) {
 
 // Vector-index floats are narrowed to the index's scalar kind, so the dump has
 // to spell them at the precision of that type (max_digits10<float>) and write a
-// value-producing expression when the stored float is not finite.
+// value-producing expression when the stored float is not finite. Point
+// coordinates use the same value-producing spelling for large and non-finite values.
 TYPED_TEST(DumpTest, VectorIndexFloatSpelling) {
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     GTEST_SKIP() << "Vector index not implemented for ondisk";
@@ -1372,39 +1373,6 @@ TYPED_TEST(DumpTest, VectorIndexFloatSpelling) {
                    memgraph::storage::PropertyValue(
                        std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(70000.0)})}},
                  false);
-    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  {
-    ResultStreamFaker stream(this->db->storage());
-    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
-    {
-      auto acc = this->db->Access(memgraph::storage::WRITE);
-      memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
-    }
-    VerifyQueries(
-        stream.GetResults(),
-        R"(CREATE VECTOR INDEX `f32_index` ON :`Vec32`(`v`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
-        R"(CREATE VECTOR INDEX `f16_index` ON :`Vec16`(`v`) WITH CONFIG { "dimension": 1, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f16" };)",
-        kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:`Vec32` {__mg_id__: 0, `v`: [123456.789, 0.100000001]});",
-        "CREATE (:__mg_vertex__:`Vec16` {__mg_id__: 1, `v`: [(1.0/0.0)]});",
-        kDropInternalIndex,
-        kRemoveInternalLabelProperty);
-  }
-}
-
-// Point coordinates are dumped through the same shape as before, but the
-// coordinate itself must be a lexable, value-producing token for large and
-// non-finite values (an integral coordinate keeps its short form).
-TYPED_TEST(DumpTest, PointFloatSpelling) {
-  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Point index not implemented for ondisk";
-  }
-
-  {
-    auto dba = this->db->Access(memgraph::storage::WRITE);
     auto const big_id = dba->NameToProperty("big");
     auto const positive_id = dba->NameToProperty("positive");
     auto const negative_id = dba->NameToProperty("negative");
@@ -1431,15 +1399,20 @@ TYPED_TEST(DumpTest, PointFloatSpelling) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(),
-                  kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:`Points` {__mg_id__: 0, "
-                  "`big`: POINT({ x:1e20, y:2, srid: 7203 }), "
-                  "`positive`: POINT({ x:(1.0/0.0), y:2, srid: 7203 }), "
-                  "`negative`: POINT({ x:(-1.0/0.0), y:2, srid: 7203 }), "
-                  "`not_a_number`: POINT({ x:(0.0/0.0), y:2, srid: 7203 })});",
-                  kDropInternalIndex,
-                  kRemoveInternalLabelProperty);
+    VerifyQueries(
+        stream.GetResults(),
+        R"(CREATE VECTOR INDEX `f32_index` ON :`Vec32`(`v`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `f16_index` ON :`Vec16`(`v`) WITH CONFIG { "dimension": 1, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f16" };)",
+        kCreateInternalIndex,
+        "CREATE (:__mg_vertex__:`Vec32` {__mg_id__: 0, `v`: [123456.789, 0.100000001]});",
+        "CREATE (:__mg_vertex__:`Vec16` {__mg_id__: 1, `v`: [(1.0/0.0)]});",
+        "CREATE (:__mg_vertex__:`Points` {__mg_id__: 2, "
+        "`big`: POINT({ x:1e20, y:2, srid: 7203 }), "
+        "`positive`: POINT({ x:(1.0/0.0), y:2, srid: 7203 }), "
+        "`negative`: POINT({ x:(-1.0/0.0), y:2, srid: 7203 }), "
+        "`not_a_number`: POINT({ x:(0.0/0.0), y:2, srid: 7203 })});",
+        kDropInternalIndex,
+        kRemoveInternalLabelProperty);
   }
 }
 
