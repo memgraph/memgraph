@@ -9,6 +9,7 @@ target_sources(mg-versioning
         branch_ledger.hpp
         gate.hpp
         name.hpp
+        stub_state.hpp
         version_store.hpp
 
         PRIVATE
