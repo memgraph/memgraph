@@ -15,6 +15,8 @@
 #include <array>
 #include <atomic>
 #include <filesystem>
+#include <type_traits>
+#include <utility>
 
 #include "rpc_messages.hpp"
 
@@ -56,6 +58,17 @@ using namespace std::literals::chrono_literals;
 namespace fs = std::filesystem;
 
 namespace {
+
+// The client keeps a span of the timeout table, so a table it would outlive
+// has to be refused where it is written rather than left to a sanitiser: the
+// read that dangles is a plain load the optimizer is free to fold away.
+using TimeoutArray = std::array<std::pair<std::string_view, int>, 1>;
+static_assert(std::is_constructible_v<Client, Endpoint, ClientContext *, TimeoutArray &>,
+              "a table the caller holds is fine");
+static_assert(!std::is_constructible_v<Client, Endpoint, ClientContext *, TimeoutArray>,
+              "a table passed as a temporary must not compile");
+static_assert(std::is_constructible_v<Client, Endpoint, ClientContext *, Client::RpcTimeoutTable>,
+              "a span is a view onto a table held elsewhere, so a temporary one is fine");
 
 std::atomic_bool rpc_akn{false};
 

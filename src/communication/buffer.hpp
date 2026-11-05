@@ -156,6 +156,8 @@ class Buffer final {
    */
   void Resize(size_t len);
 
+  /// Does not release the underlying storage, which is what separates this from
+  /// ShrinkBuffer.
   void Clear() { have_ = 0; }
 
   /**

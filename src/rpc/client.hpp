@@ -14,12 +14,14 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <concepts>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
 #include <storage/v2/replication/rpc.hpp>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "communication/client.hpp"
@@ -206,6 +208,14 @@ class Client {
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
          RpcTimeoutTable rpc_timeouts_ms = Client::kDefaultRpcTimeoutsMs,
          std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000});
+
+  /// A table that owns its entries has to outlive the client, which keeps only a
+  /// span of it, so it cannot be passed as a temporary. A span may be, being a
+  /// view onto something that lives elsewhere.
+  template <typename TTable>
+    requires(!std::is_reference_v<TTable> && !std::same_as<std::remove_cvref_t<TTable>, RpcTimeoutTable>)
+  Client(io::network::Endpoint endpoint, communication::ClientContext *context, TTable &&rpc_timeouts_ms,
+         std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000}) = delete;
 
   // Holding the connection by shared_ptr would otherwise make Client copyable, where it used to be
   // pinned by its ResourceLock member. Two Clients sharing one socket is not a meaningful state.
