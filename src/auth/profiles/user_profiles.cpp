@@ -11,6 +11,7 @@
 
 #include "auth/profiles/user_profiles.hpp"
 
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <set>
@@ -110,19 +111,20 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
     const std::pair<std::string, std::string> *winner = nullptr;
     for (const auto &entry : entries) {
       names.insert(entry.second);
-      if (!winner || entry.first > winner->first || (entry.first == winner->first && entry.second < winner->second)) {
+      if (winner == nullptr || entry.first > winner->first ||
+          (entry.first == winner->first && entry.second < winner->second)) {
         winner = &entry;
       }
     }
     if (names.size() < 2) {
       continue;
     }
-    for (const auto &name : names) {
+    for (const auto &[raw, name] : entries) {
       if (name != winner->second) {
         profiles_.find(name)->usernames.erase(user);
+        stale_[name].push_back(raw);
       }
     }
-    ambiguous_.insert(user);
     spdlog::error(
         "User '{}' is assigned to profiles {} under different spellings; applying profile '{}'. Run SET PROFILE FOR {} "
         "TO <profile> to choose a profile, or CLEAR PROFILE FOR {} to remove it.",
@@ -136,39 +138,26 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
 
 bool UserProfiles::Persist(const Profile &profile) {
   nlohmann::json json = profile;
-  if (!ambiguous_.empty()) {
-    if (const auto stored = durability_->Get(Repository::ProfileKey(profile.name))) {
-      const auto stored_json = nlohmann::json::parse(*stored, nullptr, false);
-      if (stored_json.is_object() && stored_json.contains("usernames") && stored_json["usernames"].is_array()) {
-        for (const auto &raw : stored_json["usernames"]) {
-          if (!raw.is_string()) {
-            continue;
-          }
-          const auto folded = FoldUsername(raw.get<std::string>());
-          if (ambiguous_.contains(folded) && !profile.usernames.contains(folded)) {
-            json["usernames"].push_back(raw);
-          }
-        }
-      }
+  if (const auto it = stale_.find(profile.name); it != stale_.end()) {
+    for (const auto &raw : it->second) {
+      json["usernames"].push_back(raw);
     }
   }
   return durability_->Put(Repository::ProfileKey(profile.name), json.dump());
 }
 
-bool UserProfiles::ResolveAmbiguity(const std::string &folded) {
-  if (!ambiguous_.contains(folded)) {
-    return true;
-  }
-  // Erase first so Persist stops carrying this user's stale spellings.
-  ambiguous_.erase(folded);
-  for (const auto &profile : profiles_) {
-    if (!Persist(profile)) {
-      ambiguous_.insert(folded);
-      spdlog::warn("Failed to clear stale profile membership of user '{}'; it stays ambiguous.", folded);
-      return false;
+void UserProfiles::Resolve(const std::string &folded) {
+  for (auto it = stale_.begin(); it != stale_.end();) {
+    auto &spellings = it->second;
+    const auto saved = spellings;
+    if (std::erase_if(spellings, [&](const auto &raw) { return FoldUsername(raw) == folded; }) != 0) {
+      if (const auto profile_it = profiles_.find(it->first); profile_it != profiles_.end() && !Persist(*profile_it)) {
+        spellings = saved;
+        spdlog::warn("Failed to clear stale profile membership of user '{}' in profile '{}'.", folded, it->first);
+      }
     }
+    it = spellings.empty() ? stale_.erase(it) : std::next(it);
   }
-  return true;
 }
 
 bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
@@ -208,7 +197,7 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
     return false;
   }
   for (const auto &username : it->usernames) {
-    ResolveAmbiguity(username);
+    Resolve(username);
   }
   return true;
 }
@@ -246,8 +235,9 @@ UserProfiles::DropResult UserProfiles::Drop(std::string_view name) {
     profiles_.emplace(std::move(old_profile));
     return DropResult::kFailed;
   }
+  stale_.erase(old_profile.name);
   for (const auto &username : old_profile.usernames) {
-    ResolveAmbiguity(username);
+    Resolve(username);
   }
   return DropResult::kDropped;
 }
@@ -300,7 +290,7 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
     return std::nullopt;
   }
 
-  ResolveAmbiguity(folded_username);
+  Resolve(folded_username);
   return *profile_it;
 }
 
@@ -326,7 +316,7 @@ UserProfiles::MembershipResult UserProfiles::RemoveUsername(std::string_view pro
     return MembershipResult::kFailed;
   }
 
-  ResolveAmbiguity(folded_username);
+  Resolve(folded_username);
   return MembershipResult::kChanged;
 }
 
@@ -353,7 +343,10 @@ std::optional<std::string> UserProfiles::GetProfileForUsername(std::string_view 
 
 bool UserProfiles::IsAmbiguous(std::string_view username) const {
   auto l = std::shared_lock{mtx_};
-  return ambiguous_.contains(FoldUsername(username));
+  const auto folded = FoldUsername(username);
+  return std::ranges::any_of(stale_, [&](const auto &entry) {
+    return std::ranges::any_of(entry.second, [&](const auto &raw) { return FoldUsername(raw) == folded; });
+  });
 }
 
 std::optional<UserProfiles::Profile> UserProfiles::Merge(const std::optional<Profile> &user,
