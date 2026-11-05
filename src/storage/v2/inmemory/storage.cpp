@@ -320,11 +320,17 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  utils::MemoryTracker *db_embedding_memory_tracker
 #ifdef MG_ENTERPRISE
                                  ,
-                                 durability::HistoryBounds history_bounds, RetainedGidFloors retained_gid_floors
+                                 durability::HistoryBounds history_bounds, RetainedGidFloors retained_gid_floors,
+                                 std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper
 #endif
                                  )
     : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
-              db_embedding_memory_tracker, std::move(database_protector_factory)),
+              db_embedding_memory_tracker, std::move(database_protector_factory)
+#ifdef MG_ENTERPRISE
+                                               ,
+              std::move(shared_name_id_mapper)
+#endif
+                  ),
       db_arena_(db_arena),
       vertices_{},
       edges_{},

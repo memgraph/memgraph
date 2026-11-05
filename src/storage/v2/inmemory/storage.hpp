@@ -173,7 +173,8 @@ class InMemoryStorage final : public Storage {
                            utils::MemoryTracker *db_embedding_memory_tracker = nullptr
 #ifdef MG_ENTERPRISE
                            ,
-                           durability::HistoryBounds history_bounds = {}, RetainedGidFloors retained_gid_floors = {}
+                           durability::HistoryBounds history_bounds = {}, RetainedGidFloors retained_gid_floors = {},
+                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr
 #endif
   );
 
