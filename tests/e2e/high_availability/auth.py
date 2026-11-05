@@ -2042,13 +2042,9 @@ def test_profile_mixed_case_survives_failover(test_name):
     execute_and_fetch_all(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
     execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO USER TestUser")
     execute_and_fetch_all(admin_cursor, "SET PROFILE FOR TestUser TO mixed_one")
-    # The raw spelling matches the stored member on any tree; the fold is exercised on the replica and after
-    # promotion.
     assert execute_and_fetch_all(admin_cursor, "SHOW PROFILE FOR TestUser") == [("mixed_one",)]
 
-    # Factory shared by the replica phase and the post-promotion phase; both reach the same port (instance_2 —
-    # first as the replica, then as the promoted main). The spelling is bound at factory time so the returned
-    # query is a zero-arg callable, matching the contract of mg_sleep_and_assert.
+    # Returns a zero-arg callable, as mg_sleep_and_assert expects.
     def profile_at(port, spelling):
         def query():
             try:
@@ -2059,12 +2055,11 @@ def test_profile_mixed_case_survives_failover(test_name):
 
         return query
 
-    # Wait until the replica has applied the membership; once it has, both spellings resolve there: the raw one
-    # through the stored member, the folded one through the fold-on-read.
+    # The membership is stored folded; lookups fold the spelling, so both resolve once the replica applied it.
     mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
-    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the replica did not fold the replayed membership"
+    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the replica does not resolve the folded spelling"
 
-    # Kill the main; the surviving replica is promoted, replaying the membership it applied.
+    # Kill the main; the surviving replica is promoted.
     interactive_mg_runner.kill(instances_description, "instance_1")
 
     def promoted_instance_role():
@@ -2079,9 +2074,9 @@ def test_profile_mixed_case_survives_failover(test_name):
 
     mg_sleep_and_assert("main", promoted_instance_role)
 
-    # The promoted main still holds the membership and folds it on read: both spellings resolve.
+    # Both spellings still resolve on the promoted main.
     mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
-    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the promoted main did not fold the replayed membership"
+    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the promoted main does not resolve the folded spelling"
 
 
 if __name__ == "__main__":

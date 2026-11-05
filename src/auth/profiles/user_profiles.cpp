@@ -26,8 +26,7 @@
 
 namespace {
 
-// Membership is keyed by the canonical spelling so that any spelling that reaches this registry resolves to the
-// same member, including raw spellings persisted or replicated by an older binary.
+// Membership is keyed by the lowercase spelling, including for raw spellings from an older binary.
 std::string FoldUsername(std::string_view username) { return memgraph::utils::ToLowerCase(username); }
 
 }  // namespace

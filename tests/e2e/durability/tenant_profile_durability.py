@@ -108,7 +108,6 @@ def test_tenant_profile_survives_restart():
 
 
 def test_user_profile_survives_restart_mixed_case():
-    """A profile assigned with a mixed-case spelling survives a restart and throttles the account afterwards."""
     interactive_mg_runner.start(INSTANCE, "main")
 
     conn = connect()
