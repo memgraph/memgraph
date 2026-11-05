@@ -30,6 +30,7 @@
 #include <optional>
 #include <ostream>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -100,6 +101,30 @@ struct fuzz_traits {
 
   static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<FuzzAnalysis> {
     return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
+  }
+};
+
+/// `Plus` additionally claims whatever leaves its operands reach: the union of
+/// their masks, which only grows, and which a later merge can still widen.
+/// Every other fuzz symbol declares no update, so the differential covers both
+/// halves of that choice.
+template <>
+struct fuzz_traits<FuzzSymbol::Plus> {
+  struct storage_type {};
+
+  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<FuzzAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
+  }
+
+  static auto update(EGraph<FuzzSymbol, FuzzAnalysis> const &eg, std::span<EClassId const> children, FuzzAnalysis &out)
+      -> bool {
+    auto mask = out.known_leaves;
+    for (auto const child : children) {
+      mask = static_cast<std::uint16_t>(mask | eg.analysis_of(child).known_leaves);
+    }
+    if (mask == out.known_leaves) return false;
+    out.known_leaves = mask;
+    return true;
   }
 };
 

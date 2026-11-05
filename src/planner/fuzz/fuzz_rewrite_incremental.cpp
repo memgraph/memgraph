@@ -56,6 +56,7 @@ using rewrite::RuleContext;
 using rewrite::RuleSet;
 
 using FuzzGraph = EGraph<FuzzSymbol, FuzzAnalysis>;  // core graph: seeded/queried directly
+using AnalysisScope = FuzzGraph::AnalysisScope;
 using memgraph::planner::core::fuzz::FuzzTypedEGraph;
 using FuzzRule = RewriteRule<FuzzTypedEGraph>;  // the rewrite engine drives a TypedEGraph
 
@@ -325,6 +326,20 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
     // Sharp oracle: one all-rules pass on the incremental result must find
     // nothing, i.e. incremental arming did not stop short of the real fixpoint.
     if (inc.iterate_once() != 0) fail("incremental result is not a true fixpoint");
+
+    // The analysis half of that oracle: a converged saturation leaves no fact
+    // still derivable. Checked on both drivers, which take different numbers of
+    // passes to converge and so refresh a different number of times.
+    if (inc_eg.refresh_analysis(proc) != 0) fail("incremental result leaves a derivable fact unclaimed");
+    if (ref_eg.refresh_analysis(proc) != 0) fail("full result leaves a derivable fact unclaimed");
+
+    // The check above starts from the same change set the per-pass refresh
+    // does, so a fact the propagation never reached is invisible to it. A
+    // difference here is a gap in the propagation, not in the rules.
+    if (inc_eg.refresh_analysis<AnalysisScope::Everything>(proc) != 0)
+      fail("a full sweep finds a fact the incremental refresh missed");
+    if (ref_eg.refresh_analysis<AnalysisScope::Everything>(proc) != 0)
+      fail("a full sweep finds a fact the full-driver refresh missed");
   };
 
   run_round();  // initial build
