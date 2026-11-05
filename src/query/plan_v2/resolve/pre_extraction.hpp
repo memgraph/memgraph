@@ -13,11 +13,11 @@
 
 #include <boost/container/small_vector.hpp>
 
+#include "query/plan_v2/cost/extraction_env.hpp"
 #include "query/plan_v2/egraph/child_layout.hpp"
 #include "query/plan_v2/egraph/symbol_dispatch.hpp"
-#include "query/plan_v2/resolve/extraction_env.hpp"
-#include "query/plan_v2/resolve/variable_index.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_index.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 
 namespace memgraph::query::plan::v2 {
 

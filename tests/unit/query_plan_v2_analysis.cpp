@@ -20,11 +20,11 @@
 #include <utility>
 
 #include "query/exceptions.hpp"
+#include "query/plan_v2/egraph/analysis.hpp"
+#include "query/plan_v2/egraph/constant_identity.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
-#include "query/plan_v2/resolve/analysis.hpp"
-#include "query/plan_v2/resolve/constant_identity.hpp"
 #include "storage/v2/property_value.hpp"
 
 import memgraph.planner.core.egraph;

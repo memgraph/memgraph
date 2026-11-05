@@ -27,8 +27,8 @@
 #include "query/plan_v2/frontend/builder.hpp"
 #include "query/plan_v2/resolve/pre_extraction.hpp"
 #include "query/plan_v2/resolve/resolver.hpp"
-#include "query/plan_v2/resolve/variable_index.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_index.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 #include "utils/on_scope_exit.hpp"
 
 namespace memgraph::query::plan::v2 {

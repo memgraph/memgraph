@@ -22,11 +22,11 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_node_map.hpp>
 
+#include "query/plan_v2/egraph/analysis.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
+#include "query/plan_v2/egraph/constant_identity.hpp"
 #include "query/plan_v2/egraph/interner.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
-#include "query/plan_v2/resolve/analysis.hpp"
-#include "query/plan_v2/resolve/constant_identity.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/small_vector.hpp"
 

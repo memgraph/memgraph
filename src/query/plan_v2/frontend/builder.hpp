@@ -25,9 +25,9 @@
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan_v2/cost/extraction_env.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
-#include "query/plan_v2/resolve/extraction_env.hpp"
 
 namespace memgraph::query::plan::v2 {
 

@@ -28,9 +28,9 @@
 #include <set>
 #include <vector>
 
+#include "query/plan_v2/egraph/analysis.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
-#include "query/plan_v2/resolve/analysis.hpp"
 #include "query/plan_v2/rewrite/fold.hpp"
 #include "query/plan_v2/rewrite/rewrites.hpp"
 #include "query/plan_v2/rewrite/rewrites_internal.hpp"

@@ -9,13 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan_v2/resolve/analysis.hpp"
+#include "query/plan_v2/egraph/analysis.hpp"
 
 #include <functional>
 #include <optional>
 
 #include "query/exceptions.hpp"
-#include "query/plan_v2/resolve/constant_identity.hpp"
+#include "query/plan_v2/egraph/constant_identity.hpp"
 
 namespace memgraph::query::plan::v2 {
 

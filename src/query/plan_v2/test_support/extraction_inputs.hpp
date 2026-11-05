@@ -12,9 +12,9 @@
 #pragma once
 
 #include "query/plan_v2/cost/cost_model.hpp"
+#include "query/plan_v2/cost/extraction_env.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
-#include "query/plan_v2/resolve/extraction_env.hpp"
 #include "query/plan_v2/resolve/pre_extraction.hpp"
 
 namespace memgraph::query::plan::v2::test {
