@@ -94,9 +94,9 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
 std::string ValidUntilToString(int64_t const valid_until) {
   if (valid_until == 0) return "FOREVER";
   const auto time = static_cast<std::time_t>(valid_until);
-  std::tm *tm = std::gmtime(&time);
+  std::tm tm{};
   std::array<char, 30> buffer;
-  if (tm != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm) > 0) {
+  if (gmtime_r(&time, &tm) != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", &tm) > 0) {
     return {buffer.data()};
   }
   return "error";
