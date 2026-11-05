@@ -169,10 +169,19 @@ namespace detail {
 
 // The property half of Apply, shared by vertex and edge stubs: single-key stock writes only. Whole-set writes
 // (ClearProperties/InitProperties/UpdateProperties) would wipe the markers.
+//
+// The order is part of the read contract (stub_merge.hpp). A READ_COMMITTED reader whose delta walk straddles our
+// commit sees a prefix of these writes, so each prefix must read as the old or the new state: removal markers go on
+// before the value is dropped, and come off after the value is set. Mid-way a key may hold its value and its marker;
+// the reader prefers the value.
 template <typename Accessor>
 std::optional<storage::Error> ApplyProperties(Accessor &stub, const StubState &before, const StubState &after) {
   auto const old_props = before.properties.Properties();
   auto const new_props = after.properties.Properties();
+  for (auto const pid : after.removed_pids) {
+    if (std::ranges::binary_search(before.removed_pids, pid)) continue;
+    if (auto r = stub.SetProperty(Mark(pid), storage::PropertyValue{true}); !r) return r.error();
+  }
   for (auto const &[pid, value] : new_props) {
     auto const it = old_props.find(pid);
     if (it != old_props.end() && it->second == value) continue;
@@ -181,10 +190,6 @@ std::optional<storage::Error> ApplyProperties(Accessor &stub, const StubState &b
   for (auto const &entry : old_props) {
     if (new_props.contains(entry.first)) continue;
     if (auto r = stub.SetProperty(entry.first, storage::PropertyValue{}); !r) return r.error();
-  }
-  for (auto const pid : after.removed_pids) {
-    if (std::ranges::binary_search(before.removed_pids, pid)) continue;
-    if (auto r = stub.SetProperty(Mark(pid), storage::PropertyValue{true}); !r) return r.error();
   }
   for (auto const pid : before.removed_pids) {
     if (std::ranges::binary_search(after.removed_pids, pid)) continue;
@@ -263,44 +268,6 @@ inline std::optional<storage::Error> Apply(storage::VertexAccessor &stub, const 
 // Single-key reads that need no decode.
 inline storage::Result<bool> IsDeleted(const storage::VertexAccessor &stub, storage::View view) {
   return stub.HasLabel(kDeleteLabel, view);
-}
-
-// nullopt: the stub does not decide, defer to the fork vertex.
-inline storage::Result<std::optional<bool>> DecidesLabel(const storage::VertexAccessor &stub, storage::LabelId label,
-                                                         storage::View view) {
-  auto added = stub.HasLabel(label, view);
-  if (!added) return std::unexpected(added.error());
-  if (*added) return std::optional<bool>{true};
-  auto removed = stub.HasLabel(Mark(label), view);
-  if (!removed) return std::unexpected(removed.error());
-  if (*removed) return std::optional<bool>{false};
-  return std::optional<bool>{};
-}
-
-// The property as the branch sees it: the stub's value, else null when the stub removed it, else the fork's.
-template <typename Fork>
-storage::Result<storage::PropertyValue> MergeGetProperty(const storage::VertexAccessor &stub, const Fork &fork,
-                                                         storage::PropertyId key, storage::View view) {
-  auto own = stub.GetProperty(key, view);
-  if (!own) return own;
-  if (!own->IsNull()) return own;
-  auto marker = stub.GetProperty(Mark(key), view);
-  if (!marker) return marker;
-  if (!marker->IsNull()) return storage::PropertyValue{};
-  return fork.GetProperty(key, storage::View::OLD);
-}
-
-template <typename Fork>
-storage::Result<uint64_t> MergeGetPropertySize(const storage::VertexAccessor &stub, const Fork &fork,
-                                               storage::PropertyId key, storage::View view) {
-  auto own = stub.GetPropertySize(key, view);
-  if (!own) return own;
-  if (*own != 0) return own;
-  auto in_fork = fork.GetPropertySize(key, storage::View::OLD);
-  if (!in_fork || *in_fork == 0) return in_fork;
-  auto marker = stub.GetProperty(Mark(key), view);
-  if (!marker) return std::unexpected(marker.error());
-  return marker->IsNull() ? *in_fork : uint64_t{0};
 }
 
 // Edge stubs: a stock Edge with the fork gid; labels do not apply, a delete is the property kEdgeDeletePid.
