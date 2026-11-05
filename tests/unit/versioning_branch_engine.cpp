@@ -24,6 +24,7 @@
 #include <optional>
 #include <random>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -34,6 +35,7 @@
 
 #include "memory/db_arena.hpp"
 #include "metrics/metric_handles.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -1802,24 +1804,6 @@ TEST_F(VersioningBranchEngineTest, SnapshotAndReadCommittedBranchReadersSeeAStub
   committed_ctx.EndTransaction();
 }
 
-// A stub write is invisible to View::OLD of its own transaction until the command advances; stock, but the branch
-// reads depend on it.
-TEST_F(VersioningBranchEngineTest, AStubWriteIsInvisibleToOldUntilTheCommandAdvances) {
-  auto const x = Prop("x");
-  auto const a = CreateMainVertex({}, {{x, Int(1)}});
-  Fork();
-  auto acc = Diff().Access(ms::WRITE);
-  Begin(acc.get());
-  ASSERT_FALSE(WriteVertexStub(*acc, a, [&](StubState &s) { s.SetProperty(x, Int(2)); }).has_value());
-  auto fork = *Ctx().FindForkVertex(a);
-  EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::NEW), Int(2));
-  EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::OLD), Int(1));
-  acc->AdvanceCommand();
-  EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::OLD), Int(2));
-  Ctx().EndTransaction();
-  acc->Abort();
-}
-
 // ---- Scans and concurrency
 
 // Fork vertices' x on the branch at `view`; native vertices under their gid too.
@@ -2160,5 +2144,1075 @@ void VersioningGidFloorTest::Run() {
 TEST_F(VersioningGidFloorTest, PostForkPreBuildMainObjectsAreForkCandidatesButInvisible) { Run(); }
 
 TEST_F(VersioningGidFloorNoEdgePropertiesTest, PostForkPreBuildMainObjectsAreForkCandidatesButInvisible) { Run(); }
+
+// ---- Vertex writes
+
+class VersioningBranchWriteTest : public VersioningBranchEngineTest {
+ protected:
+  using Props = std::map<ms::PropertyId, ms::PropertyValue>;
+
+  static StubState StubOf(mv::BranchContext &ctx, ms::Gid gid, ms::View view = ms::View::NEW) {
+    auto stub = ctx.FindStub(gid, view);
+    EXPECT_TRUE(stub.has_value());
+    if (!stub) return {};
+    auto decoded = stub::Decode(*stub, view);
+    EXPECT_TRUE(decoded.has_value());
+    return decoded ? std::move(*decoded) : StubState{};
+  }
+
+  static bool StubIsEmpty(const StubState &state) {
+    return !state.deleted && state.added_labels.empty() && state.removed_labels.empty() &&
+           state.properties.Properties().empty() && state.removed_pids.empty();
+  }
+
+  size_t StubCount() {
+    size_t count = 0;
+    Core().stub_index().ForEachStub([&](ms::Vertex *) {
+      ++count;
+      return true;
+    });
+    return count;
+  }
+
+  // SET_PROPERTY keys on `stub`'s delta chain, newest first.
+  static std::vector<ms::PropertyId> PropertyWriteOrder(ms::Vertex *stub) {
+    std::vector<ms::PropertyId> keys;
+    std::shared_lock guard{stub->lock};
+    for (const ms::Delta *delta = stub->delta(); delta != nullptr; delta = delta->next.load()) {
+      if (delta->action == ms::Delta::Action::SET_PROPERTY) keys.push_back(delta->property.key);
+    }
+    return keys;
+  }
+
+  template <typename Body>
+  void Write(Body &&body) {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    body();
+    Commit(*acc);
+    Ctx().EndTransaction();
+  }
+
+  template <typename Body>
+  void Read(Body &&body) {
+    auto acc = Diff().Access(ms::READ);
+    Begin(acc.get());
+    body();
+    Ctx().EndTransaction();
+  }
+};
+
+TEST_F(VersioningBranchWriteTest, EnsureDiffVertexMaterializesAStubOnlyForTheTouchedVertex) {
+  auto const la = Label("A");
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({la}, {{x, Int(1)}});
+  auto const b = CreateMainVertex({}, {});
+  Fork();
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  auto const fork_a = *Ctx().FindForkVertex(a);
+  EXPECT_EQ(StubCount(), 0u);
+  EXPECT_FALSE(fork_a.vertex_->branched());
+
+  auto stub = Ctx().EnsureDiffVertex(a);
+  ASSERT_TRUE(stub.has_value());
+  EXPECT_EQ(stub->Gid(), a);
+  EXPECT_TRUE(fork_a.vertex_->branched()) << "main's hint bit is set before any stub write";
+  EXPECT_EQ(StubCount(), 1u);
+  EXPECT_FALSE(*stub->HasLabel(la, ms::View::NEW)) << "a fresh stub holds nothing of the fork state";
+  EXPECT_TRUE(stub->GetProperty(x, ms::View::NEW)->IsNull());
+  size_t engine_vertices = 0;
+  for (auto v : acc->Vertices(ms::View::NEW)) {
+    (void)v;
+    ++engine_vertices;
+  }
+  EXPECT_EQ(engine_vertices, 0u) << "stubs are not entries of the engine's vertices_";
+  EXPECT_FALSE(Ctx().FindStub(b, ms::View::NEW).has_value()) << "an untouched vertex gets no stub";
+
+  auto again = Ctx().EnsureDiffVertex(a);
+  ASSERT_TRUE(again.has_value());
+  EXPECT_EQ(again->vertex_, stub->vertex_) << "the same stub, not a second one";
+  EXPECT_EQ(StubCount(), 1u);
+  Ctx().EndTransaction();
+  acc->Abort();
+}
+
+TEST_F(VersioningBranchWriteTest, EnsureDiffVertexRefusesWhatTheBranchCannotWrite) {
+  auto const a = CreateMainVertex({}, {});
+  ForkNow();
+  auto const after_fork = CreateMainVertex({}, {});  // below the floor, but main@fork_ts does not have it
+  auto built = mv::BranchContext::BuildFromFork(*storage_, *fork_ts_);
+  ASSERT_TRUE(built.has_value());
+  branch_context_ = std::move(*built);
+
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  auto missing = Ctx().EnsureDiffVertex(after_fork);
+  ASSERT_FALSE(missing.has_value());
+  EXPECT_NE(missing.error().message.find("not in the branch's fork state"), std::string::npos)
+      << missing.error().message;
+
+  ASSERT_TRUE(*Ctx().DeleteForkVertex(a));
+  auto deleted_fork = Ctx().EnsureDiffVertex(a);
+  ASSERT_FALSE(deleted_fork.has_value());
+  EXPECT_EQ(deleted_fork.error().message,
+            "Cannot modify vertex " + std::to_string(a.AsUint()) + ": it was deleted on this branch.");
+
+  auto native = Ctx().CreateNativeVertex();
+  auto const native_gid = native.Gid();
+  auto live = Ctx().EnsureDiffVertex(native_gid);
+  ASSERT_TRUE(live.has_value());
+  EXPECT_EQ(live->storage_, &Diff());
+  EXPECT_FALSE(Ctx().IsForkCandidateVertex(live->Gid()));
+  ASSERT_TRUE(acc->DeleteVertex(&native).has_value());
+  auto deleted_native = Ctx().EnsureDiffVertex(native_gid);
+  ASSERT_FALSE(deleted_native.has_value());
+  EXPECT_EQ(deleted_native.error().message,
+            "Cannot modify vertex " + std::to_string(native_gid.AsUint()) + ": it was deleted on this branch.");
+  Ctx().EndTransaction();
+  acc->Abort();
+}
+
+// A stub stores only the difference to the fork; whole-set writes never wipe its removal markers.
+TEST_F(VersioningBranchWriteTest, VertexWritesMergeOverTheForkStateAndStoreOnlyTheDifference) {
+  auto const la = Label("A"), lb = Label("B");
+  auto const x = Prop("x"), y = Prop("y");
+  auto const v = CreateMainVertex({la}, {{x, Int(1)}});
+  Fork();
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  auto fork = *Ctx().FindForkVertex(v);
+  auto const labels = [&] { return LabelSet(Ctx().Labels(fork, ms::View::NEW)); };
+  auto const props = [&] { return *Ctx().Properties(fork, ms::View::NEW); };
+  auto const stub_of = [&] { return StubOf(Ctx(), v); };
+
+  EXPECT_FALSE(*Ctx().AddLabel(fork, la)) << "the fork vertex already has A";
+  EXPECT_TRUE(StubIsEmpty(stub_of())) << "no label the fork implies is recorded";
+  EXPECT_TRUE(*Ctx().RemoveLabel(fork, la));
+  EXPECT_EQ(stub_of().removed_labels, std::vector<ms::LabelId>{la});
+  EXPECT_FALSE(*Ctx().RemoveLabel(fork, la)) << "already hidden";
+  EXPECT_TRUE(*Ctx().AddLabel(fork, lb));
+  EXPECT_EQ(stub_of().added_labels, std::vector<ms::LabelId>{lb});
+  EXPECT_EQ(labels(), (std::set<ms::LabelId>{lb}));
+  EXPECT_TRUE(*Ctx().AddLabel(fork, la)) << "un-hides the fork label";
+  EXPECT_TRUE(*Ctx().RemoveLabel(fork, lb)) << "drops the added label";
+  EXPECT_FALSE(*Ctx().RemoveLabel(fork, lb));
+  EXPECT_EQ(labels(), (std::set<ms::LabelId>{la}));
+  EXPECT_TRUE(StubIsEmpty(stub_of())) << "a full toggle leaves no trace";
+
+  EXPECT_EQ(*Ctx().SetProperty(fork, x, Int(2)), Int(1)) << "the old value is the fork's";
+  EXPECT_EQ(*Ctx().SetProperty(fork, x, ms::PropertyValue{}), Int(2)) << "then the stub's";
+  EXPECT_TRUE(props().empty()) << "a null write removes the fork property";
+  EXPECT_EQ(stub_of().removed_pids, std::vector<ms::PropertyId>{x});
+  EXPECT_TRUE(stub_of().properties.Properties().empty());
+  EXPECT_TRUE(Ctx().SetProperty(fork, y, ms::PropertyValue{})->IsNull());
+  EXPECT_EQ(stub_of().removed_pids, std::vector<ms::PropertyId>{x}) << "no marker for a property the fork lacks";
+
+  Props init{{y, Int(5)}};
+  EXPECT_TRUE(*Ctx().InitProperties(fork, init));
+  EXPECT_FALSE(*Ctx().InitProperties(fork, init)) << "init needs an empty vertex";
+  Props update{{x, Int(3)}, {y, Int(6)}};
+  auto changes = *Ctx().UpdateProperties(fork, update);
+  ASSERT_EQ(changes.size(), 2u);
+  for (auto const &[pid, old_value, new_value] : changes) {
+    EXPECT_EQ(old_value, pid == x ? ms::PropertyValue{} : Int(5));
+    EXPECT_EQ(new_value, pid == x ? Int(3) : Int(6));
+  }
+  Props const updated{{x, Int(3)}, {y, Int(6)}};
+  EXPECT_EQ(props(), updated);
+  EXPECT_TRUE(stub_of().removed_pids.empty()) << "setting x again took its marker off";
+
+  Props more{{y, Int(7)}};
+  Props const expected_more{{x, Int(3)}, {y, Int(7)}};
+  ASSERT_TRUE(Ctx().UpdateProperties(fork, more).has_value());
+  EXPECT_EQ(more, expected_more) << "the properties the update left alone come back in the caller's map";
+
+  EXPECT_EQ(*Ctx().ClearProperties(fork), expected_more);
+  EXPECT_TRUE(props().empty());
+  EXPECT_EQ(stub_of().removed_pids, std::vector<ms::PropertyId>{x}) << "a whole-set write never wipes the markers";
+  EXPECT_TRUE(Ctx().ClearProperties(fork)->empty());
+
+  auto x_fork = Ctx().historical().FindVertex(v, ms::View::OLD)->GetProperty(x, ms::View::OLD);
+  EXPECT_EQ(*x_fork, Int(1)) << "the fork state itself is unchanged";
+  Ctx().EndTransaction();
+  acc->Abort();
+}
+
+// Per key the marker goes on before the value is dropped and off after it is set, so a READ_COMMITTED reader mid-commit
+// sees the old or new value; the stub's delta chain, newest first, shows it.
+TEST_F(VersioningBranchWriteTest, DirectMutatorsKeepThePerKeyMarkerOrder) {
+  auto const x = Prop("x");
+  auto const y = Prop("y");
+  ASSERT_LT(x.AsUint(), y.AsUint()) << "the whole-set writers walk the keys in id order";
+  auto const v = CreateMainVertex({}, {{x, Int(1)}, {y, Int(1)}});
+  Fork();
+  auto const marker = stub::Mark(x);
+  auto const marker_y = stub::Mark(y);
+  auto const write_order = [&](auto &&write) {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto fork = *Ctx().FindForkVertex(v);
+    write(fork);
+    auto order = PropertyWriteOrder(Core().stub_index().FindStub(v.AsUint()));
+    Commit(*acc);
+    Ctx().EndTransaction();
+    return order;
+  };
+  auto const set_x = [&](const ms::PropertyValue &value) {
+    return [&, value](ms::VertexAccessor &fork) { EXPECT_TRUE(Ctx().SetProperty(fork, x, value).has_value()); };
+  };
+  EXPECT_EQ(write_order(set_x(Int(2))), std::vector<ms::PropertyId>{x}) << "a plain set is one write";
+  EXPECT_EQ(write_order(set_x(ms::PropertyValue{})), (std::vector<ms::PropertyId>{x, marker}))
+      << "remove: marker on, then the value dropped";
+  EXPECT_EQ(write_order(set_x(Int(3))), (std::vector<ms::PropertyId>{marker, x}))
+      << "set over a removal: the value first, then the marker off";
+  EXPECT_EQ(write_order([&](ms::VertexAccessor &fork) { EXPECT_TRUE(Ctx().ClearProperties(fork).has_value()); }),
+            (std::vector<ms::PropertyId>{y, marker_y, x, marker}))
+      << "ClearProperties: per key the marker on, then the value dropped";
+  EXPECT_EQ(write_order([&](ms::VertexAccessor &fork) {
+              Props props{{x, Int(4)}, {y, Int(5)}};
+              EXPECT_TRUE(*Ctx().InitProperties(fork, props));
+            }),
+            (std::vector<ms::PropertyId>{marker_y, y, marker, x}))
+      << "InitProperties over removals: per key the value set, then the marker off";
+}
+
+TEST_F(VersioningBranchWriteTest, ALabelAndAPropertyCanBeRemovedAndReaddedAcrossTransactions) {
+  auto const la = Label("A"), lb = Label("B");
+  auto const x = Prop("x"), y = Prop("y");
+  auto const v = CreateMainVertex({la}, {{x, Int(1)}});
+  Fork();
+  auto const state = [&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    return std::tuple{LabelSet(Ctx().Labels(fork, ms::View::NEW)), *Ctx().Properties(fork, ms::View::NEW)};
+  };
+  using Labels = std::set<ms::LabelId>;
+
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    ASSERT_TRUE(*Ctx().RemoveLabel(fork, la));
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, ms::PropertyValue{}).has_value());
+  });
+  Read([&] { EXPECT_EQ(state(), (std::tuple{Labels{}, Props{}})); });
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    ASSERT_TRUE(*Ctx().AddLabel(fork, la));
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(3)).has_value());
+  });
+  Read([&] {
+    EXPECT_EQ(state(), (std::tuple{Labels{la}, Props{{x, Int(3)}}}));
+    auto const stub = StubOf(Ctx(), v);
+    EXPECT_TRUE(stub.removed_labels.empty() && stub.removed_pids.empty()) << "both marks are off";
+  });
+  Write([&] {  // a label and a property the fork lacks: add, remove, add; set, remove, set
+    auto fork = *Ctx().FindForkVertex(v);
+    ASSERT_TRUE(*Ctx().AddLabel(fork, lb));
+    ASSERT_TRUE(Ctx().SetProperty(fork, y, Int(1)).has_value());
+  });
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    ASSERT_TRUE(*Ctx().RemoveLabel(fork, lb));
+    ASSERT_TRUE(Ctx().SetProperty(fork, y, ms::PropertyValue{}).has_value());
+  });
+  Read([&] {
+    EXPECT_EQ(state(), (std::tuple{Labels{la}, Props{{x, Int(3)}}}));
+    auto const stub = StubOf(Ctx(), v);
+    EXPECT_TRUE(stub.added_labels.empty() && stub.removed_labels.empty() && stub.removed_pids.empty())
+        << "a label or property the fork lacks leaves no marker when removed";
+  });
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    ASSERT_TRUE(*Ctx().AddLabel(fork, lb));
+    ASSERT_TRUE(Ctx().SetProperty(fork, y, Int(2)).has_value());
+  });
+  Read([&] { EXPECT_EQ(state(), (std::tuple{Labels{la, lb}, Props{{x, Int(3)}, {y, Int(2)}}})); });
+}
+
+TEST_F(VersioningBranchWriteTest, ADeletedForkVertexRefusesEveryWriteAndASecondDelete) {
+  auto const la = Label("A");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({la}, {{x, Int(1)}});
+  Fork();
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  auto fork = *Ctx().FindForkVertex(v);
+  EXPECT_TRUE(*Ctx().DeleteForkVertex(v));
+  EXPECT_FALSE(*Ctx().DeleteForkVertex(v)) << "a repeated delete is a no-op";
+
+  Props props{{x, Int(2)}};
+  EXPECT_EQ(Ctx().AddLabel(fork, Label("B")).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(Ctx().RemoveLabel(fork, la).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(Ctx().SetProperty(fork, x, Int(2)).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(Ctx().InitProperties(fork, props).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(Ctx().UpdateProperties(fork, props).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(Ctx().ClearProperties(fork).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_TRUE(StubOf(Ctx(), v).deleted);
+  EXPECT_TRUE(*Ctx().historical().FindVertex(v, ms::View::OLD)->HasLabel(la, ms::View::OLD))
+      << "the fork state itself is unchanged";
+  EXPECT_EQ(Ctx().DeleteForkVertex(ms::Gid::FromUint(Core().vertex_gid_floor() + 5)).error(),
+            ms::Error::NONEXISTENT_OBJECT);
+  Ctx().EndTransaction();
+  acc->Abort();
+}
+
+TEST_F(VersioningBranchWriteTest, AbortedBranchWritesLeaveTheStubContentUnchangedAndBounded) {
+  auto const la = Label("A"), lb = Label("B");
+  auto const x = Prop("x"), y = Prop("y");
+  auto const v = CreateMainVertex({la}, {{x, Int(1)}, {y, Int(2)}});
+  auto const w = CreateMainVertex({la}, {});
+  Fork();
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    ASSERT_TRUE(*Ctx().AddLabel(fork, lb));
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(5)).has_value());
+    ASSERT_TRUE(Ctx().SetProperty(fork, y, ms::PropertyValue{}).has_value());
+  });
+  StubState committed;
+  Read([&] { committed = StubOf(Ctx(), v); });
+
+  for (int round = 0; round < 50; ++round) {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto fork = *Ctx().FindForkVertex(v);
+    Props update{{x, Int(round)}, {y, Int(round)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, update).has_value());
+    ASSERT_TRUE(*Ctx().RemoveLabel(fork, la));
+    ASSERT_TRUE(*Ctx().RemoveLabel(fork, lb));
+    ASSERT_TRUE(Ctx().ClearProperties(fork).has_value());
+    auto other = *Ctx().FindForkVertex(w);
+    ASSERT_TRUE(*Ctx().RemoveLabel(other, la));
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(w));
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(v));
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+
+  EXPECT_EQ(StubCount(), 2u) << "aborts leave one (empty) stub per touched vertex, however often";
+  Read([&] {
+    auto const after = StubOf(Ctx(), v);
+    EXPECT_EQ(after.added_labels, committed.added_labels);
+    EXPECT_EQ(after.removed_labels, committed.removed_labels);
+    EXPECT_EQ(after.removed_pids, committed.removed_pids);
+    EXPECT_EQ(after.properties.Properties(), committed.properties.Properties());
+    EXPECT_FALSE(after.deleted);
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_EQ(LabelSet(Ctx().Labels(fork, ms::View::NEW)), (std::set<ms::LabelId>{la, lb}));
+    EXPECT_EQ(*Ctx().Properties(fork, ms::View::NEW), (Props{{x, Int(5)}}));
+    auto other = *Ctx().FindForkVertex(w);
+    EXPECT_TRUE(StubIsEmpty(StubOf(Ctx(), w))) << "the stub an aborted first touch left is empty";
+    EXPECT_EQ(LabelSet(Ctx().Labels(other, ms::View::NEW)), (std::set<ms::LabelId>{la}));
+    EXPECT_TRUE(Ctx().ResolveVertex(w, ms::View::NEW).has_value());
+  });
+}
+
+// The stock mutators conflict before they find that there is nothing to do; so must a branch write that changes
+// nothing, outcome for outcome as on main.
+TEST_F(VersioningBranchWriteTest, WritesThatChangeNothingStillConflictAsOnMain) {
+  auto const la = Label("A"), lc = Label("C");
+  auto const x = Prop("x"), y = Prop("y"), z = Prop("z");
+  auto const a = CreateMainVertex({la}, {{x, Int(1)}});
+  auto const b = CreateMainVertex({}, {});
+  Fork();
+
+  using Errors = std::vector<std::optional<ms::Error>>;
+  auto const error_of = [](auto &&result) {
+    return result ? std::optional<ms::Error>{} : std::optional<ms::Error>{result.error()};
+  };
+
+  Errors on_main;
+  {
+    auto t1 = storage_->Access(ms::WRITE);
+    ASSERT_TRUE(t1->FindVertex(a, ms::View::OLD)->SetProperty(z, Int(1)).has_value());
+    ASSERT_TRUE(t1->FindVertex(b, ms::View::OLD)->SetProperty(z, Int(1)).has_value());
+    auto t2 = storage_->Access(ms::WRITE);
+    auto va = *t2->FindVertex(a, ms::View::OLD);
+    auto vb = *t2->FindVertex(b, ms::View::OLD);
+    Props init{{y, Int(1)}};
+    Props nothing;
+    on_main = {error_of(va.AddLabel(la)),
+               error_of(va.RemoveLabel(lc)),
+               error_of(va.SetProperty(y, ms::PropertyValue{})),
+               error_of(va.InitProperties(init)),
+               error_of(va.UpdateProperties(nothing)),
+               error_of(vb.ClearProperties())};
+    t1->Abort();
+    t2->Abort();
+  }
+
+  Errors on_branch;
+  {
+    mv::BranchContext second{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(second.BeginTransaction(t2.get()).has_value());
+    auto fork_a = *Ctx().FindForkVertex(a);
+    auto fork_b = *Ctx().FindForkVertex(b);
+    ASSERT_TRUE(Ctx().SetProperty(fork_a, z, Int(1)).has_value());
+    ASSERT_TRUE(Ctx().SetProperty(fork_b, z, Int(1)).has_value());
+    auto second_a = *second.FindForkVertex(a);
+    auto second_b = *second.FindForkVertex(b);
+    Props init{{y, Int(1)}};
+    Props nothing;
+    on_branch = {error_of(second.AddLabel(second_a, la)),
+                 error_of(second.RemoveLabel(second_a, lc)),
+                 error_of(second.SetProperty(second_a, y, ms::PropertyValue{})),
+                 error_of(second.InitProperties(second_a, init)),
+                 error_of(second.UpdateProperties(second_a, nothing)),
+                 error_of(second.ClearProperties(second_b))};
+    second.EndTransaction();
+    Ctx().EndTransaction();
+    t1->Abort();
+    t2->Abort();
+  }
+  EXPECT_EQ(on_branch, on_main);
+  for (auto const &error : on_branch) EXPECT_EQ(error, std::optional<ms::Error>{ms::Error::SERIALIZATION_ERROR});
+}
+
+// An update or init of no key writes nothing, but the stock mutators conflict first: a vertex another transaction has
+// touched is a serialization error whatever the map holds. Each case runs on its own pair of transactions, on main and
+// on the branch.
+TEST_F(VersioningBranchWriteTest, EmptyMapUpdateAndInitConflictAsOnMain) {
+  auto const la = Label("A");
+  auto const update = CreateMainVertex({}, {});
+  auto const init = CreateMainVertex({}, {});
+  Fork();
+
+  auto const error_of = [](auto &&result) {
+    return result ? std::optional<ms::Error>{} : std::optional<ms::Error>{result.error()};
+  };
+  std::array<std::optional<ms::Error>, 2> on_main;
+  {
+    auto t1 = storage_->Access(ms::WRITE);
+    ASSERT_TRUE(t1->FindVertex(update, ms::View::OLD)->AddLabel(la).has_value());
+    ASSERT_TRUE(t1->FindVertex(init, ms::View::OLD)->AddLabel(la).has_value());
+    Props nothing;
+    auto t2 = storage_->Access(ms::WRITE);
+    on_main[0] = error_of(t2->FindVertex(update, ms::View::OLD)->UpdateProperties(nothing));
+    auto t3 = storage_->Access(ms::WRITE);
+    on_main[1] = error_of(t3->FindVertex(init, ms::View::OLD)->InitProperties(nothing));
+    t1->Abort();
+    t2->Abort();
+    t3->Abort();
+  }
+
+  std::array<std::optional<ms::Error>, 2> on_branch;
+  {
+    mv::BranchContext second{Ctx().core()};
+    mv::BranchContext third{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    auto t3 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(second.BeginTransaction(t2.get()).has_value());
+    ASSERT_TRUE(third.BeginTransaction(t3.get()).has_value());
+    auto fork_update = *Ctx().FindForkVertex(update);
+    auto fork_init = *Ctx().FindForkVertex(init);
+    ASSERT_TRUE(Ctx().AddLabel(fork_update, la).has_value());
+    ASSERT_TRUE(Ctx().AddLabel(fork_init, la).has_value());
+    Props nothing;
+    auto second_update = *second.FindForkVertex(update);
+    on_branch[0] = error_of(second.UpdateProperties(second_update, nothing));
+    auto third_init = *third.FindForkVertex(init);
+    on_branch[1] = error_of(third.InitProperties(third_init, nothing));
+    third.EndTransaction();
+    second.EndTransaction();
+    Ctx().EndTransaction();
+    t1->Abort();
+    t2->Abort();
+    t3->Abort();
+  }
+  EXPECT_EQ(on_branch, on_main);
+  for (auto const &error : on_branch) EXPECT_EQ(error, std::optional<ms::Error>{ms::Error::SERIALIZATION_ERROR});
+}
+
+TEST_F(VersioningBranchWriteTest, AWriteThatThrowsPoisonsTheTransactionAndLeavesNothingAfterAbort) {
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  Fork();
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto fork = *Ctx().FindForkVertex(v);
+    acc->GetTransaction()->edge_import_mode_active = true;  // makes every stock vertex write throw
+    EXPECT_ANY_THROW((void)Ctx().SetProperty(fork, x, ms::PropertyValue{}));
+    EXPECT_TRUE(acc->TransactionHasSerializationError());
+    acc->GetTransaction()->edge_import_mode_active = false;
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::NEW), Int(1));
+    EXPECT_TRUE(StubIsEmpty(StubOf(Ctx(), v)));
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, ABranchWriteIsInvisibleToOldUntilTheCommandAdvances) {
+  auto const x = Prop("x");
+  auto const l = Label("L");
+  auto const a = CreateMainVertex({}, {{x, Int(1)}});
+  Fork();
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  auto fork = *Ctx().FindForkVertex(a);
+  for (int i = 0; i < 2; ++i) EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::NEW), Int(1));
+  EXPECT_FALSE(fork.vertex_->branched()) << "an unwritten fork vertex is read as is";
+  EXPECT_FALSE(Core().MayHavePropertyTouched(x));
+  EXPECT_FALSE(Core().MayHaveLabelTouched(l));
+
+  ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(2)).has_value());
+  ASSERT_TRUE(*Ctx().AddLabel(fork, l));
+  EXPECT_TRUE(fork.vertex_->branched());
+  EXPECT_TRUE(Core().MayHavePropertyTouched(x)) << "the touched gates are set by the write";
+  EXPECT_TRUE(Core().MayHaveLabelTouched(l));
+  for (int i = 0; i < 2; ++i) {
+    EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::NEW), Int(2));
+    EXPECT_EQ(*Ctx().Properties(fork, ms::View::NEW), (Props{{x, Int(2)}}));
+    EXPECT_TRUE(*Ctx().HasLabel(fork, l, ms::View::NEW));
+    EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::OLD), Int(1));
+    EXPECT_FALSE(*Ctx().HasLabel(fork, l, ms::View::OLD));
+  }
+  acc->AdvanceCommand();
+  EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::OLD), Int(2));
+  EXPECT_TRUE(*Ctx().HasLabel(fork, l, ms::View::OLD));
+  Commit(*acc);
+  Ctx().EndTransaction();
+  Read([&] {
+    auto later = *Ctx().FindForkVertex(a);
+    EXPECT_EQ(*Ctx().GetProperty(later, x, ms::View::OLD), Int(2));
+    EXPECT_TRUE(*Ctx().HasLabel(later, l, ms::View::OLD));
+  });
+}
+
+// Main deletes a vertex the branch has a stub for, and GC runs: the fork Vertex* the stub index holds stays valid
+// because main's GC horizon is clamped to the oldest fork pin.
+TEST_F(VersioningBranchWriteTest, AForkVertexMainDeletedAfterTheForkStaysReadableAndWritableThroughItsStub) {
+  auto const la = Label("A");
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({la}, {{x, Int(1)}});
+  Fork();
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(a);
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(2)).has_value());
+  });
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto vertex = *acc->FindVertex(a, ms::View::NEW);
+    ASSERT_TRUE(acc->DeleteVertex(&vertex).has_value());
+    Commit(*acc);
+  }
+  storage_->FreeMemory({}, false);
+  storage_->FreeMemory({}, false);
+  Write([&] {
+    auto fork = Ctx().FindForkVertex(a);
+    ASSERT_TRUE(fork.has_value()) << "main@fork_ts still has the vertex";
+    EXPECT_TRUE(*Ctx().HasLabel(*fork, la, ms::View::NEW));
+    EXPECT_EQ(*Ctx().GetProperty(*fork, x, ms::View::NEW), Int(2));
+    ASSERT_TRUE(Ctx().SetProperty(*fork, x, Int(3)).has_value());
+  });
+  Read([&] { EXPECT_EQ(*Ctx().GetProperty(*Ctx().FindForkVertex(a), x, ms::View::NEW), Int(3)); });
+}
+
+TEST_F(VersioningBranchWriteTest, NativeGidsComeFromMainCountersAndNeverCollide) {
+  ms::Gid fork_vertex_gid = CreateMainVertex({}, {});
+  Fork();
+  auto second = mv::BranchContext::BuildFromFork(*storage_, *fork_ts_);
+  ASSERT_TRUE(second.has_value());
+  EXPECT_TRUE(Ctx().IsForkCandidateVertex(fork_vertex_gid));
+  auto const vertex_floor = Core().vertex_gid_floor();
+
+  auto diff1 = Diff().Access(ms::WRITE);
+  Begin(diff1.get());
+  auto diff2 = (*second)->diff_engine().Access(ms::WRITE);
+  ASSERT_TRUE((*second)->BeginTransaction(diff2.get()).has_value());
+
+  auto v1a = Ctx().CreateNativeVertex();
+  auto v1b = Ctx().CreateNativeVertex();
+  auto v2a = (*second)->CreateNativeVertex();
+  auto v2b = (*second)->CreateNativeVertex();
+  auto const main_vertex_gid = CreateMainVertex({}, {});
+
+  std::vector<ms::Gid> const vertex_gids{v1a.Gid(), v1b.Gid(), v2a.Gid(), v2b.Gid(), main_vertex_gid};
+  for (auto const gid : vertex_gids) {
+    EXPECT_GE(gid.AsUint(), vertex_floor);
+    EXPECT_EQ(std::ranges::count(vertex_gids, gid), 1) << "vertex gid " << gid.AsUint() << " allocated twice";
+  }
+  EXPECT_FALSE(Ctx().IsForkCandidateVertex(v1a.Gid()));
+  EXPECT_TRUE(diff1->FindVertex(v1a.Gid(), ms::View::NEW).has_value());
+  EXPECT_FALSE(diff1->FindVertex(v2a.Gid(), ms::View::NEW).has_value()) << "branches must not see each other";
+  EXPECT_TRUE(diff2->FindVertex(v2a.Gid(), ms::View::NEW).has_value());
+  EXPECT_FALSE(diff2->FindVertex(main_vertex_gid, ms::View::NEW).has_value())
+      << "main's later create is not in a branch";
+  {
+    auto acc = storage_->Access(ms::READ);
+    EXPECT_FALSE(acc->FindVertex(v1a.Gid(), ms::View::NEW).has_value()) << "branch creates are not in main";
+  }
+  (*second)->EndTransaction();
+  Ctx().EndTransaction();
+  diff1->Abort();
+  diff2->Abort();
+}
+
+// Two open sessions writing fork vertices conflict per vertex, whatever the keys, as two transactions on main do.
+TEST_F(VersioningBranchWriteTest, ConcurrentSessionsWritingForkVerticesFollowMainsConflictRule) {
+  auto const x = Prop("x"), y = Prop("y");
+  auto const label = Label("L");
+  auto const a_gid = CreateMainVertex({}, {});
+  auto const b_gid = CreateMainVertex({}, {});
+  Fork();
+
+  struct Outcome {
+    bool other_vertex_ok;
+    std::optional<ms::Error> same_vertex_label;
+    std::optional<ms::Error> same_vertex_other_property;
+    bool poisoned;
+    bool after_abort_ok;
+    bool operator==(const Outcome &) const = default;
+  };
+
+  auto const value = Int(1);
+  auto const error_of = [](auto &&result) {
+    return result ? std::optional<ms::Error>{} : std::optional<ms::Error>{result.error()};
+  };
+
+  Outcome on_main{};
+  {
+    auto t1 = storage_->Access(ms::WRITE);
+    auto t2 = storage_->Access(ms::WRITE);
+    ASSERT_TRUE(t1->FindVertex(a_gid, ms::View::OLD)->SetProperty(x, value).has_value());
+    on_main.other_vertex_ok = t2->FindVertex(b_gid, ms::View::OLD)->SetProperty(x, value).has_value();
+    on_main.same_vertex_label = error_of(t2->FindVertex(a_gid, ms::View::OLD)->AddLabel(label));
+    on_main.same_vertex_other_property = error_of(t2->FindVertex(a_gid, ms::View::OLD)->SetProperty(y, value));
+    on_main.poisoned = t2->GetTransaction()->has_serialization_error;
+    t1->Abort();
+    t2->Abort();
+    auto t3 = storage_->Access(ms::WRITE);
+    on_main.after_abort_ok = t3->FindVertex(a_gid, ms::View::OLD)->SetProperty(x, value).has_value();
+    t3->Abort();
+  }
+
+  Outcome on_branch{};
+  {
+    mv::BranchContext s2{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+    auto s1_a = *Ctx().FindForkVertex(a_gid);
+    auto s2_a = *s2.FindForkVertex(a_gid);
+    auto s2_b = *s2.FindForkVertex(b_gid);
+    ASSERT_TRUE(Ctx().SetProperty(s1_a, x, value).has_value());
+    on_branch.other_vertex_ok = s2.SetProperty(s2_b, x, value).has_value();
+    on_branch.same_vertex_label = error_of(s2.AddLabel(s2_a, label));
+    on_branch.same_vertex_other_property = error_of(s2.SetProperty(s2_a, y, value));
+    on_branch.poisoned = t2->GetTransaction()->has_serialization_error;
+    EXPECT_EQ(s2.DeleteForkVertex(a_gid).error_or(ms::Error::PROPERTIES_DISABLED), ms::Error::SERIALIZATION_ERROR);
+    Ctx().EndTransaction();
+    s2.EndTransaction();
+    t1->Abort();
+    t2->Abort();
+    auto t3 = Diff().Access(ms::WRITE);
+    Begin(t3.get());
+    auto s3_a = *Ctx().FindForkVertex(a_gid);
+    on_branch.after_abort_ok = Ctx().SetProperty(s3_a, x, value).has_value();
+    Ctx().EndTransaction();
+    t3->Abort();
+  }
+
+  EXPECT_EQ(on_main, (Outcome{true, ms::Error::SERIALIZATION_ERROR, ms::Error::SERIALIZATION_ERROR, true, true}));
+  EXPECT_EQ(on_branch, on_main);
+}
+
+// As on main, only a write committed after this snapshot started conflicts, per vertex whichever property it wrote.
+TEST_F(VersioningBranchWriteTest, AWriteConflictsWithAStubCommittedAfterItsSnapshotStarted) {
+  auto const x = Prop("x"), y = Prop("y");
+  auto const a = CreateMainVertex({}, {});
+  Fork();
+  mv::BranchContext early{Ctx().core()};
+  auto t_early = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(early.BeginTransaction(t_early.get()).has_value());
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(a);
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(1)).has_value());
+  });
+  auto fork = *early.FindForkVertex(a);
+  EXPECT_EQ(early.SetProperty(fork, y, Int(2)).error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(t_early->TransactionHasSerializationError());
+  early.EndTransaction();
+  t_early->Abort();
+  Write([&] {
+    auto later = *Ctx().FindForkVertex(a);
+    ASSERT_TRUE(Ctx().SetProperty(later, y, Int(2)).has_value());
+  });
+}
+
+// T2 then T3 attach an edge to fork vertex V; T3 commits, T1 begins, then T2 commits. T2's delta is buried under T3's
+// head (committed before T1's snapshot), so T1's delete of V conflicts only if CanDeleteAnchor walks the whole chain.
+TEST_F(VersioningBranchWriteTest, DeleteForkVertexConflictsWithEdgeBuriedUnderOlderCommittedHead) {
+  auto const v_gid = CreateMainVertex({}, {});
+  Fork();
+  mv::BranchContext &deleter = Ctx();
+  mv::BranchContext creator_early{deleter.core()};
+  mv::BranchContext creator_late{deleter.core()};
+
+  auto const attach_edge = [&](mv::BranchContext &ctx, ms::Storage::Accessor *diff_acc) {
+    auto anchor = ctx.EnsureDiffVertex(v_gid);
+    ASSERT_TRUE(anchor.has_value());
+    auto native = ctx.CreateNativeVertex();
+    CreateNativeEdge(diff_acc, &*anchor, &native);
+  };
+
+  auto t2 = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(creator_early.BeginTransaction(t2.get()).has_value());
+  attach_edge(creator_early, t2.get());
+  auto t3 = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(creator_late.BeginTransaction(t3.get()).has_value());
+  attach_edge(creator_late, t3.get());
+  Commit(*t3);
+  creator_late.EndTransaction();
+
+  auto t1 = Diff().Access(ms::WRITE);
+  Begin(t1.get());
+  Commit(*t2);
+  creator_early.EndTransaction();
+
+  auto deleted = deleter.DeleteForkVertex(v_gid);
+  ASSERT_FALSE(deleted.has_value()) << "the delete must not pass over an edge committed after its snapshot";
+  EXPECT_EQ(deleted.error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(t1->TransactionHasSerializationError());
+  deleter.EndTransaction();
+  t1->Abort();
+
+  Read([&] {
+    EXPECT_FALSE(Ctx().IsVertexDeleted(v_gid, ms::View::NEW)) << "the marker the failed delete wrote is gone";
+    EXPECT_FALSE(StubOf(Ctx(), v_gid).deleted);
+  });
+}
+
+// A vertex delete also hides its fork edges from their other endpoints, via markers it writes there: per direction and
+// view, not for a reader that cannot see the delete, and not after rollback.
+TEST_F(VersioningBranchWriteTest, DeleteForkVertexHidesItsEdgesFromTheirOtherEndpoints) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  auto const c = CreateMainVertex({}, {});
+  auto const d = CreateMainVertex({}, {});
+  auto const e1 = CreateMainEdge(a, b, "E");
+  auto const e2 = CreateMainEdge(a, c, "E");
+  auto const e3 = CreateMainEdge(c, a, "E");
+  auto const loop = CreateMainEdge(a, a, "E");
+  auto const other = CreateMainEdge(c, d, "E");
+  Fork();
+  auto const gids = [&](mv::BranchContext &ctx, ms::Gid vertex, ms::EdgeDirection direction, ms::View view) {
+    std::set<uint64_t> found;
+    for (auto const &edge : ctx.ResolveEdges(vertex, direction, view)) found.insert(edge.Gid().AsUint());
+    return found;
+  };
+  auto const of = [](std::initializer_list<MainEdge> edges) {
+    std::set<uint64_t> found;
+    for (auto const &edge : edges) found.insert(edge.gid.AsUint());
+    return found;
+  };
+  constexpr auto kOut = ms::EdgeDirection::OUT;
+  constexpr auto kIn = ms::EdgeDirection::IN;
+
+  mv::BranchContext snapshot{Ctx().core()};
+  auto snapshot_acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(snapshot.BeginTransaction(snapshot_acc.get()).has_value());
+  {
+    auto writer = Diff().Access(ms::WRITE);
+    Begin(writer.get());
+    EXPECT_FALSE(Ctx().HasVertexStub(b));
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(a));
+    for (auto const gid : {a, b, c}) {
+      EXPECT_TRUE(Ctx().HasVertexStub(gid)) << "a stub holds the markers: " << gid.AsUint();
+      EXPECT_TRUE(Core().MayHaveEdgeChange(gid));
+    }
+    EXPECT_FALSE(Ctx().HasVertexStub(d)) << "an edge of the neighbour that the delete does not hide";
+    EXPECT_EQ(gids(Ctx(), b, kIn, ms::View::NEW), of({}));
+    EXPECT_EQ(gids(Ctx(), c, kIn, ms::View::NEW), of({}));
+    EXPECT_EQ(gids(Ctx(), c, kOut, ms::View::NEW), of({other}));
+    EXPECT_EQ(gids(Ctx(), b, kIn, ms::View::OLD), of({e1})) << "not before the command advances";
+    EXPECT_EQ(gids(snapshot, b, kIn, ms::View::NEW), of({e1})) << "nor for another transaction";
+    writer->AdvanceCommand();
+    EXPECT_EQ(gids(Ctx(), b, kIn, ms::View::OLD), of({}));
+    Ctx().EndTransaction();
+    writer->Abort();
+  }
+  EXPECT_EQ(gids(snapshot, b, kIn, ms::View::NEW), of({e1}));
+  snapshot.EndTransaction();
+  Read([&] {
+    EXPECT_EQ(gids(Ctx(), b, kIn, ms::View::NEW), of({e1})) << "the rollback left no marker";
+    EXPECT_EQ(gids(Ctx(), c, kIn, ms::View::NEW), of({e2}));
+    EXPECT_EQ(gids(Ctx(), c, kOut, ms::View::NEW), of({e3, other}));
+  });
+
+  Write([&] { ASSERT_TRUE(*Ctx().DeleteForkVertex(a)); });
+  Read([&] {
+    EXPECT_EQ(gids(Ctx(), b, kIn, ms::View::NEW), of({}));
+    EXPECT_EQ(gids(Ctx(), c, kIn, ms::View::NEW), of({}));
+    EXPECT_EQ(gids(Ctx(), c, kOut, ms::View::NEW), of({other}));
+    bool deleted = false;
+    EXPECT_TRUE(Ctx().ResolveEdges(a, kOut, ms::View::NEW, &deleted).empty());
+    EXPECT_TRUE(deleted);
+    auto *const stub = Core().stub_index().FindStub(a.AsUint());
+    ASSERT_NE(stub, nullptr);
+    std::shared_lock guard{stub->lock};
+    EXPECT_EQ(stub->out_edges.size(), 3u) << "one marker each for e1, e2 and the self-loop " << loop.gid.AsUint();
+    EXPECT_EQ(stub->in_edges.size(), 2u) << "one marker each for e3 and the self-loop";
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, DeleteForkVertexConflictsWithAWriteOfANeighbourInEitherOrder) {
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  CreateMainEdge(a, b, "E");
+  Fork();
+  for (bool delete_first : {true, false}) {
+    SCOPED_TRACE(delete_first);
+    mv::BranchContext s2{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+    auto neighbour = *s2.FindForkVertex(b);
+    std::optional<ms::Error> error;
+    if (delete_first) {
+      ASSERT_TRUE(*Ctx().DeleteForkVertex(a));
+      if (auto written = s2.SetProperty(neighbour, x, Int(1)); !written) error = written.error();
+    } else {
+      ASSERT_TRUE(s2.SetProperty(neighbour, x, Int(1)).has_value());
+      if (auto deleted = Ctx().DeleteForkVertex(a); !deleted) error = deleted.error();
+    }
+    EXPECT_EQ(error, std::optional{ms::Error::SERIALIZATION_ERROR});
+    Ctx().EndTransaction();
+    s2.EndTransaction();
+    t1->Abort();
+    t2->Abort();
+  }
+}
+
+// A fork-vertex delete is a stub write: hidden at View::NEW but not View::OLD until the command advances, and an abort
+// leaves no marker.
+TEST_F(VersioningBranchWriteTest, DeleteForkVertexMarkerFollowsMvcc) {
+  auto const x = Prop("x");
+  auto const a_gid = CreateMainVertex({}, {{x, Int(1)}});
+  Fork();
+  {
+    auto diff_acc = Diff().Access(ms::WRITE);
+    Begin(diff_acc.get());
+    ASSERT_FALSE(Ctx().IsVertexDeleted(a_gid, ms::View::NEW));
+    EXPECT_FALSE(Core().MayHaveVertexDeleted(a_gid));
+    auto deleted = Ctx().DeleteForkVertex(a_gid);
+    ASSERT_TRUE(deleted.has_value() && *deleted);
+    EXPECT_TRUE(Core().MayHaveVertexDeleted(a_gid));
+    EXPECT_TRUE(Ctx().FindForkVertex(a_gid)->vertex_->branched());
+    EXPECT_TRUE(Ctx().IsVertexDeleted(a_gid, ms::View::NEW));
+    EXPECT_FALSE(Ctx().IsVertexDeleted(a_gid, ms::View::OLD));
+    EXPECT_FALSE(Ctx().ResolveVertex(a_gid, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(a_gid, ms::View::OLD).has_value());
+    diff_acc->AdvanceCommand();
+    EXPECT_TRUE(Ctx().IsVertexDeleted(a_gid, ms::View::OLD));
+    EXPECT_FALSE(Ctx().ResolveVertex(a_gid, ms::View::OLD).has_value());
+    EXPECT_EQ(Ctx().GetProperty(*Ctx().FindForkVertex(a_gid), x, ms::View::OLD).error(), ms::Error::DELETED_OBJECT);
+    diff_acc->Abort();
+    Ctx().EndTransaction();
+  }
+  auto diff_acc = Diff().Access(ms::WRITE);
+  Begin(diff_acc.get());
+  EXPECT_FALSE(Ctx().IsVertexDeleted(a_gid, ms::View::NEW)) << "an aborted delete must leave no marker";
+  ASSERT_TRUE(Ctx().ResolveVertex(a_gid, ms::View::NEW).has_value());
+  EXPECT_EQ(*Ctx().GetProperty(*Ctx().FindForkVertex(a_gid), x, ms::View::NEW), Int(1));
+  std::vector<ms::Gid> scanned;
+  for (auto v : Ctx().Vertices(ms::View::NEW)) scanned.push_back(v.Gid());
+  EXPECT_EQ(scanned, std::vector<ms::Gid>{a_gid}) << "the union scan must see the vertex again post-abort";
+  Ctx().EndTransaction();
+  diff_acc->Abort();
+}
+
+// Stubs are not transactional: concurrent first touches that all roll back leave one stub per touched gid, outside
+// the diff engine's vertices_; untouched gids fall back to the fork state.
+TEST_F(VersioningBranchWriteTest, StubIndexRecordsTouchedGidsUnderConcurrentFirstTouchAndRollback) {
+  constexpr size_t kVertices = 300;  // spans several 16-gid pages
+  constexpr size_t kThreads = 4;
+  std::vector<ms::Gid> gids;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    for (size_t i = 0; i < kVertices; ++i) gids.push_back(acc->CreateVertex().Gid());
+    Commit(*acc);
+  }
+  Fork();
+  auto core = Ctx().core();
+
+  // Even indexes are touched by every thread (contended); a touched odd index by one thread; the rest stay untouched.
+  std::vector<bool> is_touched(kVertices, false);
+  for (size_t i = 0; i < kVertices; ++i) is_touched[i] = i % 2 == 0 || i % 3 != 0;
+
+  std::vector<std::thread> threads;
+  for (size_t t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      auto ctx = std::make_unique<mv::BranchContext>(core);
+      auto diff_acc = core->diff_engine().Access(ms::WRITE);
+      ASSERT_TRUE(ctx->BeginTransaction(diff_acc.get()).has_value());
+      for (size_t i = 0; i < kVertices; ++i) {
+        if (!is_touched[i]) continue;
+        if (i % 2 == 1 && (i / 2) % kThreads != t) continue;
+        EXPECT_TRUE(ctx->EnsureDiffVertex(gids[i]).has_value());
+      }
+      ctx->EndTransaction();
+      diff_acc->Abort();
+    });
+  }
+  for (auto &th : threads) th.join();
+
+  auto diff_acc = Diff().Access(ms::READ);
+  Begin(diff_acc.get());
+  size_t diff_count = 0;
+  for (auto v : diff_acc->Vertices(ms::View::NEW)) {
+    (void)v;
+    ++diff_count;
+  }
+  EXPECT_EQ(diff_count, 0u) << "stubs must not be entries of the diff engine's vertices_";
+  size_t expected_count = 0;
+  for (size_t i = 0; i < kVertices; ++i) expected_count += is_touched[i] ? 1 : 0;
+  EXPECT_EQ(StubCount(), expected_count) << "exactly one stub per touched gid";
+
+  auto &index = core->stub_index();
+  for (size_t i = 0; i < kVertices; ++i) {
+    auto const gid = gids[i];
+    auto diff_vertex = Ctx().FindStub(gid, ms::View::NEW);
+    auto hist_vertex = Ctx().historical().FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(hist_vertex.has_value());
+    if (!is_touched[i]) {
+      EXPECT_FALSE(diff_vertex.has_value());
+      EXPECT_EQ(index.FindStub(gid.AsUint()), nullptr);
+      EXPECT_EQ(index.FindFork(gid.AsUint()), nullptr);
+      EXPECT_EQ(Ctx().FindForkVertex(gid)->vertex_, hist_vertex->vertex_) << "miss falls back";
+      continue;
+    }
+    ASSERT_TRUE(diff_vertex.has_value()) << "a rolled-back first touch must leave the stub";
+    EXPECT_EQ(index.FindStub(gid.AsUint()), diff_vertex->vertex_);
+    EXPECT_EQ(index.FindFork(gid.AsUint()), hist_vertex->vertex_);
+    auto fork_via_index = Ctx().FindForkVertex(gid);
+    ASSERT_TRUE(fork_via_index.has_value());
+    EXPECT_TRUE(*fork_via_index == *hist_vertex);
+  }
+  Ctx().EndTransaction();
+}
+
+// Writers move value between fork vertices (retrying on conflict) while snapshot readers sum them: the total is
+// constant at every snapshot.
+TEST_F(VersioningBranchWriteTest, ConcurrentTransfersBetweenForkVerticesKeepAConstantTotal) {
+  constexpr int kVertices = 6;
+  constexpr int kWriters = 4;
+  constexpr int kTransfers = 120;
+  constexpr int64_t kInitial = 100;
+  auto const x = Prop("x");
+  std::vector<ms::Gid> gids;
+  for (int i = 0; i < kVertices; ++i) gids.push_back(CreateMainVertex({}, {{x, Int(kInitial)}}));
+  Fork();
+  auto core = Ctx().core();
+  std::atomic<int> writers_left{kWriters};
+  std::atomic<int> snapshots{0};
+  std::atomic<int> conflicts{0};
+
+  auto const total = [&](mv::BranchContext &ctx, ms::View view) {
+    int64_t sum = 0;
+    for (auto const gid : gids) sum += ctx.GetProperty(*ctx.FindForkVertex(gid), x, view)->ValueInt();
+    return sum;
+  };
+
+  std::vector<std::jthread> threads;
+  for (int w = 0; w < kWriters; ++w) {
+    threads.emplace_back([&, w] {
+      mv::BranchContext ctx{core};
+      std::mt19937 rng(static_cast<uint32_t>(w) + 1);
+      for (int done = 0; done < kTransfers;) {
+        auto const from = rng() % kVertices;
+        auto const to = (from + 1 + rng() % (kVertices - 1)) % kVertices;
+        auto acc = Diff().Access(ms::WRITE, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+        ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+        auto fork_from = *ctx.FindForkVertex(gids[from]);
+        auto fork_to = *ctx.FindForkVertex(gids[to]);
+        auto const from_value = ctx.GetProperty(fork_from, x, ms::View::NEW)->ValueInt();
+        auto const to_value = ctx.GetProperty(fork_to, x, ms::View::NEW)->ValueInt();
+        bool ok = ctx.SetProperty(fork_from, x, Int(from_value - 1)).has_value();
+        ok = ok && ctx.SetProperty(fork_to, x, Int(to_value + 1)).has_value();
+        ctx.EndTransaction();
+        if (ok && !acc->TransactionHasSerializationError()) {
+          Commit(*acc);
+          ++done;
+        } else {
+          acc->Abort();
+          ++conflicts;
+        }
+      }
+      --writers_left;
+    });
+  }
+  for (int reader = 0; reader < 2; ++reader) {
+    threads.emplace_back([&] {
+      mv::BranchContext ctx{core};
+      do {
+        auto acc = Diff().Access(ms::READ, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+        ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+        ASSERT_EQ(total(ctx, ms::View::OLD), kVertices * kInitial);
+        ASSERT_EQ(total(ctx, ms::View::NEW), kVertices * kInitial);
+        ctx.EndTransaction();
+        ++snapshots;
+      } while (writers_left.load() > 0);
+    });
+  }
+  threads.clear();
+  EXPECT_GT(snapshots.load(), 3);
+  EXPECT_GT(conflicts.load(), 0) << "the writers must actually collide";
+  Read([&] { EXPECT_EQ(total(Ctx(), ms::View::OLD), kVertices * kInitial); });
+}
+
+// A property flipped between the branch's value and a removal, over a different fork value: at either isolation level
+// a read is one of the two, never the fork's.
+TEST_F(VersioningBranchWriteTest, AReadOfAPropertyFlippedByDirectWritesNeverShowsTheForkValue) {
+  constexpr int kFlips = 600;
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({}, {{x, Int(100)}});
+  Fork();
+  Write([&] {
+    auto fork = *Ctx().FindForkVertex(a);
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(5)).has_value());
+  });
+  auto core = Ctx().core();
+  std::atomic<bool> stop{false};
+  std::atomic<int> wrong{0};
+  std::atomic<int> reads{0};
+  std::vector<std::thread> readers;
+  for (auto const level : {ms::IsolationLevel::READ_COMMITTED, ms::IsolationLevel::SNAPSHOT_ISOLATION}) {
+    readers.emplace_back([&, level] {
+      mv::BranchContext ctx{core};
+      while (!stop.load(std::memory_order_acquire)) {
+        auto acc = Diff().Access(ms::READ, level, std::nullopt);
+        ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+        auto fork = *ctx.FindForkVertex(a);
+        auto const value = ctx.GetProperty(fork, x, ms::View::NEW);
+        auto const props = ctx.Properties(fork, ms::View::NEW);
+        if (!value || (!value->IsNull() && *value != Int(5))) wrong.fetch_add(1);
+        if (!props || (props->contains(x) && props->at(x) != Int(5))) wrong.fetch_add(1);
+        ctx.EndTransaction();
+        reads.fetch_add(1);
+      }
+    });
+  }
+  while (reads.load() == 0) std::this_thread::yield();
+  for (int i = 0; i < kFlips; ++i) {
+    Write([&] {
+      auto fork = *Ctx().FindForkVertex(a);
+      ASSERT_TRUE(Ctx().SetProperty(fork, x, i % 2 == 0 ? ms::PropertyValue{} : Int(5)).has_value());
+    });
+  }
+  stop.store(true, std::memory_order_release);
+  for (auto &t : readers) t.join();
+  EXPECT_EQ(wrong.load(), 0);
+  EXPECT_GT(reads.load(), 0) << "the readers must actually overlap the flips";
+}
 
 }  // namespace
