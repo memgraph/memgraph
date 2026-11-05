@@ -1053,6 +1053,16 @@ add_unit_test(versioning_branch_recovery
     SOURCES versioning_branch_recovery.cpp
     LINK_TARGETS mg::versioning mg::storage mg-dbms
 )
+
+add_unit_test(versioning_crash_recovery
+    SOURCES versioning_crash_recovery.cpp
+    LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_recovery_equivalence
+    SOURCES versioning_recovery_equivalence.cpp
+    LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
