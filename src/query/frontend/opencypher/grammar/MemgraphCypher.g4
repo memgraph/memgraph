@@ -213,6 +213,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TENANT
                       | STRICT_SYNC
                       | STRING
+                      | STRONG
                       | SYNC
                       | SUSPEND
                       | TABLE
@@ -246,6 +247,7 @@ memgraphCypherKeyword : cypherKeyword
                       | VALUES
                       | VECTOR
                       | VERSION
+                      | WEAK
                       | WEBSOCKET
                       | YIELD
                       | ZONEDDATETIME
@@ -540,7 +542,9 @@ revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM USER? user=u
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
+denyStrength : WEAK | STRONG ;
+
+denyPrivilege : denyStrength? DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM target=userOrRole ;
 
@@ -560,7 +564,7 @@ propertyPermissionTypeList : propertyPermissionType ( ',' propertyPermissionType
 
 grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
 
-denyPropertyPermission : DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+denyPropertyPermission : denyStrength? DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
 
 revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
 

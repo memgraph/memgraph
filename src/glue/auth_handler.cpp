@@ -17,6 +17,7 @@
 #include <optional>
 #include <ranges>
 #include <sstream>
+#include <string_view>
 #include <utility>
 
 #include <fmt/format.h>
@@ -45,6 +46,7 @@ struct PermissionForPrivilegeResult {
   std::string permission;
   memgraph::auth::PermissionLevel permission_level;
   std::string description;
+  bool weak_deny{false};
 };
 
 struct FineGrainedPermissionForPrivilegeResult {
@@ -53,9 +55,12 @@ struct FineGrainedPermissionForPrivilegeResult {
   uint64_t permission_bitmask;
   memgraph::auth::PermissionLevel grant_or_deny;
   bool is_label;
+  bool weak_deny{false};
 #endif
   std::string description;
 };
+
+constexpr std::string_view DenyEffective(bool const weak) { return weak ? "WEAK DENY" : "STRONG DENY"; }
 
 PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::Permissions &permissions, const memgraph::query::AuthQuery::Privilege &privilege,
@@ -71,6 +76,7 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
       container.description = "GRANTED TO " + user_or_role;
       break;
     case memgraph::auth::PermissionLevel::DENY:
+      container.weak_deny = (permissions.strong_denies() & std::to_underlying(permission)) == 0;
       container.description = "DENIED TO " + user_or_role;
       break;
     case memgraph::auth::PermissionLevel::NEUTRAL:
@@ -86,8 +92,11 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructPrivilegesResult(
 
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
+    auto const effective = permission.permission_level == memgraph::auth::PermissionLevel::DENY
+                               ? std::string{DenyEffective(permission.weak_deny)}
+                               : memgraph::auth::PermissionLevelToString(permission.permission_level);
     grants.push_back({memgraph::query::TypedValue(permission.permission),
-                      memgraph::query::TypedValue(memgraph::auth::PermissionLevelToString(permission.permission_level)),
+                      memgraph::query::TypedValue(effective),
                       memgraph::query::TypedValue(permission.description)});
   }
 
@@ -121,9 +130,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
       if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
         full_description.emplace_back(role_permission_result.description);
       }
-      privilege_results.push_back(PermissionForPrivilegeResult{user_permission_result.permission,
-                                                               user_permission_result.permission_level,
-                                                               memgraph::utils::Join(full_description, ", ")});
+      user_permission_result.description = memgraph::utils::Join(full_description, ", ");
+      privilege_results.push_back(std::move(user_permission_result));
     }
   }
 
@@ -210,7 +218,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   auto add_permission = [&](const std::string &entity_name,
                             uint64_t permission_bitmask,
                             memgraph::auth::PermissionLevel grant_or_deny,
-                            bool is_global) {
+                            bool is_global,
+                            bool weak_deny = false) {
     std::string permission_description;
     auto const *const level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
 
@@ -225,7 +234,17 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
                                                                                .permission_bitmask = permission_bitmask,
                                                                                .grant_or_deny = grant_or_deny,
                                                                                .is_label = (permission_type == "LABEL"),
+                                                                               .weak_deny = weak_deny,
                                                                                .description = permission_description});
+  };
+
+  auto add_denies = [&](const std::string &entity_name, uint64_t strong_denies, uint64_t weak_denies, bool is_global) {
+    if (strong_denies != 0) {
+      add_permission(entity_name, strong_denies, memgraph::auth::PermissionLevel::DENY, is_global);
+    }
+    if (weak_denies != 0) {
+      add_permission(entity_name, weak_denies, memgraph::auth::PermissionLevel::DENY, is_global, true);
+    }
   };
 
   // Handle global grants
@@ -236,11 +255,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   }
 
   // Handle global denies
-  auto const global_denies = permissions.GetGlobalDenies();
-  if (global_denies) {
-    add_permission(
-        fmt::format("ALL {}S", permission_type), global_denies.value(), memgraph::auth::PermissionLevel::DENY, true);
-  }
+  auto const global_denies = permissions.GetGlobalStrongDenies();
+  add_denies(
+      fmt::format("ALL {}S", permission_type), global_denies.value_or(0), permissions.GetGlobalWeakDenies(), true);
 
   auto build_entity_name = [&](const memgraph::auth::FineGrainedAccessRule &rule) {
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
@@ -269,9 +286,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     if (rule.grants != memgraph::auth::FineGrainedPermission::NONE) {
       add_permission(entity_name, static_cast<uint64_t>(rule.grants), memgraph::auth::PermissionLevel::GRANT, false);
     }
-    if (rule.denies != memgraph::auth::FineGrainedPermission::NONE) {
-      add_permission(entity_name, static_cast<uint64_t>(rule.denies), memgraph::auth::PermissionLevel::DENY, false);
-    }
+    add_denies(entity_name, static_cast<uint64_t>(rule.strong_denies), static_cast<uint64_t>(rule.weak_denies), false);
   }
 
   return fine_grained_permissions;
@@ -289,7 +304,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
         memgraph::auth::FineGrainedPermissionToString(permission.permission_bitmask, permission.is_label);
     auto const combined_privilege = fmt::format("{} ON {}", permission_types, permission.permission);
 
-    auto const *effective = (permission.grant_or_deny == memgraph::auth::PermissionLevel::DENY) ? "DENY" : "GRANT";
+    auto const effective = permission.grant_or_deny == memgraph::auth::PermissionLevel::DENY
+                               ? DenyEffective(permission.weak_deny)
+                               : std::string_view{"GRANT"};
 
     grants.push_back({memgraph::query::TypedValue(combined_privilege),
                       memgraph::query::TypedValue(effective),
@@ -354,22 +371,28 @@ void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPer
 
   std::vector<std::string> read_granted;
   std::vector<std::string> read_denied;
+  std::vector<std::string> read_weak_denied;
   std::vector<std::string> write_granted;
   std::vector<std::string> write_denied;
+  std::vector<std::string> write_weak_denied;
   for (auto const &[prop, perm] : prop_map) {
     if ((perm.grants & PPT::READ) != PPT::NONE)
       read_granted.push_back(prop);
-    else if ((perm.denies & PPT::READ) != PPT::NONE)
+    else if ((perm.strong_denies & PPT::READ) != PPT::NONE)
       read_denied.push_back(prop);
+    else if ((perm.weak_denies & PPT::READ) != PPT::NONE)
+      read_weak_denied.push_back(prop);
     if ((perm.grants & PPT::WRITE) != PPT::NONE)
       write_granted.push_back(prop);
-    else if ((perm.denies & PPT::WRITE) != PPT::NONE)
+    else if ((perm.strong_denies & PPT::WRITE) != PPT::NONE)
       write_denied.push_back(prop);
+    else if ((perm.weak_denies & PPT::WRITE) != PPT::NONE)
+      write_weak_denied.push_back(prop);
   }
-  r::sort(read_granted);
-  r::sort(read_denied);
-  r::sort(write_granted);
-  r::sort(write_denied);
+  for (auto *props :
+       {&read_granted, &read_denied, &read_weak_denied, &write_granted, &write_denied, &write_weak_denied}) {
+    r::sort(*props);
+  }
 
   auto emit_row = [&](std::string_view type_label,
                       std::vector<std::string> const &props,
@@ -398,7 +421,8 @@ void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPer
   };
 
   emit_level(read_granted, write_granted, "GRANT", "GRANTED");
-  emit_level(read_denied, write_denied, "DENY", "DENIED");
+  emit_level(read_denied, write_denied, DenyEffective(false), "DENIED");
+  emit_level(read_weak_denied, write_weak_denied, DenyEffective(true), "DENIED");
 }
 
 void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
@@ -1202,7 +1226,8 @@ void AuthQueryHandler::DenyPrivilege(
         &edge_type_privileges
 #endif
     ,
-    auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) {
+    auth::DenyStrength strength, auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx,
+    system::Transaction *system_tx) {
   EditPermissions(
       user_or_role,
       privileges,
@@ -1211,29 +1236,29 @@ void AuthQueryHandler::DenyPrivilege(
       label_matching_modes,
       edge_type_privileges,
 #endif
-      [](auto &permissions, const auto &permission) {
+      [strength](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
         // privilege is granted/denied/revoked before
         // unconditionally granting/denying/revoking it?
-        permissions.Deny(permission);
+        permissions.Deny(permission, strength);
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions,
-         auto const &privilege_collection,
-         auto const &matching_mode,
-         FineGrainedPermissionType perm_type) {
+      [strength](auto &fine_grained_permissions,
+                 auto const &privilege_collection,
+                 auto const &matching_mode,
+                 FineGrainedPermissionType perm_type) {
         for (const auto &[privilege, entities] : privilege_collection) {
           auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege, perm_type);
 
           if (entities.size() == 1 && entities[0] == "*") {
-            fine_grained_permissions.DenyGlobal(permission);
+            fine_grained_permissions.DenyGlobal(permission, strength);
           } else {
             std::unordered_set<std::string> const entity_set(entities.begin(), entities.end());
             auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
                             ? memgraph::auth::MatchingMode::EXACTLY
                             : memgraph::auth::MatchingMode::ANY;
-            fine_grained_permissions.Deny(entity_set, permission, mode);
+            fine_grained_permissions.Deny(entity_set, permission, mode, strength);
           }
         }
       }
@@ -1531,18 +1556,13 @@ void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
 }
 
 namespace {
-using GlobalFn = void (auth::PropertyAccessPermissions::*)(std::string const &, auth::PropertyPermissionType);
-using PerEntityFn = void (auth::PropertyAccessPermissions::*)(std::unordered_set<std::string> const &,
-                                                              std::string const &, auth::PropertyPermissionType,
-                                                              auth::MatchingMode);
-
-auto MakePropertyEditFn(GlobalFn global_fn, PerEntityFn per_entity_fn, auth::PropertyPermissionType perm_type) {
+auto MakePropertyEditFn(auto global_fn, auto per_entity_fn, auth::PropertyPermissionType perm_type, auto... args) {
   return [=](auth::PropertyAccessPermissions &perms, auto const &entities, auto mm, auto const &prop) {
     bool const is_global = entities.size() == 1 && entities[0] == "*";
     if (is_global) {
-      (perms.*global_fn)(prop, perm_type);
+      (perms.*global_fn)(prop, perm_type, args...);
     } else {
-      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm);
+      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm, args...);
     }
   };
 }
@@ -1573,7 +1593,7 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               const std::vector<std::string> &entity_names,
                                               auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
-                                              memgraph::auth::AuthTransaction *auth_tx,
+                                              auth::DenyStrength strength, memgraph::auth::AuthTransaction *auth_tx,
                                               system::Transaction *system_tx) {
   EditPropertyPermission(
       user_or_role,
@@ -1585,7 +1605,7 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
       auth_tx,
       system_tx,
       MakePropertyEditFn(
-          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type));
+          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type, strength));
 }
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,

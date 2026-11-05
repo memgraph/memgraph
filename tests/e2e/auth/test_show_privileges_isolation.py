@@ -196,7 +196,7 @@ def test_show_privileges_user_isolation_with_deny_privileges(memgraph):
         privilege_data = {row.get("privilege", ""): row.get("effective", "") for row in bob_sorted}
         assert privilege_data.get("MATCH") == "GRANT", "Bob should have MATCH granted"
         assert privilege_data.get("MERGE") == "GRANT", "Bob should have MERGE granted"
-        assert privilege_data.get("CREATE") == "DENY", "Bob should have CREATE denied"
+        assert privilege_data.get("CREATE") == "STRONG DENY", "Bob should have CREATE denied"
 
         # Clean up
         memgraph.execute("DROP USER alice;")
