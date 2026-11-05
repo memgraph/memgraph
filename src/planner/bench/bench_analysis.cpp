@@ -106,6 +106,12 @@ static_assert(!TypedTestEGraph::updates_analysis, "the other benchmarks price th
 
 /// `width` independent Add nodes over their own leaves, plus one Add whose
 /// right operand is left unseeded so a later merge can widen it.
+///
+/// Every leaf takes a distinct disambiguator, without which the graph would not
+/// grow with `width` at all: the e-graph hash-conses, so a repeated `Var(1)`
+/// returns the class the previous iteration made and every width would build
+/// the same six classes. The offsets keep these clear of the leaves the
+/// benchmarks below mint for the probe and for the merge.
 struct Fixture {
   MaskEGraph eg;
   EClassId opaque{};
@@ -113,8 +119,8 @@ struct Fixture {
 
   explicit Fixture(std::int64_t width) {
     for (std::int64_t i = 0; i < width; ++i) {
-      auto const a = eg.Make<Op::Var>(static_cast<std::uint64_t>(1)).eclass_id;
-      auto const b = eg.Make<Op::Const>(static_cast<std::uint64_t>(2)).eclass_id;
+      auto const a = eg.Make<Op::Var>(static_cast<std::uint64_t>(i + 1)).eclass_id;
+      auto const b = eg.Make<Op::Const>(static_cast<std::uint64_t>(i + 16)).eclass_id;
       eg.Make<Op::Add>(a, b);
     }
     opaque = eg.Make<Op::Var>(static_cast<std::uint64_t>(0)).eclass_id;
@@ -125,9 +131,14 @@ struct Fixture {
 
 /// What the harness itself costs. Pausing and resuming the timer around the
 /// fixture is not free, so a reading near this floor says the measured work is
-/// below what this method can resolve, not that it took a microsecond.
+/// below what this method can resolve, not that it took a microsecond. Two
+/// pause/resume pairs per iteration, matching the benchmarks below, which also
+/// pause to discard their fixture.
 void BM_TimerFloor(benchmark::State &state) {
   for (auto _ : state) {
+    state.PauseTiming();
+    benchmark::DoNotOptimize(state.iterations());
+    state.ResumeTiming();
     state.PauseTiming();
     benchmark::DoNotOptimize(state.iterations());
     state.ResumeTiming();
@@ -136,22 +147,48 @@ void BM_TimerFloor(benchmark::State &state) {
 
 BENCHMARK(BM_TimerFloor)->Iterations(30);
 
-/// A single change against a graph of growing size. Flat means the refresh
-/// costs what moved; growth with `width` means it costs what exists.
+/// A single change against a graph of growing size. One fact moves at every
+/// width, which the label reports, so the comparison to make is between the
+/// time and the size beside it: a time that grows with the graph says the walk
+/// visits what exists, and a time that grows far slower than the graph says the
+/// walk is bounded by the change and the remainder is the cost of reaching
+/// scattered memory in a bigger graph.
+///
+/// The fixture lives in a scope the timer is paused across, both to build it and
+/// to discard it. Letting it fall out of scope with the timer running would
+/// charge freeing the whole graph to the refresh, and the reading would grow
+/// with `width` whatever the refresh did.
 void BM_RefreshAfterOneChange(benchmark::State &state) {
   auto const width = state.range(0);
+  std::size_t classes = 0;
+  std::size_t moved = 0;
   for (auto _ : state) {
     state.PauseTiming();
-    Fixture f{width};
-    auto ctx = BaseProcessingContext{};
-    f.eg.refresh_analysis(ctx);  // settle what construction dirtied
-    auto const widen = f.eg.Make<Op::Const>(static_cast<std::uint64_t>(8)).eclass_id;
-    f.eg.core().merge(f.opaque, widen);
-    state.ResumeTiming();
+    {
+      Fixture f{width};
+      auto ctx = BaseProcessingContext{};
+      f.eg.refresh_analysis(ctx);  // settle what construction dirtied
+      // Building the graph announced every class it created. A pass drains that
+      // set before running, so leaving it full here would charge the refresh for
+      // growing a set the size of the graph on its first announcement.
+      f.eg.core().clear_touched();
+      auto const widen = f.eg.Make<Op::Const>(static_cast<std::uint64_t>(8)).eclass_id;
+      f.eg.core().merge(f.opaque, widen);
+      classes = f.eg.core().num_classes();
+      state.ResumeTiming();
 
-    benchmark::DoNotOptimize(f.eg.refresh_analysis(ctx));
+      moved = f.eg.refresh_analysis(ctx);
+      benchmark::DoNotOptimize(moved);
+      state.PauseTiming();
+    }
+    state.ResumeTiming();
   }
-  state.SetLabel("one merge, graph of " + std::to_string(width) + " Add nodes");
+  // The size reported is the one the fixture reached, not the one asked for, so
+  // a flat reading cannot be read as the refresh scaling well when it is really
+  // the graph that failed to grow. The facts that moved are reported for the
+  // same reason: they are what the time is meant to be proportional to.
+  state.SetLabel("one leaf minted and merged, graph of " + std::to_string(classes) + " e-classes, " +
+                 std::to_string(moved) + " facts moved");
 }
 
 // Iterations fixed: the timed region is a few microseconds while the fixture
@@ -164,19 +201,26 @@ void BM_RefreshFanOut(benchmark::State &state) {
   auto const fanout = state.range(0);
   for (auto _ : state) {
     state.PauseTiming();
-    MaskEGraph eg;
-    auto ctx = BaseProcessingContext{};
-    auto const shared = eg.Make<Op::Var>(static_cast<std::uint64_t>(0)).eclass_id;
-    for (std::int64_t i = 0; i < fanout; ++i) {
-      auto const other = eg.Make<Op::Const>(static_cast<std::uint64_t>(i) | 1U).eclass_id;
-      eg.Make<Op::Add>(shared, other);
-    }
-    eg.refresh_analysis(ctx);
-    auto const widen = eg.Make<Op::Const>(static_cast<std::uint64_t>(1) << 20U).eclass_id;
-    eg.core().merge(shared, widen);
-    state.ResumeTiming();
+    {
+      MaskEGraph eg;
+      auto ctx = BaseProcessingContext{};
+      auto const shared = eg.Make<Op::Var>(static_cast<std::uint64_t>(0)).eclass_id;
+      for (std::int64_t i = 0; i < fanout; ++i) {
+        // One distinct second operand per reader. Forcing the low bit would pair
+        // each even `i` with its successor, hash-cons the two Adds together, and
+        // leave half the readers the label claims.
+        auto const other = eg.Make<Op::Const>(static_cast<std::uint64_t>(i)).eclass_id;
+        eg.Make<Op::Add>(shared, other);
+      }
+      eg.refresh_analysis(ctx);
+      auto const widen = eg.Make<Op::Const>(static_cast<std::uint64_t>(1) << 20U).eclass_id;
+      eg.core().merge(shared, widen);
+      state.ResumeTiming();
 
-    benchmark::DoNotOptimize(eg.refresh_analysis(ctx));
+      benchmark::DoNotOptimize(eg.refresh_analysis(ctx));
+      state.PauseTiming();
+    }
+    state.ResumeTiming();
   }
   state.SetLabel(std::to_string(fanout) + " readers of the changed leaf");
 }
@@ -208,15 +252,19 @@ void BM_RefreshAfterCascade(benchmark::State &state) {
   auto const depth = state.range(0);
   for (auto _ : state) {
     state.PauseTiming();
-    CascadeFixture f{5, depth};
-    auto ctx = core::ProcessingContext<Op>{};
-    for (std::size_t i = 1; i < f.bases.size(); ++i) {
-      f.eg.core().merge(f.bases[i], f.bases[i - 1]);
-    }
-    f.eg.core().rebuild(ctx);
-    state.ResumeTiming();
+    {
+      CascadeFixture f{5, depth};
+      auto ctx = core::ProcessingContext<Op>{};
+      for (std::size_t i = 1; i < f.bases.size(); ++i) {
+        f.eg.core().merge(f.bases[i], f.bases[i - 1]);
+      }
+      f.eg.core().rebuild(ctx);
+      state.ResumeTiming();
 
-    benchmark::DoNotOptimize(f.eg.refresh_analysis(ctx));
+      benchmark::DoNotOptimize(f.eg.refresh_analysis(ctx));
+      state.PauseTiming();
+    }
+    state.ResumeTiming();
   }
   state.SetLabel("5 towers of depth " + std::to_string(depth) + ", collapsed by one rebuild");
 }
@@ -231,16 +279,13 @@ void BuildGraph(benchmark::State &state) {
   auto const width = state.range(0);
   for (auto _ : state) {
     Graph eg;
+    // Distinct leaves per iteration, for the hash-consing reason in `Fixture`:
+    // repeating one leaf would time `width` lookups against a three-class graph
+    // instead of the build this is comparing.
     for (std::int64_t i = 0; i < width; ++i) {
-      if constexpr (requires { eg.template Make<Op::Var>(std::uint64_t{1}); }) {
-        auto const a = eg.template Make<Op::Var>(static_cast<std::uint64_t>(1)).eclass_id;
-        auto const b = eg.template Make<Op::Const>(static_cast<std::uint64_t>(2)).eclass_id;
-        eg.template Make<Op::Add>(a, b);
-      } else {
-        auto const a = eg.template Make<Op::Var>().eclass_id;
-        auto const b = eg.template Make<Op::Const>().eclass_id;
-        eg.template Make<Op::Add>(a, b);
-      }
+      auto const a = eg.template Make<Op::Var>(static_cast<std::uint64_t>(i + 1)).eclass_id;
+      auto const b = eg.template Make<Op::Const>(static_cast<std::uint64_t>(i + 16)).eclass_id;
+      eg.template Make<Op::Add>(a, b);
     }
     benchmark::DoNotOptimize(eg.core().num_classes());
   }
