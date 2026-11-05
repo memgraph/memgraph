@@ -23,11 +23,15 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "versioning/stub_merge.hpp"
 #include "versioning/stub_state.hpp"
 
 namespace ms = memgraph::storage;
@@ -370,4 +374,147 @@ TEST_F(StubMvccTest, WritersReadersAndCollectionNeverShowATornStub) {
     EXPECT_EQ(props.at(P(1)), props.at(P(2)));
   }
   r->Abort();
+}
+
+///// MERGED READS UNDER READ_COMMITTED
+//
+// A read-committed reader whose delta walk straddles a commit sees a prefix of that commit's writes, so a stub can read
+// as holding a value and its removal marker at once. stub_merge.hpp prefers the value, and ApplyProperties orders its
+// writes so that every prefix is the old or the new state.
+
+namespace {
+
+// A committed vertex standing in for main@fork: P(1) = 100.
+ms::Gid CreateFork(ms::Storage &storage) {
+  auto acc = storage.Access(ms::WRITE, kSnapshot, std::nullopt);
+  auto v = acc->CreateVertex();
+  EXPECT_TRUE(v.SetProperty(P(1), V(100)).has_value());
+  auto const gid = v.Gid();
+  EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  return gid;
+}
+
+}  // namespace
+
+TEST_F(StubMvccTest, AValueAndItsRemovalMarkerTogetherReadAsTheValue) {
+  auto const fork_gid = CreateFork(*storage);
+  auto const gid = CreateStub();
+  {
+    auto acc = Writer();
+    auto v = acc->FindVertex(gid, ms::View::NEW);
+    ASSERT_TRUE(v->SetProperty(P(1), V(5)).has_value());
+    ASSERT_TRUE(v->SetProperty(stub::Mark(P(1)), ms::PropertyValue{true}).has_value());
+    Commit(*acc);
+  }
+  auto r = Reader(kReadCommitted);
+  auto const stub_v = r->FindVertex(gid, ms::View::NEW);
+  auto const fork = r->FindVertex(fork_gid, ms::View::NEW);
+  EXPECT_EQ(*stub::MergeGetProperty(*stub_v, *fork, P(1), ms::View::NEW), V(5));
+  EXPECT_GT(*stub::MergeGetPropertySize(*stub_v, *fork, P(1), ms::View::NEW), 0U);
+  auto const merged = stub::MergeProperties(*stub_v->Properties(ms::View::NEW), *fork);
+  ASSERT_TRUE(merged.has_value());
+  EXPECT_EQ(merged->at(P(1)), V(5));
+
+  // The marker alone is a removal.
+  auto const only_marker = CreateStub();
+  {
+    auto acc = Writer();
+    auto v = acc->FindVertex(only_marker, ms::View::NEW);
+    ASSERT_TRUE(v->SetProperty(stub::Mark(P(1)), ms::PropertyValue{true}).has_value());
+    Commit(*acc);
+  }
+  auto const removed_v = r->FindVertex(only_marker, ms::View::NEW);
+  EXPECT_TRUE(stub::MergeGetProperty(*removed_v, *fork, P(1), ms::View::NEW)->IsNull());
+  EXPECT_EQ(*stub::MergeGetPropertySize(*removed_v, *fork, P(1), ms::View::NEW), 0U);
+  EXPECT_FALSE(stub::MergeProperties(*removed_v->Properties(ms::View::NEW), *fork)->contains(P(1)));
+  r->Abort();
+}
+
+// Newest delta first: the order a delta walk undoes the writes in, so the order a torn read keeps them out.
+TEST_F(StubMvccTest, ApplyTurnsAMarkerOnBeforeDroppingTheValueAndOffAfterSettingIt) {
+  auto const key_of = [](const ms::Delta *delta) {
+    EXPECT_EQ(delta->action, ms::Delta::Action::SET_PROPERTY);
+    return delta->property.key;
+  };
+  auto const gid = CreateStub();
+  {
+    auto seed = Writer();
+    ASSERT_FALSE(Write(*seed, gid, [](StubState &s) { s.SetProperty(P(1), V(5)); }));
+    Commit(*seed);
+  }
+  {  // set -> removed: the marker goes on first, so the value is the newest write
+    auto acc = Writer();
+    ASSERT_FALSE(Write(*acc, gid, [](StubState &s) { s.RemoveProperty(P(1)); }));
+    auto const *head = acc->FindVertex(gid, ms::View::NEW)->vertex_->delta();
+    ASSERT_NE(head, nullptr);
+    EXPECT_EQ(key_of(head), P(1));
+    EXPECT_EQ(key_of(head->next.load()), stub::Mark(P(1)));
+    Commit(*acc);
+  }
+  {  // removed -> set: the marker comes off last, so it is the newest write
+    auto acc = Writer();
+    ASSERT_FALSE(Write(*acc, gid, [](StubState &s) { s.SetProperty(P(1), V(6)); }));
+    auto const *head = acc->FindVertex(gid, ms::View::NEW)->vertex_->delta();
+    ASSERT_NE(head, nullptr);
+    EXPECT_EQ(key_of(head), stub::Mark(P(1)));
+    EXPECT_EQ(key_of(head->next.load()), P(1));
+    Commit(*acc);
+  }
+}
+
+TEST_F(StubMvccTest, AReadCommittedMergedReadOfAFlippedPropertyIsAlwaysTheOldOrTheNewValue) {
+  constexpr int kFlips = 3000;
+  auto const fork_gid = CreateFork(*storage);
+  auto const gid = CreateStub();
+  auto const five_size = [] {
+    ms::PropertyStore store;
+    store.SetProperty(P(1), V(5));
+    return uint64_t{store.PropertySize(P(1))};
+  }();
+
+  {
+    auto seed = Writer();
+    ASSERT_FALSE(Write(*seed, gid, [](StubState &s) { s.SetProperty(P(1), V(5)); }));
+    Commit(*seed);
+  }
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> wrong{0};
+  std::atomic<int> reads{0};
+  std::vector<std::thread> readers;
+  for (int r = 0; r < 3; ++r) {
+    readers.emplace_back([&] {
+      while (!stop.load(std::memory_order_acquire)) {
+        auto acc = Reader(kReadCommitted);
+        auto const stub_v = acc->FindVertex(gid, ms::View::NEW);
+        auto const fork = acc->FindVertex(fork_gid, ms::View::NEW);
+        auto const value = stub::MergeGetProperty(*stub_v, *fork, P(1), ms::View::NEW);
+        auto const size = stub::MergeGetPropertySize(*stub_v, *fork, P(1), ms::View::NEW);
+        auto const all = stub::MergeProperties(*stub_v->Properties(ms::View::NEW), *fork);
+        // Never the fork's 100: the property is either the branch's 5 or removed.
+        if (!value || (!value->IsNull() && *value != V(5))) wrong.fetch_add(1);
+        if (!size || (*size != 0 && *size != five_size)) wrong.fetch_add(1);
+        if (!all || (all->contains(P(1)) && all->at(P(1)) != V(5))) wrong.fetch_add(1);
+        reads.fetch_add(1);
+        acc->Abort();
+      }
+    });
+  }
+  bool removed = false;
+  for (int i = 0; i < kFlips; ++i) {
+    auto acc = Writer();
+    ASSERT_FALSE(Write(*acc, gid, [&](StubState &s) {
+      if (removed) {
+        s.SetProperty(P(1), V(5));
+      } else {
+        s.RemoveProperty(P(1));
+      }
+    }));
+    Commit(*acc);
+    removed = !removed;
+  }
+  stop.store(true, std::memory_order_release);
+  for (auto &t : readers) t.join();
+  EXPECT_EQ(wrong.load(), 0);
+  EXPECT_GT(reads.load(), 0);
 }
