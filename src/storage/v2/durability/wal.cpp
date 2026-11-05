@@ -1222,6 +1222,53 @@ bool SkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
   return ReadSkipWalDeltaData<false>(decoder, version);
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+// A branch diff engine keeps change markers on its stubs as labels and properties with a reserved id (id_types.hpp).
+// Its WAL records the user operation a marker stands for, never the marker, so the file holds only real names and
+// replays through the branch's write path. Each delta is still one record: the header's delta count stays exact. The
+// caller holds the object's lock.
+
+// The property whose value a marker delta restates: the key itself, or the one a "removed" marker belongs to.
+PropertyId StubPropertyKey(PropertyId marked) {
+  MG_ASSERT(marked != kInvalidPropertyId && marked.AsUint() != kDeleteId, "not a property marker");
+  return PropertyId::FromUint(marked.AsUint() & ~kReservedIdBit);
+}
+
+// Delta actions are undo actions, so a marker that was added is a REMOVE_LABEL delta. The user operation is the
+// opposite of what the marker does: marking a fork label removed removes it, and unmarking re-adds it.
+void EncodeStubLabelDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Vertex *vertex) {
+  auto const id = delta.label.value.AsUint();
+  MG_ASSERT(id != kInvalidLabelId.AsUint(), "not a label marker");
+  if (id == kDeleteId) {
+    MG_ASSERT(delta.action == Delta::Action::REMOVE_LABEL, "a delete marker is only ever added");
+    encoder->WriteMarker(Marker::DELTA_VERTEX_DELETE);
+    encoder->WriteUint(vertex->gid.AsUint());
+    return;
+  }
+  encoder->WriteMarker(delta.action == Delta::Action::ADD_LABEL ? Marker::DELTA_VERTEX_ADD_LABEL
+                                                                : Marker::DELTA_VERTEX_REMOVE_LABEL);
+  encoder->WriteUint(vertex->gid.AsUint());
+  encoder->WriteString(storage->name_id_mapper_->IdToName(id & ~kReservedIdBit));
+}
+
+// The endpoints and type come from Transaction::RecordEdgeSetPropertyInfo, which only a WAL-writing engine records.
+// A branch's engine writes a WAL exactly when it has a durable WAL, and only then is a delta encoded here. The asserts
+// guard what reaches the disk, so they hold in release builds too; only a reserved id gets here, never main's deltas.
+void EncodeStubEdgeDelete(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, Gid in_vertex_gid,
+                          EdgeTypeId edge_type_id) {
+  MG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
+  MG_ASSERT(in_vertex_gid != kInvalidGid && edge_type_id != kInvalidEdgeTypeId,
+            "an edge stub delete needs the edge's endpoints and type, recorded under PERIODIC_SNAPSHOT_WITH_WAL");
+  encoder->WriteMarker(Marker::DELTA_EDGE_DELETE);
+  encoder->WriteUint(edge->gid.AsUint());
+  encoder->WriteString(storage->name_id_mapper_->IdToName(edge_type_id.AsUint()));
+  encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
+  encoder->WriteUint(in_vertex_gid.AsUint());
+}
+}  // namespace
+#endif
+
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items items, const Delta &delta, Vertex *vertex,
                  uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
@@ -1239,12 +1286,16 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       break;
     }
     case Delta::Action::SET_PROPERTY: {
+      auto key = delta.property.key;
+#ifdef MG_ENTERPRISE
+      if (IsReservedId(key)) key = StubPropertyKey(key);
+#endif
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
-      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
+      encoder->WriteString(storage->name_id_mapper_->IdToName(key.AsUint()));
       // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = vertex->properties.GetProperty(
-          delta.property.key,
+          key,
           IndexedPropertyDecoder<Vertex>{
               .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex});
       encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
@@ -1252,6 +1303,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
     }
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
+#ifdef MG_ENTERPRISE
+      if (IsReservedId(delta.label.value)) {
+        EncodeStubLabelDelta(encoder, storage, delta, vertex);
+        break;
+      }
+#endif
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.label.value.AsUint()));
@@ -1288,12 +1345,20 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
   auto guard = std::shared_lock{edge->lock};
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
+      auto key = delta.property.key;
+#ifdef MG_ENTERPRISE
+      if (key.AsUint() == kDeleteId) {
+        EncodeStubEdgeDelete(encoder, storage, delta, edge, in_vertex_gid, edge_type_id);
+        break;
+      }
+      if (IsReservedId(key)) key = StubPropertyKey(key);
+#endif
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
       encoder->WriteUint(edge->gid.AsUint());
-      encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
+      encoder->WriteString(storage->name_id_mapper_->IdToName(key.AsUint()));
       // Use IndexedPropertyDecoder to resolve VectorIndexId vectors from vector index.
       auto property_value = edge->properties.GetProperty(
-          delta.property.key,
+          key,
           IndexedPropertyDecoder<Edge>{
               .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = edge});
       encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));

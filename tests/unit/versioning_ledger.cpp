@@ -34,6 +34,7 @@
 #include "utils/crc_accumulator.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/branch_engine.hpp"
 #include "versioning/branch_info.hpp"
 #include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
@@ -534,6 +535,7 @@ TEST(BranchInfo, RecoverableBelowIsOneBelowTheRecordedForkClampedAtZero) {
 
 namespace {
 namespace ms = memgraph::storage;
+namespace mv = memgraph::versioning;
 
 const fs::path kRestartDirectory{fs::temp_directory_path() / "versioning_ledger_restart"};
 
@@ -546,10 +548,29 @@ ms::Config MakeRestartConfig(bool recover_on_startup) {
       .experimental_versioning = true,
   };
 }
+
+auto *Mem(memgraph::dbms::Database &db) { return static_cast<ms::InMemoryStorage *>(db.storage()); }
+
+std::unique_ptr<mv::BranchContext> CheckoutBranch(memgraph::dbms::Database &db, std::string_view name) {
+  auto *store = db.version_store();
+  auto info = store->Get(name);
+  EXPECT_TRUE(info.has_value());
+  if (!info) return nullptr;
+  auto core = store->GetOrBuildCore(info->number, [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
+    auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number);
+    if (!fresh) return std::unexpected(fresh.error().message);
+    return std::move(*fresh);
+  });
+  EXPECT_TRUE(core.has_value());
+  if (!core) return nullptr;
+  EXPECT_TRUE(store->RecordGidFloors(info->number, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor()).has_value());
+  return std::make_unique<mv::BranchContext>(*core);
+}
 }  // namespace
 
 TEST(BranchLedgerRestartTest, AnUnreadableLedgerRefusesStartup) {
   fs::remove_all(kRestartDirectory);
+  uint64_t b_number = 0;
   {
     memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -558,8 +579,21 @@ TEST(BranchLedgerRestartTest, AnUnreadableLedgerRefusesStartup) {
       acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto info = db.version_store()->CreateBranch("b");
+    ASSERT_TRUE(info.has_value());
+    b_number = info->number;
+    auto ctx = CheckoutBranch(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    auto diff_acc = ctx->diff_engine().Access(ms::WRITE);
+    ASSERT_TRUE(ctx->BeginTransaction(diff_acc.get()).has_value());
+    ctx->CreateNativeVertex();
+    ASSERT_TRUE(ctx->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx->EndTransaction();
   }
+
+  const auto wal_dir = kRestartDirectory / "branches" / std::to_string(b_number) / "wal";
+  ASSERT_TRUE(fs::exists(wal_dir));
+  ASSERT_TRUE(fs::directory_iterator(wal_dir) != fs::directory_iterator{}) << "the branch must have a WAL file";
 
   const auto ledger_file = kRestartDirectory / "branches" / "ledger";
   auto data = Slurp(ledger_file);
