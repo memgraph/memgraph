@@ -75,6 +75,20 @@ inline storage::Result<std::optional<bool>> DecidesLabel(const storage::VertexAc
   return std::optional<bool>{};
 }
 
+// What the stub itself says about one property, for a writer that must know whether to clear a removal marker or to set
+// one. One multi-key read; the stub's own view, not merged with the fork.
+struct StubKey {
+  storage::PropertyValue value;  // null when the stub holds no value
+  bool removed{false};           // the removal marker is on
+};
+
+template <typename Stub>
+storage::Result<StubKey> ReadKey(const Stub &stub, storage::PropertyId key, storage::View view) {
+  return detail::ReadDecided(stub, key, view).transform([](auto decided) {
+    return StubKey{.value = std::move(decided.value), .removed = !decided.marker.IsNull()};
+  });
+}
+
 // `stub_labels` never holds the delete label (the caller maps it to a deleted object). Markers hide fork labels, plain
 // labels are additions; a plain label with its marker is a copy of a fork label removed since, so it is hidden too.
 inline storage::VertexKey MergeLabels(const storage::VertexKey &stub_labels, storage::VertexKey fork_labels) {
