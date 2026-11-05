@@ -368,6 +368,31 @@ TEST_F(LicenseLogTest, RejectedEnvBesideValidCliIsNotALoss) {
   EXPECT_EQ(Logged("Ignoring a rejected license source. [ENV]"), 1);
 }
 
+TEST_F(LicenseLogTest, ExpiryNotLoggedForPerpetualLicense) {
+  auto const key = memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE});
+  license_checker->SetCliLicense(key, organization_name, *settings);
+  EXPECT_EQ(Warnings(), 0);
+}
+
+TEST_F(LicenseLogTest, LossLoggedOncePerChange) {
+  settings->SetValue("enterprise.license",
+                     memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE}));
+  settings->SetValue("organization.name", organization_name);
+  CheckLicenseValidity(true);
+
+  settings->SetValue("organization.name", "Memgraphwrong");
+  settings->SetValue("organization.name", "Memgraphwrong");
+  CheckLicenseValidity(false);
+  EXPECT_EQ(Logged("Running in community mode"), 1);
+}
+
+TEST_F(LicenseLogTest, IncompletePairIsNotALoss) {
+  settings->SetValue("organization.name", organization_name);
+  CheckLicenseValidity(false);
+  EXPECT_EQ(Logged("No valid license found. [DB] The organization name is set, but the license key is not."), 1);
+  EXPECT_EQ(Logged("Running in community mode"), 0);
+}
+
 // ===========================================================================
 // Multi-source selection
 // ===========================================================================
