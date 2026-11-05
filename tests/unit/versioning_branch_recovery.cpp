@@ -40,8 +40,10 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/branch_recovery.hpp"
 #include "versioning/version_store.hpp"
 
@@ -60,6 +62,7 @@ const std::filesystem::path kOtherStorageDirectory{std::filesystem::temp_directo
 struct Options {
   bool properties_on_edges{true};
   bool auto_index{false};
+  bool versioning{true};
 };
 
 ms::Config MakeConfig(bool recover_on_startup, Options options = {},
@@ -70,7 +73,7 @@ ms::Config MakeConfig(bool recover_on_startup, Options options = {},
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
-      .experimental_versioning = true,
+      .experimental_versioning = options.versioning,
   };
   config.salient.items.properties_on_edges = options.properties_on_edges;
   config.salient.items.enable_label_index_auto_creation = options.auto_index;
@@ -82,6 +85,26 @@ auto *Mem(memgraph::dbms::Database &db) { return static_cast<ms::InMemoryStorage
 
 void Commit(ms::Storage::Accessor &acc) {
   ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// A vertex created on main by a plain write.
+std::optional<ms::Gid> NewMainVertex(memgraph::dbms::Database &db) {
+  auto acc = db.Access(ms::WRITE);
+  const auto gid = acc->CreateVertex().Gid();
+  if (!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) return std::nullopt;
+  return gid;
+}
+
+// Every regular file under `directory` by relative path, with its bytes.
+std::map<std::string, std::string> FileContents(const std::filesystem::path &directory) {
+  std::map<std::string, std::string> files;
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(directory)) {
+    if (!entry.is_regular_file()) continue;
+    std::ifstream in{entry.path(), std::ios::binary};
+    files.emplace(std::filesystem::relative(entry.path(), directory).string(),
+                  std::string{std::istreambuf_iterator<char>{in}, {}});
+  }
+  return files;
 }
 
 std::filesystem::path BranchWalDir(uint64_t number, const std::filesystem::path &directory = kStorageDirectory) {
@@ -294,29 +317,6 @@ std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db, std::s
   return std::make_unique<mv::BranchContext>(*core);
 }
 
-// Builds and registers `name`'s core the way restart recovery does, from its recorded floors with its WAL replayed, so
-// a later Checkout attaches to it. `floor_shift` moves the recorded floors, to feed the replay a misread log.
-std::expected<void, std::string> Recover(memgraph::dbms::Database &db, std::string_view name, int64_t floor_shift = 0) {
-  auto *store = db.version_store();
-  const auto info = store->Get(name);
-  if (!info || !info->vertex_gid_floor || !info->edge_gid_floor) return std::unexpected("no recorded floors");
-  auto core = store->GetOrBuildCore(info->number, [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
-    auto built =
-        mv::BranchCore::Build(*Mem(db),
-                              info->fork_ts,
-                              info->number,
-                              mv::BranchCore::RecordedFloors{.vertex_gid_floor = *info->vertex_gid_floor + floor_shift,
-                                                             .edge_gid_floor = *info->edge_gid_floor + floor_shift});
-    if (!built) return std::unexpected(built.error().message);
-    if (auto replayed = mv::ReplayBranchWal(*built, BranchWalDir(info->number)); !replayed) {
-      return std::unexpected(replayed.error());
-    }
-    return std::move(*built);
-  });
-  if (!core) return std::unexpected(core.error());
-  return {};
-}
-
 // A running branch: the pieces a workload writes with.
 struct Env {
   memgraph::dbms::Database &db;
@@ -398,13 +398,10 @@ RoundTrip RunRoundTrip(const std::function<void(Env &)> &workload, Options optio
   }
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, options)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
-  if (!recovered) return out;
   bool built = false;
   auto ctx = Checkout(db, "b", &built);
   EXPECT_NE(ctx, nullptr);
-  EXPECT_FALSE(built) << "recovery registered the core";
+  EXPECT_FALSE(built) << "startup recovery registered the core";
   if (ctx == nullptr) return out;
   out.replayed = Capture(db, *ctx, out.base);
   EXPECT_EQ(out.replayed.Render(), out.live.Render());
@@ -715,6 +712,9 @@ namespace {
 struct NativeWorkload {
   ms::Gid n1;
   ms::Gid n2;
+  // The highest native gids the workload allocated, whether or not the object survived.
+  ms::Gid last_vertex;
+  ms::Gid last_edge;
 };
 
 // Every native record kind in two transactions, with fork objects around them: vertices with labels and properties,
@@ -730,7 +730,9 @@ NativeWorkload RunNativeWorkload(Env &e) {
     auto n1 = c.CreateNativeVertex();
     auto n2 = c.CreateNativeVertex();
     n3 = c.CreateNativeVertex().Gid();
-    out = {n1.Gid(), n2.Gid()};
+    out.n1 = n1.Gid();
+    out.n2 = n2.Gid();
+    out.last_vertex = n3;
     ASSERT_TRUE(*c.AddLabel(n1, e.Label("N")));
     ASSERT_TRUE(*c.AddLabel(n1, e.Label("X")));
     ASSERT_TRUE(c.SetProperty(n1, e.Prop("a"), ms::PropertyValue(1)).has_value());
@@ -747,6 +749,7 @@ NativeWorkload RunNativeWorkload(Env &e) {
     auto stubs = c.CreateNativeEdge(s4, s3, e.EdgeType("T"));
     ASSERT_TRUE(stubs.has_value());
     between_stubs = stubs->Gid();
+    out.last_edge = between_stubs;
   });
 
   e.Txn([&](mv::BranchContext &c, auto &diff) {
@@ -818,7 +821,6 @@ TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain)
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_TRUE(Recover(db, "b").has_value());
     bool built = false;
     auto ctx = Checkout(db, "b", &built);
     ASSERT_NE(ctx, nullptr);
@@ -834,7 +836,6 @@ TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain)
 
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  ASSERT_TRUE(Recover(db, "b").has_value());
   auto ctx = Checkout(db, "b");
   ASSERT_NE(ctx, nullptr);
   EXPECT_EQ(Capture(db, *ctx, base).Render(), after_second.Render());
@@ -873,8 +874,6 @@ TEST_F(VersioningBranchRecoveryTest, TwoBranchesRecoverIndependently) {
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   ASSERT_EQ(db.version_store()->List().size(), 2u);
-  ASSERT_TRUE(Recover(db, "b").has_value());
-  ASSERT_TRUE(Recover(db, "c").has_value());
   auto b = Checkout(db, "b");
   auto c = Checkout(db, "c");
   ASSERT_NE(b, nullptr);
@@ -946,48 +945,301 @@ TEST_F(VersioningBranchRecoveryTest, ABuildOverAnExistingBranchDirectoryKeepsIts
   EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "branches" / std::to_string(info->number) / ".backup"));
 }
 
-// ---- Refusals
+// ---- Gids after a restart
 
-TEST_F(VersioningBranchRecoveryTest, AMissingWalFileFailsTheReplayAndKeepsTheOtherFiles) {
-  uint64_t number = 0;
+// A native object takes its gid from main's counters, which a restart rebuilds from main's own data: without the
+// raise past every replayed native gid, a create on main or on the branch gets the gid of a replayed object.
+TEST_F(VersioningBranchRecoveryTest, NewObjectsAfterARestartTakeNoReplayedGid) {
   Base base{};
   NativeWorkload workload{};
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b");
-    ASSERT_TRUE(info.has_value());
-    number = info->number;
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     Env env{db, *ctx, base};
     workload = RunNativeWorkload(env);
   }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  Env env{db, *ctx, base};
+
+  const auto main_vertex = NewMainVertex(db);
+  ASSERT_TRUE(main_vertex.has_value());
+  EXPECT_GT(main_vertex->AsUint(), workload.last_vertex.AsUint());
+  uint64_t main_edge = 0;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    auto acc = db.Access(ms::WRITE);
+    auto from = acc->FindVertex(base.v1, ms::View::OLD);
+    auto to = acc->FindVertex(base.v3, ms::View::OLD);
+    ASSERT_TRUE(from.has_value() && to.has_value());
+    const auto edge = acc->CreateEdge(&*from, &*to, env.EdgeType("T"));
+    ASSERT_TRUE(edge.has_value());
+    main_edge = edge->Gid().AsUint();
+    Commit(*acc);
+  }
+  EXPECT_GT(main_edge, workload.last_edge.AsUint());
+
+  uint64_t branch_vertex = 0;
+  uint64_t branch_edge = 0;
+  env.Txn([&](mv::BranchContext &c, auto &) {
+    auto native = c.CreateNativeVertex();
+    branch_vertex = native.Gid().AsUint();
+    auto stub = env.Stub(base.v2);
+    auto edge = c.CreateNativeEdge(stub, native, env.EdgeType("T"));
+    ASSERT_TRUE(edge.has_value());
+    branch_edge = edge->Gid().AsUint();
+  });
+  EXPECT_GT(branch_vertex, workload.last_vertex.AsUint());
+  EXPECT_NE(branch_vertex, main_vertex->AsUint());
+  EXPECT_GT(branch_edge, workload.last_edge.AsUint());
+  EXPECT_NE(branch_edge, main_edge);
+}
+
+// Versioning off: the branches are hidden, but main keeps running over them and must stay clear of their natives.
+TEST_F(VersioningBranchRecoveryTest, MainIdsWhileHiddenClearTheBranchNativeIds) {
+  Base base{};
+  NativeWorkload workload{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_TRUE(Recover(db, "b").has_value());
+    base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     Env env{db, *ctx, base};
-    WriteAfterRestart(env, workload.n1, 2);
+    workload = RunNativeWorkload(env);
   }
 
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, {.versioning = false})};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_TRUE(db.version_store()->List().empty());
+  const auto vertex = NewMainVertex(db);
+  ASSERT_TRUE(vertex.has_value());
+  EXPECT_GT(vertex->AsUint(), workload.last_vertex.AsUint());
+  auto acc = db.Access(ms::WRITE);
+  auto from = acc->FindVertex(base.v1, ms::View::OLD);
+  auto to = acc->FindVertex(base.v3, ms::View::OLD);
+  ASSERT_TRUE(from.has_value() && to.has_value());
+  const auto edge = acc->CreateEdge(&*from, &*to, db.storage()->NameToEdgeType("T"));
+  ASSERT_TRUE(edge.has_value());
+  EXPECT_GT(edge->Gid().AsUint(), workload.last_edge.AsUint());
+  acc->Abort();
+}
+
+// A fork taken with no main commit after it sits above the durable timestamp; commits made while the branch is hidden
+// must still land above the fork point or they would show up in the branch.
+TEST_F(VersioningBranchRecoveryTest, MainCommitsWhileHiddenStayOutOfTheBranch) {
+  Base base{};
+  uint64_t fork_ts = 0;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    for (int i = 0; i < 10; ++i) db.Access(ms::READ)->Abort();
+    const auto info = db.version_store()->CreateBranch("b");
+    ASSERT_TRUE(info.has_value());
+    fork_ts = info->fork_ts;
+  }
+
+  ms::Gid hidden_run_vertex;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, {.versioning = false})};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto vertex = NewMainVertex(db);
+    ASSERT_TRUE(vertex.has_value());
+    hidden_run_vertex = *vertex;
+    EXPECT_GE(Mem(db)->repl_storage_state_.commit_ts_info_.load().ldt_, fork_ts)
+        << "a commit made while hidden must be stamped at or above the fork point";
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto info = db.version_store()->Get("b");
+  ASSERT_TRUE(info.has_value());
+  auto branch = Mem(db)->HistoricalAccess(info->fork_ts);
+  ASSERT_TRUE(branch.has_value());
+  EXPECT_FALSE((*branch)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
+  EXPECT_TRUE((*branch)->FindVertex(base.v1, ms::View::OLD).has_value());
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
+}
+
+// ---- Refusals
+
+namespace {
+// What startup refuses with over the files in kStorageDirectory; empty when the database started.
+std::string StartupRefusal() {
+  try {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  } catch (const memgraph::utils::BasicException &e) {
+    return e.what();
+  }
+  return {};
+}
+
+// Everything a refused startup must leave alone: main's snapshots and WAL and every branch file. The trigger and
+// stream stores are opened by every start.
+std::map<std::string, std::string> DurableFiles() {
+  auto files = FileContents(kStorageDirectory);
+  std::erase_if(files, [](const auto &file) {
+    return file.first.starts_with("triggers/") || file.first.starts_with("streams/");
+  });
+  return files;
+}
+
+// Runs the `mv '<from>' '<to>'` lines of `message` the way an administrator would.
+void FollowMoveSteps(const std::string &message) {
+  size_t moved = 0;
+  for (auto at = message.find("mv '"); at != std::string::npos; at = message.find("mv '", at + 1)) {
+    const auto from_begin = at + 4;
+    const auto from_end = message.find('\'', from_begin);
+    const auto to_begin = message.find('\'', from_end + 1) + 1;
+    const auto to_end = message.find('\'', to_begin);
+    ASSERT_NE(to_end, std::string::npos) << message;
+    std::filesystem::rename(message.substr(from_begin, from_end - from_begin),
+                            message.substr(to_begin, to_end - to_begin));
+    ++moved;
+  }
+  ASSERT_GT(moved, 0U) << "the message names no step to take: " << message;
+}
+
+// Removes the first WAL file of `number`'s chain.
+void RemoveFirstWalFile(uint64_t number) {
   auto files = WalFiles(number);
-  ASSERT_EQ(files.size(), 2u);
+  ASSERT_EQ(files.size(), 2U);
   const auto first = std::ranges::find_if(
       files, [](const auto &path) { return memgraph::storage::durability::ReadWalInfo(path).seq_num == 0; });
   ASSERT_NE(first, files.end());
   std::filesystem::remove(*first);
-  files.erase(first);
+}
 
+// A branch "b" with a native workload, written to in two lifetimes so its WAL is a chain of two files.
+struct TwoFileBranch {
+  uint64_t number{0};
+  Base base{};
+  NativeWorkload workload{};
+};
+
+TwoFileBranch CreateTwoFileBranch(std::string_view name) {
+  TwoFileBranch out;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    out.base = CreateBase(db);
+    auto info = db.version_store()->CreateBranch(std::string{name});
+    EXPECT_TRUE(info.has_value());
+    if (!info) return out;
+    out.number = info->number;
+    auto ctx = Checkout(db, name);
+    EXPECT_NE(ctx, nullptr);
+    if (ctx == nullptr) return out;
+    Env env{db, *ctx, out.base};
+    out.workload = RunNativeWorkload(env);
+  }
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("missing prefix WAL files"));
-  EXPECT_EQ(WalFiles(number), files) << "a failed replay leaves the branch's files as they are";
+  auto ctx = Checkout(db, name);
+  EXPECT_NE(ctx, nullptr);
+  if (ctx == nullptr) return out;
+  Env env{db, *ctx, out.base};
+  WriteAfterRestart(env, out.workload.n1, 2);
+  return out;
+}
+}  // namespace
+
+// A branch whose WAL does not replay makes the instance refuse to start, with a message that names the branch, the
+// error and the files, and nothing on disk is touched.
+TEST_F(VersioningBranchRecoveryTest, AMissingWalFileRefusesStartupAndLeavesEveryFileAsItIs) {
+  const auto branch = CreateTwoFileBranch("b");
+  ASSERT_NO_FATAL_FAILURE(RemoveFirstWalFile(branch.number));
+  const auto before = DurableFiles();
+
+  const auto message = StartupRefusal();
+  ASSERT_FALSE(message.empty()) << "a branch that cannot be replayed must stop the startup";
+  EXPECT_THAT(message, HasSubstr("'b'"));
+  EXPECT_THAT(message, HasSubstr("missing prefix WAL files"));
+  EXPECT_THAT(message, HasSubstr((kStorageDirectory / "branches" / std::to_string(branch.number)).string()));
+  EXPECT_THAT(message, HasSubstr(BranchWalDir(branch.number).string()));
+  EXPECT_THAT(message, HasSubstr((kStorageDirectory / "branches" / "ledger").string()));
+  EXPECT_EQ(DurableFiles(), before) << "a refused startup changes no file";
+  EXPECT_EQ(StartupRefusal(), message) << "and refuses the same way again";
+  EXPECT_EQ(DurableFiles(), before);
+}
+
+// The steps in the message are the way out: followed to the letter, the instance starts, main and the other branch
+// are as they were, the moved log is kept, and the branch comes back as it was forked.
+TEST_F(VersioningBranchRecoveryTest, FollowingTheRefusalStepsStartsTheInstanceWithTheOtherBranchesIntact) {
+  Base base{};
+  NativeWorkload workload{};
+  uint64_t bad = 0;
+  Captured good_before;
+  std::string main_before;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    const auto b = db.version_store()->CreateBranch("bad");
+    ASSERT_TRUE(b.has_value());
+    bad = b->number;
+    ASSERT_TRUE(db.version_store()->CreateBranch("good").has_value());
+    auto bad_ctx = Checkout(db, "bad");
+    auto good_ctx = Checkout(db, "good");
+    ASSERT_NE(bad_ctx, nullptr);
+    ASSERT_NE(good_ctx, nullptr);
+    Env bad_env{db, *bad_ctx, base};
+    Env good_env{db, *good_ctx, base};
+    workload = RunNativeWorkload(bad_env);
+    RunNativeWorkload(good_env);
+    good_before = Capture(db, *good_ctx, base);
+    main_before = DumpMain(db);
+  }
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto ctx = Checkout(db, "bad");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    WriteAfterRestart(env, workload.n1, 2);
+  }
+  ASSERT_NO_FATAL_FAILURE(RemoveFirstWalFile(bad));
+  const auto bad_log = FileContents(BranchWalDir(bad));
+  const auto before = DurableFiles();
+
+  const auto message = StartupRefusal();
+  ASSERT_FALSE(message.empty());
+  EXPECT_THAT(message, HasSubstr("'bad'"));
+  EXPECT_THAT(message, ::testing::Not(HasSubstr("'good'"))) << "only the branch that fails is named";
+  EXPECT_EQ(DurableFiles(), before);
+
+  ASSERT_NO_FATAL_FAILURE(FollowMoveSteps(message));
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *store = db.version_store();
+  EXPECT_EQ(DumpMain(db), main_before);
+  EXPECT_EQ(store->List().size(), 2U);
+  EXPECT_EQ(FileContents(BranchWalDir(bad).string() + ".damaged"), bad_log) << "the moved log is kept byte for byte";
+
+  bool built = false;
+  auto good = Checkout(db, "good", &built);
+  ASSERT_NE(good, nullptr);
+  EXPECT_FALSE(built) << "the good branch was recovered at startup";
+  EXPECT_EQ(Capture(db, *good, base).Render(), good_before.Render());
+  good.reset();
+
+  auto fresh = Checkout(db, "bad", &built);
+  ASSERT_NE(fresh, nullptr);
+  EXPECT_TRUE(built);
+  EXPECT_EQ(Capture(db, *fresh, base).vertices.size(), 4U) << "the branch reads main at its fork, without its writes";
+  fresh.reset();
+
+  EXPECT_NE(NewMainVertex(db), std::nullopt);
+  ASSERT_EQ(store->DropBranch("bad"), mv::DropResult::kDropped);
+  EXPECT_TRUE(store->Exists("good"));
 }
 
 // A branch is only replayed over the main history it forked from: a fork vertex that history does not have is a
@@ -1033,13 +1285,15 @@ TEST_F(VersioningBranchRecoveryTest, ABranchWhoseMainHistoryLacksAForkObjectIsRe
   EXPECT_THAT(replayed.error(), HasSubstr("is not in the branch"));
 }
 
-// Records are routed by the gid floors; floors that disagree with the log make a record land on the wrong side.
-TEST_F(VersioningBranchRecoveryTest, ACreateRecordBelowTheRecordedFloorIsRefused) {
+// Records are routed by the gid floors; floors that disagree with the log make a record land on the wrong side, and
+// that refuses the startup too. Moving the log aside also brings that branch back.
+TEST_F(VersioningBranchRecoveryTest, ABranchWhoseRecordedFloorsDisagreeWithItsLogRefusesStartup) {
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     const auto base = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    const auto info = db.version_store()->CreateBranch("b");
+    ASSERT_TRUE(info.has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     Env env{db, *ctx, base};
@@ -1049,9 +1303,23 @@ TEST_F(VersioningBranchRecoveryTest, ACreateRecordBelowTheRecordedFloorIsRefused
       ASSERT_TRUE(c.CreateNativeEdge(n1, n2, env.EdgeType("T")).has_value());
     });
   }
+  const mv::BranchLedger ledger{kStorageDirectory / "branches" / "ledger"};
+  auto contents = ledger.Read();
+  ASSERT_TRUE(contents.has_value() && contents->has_value());
+  for (auto &branch : (*contents)->branches) {
+    *branch.info.vertex_gid_floor += 1000;
+    *branch.info.edge_gid_floor += 1000;
+  }
+  ASSERT_TRUE(ledger.Write(**contents).has_value());
+  const auto before = DurableFiles();
+
+  const auto message = StartupRefusal();
+  ASSERT_FALSE(message.empty());
+  EXPECT_THAT(message, HasSubstr("'b'"));
+  EXPECT_THAT(message, HasSubstr("a gid of the fork state"));
+  EXPECT_EQ(DurableFiles(), before);
+
+  ASSERT_NO_FATAL_FAILURE(FollowMoveSteps(message));
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b", /*floor_shift=*/1000);
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("a gid of the fork state"));
+  EXPECT_TRUE(db.version_store()->Exists("b"));
 }

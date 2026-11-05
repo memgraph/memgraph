@@ -586,6 +586,10 @@ TEST_F(VersioningDurabilityRestartTest, MainRecoveryNeverAbsorbsADiffEnginesWrit
     ASSERT_TRUE(info.has_value());
     auto ctx = memgraph::versioning::BranchContext::BuildFromFork(*storage, info->fork_ts, info->number);
     ASSERT_TRUE(ctx.has_value());
+    ASSERT_TRUE(
+        db.version_store()
+            ->RecordGidFloors(info->number, (*ctx)->core()->vertex_gid_floor(), (*ctx)->core()->edge_gid_floor())
+            .has_value());
     {
       auto diff_acc = (*ctx)->diff_engine().Access(ms::WRITE);
       ASSERT_TRUE((*ctx)->BeginTransaction(diff_acc.get()).has_value());

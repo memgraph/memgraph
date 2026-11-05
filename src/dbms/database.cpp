@@ -50,6 +50,7 @@
 #ifdef MG_ENTERPRISE
 #include "storage/v2/inmemory/storage.hpp"
 #include "versioning/branch_ledger.hpp"
+#include "versioning/branch_recovery.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
@@ -409,7 +410,14 @@ Database::Database(storage::Config config)
     if (branch_plan.bound) {
       version_store_->Restore(branch_plan.ledger);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
+      if (const auto failures = versioning::RecoverBranches(*version_store_, *in_memory_storage); !failures.empty()) {
+        // The exit snapshot must not overwrite the files the branches could not be recovered from.
+        in_memory_storage->config_.durability.snapshot_on_exit = false;
+        throw utils::BasicException(versioning::DescribeRecoveryRefusal(
+            database_name, in_memory_storage->config_.durability.storage_directory, failures));
+      }
     } else if (branch_plan.hidden) {
+      versioning::KeepMainClearOfHiddenBranches(branch_plan.ledger, *in_memory_storage);
       version_store_->RestoreHidden(branch_plan.ledger);
     } else {
       version_store_->Restore(branch_plan.ledger);
