@@ -67,6 +67,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(Accumulate)
   DEFAULT_VISITS(Apply)
   DEFAULT_VISITS(Produce)
+  DEFAULT_VISITS(CacheProperties)
   DEFAULT_VISITS(Merge)
   DEFAULT_VISITS(Optional)
   DEFAULT_VISITS(Foreach)

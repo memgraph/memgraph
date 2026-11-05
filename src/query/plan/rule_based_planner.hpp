@@ -1268,7 +1268,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
       // additionally, check for Cyphermorphism of the previous branch with new bound symbols
       for (const auto &new_symbol : cross_branch_new_symbols) {
-        if (new_symbol.type() == Symbol::Type::EDGE) {
+        // A variable-length relationship binds a list of relationships, and those are still
+        // relationships two patterns may not share, so both kinds of symbol are checked.
+        if (new_symbol.type() == Symbol::Type::EDGE || new_symbol.type() == Symbol::Type::EDGE_LIST) {
           last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, new_bound_symbols);
         }
       }
