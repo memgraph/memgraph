@@ -275,7 +275,9 @@ class Storage {
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
           metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
-          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
+          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr,
+          // Non-null: shared instead of constructing this storage's own.
+          std::shared_ptr<NameIdMapper> shared_name_id_mapper = nullptr);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -284,9 +286,20 @@ class Storage {
 
   virtual ~Storage() = default;
 
+#ifdef MG_ENTERPRISE
+  std::string name() const { return name_source_ ? name_source_->name() : config_.salient.name.str(); }
+
+  utils::SafeString::ConstSafeWrapper name_view() const {
+    return name_source_ ? name_source_->name_view() : config_.salient.name.str_view();
+  }
+
+  // Reports `parent`'s name, so a later rename of `parent` is visible here. `parent` must outlive this storage.
+  void ReportNameOf(const Storage &parent) noexcept { name_source_ = &parent; }
+#else
   std::string name() const { return config_.salient.name.str(); }
 
   auto name_view() const { return config_.salient.name.str_view(); }
+#endif
 
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
@@ -353,6 +366,12 @@ class Storage {
   EdgeTypeId NameToEdgeType(const std::string_view name) const {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
+
+#ifdef MG_ENTERPRISE
+  // Lets a branch diff engine (BranchCore::Build) share this mapper, so ids read from main at the fork decode through
+  // one id space. Concurrent NameToId/IdToName from both storages is already safe (SkipList + atomic counter).
+  std::shared_ptr<NameIdMapper> GetSharedNameIdMapper() const { return name_id_mapper_; }
+#endif
 
   StorageMode GetStorageMode() const noexcept { return storage_mode_; }
 
@@ -461,8 +480,12 @@ class Storage {
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> broken_{false};
 
-  std::unique_ptr<NameIdMapper> name_id_mapper_;
+  // shared_ptr so a branch diff engine can share it; see GetSharedNameIdMapper().
+  std::shared_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
+#ifdef MG_ENTERPRISE
+  const Storage *name_source_{nullptr};
+#endif
 
   // Transaction engine
   mutable utils::SpinLock engine_lock_;
