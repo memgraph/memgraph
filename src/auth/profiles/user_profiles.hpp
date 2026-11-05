@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <functional>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -102,16 +103,17 @@ class UserProfiles {
     [[nodiscard]] bool operator()(const std::string &lhs, const Profile &rhs) const { return lhs == rhs.name; }
   };
 
-  // Writes the profile; keeps stale durable spellings of still-ambiguous users so unrelated saves never fix them.
+  // Writes the profile, plus the stale spellings hidden from it at load so unrelated saves never rewrite them.
   bool Persist(const Profile &profile);
 
-  // Drops the user's stale durable spellings after an admin action settled its profile. Caller holds the unique lock.
-  bool ResolveAmbiguity(const std::string &folded);
+  // Drops the user's stale spellings and rewrites the profiles that held them. Caller holds the unique lock.
+  void Resolve(const std::string &folded);
 
   mutable utils::RWSpinLock mtx_;
   Repository *durability_;                                             // Reuse auth's durability
   std::unordered_set<Profile, profile_hash, profile_equal> profiles_;  // Local storage
-  std::unordered_set<std::string> ambiguous_;  // Folded users found in several profiles at load; guarded by mtx_
+  // Raw spellings of users hidden from a profile at load because another profile won them; guarded by mtx_.
+  std::unordered_map<std::string, std::vector<std::string>> stale_;
 };
 
 }  // namespace memgraph::auth
