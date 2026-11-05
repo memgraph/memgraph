@@ -11,7 +11,9 @@
 
 #include "auth/profiles/user_profiles.hpp"
 
+#include <map>
 #include <mutex>
+#include <set>
 #include <shared_mutex>
 #include <string>
 
@@ -91,6 +93,24 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
       spdlog::warn("Failed to parse user profile {}", name);
     }
   });
+
+  // Data written before usernames were folded can place spellings of one user in several profiles.
+  std::map<std::string, std::set<std::string>> profiles_by_user;
+  for (const auto &profile : profiles_) {
+    for (const auto &username : profile.usernames) {
+      profiles_by_user[username].insert(profile.name);
+    }
+  }
+  for (const auto &[username, names] : profiles_by_user) {
+    if (names.size() > 1) {
+      spdlog::error(
+          "User '{}' is assigned to multiple profiles ({}); limits for this user are ambiguous. Run SET PROFILE "
+          "<profile> FOR {} to keep one.",
+          username,
+          utils::Join(names, ", "),
+          username);
+    }
+  }
 };
 
 bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
