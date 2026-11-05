@@ -142,6 +142,9 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // Main's retention needs are not the diff engine's: they would pin its WAL for no reason.
   config.durability.recovery_history_bound.reset();
   config.durability.retention_floor.reset();
+  // A durable branch's directory is its own WAL: after a restart (recorded floors) it continues, and a fresh build
+  // finds nothing there. Either way the engine must not move those files aside.
+  config.durability.keep_existing_files = recorded.has_value() || durable;
   config.durability.snapshot_on_exit = false;
   config.durability.restore_replication_state_on_startup = false;
   // Without durability, a stale path is one flip away from aliasing main's live data, so it is unique per build.
@@ -919,9 +922,21 @@ storage::VertexAccessor BranchContext::CreateNativeVertex() {
   return *created;
 }
 
+std::optional<storage::VertexAccessor> BranchContext::CreateNativeVertexAt(storage::Gid gid) {
+  return static_cast<storage::ReplicationAccessor &>(diff()).CreateVertexEx(gid);
+}
+
 storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::VertexAccessor &from,
                                                                        storage::VertexAccessor &to,
                                                                        storage::EdgeTypeId edge_type) {
+  return CreateNativeEdgeAt(
+      storage::Gid::FromUint(main().edge_id_.fetch_add(1, std::memory_order_acq_rel)), from, to, edge_type);
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdgeAt(storage::Gid gid,
+                                                                         storage::VertexAccessor &from,
+                                                                         storage::VertexAccessor &to,
+                                                                         storage::EdgeTypeId edge_type) {
   // The stock call refuses a deleted vertex by its deleted bit, which a stub never carries: a delete earlier in this
   // transaction is the marker. Another transaction's delete is ordered by the stub's MVCC.
   for (auto const *endpoint : {&from, &to}) {
@@ -932,7 +947,6 @@ storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::
   // The edge changes both endpoints' adjacency: turns off their unchanged-adjacency fast path.
   core_->RecordEdgeChange(from.Gid());
   core_->RecordEdgeChange(to.Gid());
-  auto const gid = storage::Gid::FromUint(main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
   return static_cast<storage::ReplicationAccessor &>(diff()).CreateEdgeEx(&from, &to, edge_type, gid);
 }
 
