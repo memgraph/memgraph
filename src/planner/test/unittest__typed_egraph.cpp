@@ -401,4 +401,45 @@ TEST(TypedEGraph, SaturationFiresARuleTheRefreshEnabled) {
   EXPECT_EQ(eg.core().find(sum), eg.core().find(eg.Make<FactOp::Leaf>(6).eclass_id));
 }
 
+TEST(TypedEGraph, SaturationClaimsAFactWhenNoMergePrompted) {
+  using FactPattern = pattern::Pattern<FactOp>;
+  using FactRule = rewrite::RewriteRule<FactEGraph>;
+  using FactRuleCtx = rewrite::RuleContext<FactEGraph>;
+  using FactRuleSet = rewrite::RuleSet<FactEGraph>;
+  using FactRewriter = rewrite::Rewriter<FactEGraph>;
+  static constexpr pattern::PatternVar kRoot{0};
+
+  FactEGraph eg;
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+  eg.Make<FactOp::Opaque>();
+
+  // Builds a term and merges nothing, which leaves congruence no work at all.
+  // Fires once, so that saturation settles whatever the refresh does with it.
+  auto fired = false;
+  auto build = FactRule::Builder{"build_a_sum"}
+                   .pattern(FactPattern::build(kRoot, FactOp::Opaque))
+                   .apply([&fired, one, five](FactRuleCtx &ctx, pattern::Match const & /*match*/) {
+                     if (fired) return;
+                     fired = true;
+                     ctx.Make<FactOp::Sum>(one, five);
+                   });
+
+  FactRewriter rewriter{eg, FactRuleSet::Build(std::move(build))};
+  rewriter.saturate_incremental(rewrite::RewriteConfig::Unlimited());
+  ASSERT_TRUE(fired);
+
+  // Both operands were known when the sum was built, so only `update` can say
+  // 1 + 5. Conditioning the refresh on a pending rebuild would strand this
+  // fact: a pass that only interns leaves nothing for congruence to do, and
+  // the rewrite loop requires a clean graph to begin one.
+  auto const sum = eg.Make<FactOp::Sum>(one, five).eclass_id;
+  ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
+  EXPECT_EQ(*eg.core().analysis_of(sum).known, 6);
+
+  // Saturation reporting itself done means no fact is still derivable.
+  auto refresh_ctx = BaseProcessingContext{};
+  EXPECT_EQ(eg.refresh_analysis(refresh_ctx), 0U);
+}
+
 }  // namespace memgraph::planner::core
