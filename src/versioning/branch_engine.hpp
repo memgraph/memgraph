@@ -427,6 +427,10 @@ class BranchContext {
   storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor &from, storage::VertexAccessor &to,
                                                           storage::EdgeTypeId edge_type);
 
+  // CreateNativeEdge at the gid a WAL record names (recovery); same refusals and records.
+  storage::Result<storage::EdgeAccessor> CreateNativeEdgeAt(storage::Gid gid, storage::VertexAccessor &from,
+                                                            storage::VertexAccessor &to, storage::EdgeTypeId edge_type);
+
   // ---- Point lookups
 
   // The vertex `gid` as the branch holds it: a fork gid resolves to the fork accessor (main's Vertex, the historical
@@ -441,6 +445,13 @@ class BranchContext {
   // Fork-state vertex (historical(), View::OLD). Null for a native gid and for a candidate main does not have at
   // fork_ts.
   std::optional<storage::VertexAccessor> FindForkVertex(storage::Gid gid);
+
+  // Lets a caller that re-reads the same fork vertices (WAL replay) skip FindForkVertex's walk of main's post-fork
+  // history: the Ptr is main's vertex (null where FindForkVertex finds none), valid for the branch's life (fork pin).
+  // ForkVertexAccessor rebuilds the accessor on the current historical transaction, which OpenHistorical replaces, so
+  // never keep an accessor across transactions.
+  storage::Vertex *FindForkVertexPtr(storage::Gid gid);
+  storage::VertexAccessor ForkVertexAccessor(storage::Vertex *fork);
 
   // The fork edge `edge_gid` (historical(), View::OLD) out of fork vertex `from_gid`: found in the vertex's fork-state
   // out-adjacency, so O(its out-degree at the fork).

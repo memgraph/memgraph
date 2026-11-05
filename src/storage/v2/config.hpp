@@ -133,6 +133,11 @@ struct Config {
     // When set, retention deletes no snapshot or WAL file: what a branch may need recoverable is unknown (a branch
     // ledger that cannot be read). A retention_floor of 0 is not this: it is a known base of nothing.
     bool retain_all_files{false};  // PER DATABASE
+
+    // When set, files an earlier run left in the snapshot and WAL directories stay in place instead of being moved to
+    // .backup because recover_on_startup is off. For an owner that reads them itself before use (a branch diff engine
+    // replaying its own WAL).
+    bool keep_existing_files{false};  // PER DATABASE
 #endif
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;

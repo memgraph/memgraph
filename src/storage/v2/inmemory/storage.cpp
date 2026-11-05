@@ -482,8 +482,14 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       }
     }
 
+#ifdef MG_ENTERPRISE
+  } else if (!config_.durability.keep_existing_files &&
+             (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+              config_.durability.snapshot_on_exit)) {
+#else
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
+#endif
     bool files_moved = false;
     auto backup_root = config_.durability.storage_directory / durability::kBackupDirectory;
     for (const auto &[path, dirname, what] :
@@ -5251,6 +5257,11 @@ void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
   auto const first_skipped = timestamp_;
   SetTimestampQuiescent(target);
   commit_log_->MarkFinishedInRange(first_skipped, target - 1);
+}
+
+void InMemoryStorage::SetNextWalSeqNum(uint64_t seq_num) {
+  auto guard = std::lock_guard{engine_lock_};
+  wal_seq_num_ = seq_num;
 }
 
 uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }
