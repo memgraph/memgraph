@@ -63,15 +63,23 @@ class ResolveHarness {
     return in_.core.get_enode(entry_for(to_core(c)).enode_id).symbol();
   }
 
-  /// Whether the binder (Bind / Unwind) at `c` resolved alive or dead. Read
-  /// from the resolver's actual threading: an alive binder threads all three
-  /// children ([input, sym, payload]); a dead binder elides the sym. Asserts
-  /// `c` resolved to a binder under exactly one key.
+  /// Whether the binder (Bind / Unwind) at `c` resolved alive or dead: whether
+  /// the resolver threaded the binder's own sym e-class. Deliberately not the
+  /// resolved child count, which is the signal the build bodies dispatch on - an
+  /// oracle reading that could not witness a disagreement between the shape
+  /// emitted and the binding actually threaded. Asserts `c` resolved to a binder
+  /// under exactly one key.
   [[nodiscard]] auto binder_state(eclass c) const -> BinderState {
     auto const &entry = entry_for(to_core(c));
-    auto const sym = in_.core.get_enode(entry.enode_id).symbol();
-    MG_ASSERT(sym == symbol::Bind || sym == symbol::Unwind, "ResolveHarness: e-class {} is not a binder", c.value_of());
-    return entry.children.count == 3 ? BinderState::Alive : BinderState::Dead;
+    auto const &enode = in_.core.get_enode(entry.enode_id);
+    MG_ASSERT(enode.symbol() == symbol::Bind || enode.symbol() == symbol::Unwind,
+              "ResolveHarness: e-class {} is not a binder",
+              c.value_of());
+    auto const sym_eclass = enode.children()[child::bind::sym];
+    auto const threads = threading(c);
+    return std::ranges::any_of(threads, [&](ResolverKey const &k) { return k.eclass == sym_eclass; })
+               ? BinderState::Alive
+               : BinderState::Dead;
   }
 
   /// The key the resolver threaded to each child of the e-node chosen at `c`,

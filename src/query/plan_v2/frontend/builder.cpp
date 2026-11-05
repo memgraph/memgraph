@@ -269,7 +269,9 @@ struct symbol_build_traits<symbol::Unwind> {
     if (children.size() == node.children().size()) {
       return build_alive(children.get<slots::input>(), children.get<slots::sym>(), children.get<slots::list>());
     }
-    DMG_ASSERT(children.size() == 2, "dead Unwind must emit exactly the input and list children");
+    if (children.size() != child::unwind_dead::arity) {
+      ThrowPlannerBug("dead Unwind must emit exactly the input and list children");
+    }
     return build_dead(state, node, children.get<dead_slots::input>());
   }
 
@@ -286,7 +288,12 @@ struct symbol_build_traits<symbol::Unwind> {
   static auto build_dead(BuildState &state, ENodeRef node, LogicalOperatorPtr const &input) -> result_type {
     auto const list_eclass = node.children()[child::unwind::list];
     auto const length = state.egraph.analysis_of(list_eclass).known_list_length();
-    DMG_ASSERT(length.has_value(), "dead Unwind requires a statically known list length");
+    // The cost model emits this shape only over a proved length, and a proved
+    // fact is never retracted, so re-reading it here agrees with what the alt
+    // was costed with. Throwing rather than asserting keeps that a failure in
+    // every build: a dead shape reaching here without a length would otherwise
+    // scale the row count by an unread optional.
+    if (!length) ThrowPlannerBug("dead Unwind reached the builder without a statically known list length");
     auto const scale = *length;
     // n=1 scales each input row to one row: the operator is identity, so drop it.
     if (scale == 1) return input;

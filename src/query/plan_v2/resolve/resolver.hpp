@@ -110,7 +110,7 @@ inline void ResolveUnwindDead(planner::core::ENode<symbol> const &enode, Resolve
 inline bool BinderIsAlive(planner::core::ENode<symbol> const &enode, VariableSet const &chosen_introduces,
                           SymbolContext const &syms) {
   using namespace child::bind;  // shared layout asserted above
-  return enode.children().size() == 3 && chosen_introduces.test(syms.variable_index.bit_of(enode.children()[sym]));
+  return enode.children().size() == arity && chosen_introduces.test(syms.variable_index.bit_of(enode.children()[sym]));
 }
 
 template <>
