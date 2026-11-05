@@ -77,12 +77,14 @@ class BranchCore {
     uint64_t edge_gid_floor;
   };
 
-  // Builds an empty, non-durable diff engine, records the gid floors (main's counters unless `recorded` supplies them)
-  // and mirrors main's enum definitions. The engine always has properties_on_edges: fork-edge stubs are heavy Edge
-  // objects whatever main's config says, so any code that interprets an EdgeRef read from main must consult MAIN's
-  // config (`main().config_`), not the diff engine's.
+  // Builds an empty diff engine, records the gid floors (main's counters unless `recorded` supplies them) and mirrors
+  // main's enum definitions. Durable only with a `branch_number` and a WAL-enabled main: its WAL is then under
+  // <main storage dir>/branches/<branch_number>/wal/. The engine always has properties_on_edges: fork-edge stubs are
+  // heavy Edge objects whatever main's config says, so any code that interprets an EdgeRef read from main must consult
+  // MAIN's config (`main().config_`), not the diff engine's.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
-      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<RecordedFloors> recorded = std::nullopt);
+      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt,
+      std::optional<RecordedFloors> recorded = std::nullopt);
 
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
@@ -263,8 +265,8 @@ class BranchContext {
   using BuildError = BranchCore::BuildError;
 
   // Builds a private, unregistered core and wraps it (unit tests; production attaches to the registry's core).
-  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
-                                                                                 uint64_t fork_ts);
+  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
+      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
   explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
 

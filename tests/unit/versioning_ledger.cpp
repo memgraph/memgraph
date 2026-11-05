@@ -35,6 +35,7 @@
 #include "utils/crc_accumulator.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/branch_engine.hpp"
 #include "versioning/branch_info.hpp"
 #include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
@@ -594,6 +595,7 @@ TEST(BranchInfo, RecoverableBelowIsOneBelowTheRecordedForkClampedAtZero) {
 
 namespace {
 namespace ms = memgraph::storage;
+namespace mv = memgraph::versioning;
 
 const fs::path kRestartDirectory{fs::temp_directory_path() / "versioning_ledger_restart"};
 
@@ -606,10 +608,13 @@ ms::Config MakeRestartConfig(bool recover_on_startup) {
       .experimental_versioning = true,
   };
 }
+
+auto *Mem(memgraph::dbms::Database &db) { return static_cast<ms::InMemoryStorage *>(db.storage()); }
 }  // namespace
 
 TEST(BranchLedgerRestartTest, AnUnreadableLedgerStartsMainAndLeavesEveryBranchFileAsItIs) {
   fs::remove_all(kRestartDirectory);
+  uint64_t b_number = 0;
   {
     memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -618,8 +623,22 @@ TEST(BranchLedgerRestartTest, AnUnreadableLedgerStartsMainAndLeavesEveryBranchFi
       acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto info = db.version_store()->CreateBranch("b");
+    ASSERT_TRUE(info.has_value());
+    b_number = info->number;
+    auto built = mv::BranchContext::BuildFromFork(*Mem(db), info->fork_ts, info->number);
+    ASSERT_TRUE(built.has_value());
+    auto &ctx = *built;
+    auto diff_acc = ctx->diff_engine().Access(ms::WRITE);
+    ASSERT_TRUE(ctx->BeginTransaction(diff_acc.get()).has_value());
+    ctx->CreateNativeVertex();
+    ASSERT_TRUE(ctx->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx->EndTransaction();
   }
+
+  const auto wal_dir = kRestartDirectory / "branches" / std::to_string(b_number) / "wal";
+  ASSERT_TRUE(fs::exists(wal_dir));
+  ASSERT_TRUE(fs::directory_iterator(wal_dir) != fs::directory_iterator{}) << "the branch must have a WAL file";
 
   const auto ledger_file = kRestartDirectory / "branches" / "ledger";
   auto data = Slurp(ledger_file);

@@ -518,7 +518,7 @@ TEST_F(VersioningBranchCoreTest, GidFloorsAreMainsCountersAtBuildOrTheRecordedOn
   EXPECT_EQ((*later)->vertex_gid_floor(), 3U) << "an unrecorded build reads main's counter at build time";
 
   auto recorded = mv::BranchCore::Build(
-      *storage_, fork_ts_, mv::BranchCore::RecordedFloors{.vertex_gid_floor = 2, .edge_gid_floor = 1});
+      *storage_, fork_ts_, std::nullopt, mv::BranchCore::RecordedFloors{.vertex_gid_floor = 2, .edge_gid_floor = 1});
   ASSERT_TRUE(recorded.has_value());
   EXPECT_EQ((*recorded)->vertex_gid_floor(), 2U);
   EXPECT_EQ((*recorded)->edge_gid_floor(), 1U);
@@ -530,7 +530,7 @@ TEST_F(VersioningBranchCoreTest, TheDiffEnginesCountersStartAtTheGidFloors) {
   EXPECT_EQ(Diff().vertex_id_.load(), core_->vertex_gid_floor());
   EXPECT_EQ(Diff().edge_id_.load(), core_->edge_gid_floor());
   auto recorded = mv::BranchCore::Build(
-      *storage_, fork_ts_, mv::BranchCore::RecordedFloors{.vertex_gid_floor = 7, .edge_gid_floor = 5});
+      *storage_, fork_ts_, std::nullopt, mv::BranchCore::RecordedFloors{.vertex_gid_floor = 7, .edge_gid_floor = 5});
   ASSERT_TRUE(recorded.has_value());
   EXPECT_EQ((*recorded)->diff_engine().vertex_id_.load(), 7U);
   EXPECT_EQ((*recorded)->diff_engine().edge_id_.load(), 5U);

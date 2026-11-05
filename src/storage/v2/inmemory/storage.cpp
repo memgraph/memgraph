@@ -4697,6 +4697,16 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // Upper bound: append_deltas skips deltas whose action carries no durability record.
     commands.data.reserve(transaction_.deltas.size());
     append_deltas([&](const Delta &delta, auto *parent, uint64_t /*durability_commit_timestamp_arg*/) {
+#ifdef MG_ENTERPRISE
+      // A marker entry in a branch stub's adjacency (versioning/stub_state.hpp, LinkEdgeMarker) hides a deleted fork
+      // edge and is no edge: it is neither written to the WAL nor replicated, so it keeps out of the delta count too.
+      if constexpr (std::is_same_v<decltype(parent), Vertex *>) {
+        if ((delta.action == Delta::Action::REMOVE_OUT_EDGE || delta.action == Delta::Action::ADD_OUT_EDGE) &&
+            IsReservedId(delta.vertex_edge.edge_type)) [[unlikely]] {
+          return;
+        }
+      }
+#endif
       if constexpr (std::is_same_v<decltype(parent), Edge *>) {
         // Connect the edge to the in-vertex and edge type for faster lookup.
         // NOTE: Invalid values will be sent in case the edge was created in this transaction.

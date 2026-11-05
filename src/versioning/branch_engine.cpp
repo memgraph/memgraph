@@ -80,7 +80,8 @@ std::string HistoricalOpenFailure(storage::InMemoryStorage::HistoricalAccessErro
 }  // namespace
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<RecordedFloors> recorded) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number,
+    std::optional<RecordedFloors> recorded) {
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
   // Pinned first so an unpinned fork fails before the diff engine is built; the accessor's shared hold also keeps
@@ -111,16 +112,25 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   config.experimental_commit_lock_narrowing = false;
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
-  config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
+  bool const durable =
+      branch_number.has_value() && main.config_.durability.snapshot_wal_mode ==
+                                       storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.durability.snapshot_wal_mode = durable
+                                            ? storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL
+                                            : storage::Config::Durability::SnapshotWalMode::DISABLED;
+  // Only CreateSnapshotHandler arms a snapshot runner from this interval, and a diff engine never gets one: no thread
+  // snapshots a branch, whose WAL is all its durable state.
   config.durability.snapshot_interval = utils::SchedulerInterval{};
   config.durability.recover_on_startup = false;
   // Main's retention needs are not the diff engine's.
   config.durability.recovery_history_bound.reset();
   config.durability.retention_floor.reset();
   config.durability.snapshot_on_exit = false;
-  // Unique per build so the diff engine never aliases main's directory (disk usage, file-retainer locks).
+  // A durable branch keeps its WAL in its own directory; otherwise the path is unique per build so the diff engine
+  // never aliases main's directory (disk usage, file-retainer locks).
   config.durability.storage_directory =
-      config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
+      durable ? main.config_.durability.storage_directory / "branches" / std::to_string(*branch_number)
+              : config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
   config.durability.root_data_directory = config.durability.storage_directory;
   // Only the unreleased-delta gauge is shared, so branch memory shows up under the tenant.
   metrics::DatabaseMetricHandles metric_handles{};
@@ -137,8 +147,12 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 main.GetSharedNameIdMapper());
   diff_engine->ReportNameOf(main);
 
-  // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards.
-  MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
+  // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards. Mirror
+  // commits are rebuilt on every build, so they stay out of the branch WAL.
+  {
+    const storage::InMemoryStorage::SuppressWalScope no_wal{*diff_engine};
+    MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
+  }
 
   // Read after the fork pin: every gid visible at fork_ts is below these floors, every later allocation (main's or a
   // branch's) at or above. Below them may also be main's post-fork objects, which fork_ts does not see.
@@ -196,8 +210,8 @@ BranchCore::~BranchCore() {
 }
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts) {
-  return BranchCore::Build(main, fork_ts).transform([](std::shared_ptr<BranchCore> core) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
+  return BranchCore::Build(main, fork_ts, branch_number).transform([](std::shared_ptr<BranchCore> core) {
     return std::make_unique<BranchContext>(std::move(core));
   });
 }

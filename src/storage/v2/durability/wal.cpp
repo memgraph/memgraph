@@ -1222,6 +1222,69 @@ bool SkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
   return ReadSkipWalDeltaData<false>(decoder, version);
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+// Reserved-id markers on branch stubs are written as the user operation they stand for, one record per delta (the
+// header's delta count stays exact). The caller, EncodeDelta, holds the object's lock.
+PropertyId StubPropertyKey(PropertyId marked) {
+  MG_ASSERT(marked != kInvalidPropertyId && marked.AsUint() != kDeleteId, "not a property marker");
+  return PropertyId::FromUint(marked.AsUint() & ~kReservedIdBit);
+}
+
+// Delta actions are undo actions, so a marker that was added is a REMOVE_LABEL delta. The user operation is the
+// opposite of what the marker does: marking a fork label removed removes it, and unmarking re-adds it.
+void EncodeStubLabelDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Vertex *vertex) {
+  auto const id = delta.label.value.AsUint();
+  MG_ASSERT(id != kInvalidLabelId.AsUint(), "not a label marker");
+  if (id == kDeleteId) {
+    MG_ASSERT(delta.action == Delta::Action::REMOVE_LABEL, "a delete marker is only ever added");
+    encoder->WriteMarker(Marker::DELTA_VERTEX_DELETE);
+    encoder->WriteUint(vertex->gid.AsUint());
+    return;
+  }
+  encoder->WriteMarker(delta.action == Delta::Action::ADD_LABEL ? Marker::DELTA_VERTEX_ADD_LABEL
+                                                                : Marker::DELTA_VERTEX_REMOVE_LABEL);
+  encoder->WriteUint(vertex->gid.AsUint());
+  encoder->WriteString(storage->name_id_mapper_->IdToName(id & ~kReservedIdBit));
+}
+
+template <typename Obj>
+void EncodeStubPropertyHead(BaseEncoder *encoder, Storage *storage, Marker marker, Obj *obj, PropertyId marked) {
+  auto const key = StubPropertyKey(marked);
+  encoder->WriteMarker(marker);
+  encoder->WriteUint(obj->gid.AsUint());
+  encoder->WriteString(storage->name_id_mapper_->IdToName(key.AsUint()));
+  auto property_value = obj->properties.GetProperty(
+      key,
+      IndexedPropertyDecoder<Obj>{
+          .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = obj});
+  encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
+}
+
+// Endpoints/type come from Transaction::RecordEdgeSetPropertyInfo, recorded only under PERIODIC_SNAPSHOT_WITH_WAL.
+// MG_ASSERT (not DMG_ASSERT) because they guard what reaches disk; main's deltas never get here.
+void EncodeStubEdgeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, Gid in_vertex_gid,
+                         EdgeTypeId edge_type_id) {
+  MG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
+  MG_ASSERT(in_vertex_gid != kInvalidGid && edge_type_id != kInvalidEdgeTypeId,
+            "an edge stub delta needs the edge's endpoints and type, recorded under PERIODIC_SNAPSHOT_WITH_WAL");
+  auto const type_name = storage->name_id_mapper_->IdToName(edge_type_id.AsUint());
+  if (delta.property.key.AsUint() == kDeleteId) {
+    encoder->WriteMarker(Marker::DELTA_EDGE_DELETE);
+    encoder->WriteUint(edge->gid.AsUint());
+    encoder->WriteString(type_name);
+    encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
+    encoder->WriteUint(in_vertex_gid.AsUint());
+    return;
+  }
+  EncodeStubPropertyHead(encoder, storage, Marker::DELTA_EDGE_SET_PROPERTY, edge, delta.property.key);
+  encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
+  encoder->WriteUint(in_vertex_gid.AsUint());
+  encoder->WriteString(type_name);
+}
+}  // namespace
+#endif
+
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items items, const Delta &delta, Vertex *vertex,
                  uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
@@ -1239,6 +1302,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       break;
     }
     case Delta::Action::SET_PROPERTY: {
+#ifdef MG_ENTERPRISE
+      if (IsReservedId(delta.property.key)) {
+        EncodeStubPropertyHead(encoder, storage, Marker::DELTA_VERTEX_SET_PROPERTY, vertex, delta.property.key);
+        break;
+      }
+#endif
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
@@ -1252,6 +1321,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
     }
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
+#ifdef MG_ENTERPRISE
+      if (IsReservedId(delta.label.value)) {
+        EncodeStubLabelDelta(encoder, storage, delta, vertex);
+        break;
+      }
+#endif
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
       encoder->WriteUint(vertex->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.label.value.AsUint()));
@@ -1259,6 +1334,9 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
     }
     case Delta::Action::ADD_OUT_EDGE:
     case Delta::Action::REMOVE_OUT_EDGE: {
+#ifdef MG_ENTERPRISE
+      DMG_ASSERT(!IsReservedId(delta.vertex_edge.edge_type), "a marker entry is dropped at collection, never encoded");
+#endif
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
       if (items.properties_on_edges) {
         encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
@@ -1288,6 +1366,12 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
   auto guard = std::shared_lock{edge->lock};
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
+#ifdef MG_ENTERPRISE
+      if (IsReservedId(delta.property.key)) {
+        EncodeStubEdgeDelta(encoder, storage, delta, edge, in_vertex_gid, edge_type_id);
+        break;
+      }
+#endif
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
       encoder->WriteUint(edge->gid.AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
