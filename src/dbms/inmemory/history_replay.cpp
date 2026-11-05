@@ -50,7 +50,8 @@ std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &le
 
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
-                                                                    std::span<const uint64_t> fork_ts) {
+                                                                    std::span<const uint64_t> fork_ts,
+                                                                    std::vector<uint64_t> *durable_at_fork) {
   // Pins are taken positionally as replay crosses each fork: unsorted input would pin a later fork too late.
   if (!std::ranges::is_sorted(fork_ts)) return std::unexpected("fork timestamps must be ascending");
   // The recovered state already holds the commit at reached_timestamp, which such a fork must not see. Commit
@@ -63,11 +64,21 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
 
   std::vector<uint64_t> pins;
   pins.reserve(fork_ts.size());
-  // Runs before the txn committed at `durable_ts` is replayed: every fork at or below it already sees its full history.
-  const std::function<void(uint64_t)> pin_due = [&](uint64_t durable_ts) {
+  if (durable_at_fork != nullptr) {
+    durable_at_fork->clear();
+    durable_at_fork->reserve(fork_ts.size());
+  }
+  uint64_t last_durable = tail.reached_timestamp;
+  const auto pin_forks_up_to = [&](uint64_t durable_ts) {
     while (pins.size() < fork_ts.size() && fork_ts[pins.size()] <= durable_ts) {
       pins.push_back(storage.RegisterForkPin());
+      if (durable_at_fork != nullptr) durable_at_fork->push_back(last_durable);
     }
+  };
+  // Runs before the txn committed at `durable_ts` is replayed: every fork at or below it already sees its full history.
+  const std::function<void(uint64_t)> pin_due = [&](uint64_t durable_ts) {
+    pin_forks_up_to(durable_ts);
+    last_durable = durable_ts;
   };
 
   const auto failed = [&](std::string reason) -> std::unexpected<std::string> {
@@ -76,7 +87,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
   };
 
   try {
-    pin_due(tail.reached_timestamp + 1);
+    pin_forks_up_to(tail.reached_timestamp + 1);
     {
       const storage::InMemoryStorage::SuppressWalScope suppress_wal{storage};
       for (const auto &file : tail.wal_files) {
@@ -91,7 +102,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
         }
       }
     }
-    pin_due(std::numeric_limits<uint64_t>::max());
+    pin_forks_up_to(std::numeric_limits<uint64_t>::max());
   } catch (const std::exception &e) {
     return failed(fmt::format("replaying the WAL tail threw: {}", e.what()));
   }

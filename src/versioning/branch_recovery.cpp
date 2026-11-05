@@ -36,10 +36,12 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/version_store.hpp"
 
 namespace memgraph::versioning {
 
@@ -52,13 +54,21 @@ struct WalFileEntry {
   dur::WalInfo info;
 };
 
+struct WalListing {
+  std::vector<WalFileEntry> files;
+  // Regular files in the directory, readable as a WAL or not.
+  size_t regular_files{0};
+};
+
 // Selects files as main's GetWalFiles does: unreadable ones and ones with no complete transaction are warned about and
 // skipped, never renamed or deleted. FinalizeWal renames a file (RemakeWalName) only after syncing its summary, so a
 // summary that fails in a file so named is damage, not a crash, and an error.
-std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
-  std::vector<WalFileEntry> files;
+WalListing ListWalFiles(const std::filesystem::path &dir) {
+  WalListing listing;
+  auto &files = listing.files;
   std::error_code ec;
   for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+    if (entry.is_regular_file()) ++listing.regular_files;
     if (!dur::ValidateDurabilityFile(entry)) continue;
     try {
       auto header = dur::ReadWalHeader(entry.path());
@@ -77,7 +87,7 @@ std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
   std::ranges::sort(files, [](const WalFileEntry &a, const WalFileEntry &b) {
     return std::tie(a.info.from_timestamp, a.info.seq_num) < std::tie(b.info.from_timestamp, b.info.seq_num);
   });
-  return files;
+  return listing;
 }
 
 // Main's chain rules (RecoverData) with no snapshot. Run continues the numbering across runs, so a missing file
@@ -371,21 +381,192 @@ class BranchWalReplayer {
   std::unordered_map<uint64_t, storage::Vertex *> fork_vertices_;
 };
 
+// False for a branch that never committed (no WAL file). Throws if the directory cannot be inspected.
+bool HasWalFiles(const std::filesystem::path &dir) {
+  std::error_code ec;
+  if (!std::filesystem::exists(dir, ec)) {
+    if (ec) throw utils::BasicException("Cannot inspect '{}': {}", dir.string(), ec.message());
+    return false;
+  }
+  for (std::filesystem::directory_iterator it{dir, ec}, end; !ec && it != end; it.increment(ec)) {
+    if (it->is_regular_file(ec)) return true;
+  }
+  if (ec) throw utils::BasicException("Cannot list '{}': {}", dir.string(), ec.message());
+  return false;
+}
+
+// Why the branch's files cannot be used, or nullopt. Floors in the ledger mean the diff engine was built and created
+// both directories, so a missing one is lost writes; a wrong-kind or uninspectable path is damage.
+std::optional<std::string> FindDamagedBranchFiles(const BranchInfo &info, const std::filesystem::path &branch_dir,
+                                                  const std::filesystem::path &wal_dir) {
+  const bool was_used = info.vertex_gid_floor && info.edge_gid_floor;
+  for (const auto *path : {&branch_dir, &wal_dir}) {
+    const char *what = path == &branch_dir ? "branch directory" : "write-ahead log directory";
+    std::error_code ec;
+    const auto status = std::filesystem::symlink_status(*path, ec);
+    if (status.type() == std::filesystem::file_type::not_found) {
+      if (was_used) return fmt::format("the {} '{}' is missing", what, path->string());
+      return std::nullopt;
+    }
+    if (ec) return fmt::format("the {} '{}' cannot be inspected: {}", what, path->string(), ec.message());
+    if (status.type() == std::filesystem::file_type::symlink) {
+      const auto target = std::filesystem::status(*path, ec);
+      if (target.type() == std::filesystem::file_type::not_found) {
+        return fmt::format("the {} '{}' is a link to a path that does not exist", what, path->string());
+      }
+      if (ec) return fmt::format("the {} '{}' cannot be inspected: {}", what, path->string(), ec.message());
+      if (target.type() != std::filesystem::file_type::directory) {
+        return fmt::format("the {} '{}' is not a directory", what, path->string());
+      }
+    } else if (status.type() != std::filesystem::file_type::directory) {
+      return fmt::format("the {} '{}' is not a directory", what, path->string());
+    }
+  }
+  return std::nullopt;
+}
+
+// Without the ledger's floors the native/fork gid boundary is lost, so the replay cannot be trusted.
+std::expected<std::shared_ptr<BranchCore>, std::string> BuildAndReplay(storage::InMemoryStorage &main,
+                                                                       const BranchInfo &info,
+                                                                       const std::filesystem::path &wal_dir) {
+  if (!info.vertex_gid_floor || !info.edge_gid_floor) {
+    return std::unexpected("the ledger holds no gid floors for it although its WAL exists");
+  }
+  auto built = BranchCore::Build(
+      main,
+      info.fork_ts,
+      info.number,
+      BranchCore::RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor});
+  if (!built) return std::unexpected(std::move(built.error().message));
+  if (auto replayed = ReplayBranchWal(*built, wal_dir); !replayed) return std::unexpected(std::move(replayed.error()));
+  return std::move(*built);
+}
+
+// A new main object below a branch's floor would be misread as a fork object, and a reused native gid would alias two
+// objects; the ledger's ceilings cover both, no branch file is read.
+void RaiseMainCountersToLedger(storage::InMemoryStorage &main, const BranchInfo &info) {
+  atomic_fetch_max_explicit(&main.vertex_id_, GidsHeldBelow(info, GidKind::kVertex), std::memory_order_acq_rel);
+  atomic_fetch_max_explicit(&main.edge_id_, GidsHeldBelow(info, GidKind::kEdge), std::memory_order_acq_rel);
+}
+
+// Recovers one branch; the reason it cannot be, or nullopt.
+std::optional<std::string> RecoverBranch(VersionStore &store, storage::InMemoryStorage &main, const std::string &name,
+                                         const BranchInfo &info, const std::filesystem::path &branch_dir) {
+  const auto wal_dir = branch_dir / "wal";
+  try {
+    if (auto damaged = FindDamagedBranchFiles(info, branch_dir, wal_dir)) return damaged;
+    if (!HasWalFiles(wal_dir)) return std::nullopt;
+    const auto core = store.GetOrBuildCore(info.number, [&] {
+      auto built = BuildAndReplay(main, info, wal_dir);
+      if (built) (*built)->SetGidReserver(store.GidReserverOf(info.number));
+      return built;
+    });
+    if (!core) return core.error();
+    spdlog::info("Graph Versioning: recovered the contents of branch '{}'.", name);
+    return std::nullopt;
+  } catch (const std::exception &e) {
+    return std::string{e.what()};
+  }
+}
+
+std::string DescribeUnrecoveredBranch(std::string_view database, std::string_view name, uint64_t number,
+                                      std::string_view reason, const std::filesystem::path &storage_directory) {
+  while (reason.ends_with('.')) reason.remove_suffix(1);
+  const auto branches_dir = storage_directory / "branches";
+  const auto branch_dir = branches_dir / std::to_string(number);
+  return fmt::format(
+      "branch '{0}' of database '{1}' cannot be recovered and is set aside as unavailable: {2}. Main and the other "
+      "branches start normally; nothing was changed on disk and no data was deleted.\n"
+      "  branch directory: {3}\n"
+      "  write-ahead log:  {4}\n"
+      "  branch ledger:    {5}\n"
+      "The branch keeps main's history from its fork point, so main's disk use grows meanwhile. SHOW BRANCHES lists it "
+      "with status 'unavailable'; using it fails. To bring it back: restore its files from a backup and restart "
+      "Memgraph. To remove it and release that history: DROP BRANCH '{0}' (deletes the branch directory). Do not edit "
+      "the branch ledger: it is checksummed.",
+      name,
+      database,
+      reason,
+      branch_dir.string(),
+      (branch_dir / "wal").string(),
+      (branches_dir / "ledger").string());
+}
+
 }  // namespace
 
 std::expected<void, std::string> ReplayBranchWal(std::shared_ptr<BranchCore> core,
                                                  const std::filesystem::path &wal_dir) {
   const memory::DbArenaScope arena_scope{core->main().DbArenaPool()};
   try {
-    const auto files = ListWalFiles(wal_dir);
+    const auto listing = ListWalFiles(wal_dir);
+    const auto &files = listing.files;
     CheckWalChain(files);
-    if (files.empty()) return {};
+    if (files.empty()) {
+      // A crash while the first transaction is written tears the only file, and main skips such a file too; a log of
+      // several files with not one readable is not a crash's work.
+      if (listing.regular_files > 1) {
+        throw utils::BasicException(
+            "none of the {} files in '{}' is a readable branch WAL", listing.regular_files, wal_dir.string());
+      }
+      spdlog::warn(
+          "Graph Versioning: none of the files in '{}' is a readable branch WAL, so the writes made on the branch are "
+          "lost and it starts as it was forked.",
+          wal_dir.string());
+      return {};
+    }
     BranchContext ctx{std::move(core)};
     BranchWalReplayer{ctx}.Run(files);
   } catch (const std::exception &e) {
     return std::unexpected(std::string{e.what()});
   }
   return {};
+}
+
+std::unordered_map<uint64_t, std::string> FindHistoryShortfalls(const LedgerContents &ledger,
+                                                                std::span<const uint64_t> durable_at_fork) {
+  std::unordered_map<uint64_t, std::string> shortfalls;
+  for (size_t i = 0; i < ledger.branches.size() && i < durable_at_fork.size(); ++i) {
+    const auto &info = ledger.branches[i].info;
+    if (!info.fork_durable_ts || durable_at_fork[i] >= *info.fork_durable_ts) continue;
+    shortfalls.emplace(info.number,
+                       fmt::format("main's recovered history ends at timestamp {} before the fork at {}, but main had "
+                                   "committed up to {} by then",
+                                   durable_at_fork[i],
+                                   info.recorded_fork_ts,
+                                   *info.fork_durable_ts));
+  }
+  return shortfalls;
+}
+
+void RecoverBranches(VersionStore &store, storage::InMemoryStorage &main,
+                     const std::unordered_map<uint64_t, std::string> &unrecoverable) {
+  const memory::DbArenaScope arena_scope{main.DbArenaPool()};
+  const auto branches_dir = main.config_.durability.storage_directory / "branches";
+  for (const auto &[name, info] : store.List()) {
+    const auto branch_dir = branches_dir / std::to_string(info.number);
+    const auto known = unrecoverable.find(info.number);
+    auto failure = known != unrecoverable.end() ? std::optional{known->second}
+                                                : RecoverBranch(store, main, name, info, branch_dir);
+    // Also for a set-aside branch, so a repaired one later does not collide with main's new objects.
+    RaiseMainCountersToLedger(main, info);
+    if (!failure) continue;
+    store.MarkUnavailable(info.number, *failure);
+    spdlog::warn(
+        "Graph Versioning: {}",
+        DescribeUnrecoveredBranch(
+            main.config_.salient.name.str(), name, info.number, *failure, main.config_.durability.storage_directory));
+  }
+}
+
+void KeepMainClearOfHiddenBranches(const LedgerContents &ledger, storage::InMemoryStorage &main) {
+  if (ledger.branches.empty()) return;
+  uint64_t newest_fork = 0;
+  for (const auto &[name, info] : ledger.branches) {
+    newest_fork = std::max(newest_fork, info.recorded_fork_ts);
+    // No branch file is read: the ledger's ceilings, durable before the branch used a gid, alone keep gids disjoint.
+    RaiseMainCountersToLedger(main, info);
+  }
+  main.BumpClockPastDurable(newest_fork);
 }
 
 }  // namespace memgraph::versioning

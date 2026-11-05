@@ -37,6 +37,8 @@ struct ObjectCounts {
 struct ForkPoint {
   uint64_t fork_ts;
   ObjectCounts counts;
+  // Main's last durable commit timestamp, read before the pin was taken.
+  uint64_t durable_ts{0};
 };
 
 struct BranchInfo {
@@ -59,6 +61,9 @@ struct BranchInfo {
   std::optional<uint64_t> created_at_us;
   // Main's counts at the fork, the base of the branch's counts. Absent in ledgers written before they were recorded.
   std::optional<ObjectCounts> fork_counts;
+  // Main's last durable commit timestamp when the branch was forked: main recovering less than this has lost history
+  // the branch was forked from. Absent in ledgers written before it was recorded.
+  std::optional<uint64_t> fork_durable_ts;
   // Runtime only, never persisted: why the branch's files could not be recovered at startup. A branch with a reason is
   // kept as it is (pin, retention, ledger entry) but cannot be used; DROP BRANCH removes it.
   std::optional<std::string> unavailable_reason;

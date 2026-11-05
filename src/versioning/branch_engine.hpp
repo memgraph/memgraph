@@ -134,6 +134,12 @@ class BranchCore {
     deleted_fork_edges_.fetch_add(deleted.edges, std::memory_order_relaxed);
   }
 
+  // The fork vertices BranchContext::FindForkVertexPtr resolved so far: the replay of the branch's WAL resolves each
+  // vertex once, which tests check.
+  uint64_t ForkVertexReads() const noexcept { return fork_vertex_reads_.load(std::memory_order_relaxed); }
+
+  void CountForkVertexRead() noexcept { fork_vertex_reads_.fetch_add(1, std::memory_order_relaxed); }
+
   // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions.
   void RecordLabelChange(storage::Gid gid) noexcept { change_filters_.RecordLabelChange(gid); }
 
@@ -230,6 +236,7 @@ class BranchCore {
 
   std::atomic<uint64_t> deleted_fork_vertices_{0};
   std::atomic<uint64_t> deleted_fork_edges_{0};
+  std::atomic<uint64_t> fork_vertex_reads_{0};
 
   BranchChangeFilters change_filters_;
 
