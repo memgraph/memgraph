@@ -58,10 +58,9 @@ class TransactionReplication {
     // task with no future to collect.
     ship_futures_.reserve(locked_clients->size());
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      // A streamless replica already failed to start this transaction; CollectShipResults runs its quick,
-      // RPC-free bookkeeping inline. Queueing a no-op would make the commit thread await this
-      // replica's worker, whose queue may hold a task that blocks on the engine_lock_ this thread
-      // holds.
+      // A streamless replica already failed to start this transaction, which the constructor recorded.
+      // Queueing a no-op would make the commit thread await this replica's worker, whose queue may hold
+      // a task that blocks on the engine_lock_ this thread holds.
       if (!replica_stream) {
         continue;
       }
@@ -91,8 +90,8 @@ class TransactionReplication {
   // worker is left referencing the caller's frame.
   void DrainShipFutures() noexcept;
 
-  // Collects every fused task scheduled by ScheduleEncodeAndShip and runs the inline bookkeeping for
-  // replicas that got no fused task. STRICT_SYNC streams stay open for FinalizeTransaction.
+  // Collects every fused task scheduled by ScheduleEncodeAndShip. STRICT_SYNC streams stay open for
+  // FinalizeTransaction.
   // Returns true if all SYNC/STRICT_SYNC replicas succeeded, false otherwise.
   // Failures are cached internally in replication_failures_ for CollectAllFailures.
   auto CollectShipResults(CommitArgs const &commit_args) -> bool;

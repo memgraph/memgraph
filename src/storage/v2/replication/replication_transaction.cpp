@@ -48,8 +48,8 @@ auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFail
 }
 }  // namespace
 
-// Waits for every fused task and records its result, then runs the inline bookkeeping for SYNC/STRICT_SYNC replicas
-// that got no task. ASYNC replicas are skipped; they are caught up later from durability files.
+// Waits for every fused task and records its result. A replica without a task already failed to start this
+// transaction, which the constructor recorded. ASYNC replicas are caught up later from durability files.
 auto TransactionReplication::CollectShipResults(CommitArgs const &commit_args) -> bool {
   if (locked_clients->empty()) return true;
 
@@ -81,20 +81,6 @@ auto TransactionReplication::CollectShipResults(CommitArgs const &commit_args) -
           {.name = client_name, .mode = ReplicationModeToString(client->Mode()), .reason = reason});
     }
   };
-
-  // A SYNC/STRICT_SYNC replica without a fused task failed to start this transaction (the constructor recorded the
-  // failure), so it missed it. If its recovery finished meanwhile it is READY again, and must be rechecked.
-  // Identified by the absence of a task, not of a stream: a task resets its stream once it ships.
-  for (auto const &client : *locked_clients) {
-    if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      continue;
-    }
-    auto const has_fused_task =
-        std::ranges::any_of(ship_futures_, [&client](auto const &task) { return task.first == client.get(); });
-    if (!has_fused_task) {
-      client->MarkForRecovery();
-    }
-  }
 
   // Collect every fused task before rethrowing anything: an abandoned task keeps running against this
   // frame's db_acc, streams and this. record_failure allocates, so it stays inside the try: a
