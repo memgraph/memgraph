@@ -97,7 +97,7 @@ std::string ValidUntilToString(int64_t const valid_until) {
   std::tm *tm = std::gmtime(&time);
   std::array<char, 30> buffer;
   if (tm != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm) > 0) {
-    return std::string(buffer.data());
+    return {buffer.data()};
   }
   return "error";
 }
