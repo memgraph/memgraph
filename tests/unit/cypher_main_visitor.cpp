@@ -5214,6 +5214,21 @@ TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, RemovedCoordinatorPrivilege) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"GRANT COORDINATOR TO admin",
+                            "DENY COORDINATOR TO admin",
+                            "REVOKE COORDINATOR FROM admin",
+                            "GRANT MATCH, COORDINATOR TO admin"}) {
+    try {
+      ast_generator.ParseQuery(query);
+      FAIL() << "Expected SemanticException for: " << query;
+    } catch (const SemanticException &e) {
+      EXPECT_THAT(e.what(), HasSubstr("COORDINATOR privilege was removed")) << query;
+    }
+  }
+}
+
 TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
   auto const kRead = AuthQuery::PropertyPermissionType::READ;

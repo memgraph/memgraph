@@ -616,6 +616,7 @@ privilege : CREATE
           | RELOAD_TLS
           | COORDINATOR_READ
           | COORDINATOR_WRITE
+          | COORDINATOR
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
