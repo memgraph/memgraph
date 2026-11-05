@@ -1009,7 +1009,7 @@ WalHeader DecodeWalHeader(Decoder &wal, const std::filesystem::path &path, uint6
 
     if (!from_timestamp || !to_timestamp || !num_deltas || !crc_trailer ||
         !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
-      throw RecoveryFailure("Durability mismatch in the summary of WAL file {}", path);
+      throw WalSummaryMismatch("Durability mismatch in the summary of WAL file {}", path);
     }
 
     // A file that was never finalized has no summary to offer; its deltas have to be parsed.

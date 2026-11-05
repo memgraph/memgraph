@@ -1051,6 +1051,10 @@ class InMemoryStorage final : public Storage {
   /// MVCC ids but record main's durable timestamps, so the clock can trail them. Requires no transaction in flight.
   void BumpClockPastDurable(uint64_t min_next = 0);
 
+  /// Continues the WAL file numbering at `seq_num`, as main's recovery does after the last file it read. Only for a
+  /// storage that replays existing WAL files itself (versioning branch recovery) before anything commits.
+  void SetNextWalSeqNum(uint64_t seq_num);
+
   [[nodiscard]] uint64_t OldestActiveTimestamp();
 #endif
 
